@@ -3,6 +3,7 @@
 /.devenv/
 /.devenv.flake.nix
 /.cache/
+/artifacts/
 /dist/
 /node_modules/
 /public/artifacts/

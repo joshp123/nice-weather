@@ -69,7 +69,7 @@ func runBuild(args []string) error {
 	flags := flag.NewFlagSet("build", flag.ExitOnError)
 	dir := flags.String("dir", "./.cache/dwd/daytime", "directory containing DWD ICON-EU GRIB2 files")
 	land := flags.String("land", "./.cache/land/ne_50m_land.geojson", "Natural Earth land GeoJSON used to mask sea pixels")
-	out := flags.String("out", "./public/artifacts", "artifact output directory")
+	out := flags.String("out", "./artifacts", "artifact output directory")
 	runLabel := flags.String("run", "local steps 008-018", "forecast run label for the manifest")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -208,12 +208,13 @@ func writeForecastTiles(out string, layers []artifact.Layer, inputs weatherinput
 
 func runServe(args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ExitOnError)
-	dir := flags.String("dir", "./public", "directory to serve")
+	webDir := flags.String("web", "./dist", "frontend build directory")
+	artifactDir := flags.String("artifacts", "./artifacts", "generated artifact directory")
 	addr := flags.String("addr", "127.0.0.1:4173", "listen address")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	return server.Serve(*dir, *addr)
+	return server.Serve(*webDir, *artifactDir, *addr)
 }
 
 func buildManifest(inputs weatherinput.Grid, runLabel string) artifact.Manifest {
@@ -309,5 +310,5 @@ func tileLonLat(z, x, y int) (float64, float64) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./public/artifacts --run 'YYYYMMDDHH steps 008-018' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --dir ./public --addr 127.0.0.1:4173")
+	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --run 'YYYYMMDDHH steps 008-018' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:4173")
 }

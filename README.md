@@ -6,7 +6,7 @@ POC for a Europe-first weather map that helps chase pleasant weather for travel 
 
 - Frontend: Vite + React + TypeScript + MapLibre.
 - Backend: Go.
-- Current forecast POC: DWD ICON-EU GRIB2, native 0.0625 degree Europe grid, rendered as static raster tiles.
+- Current forecast POC: DWD ICON-EU GRIB2, native 0.0625 degree Europe grid, rendered as generated raster artifacts.
 - Current map mask: Natural Earth land polygons hide sea pixels.
 - Target forecast data: same DWD source with useful forecast horizons beyond `d1`.
 - Target climate data: WorldClim 2.1 monthly normals, roughly 1 km.
@@ -32,4 +32,6 @@ The scoring engine is source-agnostic. It only accepts `WeatherInput` and return
 
 ## Backend Direction
 
-Use Go for the backend/pipeline. This is grid/file processing, not app-server cleverness. Keep it boring: download source files, normalize fields, score cells, emit static map artifacts and small metadata JSON.
+Use Go for the backend/pipeline. This is grid/file processing, not app-server cleverness. Keep it boring: download source files, normalize fields, score cells, emit map artifacts and small metadata JSON.
+
+Forecast artifacts are dynamic generated data, not frontend assets. `weatherchase build` writes them to `./artifacts`; `weatherchase serve --web ./dist --artifacts ./artifacts` serves the React build and generated weather data as separate roots. Climate artifacts can later be rebuilt rarely from WorldClim, but should still use the same `/artifacts/*` URL contract.
