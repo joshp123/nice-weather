@@ -1,13 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 export default defineConfig({
   plugins: [
     react(),
     {
-      name: 'artifact-tile-404',
+      name: 'artifact-tile-server',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           const url = req.url?.split('?')[0] ?? '';
@@ -17,7 +17,9 @@ export default defineConfig({
           }
           const path = join(server.config.publicDir, decodeURIComponent(url));
           if (existsSync(path)) {
-            next();
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'image/png');
+            createReadStream(path).pipe(res);
             return;
           }
           res.statusCode = 404;

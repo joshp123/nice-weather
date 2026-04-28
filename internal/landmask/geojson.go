@@ -3,6 +3,7 @@ package landmask
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 )
 
@@ -11,8 +12,13 @@ type Mask struct {
 }
 
 type polygon struct {
-	rings [][]point
+	rings []ring
 	box   bounds
+}
+
+type ring struct {
+	points []point
+	box    bounds
 }
 
 type point struct {
@@ -96,31 +102,31 @@ func (mask Mask) TouchesCell(lon, lat, halfStep float64) bool {
 }
 
 func polygonFromCoordinates(coords [][][]float64) polygon {
-	rings := make([][]point, 0, len(coords))
+	rings := make([]ring, 0, len(coords))
 	for _, ringCoords := range coords {
-		ring := make([]point, 0, len(ringCoords))
+		points := make([]point, 0, len(ringCoords))
 		for _, coord := range ringCoords {
 			if len(coord) >= 2 {
-				ring = append(ring, point{lon: coord[0], lat: coord[1]})
+				points = append(points, point{lon: coord[0], lat: coord[1]})
 			}
 		}
-		rings = append(rings, ring)
+		rings = append(rings, ring{points: points, box: boundsForPoints(points)})
 	}
 	if len(rings) == 0 {
 		return polygon{}
 	}
-	return polygon{rings: rings, box: boundsForRing(rings[0])}
+	return polygon{rings: rings, box: rings[0].box}
 }
 
 func (polygon polygon) contains(lon, lat float64) bool {
 	if !polygon.box.contains(lon, lat) {
 		return false
 	}
-	if len(polygon.rings) == 0 || !ringContains(polygon.rings[0], lon, lat) {
+	if len(polygon.rings) == 0 || !ringContains(polygon.rings[0].points, lon, lat) {
 		return false
 	}
 	for _, hole := range polygon.rings[1:] {
-		if ringContains(hole, lon, lat) {
+		if hole.box.contains(lon, lat) && ringContains(hole.points, lon, lat) {
 			return false
 		}
 	}
@@ -128,7 +134,13 @@ func (polygon polygon) contains(lon, lat float64) bool {
 }
 
 func (polygon polygon) touchesCell(lon, lat, halfStep float64) bool {
-	if !polygon.box.expand(halfStep).contains(lon, lat) {
+	cell := bounds{
+		west:  lon - halfStep,
+		south: lat - halfStep,
+		east:  lon + halfStep,
+		north: lat + halfStep,
+	}
+	if !polygon.box.intersects(cell) {
 		return false
 	}
 	offsets := [...]struct {
@@ -137,16 +149,17 @@ func (polygon polygon) touchesCell(lon, lat, halfStep float64) bool {
 	}{
 		{0, 0},
 		{-halfStep, -halfStep},
-		{0, -halfStep},
 		{halfStep, -halfStep},
-		{-halfStep, 0},
-		{halfStep, 0},
 		{-halfStep, halfStep},
-		{0, halfStep},
 		{halfStep, halfStep},
 	}
 	for _, offset := range offsets {
 		if polygon.contains(lon+offset.lon, lat+offset.lat) {
+			return true
+		}
+	}
+	for _, ring := range polygon.rings {
+		if ringTouchesCell(ring, cell) {
 			return true
 		}
 	}
@@ -157,13 +170,9 @@ func (box bounds) contains(lon, lat float64) bool {
 	return lon >= box.west && lon <= box.east && lat >= box.south && lat <= box.north
 }
 
-func (box bounds) expand(amount float64) bounds {
-	return bounds{
-		west:  box.west - amount,
-		south: box.south - amount,
-		east:  box.east + amount,
-		north: box.north + amount,
-	}
+func (box bounds) intersects(other bounds) bool {
+	return box.west <= other.east && box.east >= other.west &&
+		box.south <= other.north && box.north >= other.south
 }
 
 func ringContains(ring []point, lon, lat float64) bool {
@@ -183,12 +192,86 @@ func ringContains(ring []point, lon, lat float64) bool {
 	return inside
 }
 
-func boundsForRing(ring []point) bounds {
-	if len(ring) == 0 {
+func ringTouchesCell(ring ring, cell bounds) bool {
+	if len(ring.points) == 0 || !ring.box.intersects(cell) {
+		return false
+	}
+	for _, point := range ring.points {
+		if cell.contains(point.lon, point.lat) {
+			return true
+		}
+	}
+	previous := ring.points[len(ring.points)-1]
+	for _, current := range ring.points {
+		if segmentIntersectsCell(previous, current, cell) {
+			return true
+		}
+		previous = current
+	}
+	return false
+}
+
+func segmentIntersectsCell(a, b point, cell bounds) bool {
+	if cell.contains(a.lon, a.lat) || cell.contains(b.lon, b.lat) {
+		return true
+	}
+	if math.Max(a.lon, b.lon) < cell.west || math.Min(a.lon, b.lon) > cell.east ||
+		math.Max(a.lat, b.lat) < cell.south || math.Min(a.lat, b.lat) > cell.north {
+		return false
+	}
+	edges := [...][2]point{
+		{{lon: cell.west, lat: cell.south}, {lon: cell.east, lat: cell.south}},
+		{{lon: cell.east, lat: cell.south}, {lon: cell.east, lat: cell.north}},
+		{{lon: cell.east, lat: cell.north}, {lon: cell.west, lat: cell.north}},
+		{{lon: cell.west, lat: cell.north}, {lon: cell.west, lat: cell.south}},
+	}
+	for _, edge := range edges {
+		if segmentsIntersect(a, b, edge[0], edge[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+func segmentsIntersect(a, b, c, d point) bool {
+	o1 := orientation(a, b, c)
+	o2 := orientation(a, b, d)
+	o3 := orientation(c, d, a)
+	o4 := orientation(c, d, b)
+	if o1 == 0 && onSegment(a, c, b) {
+		return true
+	}
+	if o2 == 0 && onSegment(a, d, b) {
+		return true
+	}
+	if o3 == 0 && onSegment(c, a, d) {
+		return true
+	}
+	if o4 == 0 && onSegment(c, b, d) {
+		return true
+	}
+	return (o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0)
+}
+
+func orientation(a, b, c point) float64 {
+	value := (b.lon-a.lon)*(c.lat-a.lat) - (b.lat-a.lat)*(c.lon-a.lon)
+	if math.Abs(value) < 1e-12 {
+		return 0
+	}
+	return value
+}
+
+func onSegment(a, b, c point) bool {
+	return b.lon >= math.Min(a.lon, c.lon) && b.lon <= math.Max(a.lon, c.lon) &&
+		b.lat >= math.Min(a.lat, c.lat) && b.lat <= math.Max(a.lat, c.lat)
+}
+
+func boundsForPoints(points []point) bounds {
+	if len(points) == 0 {
 		return bounds{}
 	}
-	box := bounds{west: ring[0].lon, east: ring[0].lon, south: ring[0].lat, north: ring[0].lat}
-	for _, point := range ring[1:] {
+	box := bounds{west: points[0].lon, east: points[0].lon, south: points[0].lat, north: points[0].lat}
+	for _, point := range points[1:] {
 		if point.lon < box.west {
 			box.west = point.lon
 		}

@@ -80,3 +80,43 @@ func TestGeoJSONMaskTouchesNearbyCellFootprint(t *testing.T) {
 		t.Fatal("expected distant sea cell to stay hidden")
 	}
 }
+
+func TestGeoJSONMaskKeepsTinyIslandInsideCell(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "land.geojson")
+	data := `{
+  "type": "FeatureCollection",
+  "features": [
+    {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[1.18,1.18],[1.22,1.18],[1.22,1.22],[1.18,1.22],[1.18,1.18]]]}}
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mask, err := LoadGeoJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mask.TouchesCell(1, 1, 0.5) {
+		t.Fatal("expected tiny island inside cell to keep the cell visible")
+	}
+}
+
+func TestGeoJSONMaskKeepsThinLandCrossingCell(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "land.geojson")
+	data := `{
+  "type": "FeatureCollection",
+  "features": [
+    {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[0.2,1.05],[1.8,1.05],[1.8,1.08],[0.2,1.08],[0.2,1.05]]]}}
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mask, err := LoadGeoJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mask.TouchesCell(1, 1, 0.1) {
+		t.Fatal("expected thin land crossing cell to keep the cell visible")
+	}
+}
