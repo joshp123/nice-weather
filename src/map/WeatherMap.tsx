@@ -1,15 +1,17 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type Map } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
-import type { LayerManifest } from '../data/types';
+import type { Anchor, LayerManifest, Profile } from '../data/types';
 import { EUROPE_CENTER } from './EuropeBounds';
 import { ScoreRasterLayer } from './ScoreRasterLayer';
 
 type Props = {
   layer: LayerManifest | null;
+  anchors: Anchor[];
+  profile: Profile;
 };
 
-export function WeatherMap({ layer }: Props) {
+export function WeatherMap({ layer, anchors, profile }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const [map, setMap] = useState<Map | null>(null);
@@ -52,6 +54,32 @@ export function WeatherMap({ layer }: Props) {
     <div className="mapShell">
       <div ref={containerRef} className="mapCanvas" data-testid="weather-map" />
       <ScoreRasterLayer map={map} layer={layer} />
+      <AnchorMarkers map={map} anchors={anchors} profile={profile} />
     </div>
   );
+}
+
+function AnchorMarkers({ map, anchors, profile }: { map: Map | null; anchors: Anchor[]; profile: Profile }) {
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+
+  useEffect(() => {
+    if (!map) return;
+    for (const marker of markersRef.current) marker.remove();
+    markersRef.current = anchors.map((anchor) => {
+      const score = anchor.scores[profile];
+      const element = document.createElement('button');
+      element.className = 'anchorPin';
+      element.style.setProperty('--pin-color', score.color);
+      element.type = 'button';
+      element.innerHTML = `<strong>${score.score}</strong><span>${anchor.name}</span>`;
+      element.title = `${anchor.name}: ${score.score} ${score.category}. ${score.why}`;
+      return new maplibregl.Marker({ element, anchor: 'bottom' }).setLngLat([anchor.lon, anchor.lat]).addTo(map);
+    });
+    return () => {
+      for (const marker of markersRef.current) marker.remove();
+      markersRef.current = [];
+    };
+  }, [map, anchors, profile]);
+
+  return null;
 }

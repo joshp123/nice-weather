@@ -33,11 +33,11 @@ func TestWeatherGridTilePixelsMatchScoringPath(t *testing.T) {
 	for i := range values {
 		values[i] = weatherinput.WeatherInput{TempC: 24, Humidity: 50, RainMM: 0, CloudPct: 20, WindKMH: 8}
 	}
-	inputs.Horizons["now"] = values
-	img := RenderWeatherGridTile(inputs, scoring.ProfileGeneral, "now", 3, 4, 2)
+	inputs.Horizons["d1"] = values
+	img := RenderWeatherGridTile(inputs, scoring.ProfileGeneral, "d1", 3, 4, 2)
 	px, py := 35, 113
 	lon, lat := lonLatForPixel(3, 4, 2, px, py)
-	input, ok := inputs.InputAt("now", lon, lat)
+	input, ok := inputs.InputAt("d1", lon, lat)
 	if !ok {
 		t.Fatalf("expected input for lon %.2f lat %.2f", lon, lat)
 	}
@@ -49,8 +49,8 @@ func TestWeatherGridTilePixelsMatchScoringPath(t *testing.T) {
 
 func TestWeatherGridTileAlphaOutsideEurope(t *testing.T) {
 	inputs := weatherinput.NewGrid(0, 20, 40, 60, 1)
-	inputs.Horizons["now"] = make([]weatherinput.WeatherInput, inputs.Width*inputs.Height)
-	img := RenderWeatherGridTile(inputs, scoring.ProfileGeneral, "now", 3, 1, 1)
+	inputs.Horizons["d1"] = make([]weatherinput.WeatherInput, inputs.Width*inputs.Height)
+	img := RenderWeatherGridTile(inputs, scoring.ProfileGeneral, "d1", 3, 1, 1)
 	if got := img.RGBAAt(0, 0); got.A != 0 {
 		t.Fatalf("outside-Europe alpha = %d, want 0", got.A)
 	}

@@ -67,7 +67,11 @@ func loadStepZeroGrid(ctx context.Context, dir string, read gribReader) (weather
 			V10MMS:    values["v_10m"][i].Value,
 		})
 	}
-	grid.Horizons["now"] = inputs
+	daily := make([]weatherinput.WeatherInput, len(inputs))
+	for i, input := range inputs {
+		daily[i] = weatherinput.DailyAggregate([]weatherinput.WeatherInput{input})
+	}
+	grid.Horizons["d1"] = daily
 	return grid, nil
 }
 

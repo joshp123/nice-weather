@@ -10,8 +10,8 @@ func TestValidateManifestRequiresLayers(t *testing.T) {
 }
 
 func TestTileURL(t *testing.T) {
-	got := TileURL("forecast", "general", "now")
-	want := "/artifacts/tiles/forecast/general/now/{z}/{x}/{y}.png"
+	got := TileURL("forecast", "general", "d1")
+	want := "/artifacts/tiles/forecast/general/d1/{z}/{x}/{y}.png"
 	if got != want {
 		t.Fatalf("tile URL = %s, want %s", got, want)
 	}

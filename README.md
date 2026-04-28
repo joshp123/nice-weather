@@ -7,11 +7,11 @@ POC for a Europe-first weather map that helps chase pleasant weather for travel 
 - Frontend: Vite + React + TypeScript + MapLibre.
 - Backend: Go.
 - Current forecast POC: DWD ICON-EU GRIB2, native 0.0625 degree Europe grid, rendered as static raster tiles.
-- Target forecast data: same DWD source with useful forecast horizons beyond `now`.
+- Target forecast data: same DWD source with useful forecast horizons beyond `d1`.
 - Target climate data: WorldClim 2.1 monthly normals, roughly 1 km.
 - Profiles: `general`, `cycling`.
-- Time basis: `forecast` now; `climatology` returns when real monthly artifacts exist.
-- Horizons: `now`.
+- Time basis: `forecast` daily aggregate; `climatology` returns when real monthly artifacts exist.
+- Horizons: `d1`.
 
 ## One Scoring Contract
 

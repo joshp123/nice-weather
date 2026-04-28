@@ -13,7 +13,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [basis, setBasis] = useState<Basis>('forecast');
   const [profile, setProfile] = useState<Profile>('general');
-  const [horizon, setHorizon] = useState('now');
+  const [horizon, setHorizon] = useState('d1');
 
   useEffect(() => {
     loadManifest().then(setManifest).catch((err: Error) => setError(err.message));
@@ -57,6 +57,18 @@ export default function App() {
             </div>
             <HorizonPicker horizons={horizons} value={selectedHorizon} onChange={setHorizon} />
             <Legend categories={manifest.legend.categories} />
+            <div className="anchorList">
+              {manifest.anchors.map((anchor) => {
+                const score = anchor.scores[profile];
+                return (
+                  <div className="anchorRow" key={anchor.name}>
+                    <span className="anchorDot" style={{ background: score.color }} />
+                    <span>{anchor.name}</span>
+                    <strong>{score.score}</strong>
+                  </div>
+                );
+              })}
+            </div>
             <p className="source">
               {basis === 'forecast' || !manifest.sources.climatology
                 ? `${manifest.sources.forecast.name} ${manifest.sources.forecast.run}`
@@ -65,7 +77,7 @@ export default function App() {
           </>
         )}
       </section>
-      <WeatherMap layer={layer} />
+      <WeatherMap layer={layer} anchors={manifest?.anchors ?? []} profile={profile} />
     </main>
   );
 }

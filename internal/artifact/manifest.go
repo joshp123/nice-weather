@@ -3,12 +3,13 @@ package artifact
 import "encoding/json"
 
 type Manifest struct {
-	Version     int     `json:"version"`
-	GeneratedAt string  `json:"generatedAt"`
-	Grid        Grid    `json:"grid"`
-	Sources     Sources `json:"sources"`
-	Layers      []Layer `json:"layers"`
-	Legend      Legend  `json:"legend"`
+	Version     int      `json:"version"`
+	GeneratedAt string   `json:"generatedAt"`
+	Grid        Grid     `json:"grid"`
+	Sources     Sources  `json:"sources"`
+	Layers      []Layer  `json:"layers"`
+	Anchors     []Anchor `json:"anchors"`
+	Legend      Legend   `json:"legend"`
 }
 
 type Grid struct {
@@ -26,6 +27,7 @@ type ForecastSource struct {
 	Name               string   `json:"name"`
 	Run                string   `json:"run"`
 	ResolutionKMApprox float64  `json:"resolutionKmApprox"`
+	Aggregation        string   `json:"aggregation"`
 	Horizons           []string `json:"horizons"`
 }
 
@@ -55,6 +57,34 @@ type LegendCategory struct {
 	Color string `json:"color"`
 	Min   int    `json:"min"`
 	Max   int    `json:"max"`
+}
+
+type Anchor struct {
+	Name   string                 `json:"name"`
+	Lon    float64                `json:"lon"`
+	Lat    float64                `json:"lat"`
+	Input  AnchorInput            `json:"input"`
+	Scores map[string]AnchorScore `json:"scores"`
+}
+
+type AnchorInput struct {
+	TempC    float64 `json:"tempC"`
+	Humidity float64 `json:"humidity"`
+	RainMM   float64 `json:"rainMm"`
+	CloudPct float64 `json:"cloudPct"`
+	WindKMH  float64 `json:"windKmh"`
+}
+
+type AnchorScore struct {
+	Score    int     `json:"score"`
+	Category string  `json:"category"`
+	Color    string  `json:"color"`
+	Temp     float64 `json:"temp"`
+	Rain     float64 `json:"rain"`
+	Cloud    float64 `json:"cloud"`
+	Wind     float64 `json:"wind"`
+	Humidity float64 `json:"humidity"`
+	Why      string  `json:"why"`
 }
 
 func (manifest Manifest) JSON() ([]byte, error) {

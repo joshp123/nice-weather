@@ -21,6 +21,25 @@ import (
 )
 
 var profiles = []scoring.Profile{scoring.ProfileGeneral, scoring.ProfileCycling}
+var forecastHorizons = []string{"d1"}
+
+var anchors = []struct {
+	name string
+	lon  float64
+	lat  float64
+}{
+	{"Rotterdam", 4.4777, 51.9244},
+	{"Granada", -3.5986, 37.1773},
+	{"Palma de Mallorca", 2.6502, 39.5696},
+	{"Biarritz", -1.5586, 43.4832},
+	{"Lisbon", -9.1393, 38.7223},
+	{"Newark-on-Trent", -0.8093, 53.0765},
+	{"Palermo", 13.3615, 38.1157},
+	{"Florence", 11.2558, 43.7696},
+	{"Kalamata", 22.1142, 37.0360},
+	{"Zurich", 8.5417, 47.3769},
+	{"Budapest", 19.0402, 47.4979},
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -191,20 +210,69 @@ func runServe(args []string) error {
 }
 
 func buildManifest(inputs weatherinput.Grid, runLabel string) artifact.Manifest {
-	layers := make([]artifact.Layer, 0, len(profiles))
+	layers := make([]artifact.Layer, 0, len(profiles)*len(forecastHorizons))
 	for _, profile := range profiles {
-		layers = append(layers, artifact.Layer{Basis: "forecast", Profile: string(profile), Horizon: "now", TileURL: artifact.TileURL("forecast", string(profile), "now")})
+		for _, horizon := range forecastHorizons {
+			layers = append(layers, artifact.Layer{Basis: "forecast", Profile: string(profile), Horizon: horizon, TileURL: artifact.TileURL("forecast", string(profile), horizon)})
+		}
 	}
 	return artifact.Manifest{
 		Version:     1,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Grid:        artifact.Grid{CRS: "EPSG:4326", CellDeg: inputs.StepDeg, Region: "Europe"},
 		Sources: artifact.Sources{
-			Forecast: artifact.ForecastSource{Name: "DWD ICON-EU", Run: runLabel, ResolutionKMApprox: 7, Horizons: []string{"now"}},
+			Forecast: artifact.ForecastSource{
+				Name:               "DWD ICON-EU",
+				Run:                runLabel,
+				ResolutionKMApprox: 7,
+				Aggregation:        "daily aggregate: average temp/humidity/cloud/wind, sum rain; current local cache has one sample",
+				Horizons:           forecastHorizons,
+			},
 		},
-		Layers: layers,
-		Legend: legend(),
+		Layers:  layers,
+		Anchors: buildAnchors(inputs, forecastHorizons[0]),
+		Legend:  legend(),
 	}
+}
+
+func buildAnchors(inputs weatherinput.Grid, horizon string) []artifact.Anchor {
+	result := make([]artifact.Anchor, 0, len(anchors))
+	for _, anchor := range anchors {
+		input, ok := inputs.InputAt(horizon, anchor.lon, anchor.lat)
+		if !ok {
+			continue
+		}
+		result = append(result, artifact.Anchor{
+			Name:  anchor.name,
+			Lon:   anchor.lon,
+			Lat:   anchor.lat,
+			Input: artifact.AnchorInput{TempC: round1(input.TempC), Humidity: round1(input.Humidity), RainMM: round1(input.RainMM), CloudPct: round1(input.CloudPct), WindKMH: round1(input.WindKMH)},
+			Scores: map[string]artifact.AnchorScore{
+				string(scoring.ProfileGeneral): anchorScore(input, scoring.ProfileGeneral),
+				string(scoring.ProfileCycling): anchorScore(input, scoring.ProfileCycling),
+			},
+		})
+	}
+	return result
+}
+
+func anchorScore(input weatherinput.WeatherInput, profile scoring.Profile) artifact.AnchorScore {
+	score := scoring.Score(input, profile)
+	return artifact.AnchorScore{
+		Score:    score.Score,
+		Category: score.Category.Label,
+		Color:    score.Category.Color,
+		Temp:     round1(score.Components.Temp),
+		Rain:     round1(score.Components.Rain),
+		Cloud:    round1(score.Components.Cloud),
+		Wind:     round1(score.Components.Wind),
+		Humidity: round1(score.Components.Humidity),
+		Why:      fmt.Sprintf("temp %.1f, rain %.1f, cloud %.1f, wind %.1f, humidity %.1f", score.Components.Temp, score.Components.Rain, score.Components.Cloud, score.Components.Wind, score.Components.Humidity),
+	}
+}
+
+func round1(value float64) float64 {
+	return math.Round(value*10) / 10
 }
 
 func legend() artifact.Legend {

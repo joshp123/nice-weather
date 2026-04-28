@@ -6,19 +6,20 @@ const manifest: Manifest = {
   version: 1,
   generatedAt: 'test',
   sources: {
-    forecast: { name: 'DWD ICON-EU', run: 'test', horizons: ['now', 'd1'] },
+    forecast: { name: 'DWD ICON-EU', run: 'test', horizons: ['d1'] },
     climatology: { name: 'WorldClim 2.1', period: '1970-2000', horizons: ['jan'] },
   },
   layers: [
-    { basis: 'forecast', profile: 'general', horizon: 'now', tileUrl: '/forecast-now.png' },
+    { basis: 'forecast', profile: 'general', horizon: 'd1', tileUrl: '/forecast-d1.png' },
     { basis: 'climatology', profile: 'cycling', horizon: 'jan', tileUrl: '/climate-jan.png' },
   ],
+  anchors: [],
   legend: { min: 0, max: 100, categories: [] },
 };
 
 describe('manifest helpers', () => {
   it('finds layers from manifest state only', () => {
-    expect(findLayer(manifest, 'forecast', 'general', 'now').tileUrl).toBe('/forecast-now.png');
+    expect(findLayer(manifest, 'forecast', 'general', 'd1').tileUrl).toBe('/forecast-d1.png');
   });
 
   it('returns basis-specific horizons', () => {
@@ -26,7 +27,7 @@ describe('manifest helpers', () => {
   });
 
   it('normalizes stale horizons when basis changes', () => {
-    expect(validHorizon(['jan', 'feb'], 'now')).toBe('jan');
+    expect(validHorizon(['jan', 'feb'], 'd1')).toBe('jan');
     expect(validHorizon(['jan', 'feb'], 'feb')).toBe('feb');
   });
 });
