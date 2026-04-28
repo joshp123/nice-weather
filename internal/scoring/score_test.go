@@ -34,7 +34,7 @@ func TestCategoryColors(t *testing.T) {
 		{62, "#38bdf8"},
 		{72, "#a3e635"},
 		{82, "#16a34a"},
-		{92, "#facc15"},
+		{92, "#f59e0b"},
 	}
 	for _, tc := range cases {
 		got := CategoryFor(tc.score).Color

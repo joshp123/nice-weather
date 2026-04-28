@@ -11,6 +11,6 @@
 
   enterShell = ''
     echo "Nice Weather Finder dev shell"
-    echo "Commands: go test ./..., go run ./cmd/weatherchase build --dir ./.cache/dwd/daytime --out ./public/artifacts --run 'YYYYMMDDHH steps 008-018', npm run dev"
+    echo "Commands: go test ./..., go run ./cmd/weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./public/artifacts --run 'YYYYMMDDHH steps 008-018', npm run dev"
   '';
 }

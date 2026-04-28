@@ -14,6 +14,7 @@ import (
 	"nice-weather-finder-poc/internal/artifact"
 	"nice-weather-finder-poc/internal/dwd"
 	"nice-weather-finder-poc/internal/grid"
+	"nice-weather-finder-poc/internal/landmask"
 	"nice-weather-finder-poc/internal/scoring"
 	"nice-weather-finder-poc/internal/server"
 	"nice-weather-finder-poc/internal/tiles"
@@ -67,6 +68,7 @@ func main() {
 func runBuild(args []string) error {
 	flags := flag.NewFlagSet("build", flag.ExitOnError)
 	dir := flags.String("dir", "./.cache/dwd/daytime", "directory containing DWD ICON-EU GRIB2 files")
+	land := flags.String("land", "./.cache/land/ne_50m_land.geojson", "Natural Earth land GeoJSON used to mask sea pixels")
 	out := flags.String("out", "./public/artifacts", "artifact output directory")
 	runLabel := flags.String("run", "local steps 008-018", "forecast run label for the manifest")
 	if err := flags.Parse(args); err != nil {
@@ -84,6 +86,11 @@ func runBuild(args []string) error {
 	if err != nil {
 		return err
 	}
+	mask, err := landmask.LoadGeoJSON(*land)
+	if err != nil {
+		return err
+	}
+	inputs.ApplyLandMask(mask.Contains)
 	manifest := buildManifest(inputs, *runLabel)
 	tileCount, err := writeForecastTiles(*out, manifest.Layers, inputs)
 	if err != nil {
@@ -282,7 +289,7 @@ func legend() artifact.Legend {
 		{Label: "Nice", Color: "#38bdf8", Min: 62, Max: 71},
 		{Label: "Beautiful", Color: "#a3e635", Min: 72, Max: 81},
 		{Label: "Perfect", Color: "#16a34a", Min: 82, Max: 91},
-		{Label: "Pristine", Color: "#facc15", Min: 92, Max: 100},
+		{Label: "Pristine", Color: "#f59e0b", Min: 92, Max: 100},
 	}}
 }
 
@@ -302,5 +309,5 @@ func tileLonLat(z, x, y int) (float64, float64) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/daytime --out ./public/artifacts --run 'YYYYMMDDHH steps 008-018' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --dir ./public --addr 127.0.0.1:4173")
+	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./public/artifacts --run 'YYYYMMDDHH steps 008-018' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --dir ./public --addr 127.0.0.1:4173")
 }

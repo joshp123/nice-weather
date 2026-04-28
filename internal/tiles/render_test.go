@@ -2,8 +2,11 @@ package tiles
 
 import (
 	"image/color"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"nice-weather-finder-poc/internal/landmask"
 	"nice-weather-finder-poc/internal/scoring"
 	"nice-weather-finder-poc/internal/weatherinput"
 )
@@ -18,7 +21,7 @@ func TestPalettePixelsUseExactCategoryColors(t *testing.T) {
 		{62, color.RGBA{R: 0x38, G: 0xbd, B: 0xf8, A: 0xff}},
 		{72, color.RGBA{R: 0xa3, G: 0xe6, B: 0x35, A: 0xff}},
 		{82, color.RGBA{R: 0x16, G: 0xa3, B: 0x4a, A: 0xff}},
-		{92, color.RGBA{R: 0xfa, G: 0xcc, B: 0x15, A: 0xff}},
+		{92, color.RGBA{R: 0xf5, G: 0x9e, B: 0x0b, A: 0xff}},
 	}
 	for _, tc := range cases {
 		if got := ColorForScore(tc.score); got != tc.want {
@@ -54,4 +57,36 @@ func TestWeatherGridTileAlphaOutsideEurope(t *testing.T) {
 	if got := img.RGBAAt(0, 0); got.A != 0 {
 		t.Fatalf("outside-Europe alpha = %d, want 0", got.A)
 	}
+}
+
+func TestWeatherGridTileAlphaOutsideLand(t *testing.T) {
+	inputs := weatherinput.NewGrid(0, 20, 40, 60, 1)
+	values := make([]weatherinput.WeatherInput, inputs.Width*inputs.Height)
+	for i := range values {
+		values[i] = weatherinput.WeatherInput{TempC: 24, Humidity: 50, RainMM: 0, CloudPct: 20, WindKMH: 8}
+	}
+	inputs.Horizons["d1"] = values
+	mask := loadTileTestMask(t, `[[[8,47],[12,47],[12,51],[8,51],[8,47]]]`)
+	inputs.ApplyLandMask(mask.Contains)
+	img := RenderWeatherGridTile(inputs, scoring.ProfileGeneral, "d1", 3, 4, 2)
+	if got := img.RGBAAt(52, 183); got.A == 0 {
+		t.Fatal("inside-land pixel is transparent, want colored weather")
+	}
+	if got := img.RGBAAt(35, 113); got.A != 0 {
+		t.Fatalf("outside-land alpha = %d, want 0", got.A)
+	}
+}
+
+func loadTileTestMask(t *testing.T, coordinates string) landmask.Mask {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "land.geojson")
+	data := `{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":` + coordinates + `}}]}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mask, err := landmask.LoadGeoJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mask
 }

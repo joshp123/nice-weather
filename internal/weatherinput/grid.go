@@ -11,6 +11,7 @@ type Grid struct {
 	Width    int
 	Height   int
 	Horizons map[string][]WeatherInput
+	Land     []bool
 }
 
 func NewGrid(west, east, south, north, stepDeg float64) Grid {
@@ -54,7 +55,21 @@ func (grid Grid) InputAt(horizon string, lon, lat float64) (WeatherInput, bool) 
 	if index < 0 || index >= len(values) {
 		return WeatherInput{}, false
 	}
+	if len(grid.Land) == len(values) && !grid.Land[index] {
+		return WeatherInput{}, false
+	}
 	return values[index], true
+}
+
+func (grid *Grid) ApplyLandMask(contains func(lon, lat float64) bool) {
+	grid.Land = make([]bool, grid.Width*grid.Height)
+	for y := 0; y < grid.Height; y++ {
+		lat := grid.South + float64(y)*grid.StepDeg
+		for x := 0; x < grid.Width; x++ {
+			lon := grid.West + float64(x)*grid.StepDeg
+			grid.Land[y*grid.Width+x] = contains(lon, lat)
+		}
+	}
 }
 
 type Coordinate struct {

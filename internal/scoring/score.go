@@ -24,7 +24,7 @@ var Categories = []Category{
 	{Code: "nice", Label: "Nice", Color: "#38bdf8"},
 	{Code: "beautiful", Label: "Beautiful", Color: "#a3e635"},
 	{Code: "perfect", Label: "Perfect", Color: "#16a34a"},
-	{Code: "pristine", Label: "Pristine", Color: "#facc15"},
+	{Code: "pristine", Label: "Pristine", Color: "#f59e0b"},
 }
 
 func Score(input weatherinput.WeatherInput, profile Profile) Result {
