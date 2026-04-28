@@ -45,7 +45,7 @@ export default function App() {
   return (
     <main className="app">
       <section className="panel">
-        <div>
+        <div className="intro">
           <p className="eyebrow">Nice Weather Finder POC</p>
           <h1>Find the warm, dry, bike-friendly parts of Europe.</h1>
           <p className="summary">Built for escaping Dutch grey weather. Scores heavily prefer 22-27C, low rain, sun, and low wind.</p>
@@ -56,12 +56,14 @@ export default function App() {
 
         {manifest && (
           <>
-            <div className="controls">
-              <BasisToggle value={basis} enabled={enabledBasis} onChange={setBasis} />
-              <ProfileToggle value={profile} onChange={setProfile} />
+            <div className="controlStrip">
+              <div className="controls">
+                <BasisToggle value={basis} enabled={enabledBasis} onChange={setBasis} />
+                <ProfileToggle value={profile} onChange={setProfile} />
+                <HorizonPicker horizons={horizons} value={selectedHorizon} onChange={setHorizon} />
+              </div>
+              <Legend categories={manifest.legend.categories} />
             </div>
-            <HorizonPicker horizons={horizons} value={selectedHorizon} onChange={setHorizon} />
-            <Legend categories={manifest.legend.categories} />
             <div className="anchorList" aria-label="Anchor city scores">
               {manifest.anchors.map((anchor) => {
                 const score = anchor.scores[profile];
