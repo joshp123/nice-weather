@@ -61,13 +61,14 @@ func (grid Grid) InputAt(horizon string, lon, lat float64) (WeatherInput, bool) 
 	return values[index], true
 }
 
-func (grid *Grid) ApplyLandMask(contains func(lon, lat float64) bool) {
+func (grid *Grid) ApplyLandMask(touchesLand func(lon, lat, halfStep float64) bool) {
 	grid.Land = make([]bool, grid.Width*grid.Height)
+	halfStep := grid.StepDeg / 2
 	for y := 0; y < grid.Height; y++ {
 		lat := grid.South + float64(y)*grid.StepDeg
 		for x := 0; x < grid.Width; x++ {
 			lon := grid.West + float64(x)*grid.StepDeg
-			grid.Land[y*grid.Width+x] = contains(lon, lat)
+			grid.Land[y*grid.Width+x] = touchesLand(lon, lat, halfStep)
 		}
 	}
 }

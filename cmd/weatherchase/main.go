@@ -90,7 +90,7 @@ func runBuild(args []string) error {
 	if err != nil {
 		return err
 	}
-	inputs.ApplyLandMask(mask.Contains)
+	inputs.ApplyLandMask(mask.TouchesCell)
 	manifest := buildManifest(inputs, *runLabel)
 	tileCount, err := writeForecastTiles(*out, manifest.Layers, inputs)
 	if err != nil {

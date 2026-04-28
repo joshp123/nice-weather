@@ -67,7 +67,7 @@ func TestWeatherGridTileAlphaOutsideLand(t *testing.T) {
 	}
 	inputs.Horizons["d1"] = values
 	mask := loadTileTestMask(t, `[[[8,47],[12,47],[12,51],[8,51],[8,47]]]`)
-	inputs.ApplyLandMask(mask.Contains)
+	inputs.ApplyLandMask(mask.TouchesCell)
 	img := RenderWeatherGridTile(inputs, scoring.ProfileGeneral, "d1", 3, 4, 2)
 	if got := img.RGBAAt(52, 183); got.A == 0 {
 		t.Fatal("inside-land pixel is transparent, want colored weather")

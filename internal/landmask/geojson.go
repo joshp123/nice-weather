@@ -86,6 +86,15 @@ func (mask Mask) Contains(lon, lat float64) bool {
 	return false
 }
 
+func (mask Mask) TouchesCell(lon, lat, halfStep float64) bool {
+	for _, polygon := range mask.polygons {
+		if polygon.touchesCell(lon, lat, halfStep) {
+			return true
+		}
+	}
+	return false
+}
+
 func polygonFromCoordinates(coords [][][]float64) polygon {
 	rings := make([][]point, 0, len(coords))
 	for _, ringCoords := range coords {
@@ -118,8 +127,43 @@ func (polygon polygon) contains(lon, lat float64) bool {
 	return true
 }
 
+func (polygon polygon) touchesCell(lon, lat, halfStep float64) bool {
+	if !polygon.box.expand(halfStep).contains(lon, lat) {
+		return false
+	}
+	offsets := [...]struct {
+		lon float64
+		lat float64
+	}{
+		{0, 0},
+		{-halfStep, -halfStep},
+		{0, -halfStep},
+		{halfStep, -halfStep},
+		{-halfStep, 0},
+		{halfStep, 0},
+		{-halfStep, halfStep},
+		{0, halfStep},
+		{halfStep, halfStep},
+	}
+	for _, offset := range offsets {
+		if polygon.contains(lon+offset.lon, lat+offset.lat) {
+			return true
+		}
+	}
+	return false
+}
+
 func (box bounds) contains(lon, lat float64) bool {
 	return lon >= box.west && lon <= box.east && lat >= box.south && lat <= box.north
+}
+
+func (box bounds) expand(amount float64) bounds {
+	return bounds{
+		west:  box.west - amount,
+		south: box.south - amount,
+		east:  box.east + amount,
+		north: box.north + amount,
+	}
 }
 
 func ringContains(ring []point, lon, lat float64) bool {
