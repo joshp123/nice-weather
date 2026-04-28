@@ -34,7 +34,7 @@ Every changeset must produce observable artifacts the agent can inspect without 
 
 Required observable checks:
 
-- CLI: run `weatherchase build --dir ./.cache/dwd/highres --out ./public/artifacts --run "YYYYMMDDHH step 000"`; inspect logs, manifest, and generated tile files.
+- CLI: run `weatherchase build --dir ./.cache/dwd/daytime --out ./public/artifacts --run "YYYYMMDDHH steps 008-018"`; inspect logs, manifest, and generated tile files.
 - Static server: run `weatherchase serve --dir ./public`; fetch expected URLs.
 - Frontend: open in browser, switch controls, verify map layer changes, inspect screenshots.
 - Images/tiles: sample PNGs and verify non-empty pixels, expected colors, and alpha outside the region.

@@ -10,7 +10,7 @@ func Clamp(value, min, max float64) float64 {
 	return value
 }
 
-func DailyAggregate(samples []WeatherInput) WeatherInput {
+func DaytimeForecastAggregate(samples []WeatherInput) WeatherInput {
 	if len(samples) == 0 {
 		return WeatherInput{}
 	}
@@ -23,10 +23,14 @@ func DailyAggregate(samples []WeatherInput) WeatherInput {
 		total.WindKMH += sample.WindKMH
 	}
 	count := float64(len(samples))
+	rainMM := samples[len(samples)-1].RainMM - samples[0].RainMM
+	if rainMM < 0 {
+		rainMM = 0
+	}
 	return WeatherInput{
 		TempC:    total.TempC / count,
 		Humidity: total.Humidity / count,
-		RainMM:   total.RainMM,
+		RainMM:   rainMM,
 		CloudPct: total.CloudPct / count,
 		WindKMH:  total.WindKMH / count,
 	}

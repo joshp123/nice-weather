@@ -10,7 +10,7 @@ POC for a Europe-first weather map that helps chase pleasant weather for travel 
 - Target forecast data: same DWD source with useful forecast horizons beyond `d1`.
 - Target climate data: WorldClim 2.1 monthly normals, roughly 1 km.
 - Profiles: `general`, `cycling`.
-- Time basis: `forecast` daily aggregate; `climatology` returns when real monthly artifacts exist.
+- Time basis: `forecast` daytime aggregate from DWD steps 008..018 for the 00Z run, representing 10:00-20:00 Europe/Amsterdam time; `climatology` returns when real monthly artifacts exist.
 - Horizons: `d1`.
 
 ## One Scoring Contract

@@ -66,9 +66,9 @@ func main() {
 
 func runBuild(args []string) error {
 	flags := flag.NewFlagSet("build", flag.ExitOnError)
-	dir := flags.String("dir", "./.cache/dwd/highres", "directory containing DWD ICON-EU GRIB2 files")
+	dir := flags.String("dir", "./.cache/dwd/daytime", "directory containing DWD ICON-EU GRIB2 files")
 	out := flags.String("out", "./public/artifacts", "artifact output directory")
-	runLabel := flags.String("run", "local step 000", "forecast run label for the manifest")
+	runLabel := flags.String("run", "local steps 008-018", "forecast run label for the manifest")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func runBuild(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	inputs, err := dwd.LoadStepZeroGrid(ctx, *dir)
+	inputs, err := dwd.LoadDaytimeGrid(ctx, *dir)
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func buildManifest(inputs weatherinput.Grid, runLabel string) artifact.Manifest 
 				Name:               "DWD ICON-EU",
 				Run:                runLabel,
 				ResolutionKMApprox: 7,
-				Aggregation:        "daily aggregate: average temp/humidity/cloud/wind, sum rain; current local cache has one sample",
+				Aggregation:        "10:00-20:00 Europe/Amsterdam forecast window: average temp/humidity/cloud/wind, accumulated rain delta",
 				Horizons:           forecastHorizons,
 			},
 		},
@@ -302,5 +302,5 @@ func tileLonLat(z, x, y int) (float64, float64) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/highres --out ./public/artifacts --run 'YYYYMMDDHH step 000' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --dir ./public --addr 127.0.0.1:4173")
+	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/daytime --out ./public/artifacts --run 'YYYYMMDDHH steps 008-018' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --dir ./public --addr 127.0.0.1:4173")
 }

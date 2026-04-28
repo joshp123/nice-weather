@@ -117,14 +117,14 @@ function ScoringGuide({ basis }: { basis: Basis }) {
     <section className="scoringGuide" aria-label="Scoring guide">
       <h2>Good means</h2>
       <dl>
-        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10:00-20:00 local forecast' : 'daytime monthly normal'}</dd></div>
+        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10:00-20:00 Amsterdam time' : 'daytime monthly normal'}</dd></div>
         <div><dt>Temp</dt><dd>avg 22-27C</dd></div>
         <div><dt>Rain</dt><dd>total near 0mm</dd></div>
         <div><dt>Cloud</dt><dd>avg 0-20%</dd></div>
         <div><dt>Wind</dt><dd>avg under 10km/h</dd></div>
         <div><dt>Humidity</dt><dd>avg 30-60%</dd></div>
       </dl>
-      <p>Current artifact is a cached model sample, not live observed weather.</p>
+      <p>Forecast aggregates the daytime DWD grid; it is not observed weather.</p>
     </section>
   );
 }
