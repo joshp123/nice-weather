@@ -9,9 +9,11 @@ type Props = {
   layer: LayerManifest | null;
   anchors: Anchor[];
   profile: Profile;
+  selectedAnchor: Anchor | null;
+  onAnchorSelect: (anchor: Anchor) => void;
 };
 
-export function WeatherMap({ layer, anchors, profile }: Props) {
+export function WeatherMap({ layer, anchors, profile, selectedAnchor, onAnchorSelect }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const [map, setMap] = useState<Map | null>(null);
@@ -54,12 +56,24 @@ export function WeatherMap({ layer, anchors, profile }: Props) {
     <div className="mapShell">
       <div ref={containerRef} className="mapCanvas" data-testid="weather-map" />
       <ScoreRasterLayer map={map} layer={layer} />
-      <AnchorMarkers map={map} anchors={anchors} profile={profile} />
+      <AnchorMarkers map={map} anchors={anchors} profile={profile} selectedAnchor={selectedAnchor} onAnchorSelect={onAnchorSelect} />
     </div>
   );
 }
 
-function AnchorMarkers({ map, anchors, profile }: { map: Map | null; anchors: Anchor[]; profile: Profile }) {
+function AnchorMarkers({
+  map,
+  anchors,
+  profile,
+  selectedAnchor,
+  onAnchorSelect,
+}: {
+  map: Map | null;
+  anchors: Anchor[];
+  profile: Profile;
+  selectedAnchor: Anchor | null;
+  onAnchorSelect: (anchor: Anchor) => void;
+}) {
   const markersRef = useRef<maplibregl.Marker[]>([]);
 
   useEffect(() => {
@@ -68,18 +82,23 @@ function AnchorMarkers({ map, anchors, profile }: { map: Map | null; anchors: An
     markersRef.current = anchors.map((anchor) => {
       const score = anchor.scores[profile];
       const element = document.createElement('button');
-      element.className = 'anchorPin';
+      element.className = anchor.name === selectedAnchor?.name ? 'anchorPin selected' : 'anchorPin';
       element.style.setProperty('--pin-color', score.color);
       element.type = 'button';
-      element.innerHTML = `<strong>${score.score}</strong><span>${anchor.name}</span>`;
+      const value = document.createElement('strong');
+      value.textContent = String(score.score);
+      const label = document.createElement('span');
+      label.textContent = anchor.name;
+      element.append(value, label);
       element.title = `${anchor.name}: ${score.score} ${score.category}. ${score.why}`;
+      element.addEventListener('click', () => onAnchorSelect(anchor));
       return new maplibregl.Marker({ element, anchor: 'bottom' }).setLngLat([anchor.lon, anchor.lat]).addTo(map);
     });
     return () => {
       for (const marker of markersRef.current) marker.remove();
       markersRef.current = [];
     };
-  }, [map, anchors, profile]);
+  }, [map, anchors, profile, selectedAnchor, onAnchorSelect]);
 
   return null;
 }

@@ -62,7 +62,8 @@ export function ScoreRasterLayer({ map, layer }: Props) {
   return null;
 }
 
-function removeScoreLayer(map: Map) {
+function removeScoreLayer(map: Map | undefined) {
+  if (!map) return;
   try {
     if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);

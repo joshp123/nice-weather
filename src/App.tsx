@@ -4,7 +4,7 @@ import { HorizonPicker } from './controls/HorizonPicker';
 import { Legend } from './controls/Legend';
 import { ProfileToggle } from './controls/ProfileToggle';
 import { findLayer, horizonsFor, loadManifest, validHorizon } from './data/manifest';
-import type { Basis, Manifest, Profile } from './data/types';
+import type { Anchor, Basis, Manifest, Profile } from './data/types';
 import { WeatherMap } from './map/WeatherMap';
 import './styles.css';
 
@@ -14,6 +14,7 @@ export default function App() {
   const [basis, setBasis] = useState<Basis>('forecast');
   const [profile, setProfile] = useState<Profile>('general');
   const [horizon, setHorizon] = useState('d1');
+  const [selectedAnchorName, setSelectedAnchorName] = useState<string | null>(null);
 
   useEffect(() => {
     loadManifest().then(setManifest).catch((err: Error) => setError(err.message));
@@ -36,6 +37,10 @@ export default function App() {
     if (!manifest || !selectedHorizon) return null;
     return findLayer(manifest, basis, profile, selectedHorizon);
   }, [basis, selectedHorizon, manifest, profile]);
+  const selectedAnchor = useMemo(() => {
+    if (!manifest) return null;
+    return manifest.anchors.find((anchor) => anchor.name === selectedAnchorName) ?? manifest.anchors[0] ?? null;
+  }, [manifest, selectedAnchorName]);
 
   return (
     <main className="app">
@@ -57,27 +62,56 @@ export default function App() {
             </div>
             <HorizonPicker horizons={horizons} value={selectedHorizon} onChange={setHorizon} />
             <Legend categories={manifest.legend.categories} />
-            <div className="anchorList">
+            <div className="anchorList" aria-label="Anchor city scores">
               {manifest.anchors.map((anchor) => {
                 const score = anchor.scores[profile];
                 return (
-                  <div className="anchorRow" key={anchor.name}>
+                  <button className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'} key={anchor.name} onClick={() => setSelectedAnchorName(anchor.name)}>
                     <span className="anchorDot" style={{ background: score.color }} />
                     <span>{anchor.name}</span>
                     <strong>{score.score}</strong>
-                  </div>
+                  </button>
                 );
               })}
             </div>
+            {selectedAnchor && <AnchorDetail anchor={selectedAnchor} profile={profile} />}
             <p className="source">
               {basis === 'forecast' || !manifest.sources.climatology
-                ? `${manifest.sources.forecast.name} ${manifest.sources.forecast.run}`
+                ? forecastSourceText(manifest)
                 : `${manifest.sources.climatology.name} ${manifest.sources.climatology.period}`}
             </p>
           </>
         )}
       </section>
-      <WeatherMap layer={layer} anchors={manifest?.anchors ?? []} profile={profile} />
+      <WeatherMap layer={layer} anchors={manifest?.anchors ?? []} profile={profile} selectedAnchor={selectedAnchor} onAnchorSelect={(anchor: Anchor) => setSelectedAnchorName(anchor.name)} />
     </main>
   );
+}
+
+function AnchorDetail({ anchor, profile }: { anchor: Anchor; profile: Profile }) {
+  const score = anchor.scores[profile];
+  return (
+    <section className="anchorDetail" aria-label={`${anchor.name} score details`}>
+      <div className="anchorDetailHeader">
+        <div>
+          <h2>{anchor.name}</h2>
+          <p>{score.category}</p>
+        </div>
+        <strong style={{ background: score.color }}>{score.score}</strong>
+      </div>
+      <dl className="weatherFacts">
+        <div><dt>Temp</dt><dd>{anchor.input.tempC}C</dd><dd>{score.temp}</dd></div>
+        <div><dt>Rain</dt><dd>{anchor.input.rainMm}mm</dd><dd>{score.rain}</dd></div>
+        <div><dt>Cloud</dt><dd>{anchor.input.cloudPct}%</dd><dd>{score.cloud}</dd></div>
+        <div><dt>Wind</dt><dd>{anchor.input.windKmh}km/h</dd><dd>{score.wind}</dd></div>
+        <div><dt>Humidity</dt><dd>{anchor.input.humidity}%</dd><dd>{score.humidity}</dd></div>
+      </dl>
+    </section>
+  );
+}
+
+function forecastSourceText(manifest: Manifest) {
+  const run = manifest.sources.forecast.run.match(/^(\d{4})(\d{2})(\d{2})(\d{2})/)?.slice(1);
+  const runText = run ? `${run[0]}-${run[1]}-${run[2]} ${run[3]}Z` : manifest.sources.forecast.run;
+  return `${manifest.sources.forecast.name} run ${runText} • daily forecast sample`;
 }
