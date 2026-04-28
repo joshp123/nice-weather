@@ -1,0 +1,32 @@
+import { describe, expect, it } from 'vitest';
+import { findLayer, horizonsFor, validHorizon } from './manifest';
+import type { Manifest } from './types';
+
+const manifest: Manifest = {
+  version: 1,
+  generatedAt: 'test',
+  sources: {
+    forecast: { name: 'DWD ICON-EU', run: 'test', horizons: ['now', 'd1'] },
+    climatology: { name: 'WorldClim 2.1', period: '1970-2000', horizons: ['jan'] },
+  },
+  layers: [
+    { basis: 'forecast', profile: 'general', horizon: 'now', tileUrl: '/forecast-now.png' },
+    { basis: 'climatology', profile: 'cycling', horizon: 'jan', tileUrl: '/climate-jan.png' },
+  ],
+  legend: { min: 0, max: 100, categories: [] },
+};
+
+describe('manifest helpers', () => {
+  it('finds layers from manifest state only', () => {
+    expect(findLayer(manifest, 'forecast', 'general', 'now').tileUrl).toBe('/forecast-now.png');
+  });
+
+  it('returns basis-specific horizons', () => {
+    expect(horizonsFor(manifest, 'climatology')).toEqual(['jan']);
+  });
+
+  it('normalizes stale horizons when basis changes', () => {
+    expect(validHorizon(['jan', 'feb'], 'now')).toBe('jan');
+    expect(validHorizon(['jan', 'feb'], 'feb')).toBe('feb');
+  });
+});
