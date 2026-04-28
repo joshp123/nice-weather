@@ -77,11 +77,7 @@ export default function App() {
               })}
             </div>
             {selectedAnchor && <AnchorDetail anchor={selectedAnchor} profile={profile} />}
-            <p className="source">
-              {basis === 'forecast' || !manifest.sources.climatology
-                ? forecastSourceText(manifest)
-                : `${manifest.sources.climatology.name} ${manifest.sources.climatology.period}`}
-            </p>
+            <ScoringGuide basis={basis} />
           </>
         )}
       </section>
@@ -92,6 +88,7 @@ export default function App() {
 
 function AnchorDetail({ anchor, profile }: { anchor: Anchor; profile: Profile }) {
   const score = anchor.scores[profile];
+  const rows = componentRows(anchor, score);
   return (
     <section className="anchorDetail" aria-label={`${anchor.name} score details`}>
       <div className="anchorDetailHeader">
@@ -102,18 +99,51 @@ function AnchorDetail({ anchor, profile }: { anchor: Anchor; profile: Profile })
         <strong style={{ background: score.color }}>{score.score}</strong>
       </div>
       <dl className="weatherFacts">
-        <div><dt>Temp</dt><dd>{anchor.input.tempC}C</dd><dd>{score.temp}</dd></div>
-        <div><dt>Rain</dt><dd>{anchor.input.rainMm}mm</dd><dd>{score.rain}</dd></div>
-        <div><dt>Cloud</dt><dd>{anchor.input.cloudPct}%</dd><dd>{score.cloud}</dd></div>
-        <div><dt>Wind</dt><dd>{anchor.input.windKmh}km/h</dd><dd>{score.wind}</dd></div>
-        <div><dt>Humidity</dt><dd>{anchor.input.humidity}%</dd><dd>{score.humidity}</dd></div>
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+            <dd>{row.verdict}</dd>
+            <dd>{row.score}/100</dd>
+          </div>
+        ))}
       </dl>
     </section>
   );
 }
 
-function forecastSourceText(manifest: Manifest) {
-  const run = manifest.sources.forecast.run.match(/^(\d{4})(\d{2})(\d{2})(\d{2})/)?.slice(1);
-  const runText = run ? `${run[0]}-${run[1]}-${run[2]} ${run[3]}Z` : manifest.sources.forecast.run;
-  return `${manifest.sources.forecast.name} run ${runText} • daily forecast sample`;
+function ScoringGuide({ basis }: { basis: Basis }) {
+  return (
+    <section className="scoringGuide" aria-label="Scoring guide">
+      <h2>Good means</h2>
+      <dl>
+        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10:00-20:00 local forecast' : 'daytime monthly normal'}</dd></div>
+        <div><dt>Temp</dt><dd>avg 22-27C</dd></div>
+        <div><dt>Rain</dt><dd>total near 0mm</dd></div>
+        <div><dt>Cloud</dt><dd>avg 0-20%</dd></div>
+        <div><dt>Wind</dt><dd>avg under 10km/h</dd></div>
+        <div><dt>Humidity</dt><dd>avg 30-60%</dd></div>
+      </dl>
+      <p>Current artifact is a cached model sample, not live observed weather.</p>
+    </section>
+  );
+}
+
+function componentRows(anchor: Anchor, score: Anchor['scores'][Profile]) {
+  return [
+    { label: 'Temp', value: `${anchor.input.tempC}C`, verdict: componentVerdict(score.temp), score: score.temp },
+    { label: 'Rain', value: `${anchor.input.rainMm}mm`, verdict: componentVerdict(score.rain), score: score.rain },
+    { label: 'Cloud', value: `${anchor.input.cloudPct}%`, verdict: componentVerdict(score.cloud), score: score.cloud },
+    { label: 'Wind', value: `${anchor.input.windKmh}km/h`, verdict: componentVerdict(score.wind), score: score.wind },
+    { label: 'Humidity', value: `${anchor.input.humidity}%`, verdict: componentVerdict(score.humidity), score: score.humidity },
+  ];
+}
+
+function componentVerdict(score: number) {
+  if (score >= 92) return 'excellent';
+  if (score >= 82) return 'great';
+  if (score >= 72) return 'good';
+  if (score >= 62) return 'okay';
+  if (score >= 50) return 'weak';
+  return 'bad';
 }

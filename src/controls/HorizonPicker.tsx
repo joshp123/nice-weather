@@ -17,6 +17,6 @@ export function HorizonPicker({ horizons, value, onChange }: Props) {
 }
 
 function horizonLabel(horizon: string) {
-  if (horizon === 'd1') return 'Daily forecast';
+  if (horizon === 'd1') return 'Daytime score';
   return horizon;
 }

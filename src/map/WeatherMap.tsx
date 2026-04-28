@@ -36,7 +36,7 @@ export function WeatherMap({ layer, anchors, profile, selectedAnchor, onAnchorSe
         layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.9 } }],
       },
       center: EUROPE_CENTER,
-      zoom: 4,
+      zoom: 4.65,
     });
     mapRef.current = nextMap;
     nextMap.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');

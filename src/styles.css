@@ -45,7 +45,6 @@ button {
 }
 
 .eyebrow,
-.source,
 .loading {
   color: #697266;
   font-size: 12px;
@@ -210,7 +209,7 @@ h1 {
 
 .weatherFacts div {
   display: grid;
-  grid-template-columns: 74px 1fr auto;
+  grid-template-columns: 60px 68px minmax(72px, 1fr) 56px;
   gap: 8px;
   font-size: 12px;
 }
@@ -222,6 +221,55 @@ h1 {
 .weatherFacts dd {
   margin: 0;
   text-align: right;
+}
+
+.weatherFacts dd:nth-of-type(2) {
+  color: #495247;
+  text-align: left;
+}
+
+.scoringGuide {
+  border-left: 1px solid #d6ded4;
+  align-self: stretch;
+  display: grid;
+  gap: 7px;
+  padding-left: 14px;
+}
+
+.scoringGuide h2,
+.scoringGuide p,
+.scoringGuide dl {
+  margin: 0;
+}
+
+.scoringGuide h2 {
+  font-size: 14px;
+}
+
+.scoringGuide dl {
+  display: grid;
+  gap: 4px;
+}
+
+.scoringGuide div {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.scoringGuide dt,
+.scoringGuide p {
+  color: #697266;
+}
+
+.scoringGuide dd {
+  margin: 0;
+}
+
+.scoringGuide p {
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 .error {
