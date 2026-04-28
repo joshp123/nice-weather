@@ -1,0 +1,9 @@
+/.DS_Store
+/.agent/screenshots/
+/.devenv/
+/.devenv.flake.nix
+/.cache/
+/dist/
+/node_modules/
+/public/artifacts/
+/tsconfig.tsbuildinfo
