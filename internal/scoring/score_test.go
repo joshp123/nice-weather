@@ -3,7 +3,7 @@ package scoring
 import (
 	"testing"
 
-	"nice-weather-finder-poc/internal/weatherinput"
+	"nice-weather-finder/internal/weatherinput"
 )
 
 func TestTemperatureCurveMatchesWarmBias(t *testing.T) {

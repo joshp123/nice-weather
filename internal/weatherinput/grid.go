@@ -11,6 +11,7 @@ type Grid struct {
 	Width    int
 	Height   int
 	Horizons map[string][]WeatherInput
+	Valid    map[string][]bool
 	Land     []bool
 }
 
@@ -26,6 +27,7 @@ func NewGrid(west, east, south, north, stepDeg float64) Grid {
 		Width:    width,
 		Height:   height,
 		Horizons: map[string][]WeatherInput{},
+		Valid:    map[string][]bool{},
 	}
 }
 
@@ -53,6 +55,9 @@ func (grid Grid) InputAt(horizon string, lon, lat float64) (WeatherInput, bool) 
 	}
 	index := y*grid.Width + x
 	if index < 0 || index >= len(values) {
+		return WeatherInput{}, false
+	}
+	if valid, hasValid := grid.Valid[horizon]; hasValid && len(valid) == len(values) && !valid[index] {
 		return WeatherInput{}, false
 	}
 	if len(grid.Land) == len(values) && !grid.Land[index] {

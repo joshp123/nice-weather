@@ -5,9 +5,9 @@ import (
 	"image/color"
 	"math"
 
-	"nice-weather-finder-poc/internal/grid"
-	"nice-weather-finder-poc/internal/scoring"
-	"nice-weather-finder-poc/internal/weatherinput"
+	"nice-weather-finder/internal/grid"
+	"nice-weather-finder/internal/scoring"
+	"nice-weather-finder/internal/weatherinput"
 )
 
 const TileSize = 256

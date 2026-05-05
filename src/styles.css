@@ -31,7 +31,7 @@ button {
   box-shadow: 0 10px 32px rgba(23, 32, 51, 0.18);
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(250px, 340px) minmax(270px, 0.8fr) minmax(420px, 1.3fr) minmax(240px, 320px) auto;
+  grid-template-columns: minmax(230px, 260px) minmax(230px, 270px) minmax(330px, 390px) minmax(300px, 1fr);
   left: 18px;
   max-width: calc(100vw - 36px);
   padding: 14px 16px;
@@ -40,8 +40,42 @@ button {
   z-index: 2;
 }
 
+.freshness {
+  align-self: stretch;
+  background: #eef7ef;
+  border: 1px solid #b8d9bf;
+  border-radius: 8px;
+  color: #17351d;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.freshness.stale {
+  background: #fff1f2;
+  border-color: #f43f5e;
+  color: #8f1230;
+}
+
+.freshness strong {
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.freshness span {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
 .intro {
   align-self: start;
+}
+
+.controlStrip {
+  display: grid;
+  gap: 10px;
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
 .eyebrow,
@@ -71,11 +105,6 @@ h1 {
   gap: 10px;
 }
 
-.controlStrip {
-  display: grid;
-  gap: 10px;
-}
-
 .segmented,
 .horizonGrid {
   display: flex;
@@ -91,6 +120,7 @@ h1 {
   border-radius: 8px;
   padding: 8px 10px;
   cursor: pointer;
+  min-height: 36px;
 }
 
 .segmented button:disabled {
@@ -135,6 +165,8 @@ h1 {
   display: grid;
   align-self: start;
   gap: 3px 8px;
+  grid-column: 3;
+  grid-row: 1 / span 2;
   grid-template-columns: repeat(2, minmax(150px, 1fr));
 }
 
@@ -169,6 +201,7 @@ h1 {
   align-self: stretch;
   display: grid;
   gap: 10px;
+  grid-column: 4;
   padding-left: 14px;
 }
 
@@ -233,6 +266,7 @@ h1 {
   align-self: stretch;
   display: grid;
   gap: 7px;
+  grid-column: 4;
   padding-left: 14px;
 }
 
@@ -318,6 +352,14 @@ h1 {
     max-width: none;
     overflow: auto;
     right: 0;
+  }
+
+  .controlStrip,
+  .anchorList,
+  .anchorDetail,
+  .scoringGuide {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .anchorList {

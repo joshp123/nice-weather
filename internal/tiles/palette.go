@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"nice-weather-finder-poc/internal/scoring"
+	"nice-weather-finder/internal/scoring"
 )
 
 func ColorForScore(score int) color.RGBA {

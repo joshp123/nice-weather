@@ -6,5 +6,6 @@
 /artifacts/
 /dist/
 /node_modules/
+/output/
 /public/artifacts/
 /tsconfig*.tsbuildinfo

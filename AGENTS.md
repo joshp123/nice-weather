@@ -20,19 +20,22 @@ Current local project path:
 
 Current state:
 
-- Active POC is Europe-only forecast rendering from local DWD ICON-EU GRIB2 files.
+- Active app is Europe-only forecast rendering from DWD ICON-EU GRIB2 files.
+- `weatherchase update` discovers the newest complete DWD run that can cover the requested full local-day windows, downloads/caches it, builds release artifacts, and publishes them through `./artifacts/current`.
 - Generated weather data lives in `./artifacts`; it is not frontend static build output.
 - Frontend build lives in `./dist`.
-- Current forecast horizon is only `d1`; the current 10:00-20:00 aggregation uses an Amsterdam-time shortcut and must be replaced by per-cell local-time aggregation.
+- Current forecast horizons are concrete local-date IDs for five complete daytime forecast windows.
+- Forecast aggregation is `10:00-20:00` local time per grid cell using timezone lookup; the grid-cell center chooses the timezone at boundaries.
+- Forecast freshness is a hard UX requirement. The UI must show DWD run time, artifact build time, selected local date/window, age, and a stale warning when the run is older than the manifest threshold.
 - Climatology is planned but not implemented; WorldClim is the intended first source.
 
-Near-term plan:
+Near-term state/plan:
 
-1. Multi-day forecast horizons as local calendar dates.
-2. Per-grid-cell local 10:00-20:00 aggregation from timezone polygons.
-3. Horizon-aware anchor pins/details so city scores change with selected day.
-4. Latest-complete DWD run detection/download, then atomic artifact rebuild/swap.
-5. WorldClim monthly climatology artifacts using the same `WeatherInput -> score -> tile` path.
+1. Done: multi-day forecast horizons as local calendar dates.
+2. Done: per-grid-cell local 10:00-20:00 aggregation from timezone polygons.
+3. Done: horizon-aware anchor pins/details so city scores change with selected day.
+4. Done: latest-complete DWD run detection/download, then atomic artifact rebuild/swap.
+5. Next: WorldClim monthly climatology artifacts using the same `WeatherInput -> score -> tile` path.
 
 ## UI And Self-Review Workflow
 
@@ -73,9 +76,10 @@ Every changeset must produce observable artifacts the agent can inspect without 
 
 Required observable checks:
 
-- CLI: run `weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --run "YYYYMMDDHH steps 008-018"`; inspect logs, manifest, and generated tile files.
+- CLI: run `weatherchase update --cache ./.cache/dwd/forecast --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --days 5`; inspect logs, manifest, and generated tile files.
 - Static server: run `weatherchase serve --web ./dist --artifacts ./artifacts`; fetch expected URLs.
 - Frontend: open in browser, switch controls, verify map layer changes, inspect screenshots.
+- Browser fallback: if Browser Use is unavailable, run `npm run qa:browser -- http://127.0.0.1:5173/` against the served app and inspect the screenshots in `output/screenshots/`.
 - Images/tiles: sample PNGs and verify non-empty pixels, expected colors, and alpha outside land.
 - Scores: run deterministic scoring cases and compare expected numeric/category outputs.
 
@@ -89,7 +93,7 @@ Verify layer by layer before end-to-end claims:
 6. MapLibre source/layer install
 7. rendered browser pixels and screenshots
 
-Performance and telemetry targets for the POC:
+Performance and telemetry targets:
 
 - artifact build must print manifest/layer/tile counts
 - manifest fetch should complete in under 500ms on localhost

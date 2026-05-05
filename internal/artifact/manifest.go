@@ -24,11 +24,22 @@ type Sources struct {
 }
 
 type ForecastSource struct {
-	Name               string   `json:"name"`
-	Run                string   `json:"run"`
-	ResolutionKMApprox float64  `json:"resolutionKmApprox"`
-	Aggregation        string   `json:"aggregation"`
-	Horizons           []string `json:"horizons"`
+	Name               string            `json:"name"`
+	Run                string            `json:"run"`
+	RunStartedAt       string            `json:"runStartedAt,omitempty"`
+	ResolutionKMApprox float64           `json:"resolutionKmApprox"`
+	Aggregation        string            `json:"aggregation"`
+	StaleAfterHours    int               `json:"staleAfterHours,omitempty"`
+	Horizons           []string          `json:"horizons"`
+	HorizonDetails     []ForecastHorizon `json:"horizonDetails,omitempty"`
+}
+
+type ForecastHorizon struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	LocalDate   string `json:"localDate"`
+	WindowStart string `json:"windowStart"`
+	WindowEnd   string `json:"windowEnd"`
 }
 
 type ClimatologySource struct {
@@ -60,9 +71,13 @@ type LegendCategory struct {
 }
 
 type Anchor struct {
-	Name   string                 `json:"name"`
-	Lon    float64                `json:"lon"`
-	Lat    float64                `json:"lat"`
+	Name     string                   `json:"name"`
+	Lon      float64                  `json:"lon"`
+	Lat      float64                  `json:"lat"`
+	Horizons map[string]AnchorHorizon `json:"horizons"`
+}
+
+type AnchorHorizon struct {
 	Input  AnchorInput            `json:"input"`
 	Scores map[string]AnchorScore `json:"scores"`
 }

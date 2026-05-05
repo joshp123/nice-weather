@@ -9,11 +9,12 @@ type Props = {
   layer: LayerManifest | null;
   anchors: Anchor[];
   profile: Profile;
+  horizon: string | undefined;
   selectedAnchor: Anchor | null;
   onAnchorSelect: (anchor: Anchor) => void;
 };
 
-export function WeatherMap({ layer, anchors, profile, selectedAnchor, onAnchorSelect }: Props) {
+export function WeatherMap({ layer, anchors, profile, horizon, selectedAnchor, onAnchorSelect }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const [map, setMap] = useState<Map | null>(null);
@@ -56,7 +57,7 @@ export function WeatherMap({ layer, anchors, profile, selectedAnchor, onAnchorSe
     <div className="mapShell">
       <div ref={containerRef} className="mapCanvas" data-testid="weather-map" />
       <ScoreRasterLayer map={map} layer={layer} />
-      <AnchorMarkers map={map} anchors={anchors} profile={profile} selectedAnchor={selectedAnchor} onAnchorSelect={onAnchorSelect} />
+      <AnchorMarkers map={map} anchors={anchors} profile={profile} horizon={horizon} selectedAnchor={selectedAnchor} onAnchorSelect={onAnchorSelect} />
     </div>
   );
 }
@@ -65,12 +66,14 @@ function AnchorMarkers({
   map,
   anchors,
   profile,
+  horizon,
   selectedAnchor,
   onAnchorSelect,
 }: {
   map: Map | null;
   anchors: Anchor[];
   profile: Profile;
+  horizon: string | undefined;
   selectedAnchor: Anchor | null;
   onAnchorSelect: (anchor: Anchor) => void;
 }) {
@@ -80,7 +83,9 @@ function AnchorMarkers({
     if (!map) return;
     for (const marker of markersRef.current) marker.remove();
     markersRef.current = anchors.map((anchor) => {
-      const score = anchor.scores[profile];
+      const anchorHorizon = horizon ? anchor.horizons[horizon] : undefined;
+      if (!anchorHorizon) return undefined;
+      const score = anchorHorizon.scores[profile];
       const element = document.createElement('button');
       element.className = anchor.name === selectedAnchor?.name ? 'anchorPin selected' : 'anchorPin';
       element.style.setProperty('--pin-color', score.color);
@@ -93,12 +98,12 @@ function AnchorMarkers({
       element.title = `${anchor.name}: ${score.score} ${score.category}. ${score.why}`;
       element.addEventListener('click', () => onAnchorSelect(anchor));
       return new maplibregl.Marker({ element, anchor: 'bottom' }).setLngLat([anchor.lon, anchor.lat]).addTo(map);
-    });
+    }).filter((marker): marker is maplibregl.Marker => marker !== undefined);
     return () => {
       for (const marker of markersRef.current) marker.remove();
       markersRef.current = [];
     };
-  }, [map, anchors, profile, selectedAnchor, onAnchorSelect]);
+  }, [map, anchors, profile, horizon, selectedAnchor, onAnchorSelect]);
 
   return null;
 }

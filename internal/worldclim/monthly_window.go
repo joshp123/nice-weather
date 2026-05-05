@@ -3,7 +3,7 @@ package worldclim
 import (
 	"math"
 
-	"nice-weather-finder-poc/internal/weatherinput"
+	"nice-weather-finder/internal/weatherinput"
 )
 
 type MonthlyFields struct {

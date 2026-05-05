@@ -1,6 +1,6 @@
 package scoring
 
-import "nice-weather-finder-poc/internal/weatherinput"
+import "nice-weather-finder/internal/weatherinput"
 
 func interpolate(value float64, points [][2]float64) float64 {
 	if value <= points[0][0] {

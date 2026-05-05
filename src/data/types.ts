@@ -19,7 +19,15 @@ export type Manifest = {
   version: 1;
   generatedAt: string;
   sources: {
-    forecast: { name: string; run: string; aggregation?: string; horizons: string[] };
+    forecast: {
+      name: string;
+      run: string;
+      runStartedAt?: string;
+      aggregation?: string;
+      staleAfterHours?: number;
+      horizons: string[];
+      horizonDetails?: ForecastHorizon[];
+    };
     climatology?: { name: string; period: string; horizons: string[] };
   };
   layers: LayerManifest[];
@@ -29,6 +37,14 @@ export type Manifest = {
     max: number;
     categories: LegendCategory[];
   };
+};
+
+export type ForecastHorizon = {
+  id: string;
+  label: string;
+  localDate: string;
+  windowStart: string;
+  windowEnd: string;
 };
 
 export type AnchorScore = {
@@ -47,6 +63,10 @@ export type Anchor = {
   name: string;
   lon: number;
   lat: number;
+  horizons: Record<string, AnchorHorizon>;
+};
+
+export type AnchorHorizon = {
   input: {
     tempC: number;
     humidity: number;

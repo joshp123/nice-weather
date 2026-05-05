@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nice-weather-finder-poc/internal/landmask"
-	"nice-weather-finder-poc/internal/scoring"
-	"nice-weather-finder-poc/internal/weatherinput"
+	"nice-weather-finder/internal/landmask"
+	"nice-weather-finder/internal/scoring"
+	"nice-weather-finder/internal/weatherinput"
 )
 
 func TestPalettePixelsUseExactCategoryColors(t *testing.T) {

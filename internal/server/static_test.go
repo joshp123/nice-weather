@@ -40,6 +40,33 @@ func TestHandlerServesArtifactsOutsideWebBuild(t *testing.T) {
 	assertStatus(t, server.URL+"/artifacts/tiles/forecast/general/d1/0/0/missing.png", http.StatusNotFound)
 }
 
+func TestHandlerServesPublishedCurrentRelease(t *testing.T) {
+	root := t.TempDir()
+	webDir := filepath.Join(root, "dist")
+	artifactDir := filepath.Join(root, "artifacts")
+	releaseDir := filepath.Join(artifactDir, "releases", "run")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(webDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>app shell</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseDir, "manifest.json"), []byte(`{"published":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("releases", "run"), filepath.Join(artifactDir, "current")); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(Handler(webDir, artifactDir))
+	defer server.Close()
+
+	assertBody(t, server.URL+"/artifacts/manifest.json", http.StatusOK, `{"published":true}`)
+}
+
 func assertBody(t *testing.T, url string, wantStatus int, wantSubstring string) {
 	t.Helper()
 	resp, err := http.Get(url)

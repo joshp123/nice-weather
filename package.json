@@ -1,5 +1,5 @@
 {
-  "name": "nice-weather-finder-poc",
+  "name": "nice-weather-finder",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
     "test": "vitest run",
+    "qa:browser": "node scripts/qa-browser.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
@@ -17,9 +18,11 @@
     "vite": "^7.2.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }

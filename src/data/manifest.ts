@@ -1,4 +1,4 @@
-import type { Basis, Manifest, Profile } from './types';
+import type { Basis, ForecastHorizon, Manifest, Profile } from './types';
 
 export async function loadManifest(): Promise<Manifest> {
   const startedAt = performance.now();
@@ -28,6 +28,30 @@ export function findLayer(manifest: Manifest, basis: Basis, profile: Profile, ho
 
 export function horizonsFor(manifest: Manifest, basis: Basis): string[] {
   return basis === 'forecast' ? manifest.sources.forecast.horizons : (manifest.sources.climatology?.horizons ?? []);
+}
+
+export function forecastHorizonDetail(manifest: Manifest, horizon: string): ForecastHorizon | undefined {
+  return manifest.sources.forecast.horizonDetails?.find((detail) => detail.id === horizon);
+}
+
+export type ForecastFreshness = {
+  state: 'fresh' | 'stale' | 'unknown';
+  ageHours?: number;
+  staleAfterHours?: number;
+};
+
+export function forecastFreshness(manifest: Manifest, now = new Date()): ForecastFreshness {
+  const runStartedAt = manifest.sources.forecast.runStartedAt;
+  if (!runStartedAt) return { state: 'unknown' };
+  const runTime = new Date(runStartedAt);
+  if (Number.isNaN(runTime.getTime())) return { state: 'unknown' };
+  const ageHours = Math.max(0, (now.getTime() - runTime.getTime()) / 3_600_000);
+  const staleAfterHours = manifest.sources.forecast.staleAfterHours ?? 12;
+  return {
+    state: ageHours > staleAfterHours ? 'stale' : 'fresh',
+    ageHours,
+    staleAfterHours,
+  };
 }
 
 export function validHorizon(horizons: string[], horizon: string): string | undefined {

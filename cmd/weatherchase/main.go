@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -11,18 +12,20 @@ import (
 	"sync"
 	"time"
 
-	"nice-weather-finder-poc/internal/artifact"
-	"nice-weather-finder-poc/internal/dwd"
-	"nice-weather-finder-poc/internal/grid"
-	"nice-weather-finder-poc/internal/landmask"
-	"nice-weather-finder-poc/internal/scoring"
-	"nice-weather-finder-poc/internal/server"
-	"nice-weather-finder-poc/internal/tiles"
-	"nice-weather-finder-poc/internal/weatherinput"
+	"nice-weather-finder/internal/artifact"
+	"nice-weather-finder/internal/dwd"
+	"nice-weather-finder/internal/grid"
+	"nice-weather-finder/internal/landmask"
+	"nice-weather-finder/internal/scoring"
+	"nice-weather-finder/internal/server"
+	"nice-weather-finder/internal/tiles"
+	"nice-weather-finder/internal/timezone"
+	"nice-weather-finder/internal/weatherinput"
 )
 
 var profiles = []scoring.Profile{scoring.ProfileGeneral, scoring.ProfileCycling}
-var forecastHorizons = []string{"d1"}
+var staleAfterHours = 12
+var cachedRunsToKeep = 2
 
 var anchors = []struct {
 	name string
@@ -49,8 +52,8 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
-	case "build":
-		err = runBuild(os.Args[2:])
+	case "update":
+		err = runUpdate(os.Args[2:])
 	case "inspect-dwd":
 		err = runInspectDWD(os.Args[2:])
 	case "serve":
@@ -65,51 +68,98 @@ func main() {
 	}
 }
 
-func runBuild(args []string) error {
-	flags := flag.NewFlagSet("build", flag.ExitOnError)
-	dir := flags.String("dir", "./.cache/dwd/daytime", "directory containing DWD ICON-EU GRIB2 files")
+func runUpdate(args []string) error {
+	flags := flag.NewFlagSet("update", flag.ExitOnError)
+	cache := flags.String("cache", "./.cache/dwd/forecast", "DWD ICON-EU forecast cache directory")
 	land := flags.String("land", "./.cache/land/ne_50m_land.geojson", "Natural Earth land GeoJSON used to mask sea pixels")
-	out := flags.String("out", "./artifacts", "artifact output directory")
-	runLabel := flags.String("run", "local steps 008-018", "forecast run label for the manifest")
+	out := flags.String("out", "./artifacts", "published artifact root")
+	days := flags.Int("days", 5, "number of local forecast dates to publish")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(*out); err != nil {
-		return err
+	if *days < 1 || *days > 5 {
+		return fmt.Errorf("--days must be between 1 and 5 for ICON-EU")
 	}
-	if err := os.MkdirAll(*out, 0o755); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Minute)
 	defer cancel()
-	inputs, err := dwd.LoadDaytimeGrid(ctx, *dir)
+
+	steps := dwd.ForecastSteps()
+	run, err := dwd.LatestCompleteRunForLocalDays(ctx, time.Now(), steps, *days)
 	if err != nil {
 		return err
 	}
+	fmt.Printf("latest complete DWD ICON-EU run with %d full local forecast dates: %s\n", *days, run.ID)
+	if currentRun, ok := currentForecastRun(*out); ok && currentRun == run.ID {
+		if err := dwd.PruneCachedRuns(*cache, cachedRunsToKeep); err != nil {
+			return err
+		}
+		fmt.Printf("published forecast already uses DWD ICON-EU run %s; no update needed\n", run.ID)
+		return nil
+	}
+
+	runDir, err := dwd.DownloadRun(ctx, run, steps, *cache)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("cached DWD ICON-EU files in %s\n", runDir)
+
+	locator, err := timezone.NewLocator()
+	if err != nil {
+		return err
+	}
+	horizons := dwd.FullLocalHorizonDates(run.StartedAt, *days)
+	forecast, err := dwd.LoadLocalDaytimeGrid(ctx, runDir, run.StartedAt, horizons, locator.Location)
+	if err != nil {
+		return err
+	}
+	inputs := forecast.Grid
 	mask, err := landmask.LoadGeoJSON(*land)
 	if err != nil {
 		return err
 	}
 	inputs.ApplyLandMask(mask.TouchesCell)
-	manifest := buildManifest(inputs, *runLabel)
-	tileCount, err := writeForecastTiles(*out, manifest.Layers, inputs)
+
+	releaseName := run.ID + "-" + time.Now().UTC().Format("20060102T150405Z")
+	releaseDir, err := artifact.NewReleaseDir(*out, releaseName)
 	if err != nil {
 		return err
 	}
-	if err := artifact.Validate(manifest); err != nil {
-		return err
-	}
-	data, err := manifest.JSON()
+	manifest := buildManifest(inputs, run.ID, run.StartedAt, forecast.Horizons)
+	tileCount, err := writeForecastTiles(releaseDir, manifest.Layers, inputs)
 	if err != nil {
 		return err
 	}
-	manifestPath := filepath.Join(*out, "manifest.json")
-	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+	if err := writeManifest(releaseDir, manifest); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s\n", manifestPath)
+	if err := artifact.PublishRelease(*out, releaseDir); err != nil {
+		return err
+	}
+	if err := artifact.PruneReleases(*out, 2); err != nil {
+		return err
+	}
+	if err := dwd.PruneCachedRuns(*cache, cachedRunsToKeep); err != nil {
+		return err
+	}
+	fmt.Printf("published %s\n", filepath.Join(*out, "current"))
 	fmt.Printf("wrote %d DWD ICON-EU layers and %d raster tiles\n", len(manifest.Layers), tileCount)
 	return nil
+}
+
+func currentForecastRun(out string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(artifact.PublishedRoot(out), "manifest.json"))
+	if err != nil {
+		return "", false
+	}
+	var manifest artifact.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return "", false
+	}
+	if manifest.Sources.Forecast.Run == "" {
+		return "", false
+	}
+	return manifest.Sources.Forecast.Run, true
 }
 
 func runInspectDWD(args []string) error {
@@ -217,12 +267,29 @@ func runServe(args []string) error {
 	return server.Serve(*webDir, *artifactDir, *addr)
 }
 
-func buildManifest(inputs weatherinput.Grid, runLabel string) artifact.Manifest {
-	layers := make([]artifact.Layer, 0, len(profiles)*len(forecastHorizons))
+func buildManifest(inputs weatherinput.Grid, runLabel string, runStartedAt time.Time, horizons []dwd.Horizon) artifact.Manifest {
+	horizonIDs := make([]string, 0, len(horizons))
+	horizonDetails := make([]artifact.ForecastHorizon, 0, len(horizons))
+	for _, horizon := range horizons {
+		horizonIDs = append(horizonIDs, horizon.ID)
+		horizonDetails = append(horizonDetails, artifact.ForecastHorizon{
+			ID:          horizon.ID,
+			Label:       horizon.Label,
+			LocalDate:   horizon.LocalDate,
+			WindowStart: "10:00",
+			WindowEnd:   "20:00",
+		})
+	}
+
+	layers := make([]artifact.Layer, 0, len(profiles)*len(horizonIDs))
 	for _, profile := range profiles {
-		for _, horizon := range forecastHorizons {
+		for _, horizon := range horizonIDs {
 			layers = append(layers, artifact.Layer{Basis: "forecast", Profile: string(profile), Horizon: horizon, TileURL: artifact.TileURL("forecast", string(profile), horizon)})
 		}
+	}
+	runStartedAtText := ""
+	if !runStartedAt.IsZero() {
+		runStartedAtText = runStartedAt.UTC().Format(time.RFC3339)
 	}
 	return artifact.Manifest{
 		Version:     1,
@@ -232,33 +299,61 @@ func buildManifest(inputs weatherinput.Grid, runLabel string) artifact.Manifest 
 			Forecast: artifact.ForecastSource{
 				Name:               "DWD ICON-EU",
 				Run:                runLabel,
+				RunStartedAt:       runStartedAtText,
 				ResolutionKMApprox: 7,
-				Aggregation:        "10:00-20:00 Europe/Amsterdam forecast window: average temp/humidity/cloud/wind, accumulated rain delta",
-				Horizons:           forecastHorizons,
+				Aggregation:        "10:00-20:00 local time per grid cell: average temp/humidity/cloud/wind, accumulated rain delta",
+				StaleAfterHours:    staleAfterHours,
+				Horizons:           horizonIDs,
+				HorizonDetails:     horizonDetails,
 			},
 		},
 		Layers:  layers,
-		Anchors: buildAnchors(inputs, forecastHorizons[0]),
+		Anchors: buildAnchors(inputs, horizonIDs),
 		Legend:  legend(),
 	}
 }
 
-func buildAnchors(inputs weatherinput.Grid, horizon string) []artifact.Anchor {
+func writeManifest(out string, manifest artifact.Manifest) error {
+	if err := artifact.Validate(manifest); err != nil {
+		return err
+	}
+	data, err := manifest.JSON()
+	if err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(out, "manifest.json")
+	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s\n", manifestPath)
+	return nil
+}
+
+func buildAnchors(inputs weatherinput.Grid, horizons []string) []artifact.Anchor {
 	result := make([]artifact.Anchor, 0, len(anchors))
 	for _, anchor := range anchors {
-		input, ok := inputs.InputAt(horizon, anchor.lon, anchor.lat)
-		if !ok {
+		anchorHorizons := map[string]artifact.AnchorHorizon{}
+		for _, horizon := range horizons {
+			input, ok := inputs.InputAt(horizon, anchor.lon, anchor.lat)
+			if !ok {
+				continue
+			}
+			anchorHorizons[horizon] = artifact.AnchorHorizon{
+				Input: artifact.AnchorInput{TempC: round1(input.TempC), Humidity: round1(input.Humidity), RainMM: round1(input.RainMM), CloudPct: round1(input.CloudPct), WindKMH: round1(input.WindKMH)},
+				Scores: map[string]artifact.AnchorScore{
+					string(scoring.ProfileGeneral): anchorScore(input, scoring.ProfileGeneral),
+					string(scoring.ProfileCycling): anchorScore(input, scoring.ProfileCycling),
+				},
+			}
+		}
+		if len(anchorHorizons) == 0 {
 			continue
 		}
 		result = append(result, artifact.Anchor{
-			Name:  anchor.name,
-			Lon:   anchor.lon,
-			Lat:   anchor.lat,
-			Input: artifact.AnchorInput{TempC: round1(input.TempC), Humidity: round1(input.Humidity), RainMM: round1(input.RainMM), CloudPct: round1(input.CloudPct), WindKMH: round1(input.WindKMH)},
-			Scores: map[string]artifact.AnchorScore{
-				string(scoring.ProfileGeneral): anchorScore(input, scoring.ProfileGeneral),
-				string(scoring.ProfileCycling): anchorScore(input, scoring.ProfileCycling),
-			},
+			Name:     anchor.name,
+			Lon:      anchor.lon,
+			Lat:      anchor.lat,
+			Horizons: anchorHorizons,
 		})
 	}
 	return result
@@ -310,5 +405,5 @@ func tileLonLat(z, x, y int) (float64, float64) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --run 'YYYYMMDDHH steps 008-018' | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:4173")
+	fmt.Fprintln(os.Stderr, "usage: weatherchase update --cache ./.cache/dwd/forecast --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --days 5 | weatherchase inspect-dwd --file ./file.grib2 | weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:4173")
 }

@@ -25,9 +25,10 @@ Local project path:
 Useful generated/runtime paths:
 
 ```text
-./.cache/dwd/daytime/              local DWD ICON-EU GRIB2 inputs
+./.cache/dwd/forecast/             cached DWD ICON-EU GRIB2 forecast runs
 ./.cache/land/ne_50m_land.geojson  Natural Earth land mask
-./artifacts/                       generated weather manifest and PNG tiles
+./artifacts/current/               published weather manifest and PNG tiles
+./artifacts/releases/              retained generated releases
 ./dist/                            Vite frontend build
 ```
 
@@ -35,12 +36,13 @@ Useful generated/runtime paths:
 
 ## Current Implementation
 
-The active POC is Europe-only forecast rendering.
+The active app is Europe-only forecast rendering.
 
-- Forecast source: local DWD ICON-EU GRIB2 files.
+- Forecast source: newest complete DWD ICON-EU GRIB2 run that can cover the requested full local-day windows.
 - Forecast grid: native regular lat/lon `0.0625` degree ICON-EU grid.
-- Forecast horizon: one horizon, `d1`.
-- Day window: current shortcut aggregates steps `008..018` from one run as 10:00-20:00 Europe/Amsterdam.
+- Forecast horizons: today plus the next four local forecast dates.
+- Day window: `10:00-20:00` local time per grid cell. The grid-cell center chooses the IANA timezone at boundaries.
+- Forecast freshness: manifest carries DWD run time, build time, selected local date/window, and stale threshold; the UI must show these prominently.
 - Land mask: Natural Earth land polygons; masking prefers full land/coast/island coverage over perfectly excluding every sea pixel.
 - Frontend: Vite React TypeScript + MapLibre.
 - Backend/pipeline: Go CLI.
@@ -50,11 +52,11 @@ Current CLI:
 
 ```bash
 devenv shell
-go run ./cmd/weatherchase build \
-  --dir ./.cache/dwd/daytime \
+go run ./cmd/weatherchase update \
+  --cache ./.cache/dwd/forecast \
   --land ./.cache/land/ne_50m_land.geojson \
   --out ./artifacts \
-  --run 'YYYYMMDDHH steps 008-018'
+  --days 5
 go run ./cmd/weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:5173
 ```
 
@@ -89,21 +91,22 @@ Frontend must never rescore weather. The frontend reads `/artifacts/manifest.jso
 Generated forecast artifacts are dynamic data, not frontend assets. The frontend build and generated weather artifacts are served as separate roots:
 
 ```text
-./dist       -> app shell and JS/CSS
-./artifacts  -> manifest and weather tiles
+./dist               -> app shell and JS/CSS
+./artifacts/current  -> manifest and weather tiles
 ```
 
-This keeps climate and forecast artifacts free to have different rebuild cadences without changing the UI contract.
+`weatherchase update` builds a release under `./artifacts/releases/` and atomically repoints `./artifacts/current` after validation. This keeps climate and forecast artifacts free to have different rebuild cadences without changing the UI contract.
 
 ## Important Modules
 
 ```text
-cmd/weatherchase/main.go        CLI entrypoint: build, inspect-dwd, serve
+cmd/weatherchase/main.go        CLI entrypoint: update, build, inspect-dwd, serve
 internal/dwd/                   DWD ICON-EU field loading and mapping
+internal/timezone/              coordinate -> IANA timezone lookup
 internal/weatherinput/          canonical input grid and aggregation
 internal/scoring/               only scoring policy
 internal/tiles/                 WeatherInput grid -> scored PNG tile
-internal/artifact/              manifest and tile path contract
+internal/artifact/              manifest, tile path, release publish contract
 internal/landmask/              land/coast/island coverage policy
 internal/server/                serves ./dist and ./artifacts separately
 src/data/                       manifest loading and frontend layer lookup
@@ -140,22 +143,19 @@ Perfect   #16a34a
 Pristine  #f59e0b
 ```
 
-## Known Shortcuts And Gaps
+## Known Gaps
 
-- `d1` is an internal-looking horizon and should become date-based horizon IDs with human labels.
-- Forecast aggregation currently uses Amsterdam time; proper implementation must aggregate 10:00-20:00 local time per grid cell.
-- Only one forecast horizon is generated.
-- DWD run discovery/download is not automated; current build expects local GRIB2 files.
-- Anchor scores are not yet horizon-aware.
 - Climatology is not implemented.
-- Land mask uses Natural Earth 50m; good enough for POC, not final coastline precision.
+- Land mask uses Natural Earth 50m; good enough for the current Europe-first forecast, not final coastline precision.
+- Timezone selection uses the grid-cell center. That is the intended simple rule for timezone boundaries.
+- Open-sea grid centers without a timezone fall back to UTC, then the land mask hides open sea pixels.
 - Current tiles are PNG filesystem tiles; revisit PMTiles or COG only when artifact size or serving complexity demands it.
 
-## Forecast Roadmap
+## Forecast Workflow
 
-The next forecast workflow should stay pre-rendered and boring:
+The forecast workflow is pre-rendered and boring:
 
-1. Detect the latest complete DWD ICON-EU run by checking required files, not by trusting the clock.
+1. Detect the newest complete DWD ICON-EU run that can cover the requested full local-day windows by checking required files, not by trusting the clock.
 2. Download/decompress required fields and steps into `.cache/dwd`.
 3. Build forecast horizons as local calendar dates.
 4. For each grid cell, map lon/lat to an IANA timezone using timezone polygons.
@@ -163,18 +163,20 @@ The next forecast workflow should stay pre-rendered and boring:
 6. Aggregate temperature, humidity, cloud, and wind as daytime averages.
 7. Aggregate rain as the precipitation accumulation delta across the local daytime window.
 8. Convert to `WeatherInput`, score once, render tiles, write manifest.
-9. Write artifacts to a staging directory, validate, then atomically swap into `./artifacts`.
+9. Write artifacts to a release directory, validate, then atomically repoint `./artifacts/current`.
 
 Rebuild cadence:
 
-- rebuild when a newer complete DWD run is available
+- run the updater hourly on a VPS
+- rebuild only when a newer complete usable DWD run is available
+- expect DWD run candidates around `00Z`, `06Z`, `12Z`, and `18Z`; never assume a run is complete or usable until the files are present and it can cover the requested full local-day windows
 - do not live-render tiles per HTTP request
 - do not bundle forecast data into `./dist`
 
 Plain-English VPS workflow:
 
 - A Linux timer runs one command every so often.
-- That command checks whether DWD has published a newer complete forecast.
+- That command checks whether DWD has published a newer complete forecast that can produce the requested full local-day windows.
 - If nothing changed, it exits without touching the live site.
 - If there is a newer complete run, it downloads the required files, builds tiles in a temporary staging directory, validates them, then swaps the finished directory into place.
 - Users either see the previous good forecast or the new good forecast; they should not see a half-built artifact tree.
@@ -183,7 +185,8 @@ When time advances:
 
 - manifest horizon IDs should remain local dates such as `2026-05-05`
 - frontend labels can render `today`, `tomorrow`, or weekday/date from those IDs
-- a new DWD run replaces artifacts atomically; old frontend sessions should fail clearly or reload if manifest/tile versions drift
+- a new DWD run replaces artifacts atomically
+- stale forecast state must be visually obvious if the published run is older than the manifest threshold
 
 ## Climatology Roadmap
 
@@ -197,12 +200,10 @@ Monthly horizons should be `jan..dec` or date-independent month IDs. Climate art
 
 ## Short-Term Priorities
 
-1. Replace Amsterdam-time `d1` with timezone-correct multi-day forecast horizons.
-2. Make anchors horizon-aware and clickable details reflect the selected horizon.
-3. Add latest-complete DWD run discovery/download.
-4. Add atomic artifact swap and manifest version metadata.
-5. Add WorldClim monthly climatology artifacts.
-6. Keep frontend tests in the Node environment unless a test actually needs DOM APIs; `vite.config.ts` is typechecked with Node types and Vitest config typing.
+1. Add WorldClim monthly climatology artifacts.
+2. Improve visual polish through the production-component design-system route.
+3. Add VPS deployment docs/timer unit after the update command settles.
+4. Keep frontend tests in the Node environment unless a test actually needs DOM APIs; `vite.config.ts` is typechecked with Node types and Vitest config typing.
 
 ## Xuezh Workflow Lessons To Port
 
@@ -232,15 +233,21 @@ go test ./...
 go vet ./...
 devenv shell -- npm run test
 devenv shell -- npm run build
+devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
+devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
 ```
+
+Run these sequentially. Parallel `devenv shell` commands can race on `.devenv/load-exports`.
 
 Observable checks:
 
 ```bash
-go run ./cmd/weatherchase build --dir ./.cache/dwd/daytime --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --run 'YYYYMMDDHH steps 008-018'
+go run ./cmd/weatherchase update --cache ./.cache/dwd/forecast --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --days 5
 go run ./cmd/weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:5173
 curl -I http://127.0.0.1:5173/artifacts/manifest.json
-curl -I http://127.0.0.1:5173/artifacts/tiles/forecast/general/d1/6/35/24.png
+curl -I http://127.0.0.1:5173/artifacts/tiles/forecast/general/2026-05-05/6/35/24.png
 ```
 
 Use the in-app browser or Browser Use to verify the rendered map, controls, anchor details, console logs, and screenshot pixels.
+If Browser Use is unavailable, the committed `qa:browser` script is the repo fallback. It saves screenshots in `output/screenshots/` and fails on blank map screenshots, missing freshness/date/window text, missing tile requests, or design-system route drift.
+If Browser Use is not exposed, `npm run qa:browser` performs the same core UI checks with Playwright and saves screenshots under `output/screenshots/`.
