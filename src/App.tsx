@@ -108,18 +108,19 @@ function NiceWeatherScreen({
   return (
     <main className="app">
       <section className="panel">
-        <div className="intro">
-          <p className="eyebrow">Nice Weather Finder</p>
-          <h1>Find the warm, dry, bike-friendly parts of Europe.</h1>
-          <p className="summary">Built for escaping Dutch grey weather. Scores heavily prefer 22-27C, low rain, sun, and low wind.</p>
+        <div className="statusStack">
+          <div className="intro">
+            <p className="eyebrow">Nice Weather Finder</p>
+            <h1>Warm, dry, bike-friendly Europe.</h1>
+            <p className="summary">Scores prefer 22-27C, dry air, low cloud, and low wind.</p>
+          </div>
+          {error && <p className="error">{error}</p>}
+          {!manifest && !error && <p className="loading">Loading real forecast artifacts...</p>}
+          {manifest && <FreshnessStatus manifest={manifest} horizon={horizonDetail} />}
         </div>
-
-        {error && <p className="error">{error}</p>}
-        {!manifest && !error && <p className="loading">Loading real forecast artifacts...</p>}
 
         {manifest && (
           <>
-            <FreshnessStatus manifest={manifest} horizon={horizonDetail} />
             <div className="controlStrip">
               <div className="controls">
                 <BasisToggle value={basis} enabled={enabledBasis} onChange={onBasisChange} />
@@ -128,22 +129,30 @@ function NiceWeatherScreen({
               </div>
               <Legend categories={manifest.legend.categories} />
             </div>
-            <div className="anchorList" aria-label="Anchor city scores">
-              {visibleAnchors.map((anchor) => {
-                const anchorHorizon = anchorWithHorizon(anchor, horizon);
-                if (!anchorHorizon) return null;
-                const score = anchorHorizon.scores[profile];
-                return (
-                  <button className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'} key={anchor.name} onClick={() => onAnchorSelect(anchor)}>
-                    <span className="anchorDot" style={{ background: score.color }} />
-                    <span>{anchor.name}</span>
-                    <strong>{score.score}</strong>
-                  </button>
-                );
-              })}
+            <div className="anchorStack">
+              <div className="sectionHeader">
+                <span>Anchor Cities</span>
+                <span>{profile}</span>
+              </div>
+              <div className="anchorList" aria-label="Anchor city scores">
+                {visibleAnchors.map((anchor) => {
+                  const anchorHorizon = anchorWithHorizon(anchor, horizon);
+                  if (!anchorHorizon) return null;
+                  const score = anchorHorizon.scores[profile];
+                  return (
+                    <button className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'} key={anchor.name} onClick={() => onAnchorSelect(anchor)}>
+                      <span className="anchorDot" style={{ background: score.color }} />
+                      <span>{anchor.name}</span>
+                      <strong>{score.score}</strong>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            {selectedAnchor && horizon && <AnchorDetail anchor={selectedAnchor} horizon={horizon} profile={profile} />}
-            <ScoringGuide basis={basis} />
+            <div className="detailStack">
+              {selectedAnchor && horizon && <AnchorDetail anchor={selectedAnchor} horizon={horizon} profile={profile} />}
+              <ScoringGuide basis={basis} />
+            </div>
           </>
         )}
       </section>
@@ -197,16 +206,18 @@ function AnchorDetail({ anchor, horizon, profile }: { anchor: Anchor; horizon: s
 function ScoringGuide({ basis }: { basis: Basis }) {
   return (
     <section className="scoringGuide" aria-label="Scoring guide">
-      <h2>Good means</h2>
+      <div className="sectionHeader">
+        <span>Good Means</span>
+        <span>{basis === 'forecast' ? 'model forecast' : 'climate normal'}</span>
+      </div>
       <dl>
-        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10:00-20:00 local time' : 'daytime monthly normal'}</dd></div>
-        <div><dt>Temp</dt><dd>avg 22-27C</dd></div>
-        <div><dt>Rain</dt><dd>total near 0mm</dd></div>
-        <div><dt>Cloud</dt><dd>avg 0-20%</dd></div>
-        <div><dt>Wind</dt><dd>avg under 10km/h</dd></div>
-        <div><dt>Humidity</dt><dd>avg 30-60%</dd></div>
+        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10-20 local' : 'monthly daytime'}</dd></div>
+        <div><dt>Temp</dt><dd>22-27C avg</dd></div>
+        <div><dt>Rain</dt><dd>near 0mm</dd></div>
+        <div><dt>Cloud</dt><dd>0-20% avg</dd></div>
+        <div><dt>Wind</dt><dd>&lt;10km/h avg</dd></div>
+        <div><dt>Humidity</dt><dd>30-60%</dd></div>
       </dl>
-      <p>Forecast is model output for the selected day. It is not live observed weather.</p>
     </section>
   );
 }

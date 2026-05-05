@@ -38,8 +38,10 @@ export function WeatherMap({ layer, anchors, profile, horizon, selectedAnchor, o
       },
       center: EUROPE_CENTER,
       zoom: 4.65,
+      attributionControl: false,
     });
     mapRef.current = nextMap;
+    nextMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
     nextMap.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
     nextMap.on('load', () => {
       console.info('nice-weather-finder:map-loaded', JSON.stringify({
