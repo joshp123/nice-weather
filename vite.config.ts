@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { createReadStream, existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
@@ -40,6 +40,6 @@ export default defineConfig({
     },
   ],
   test: {
-    environment: 'jsdom',
+    environment: 'node',
   },
 });

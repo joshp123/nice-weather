@@ -6,6 +6,45 @@ Josh owns this project.
 
 Nice Weather Finder is a Europe-first map for escaping Dutch grey/cold weather and finding warm, sunny, bike-friendly places. User preference is warm comfort, sunshine, dry conditions, and cycling-friendly low wind. `16C` is mediocre, not good.
 
+## New-Agent Handoff
+
+Before editing, read:
+
+1. `README.md` for the current runnable project shape.
+2. `docs/project-context.md` for product intent, current state, architecture, known shortcuts, and roadmap.
+3. `.agent/execplan-pending.md` for the living implementation log and review history.
+
+Current local project path:
+
+`/Users/josh/code/nice-weather-finder`
+
+Current state:
+
+- Active POC is Europe-only forecast rendering from local DWD ICON-EU GRIB2 files.
+- Generated weather data lives in `./artifacts`; it is not frontend static build output.
+- Frontend build lives in `./dist`.
+- Current forecast horizon is only `d1`; the current 10:00-20:00 aggregation uses an Amsterdam-time shortcut and must be replaced by per-cell local-time aggregation.
+- Climatology is planned but not implemented; WorldClim is the intended first source.
+
+Near-term plan:
+
+1. Multi-day forecast horizons as local calendar dates.
+2. Per-grid-cell local 10:00-20:00 aggregation from timezone polygons.
+3. Horizon-aware anchor pins/details so city scores change with selected day.
+4. Latest-complete DWD run detection/download, then atomic artifact rebuild/swap.
+5. WorldClim monthly climatology artifacts using the same `WeatherInput -> score -> tile` path.
+
+## UI And Self-Review Workflow
+
+Borrow the xuezh app discipline for web work:
+
+- Add a design-system/debug route before major UI iteration, preferably `#/design-system`.
+- The design-system route must render the same production React components used by the real app, not copied demo markup.
+- Cover the important states there: map shell, loading, missing manifest, layer error, controls, legend, anchor list, anchor detail, scoring explainer, and mobile layout.
+- After UI changes, run the app in a browser, capture screenshots for the relevant states, and reject the work if text clips, controls wrap badly, map interactions break, production and design-system components drift, or the score explanation is unclear.
+- For data changes, inspect generated artifacts, manifest, tile pixels, anchor scores, and served URLs. Do not judge correctness only from the full map screenshot.
+- Use disposable/generated artifacts for smoke checks; do not mutate source weather caches unless that is the task.
+
 ## Stack
 
 - `devenv.nix` is the dependency entrypoint.

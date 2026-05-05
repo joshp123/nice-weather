@@ -2,6 +2,8 @@
 
 POC for a Europe-first weather map that helps chase pleasant weather for travel and cycling.
 
+New agents should read `AGENTS.md`, then `docs/project-context.md`.
+
 ## Scope
 
 - Frontend: Vite + React + TypeScript + MapLibre.
@@ -13,6 +15,8 @@ POC for a Europe-first weather map that helps chase pleasant weather for travel 
 - Profiles: `general`, `cycling`.
 - Time basis: `forecast` daytime aggregate from DWD steps 008..018 for the 00Z run, representing 10:00-20:00 Europe/Amsterdam time; `climatology` returns when real monthly artifacts exist.
 - Horizons: `d1`.
+
+The Amsterdam-time `d1` horizon is a known POC shortcut. The next forecast milestone is timezone-correct local `10:00-20:00` aggregation per grid cell for multiple date-based forecast horizons.
 
 ## One Scoring Contract
 
