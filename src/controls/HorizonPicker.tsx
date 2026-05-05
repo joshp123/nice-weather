@@ -9,9 +9,9 @@ type Props = {
 
 export function HorizonPicker({ horizons, details = [], value, onChange }: Props) {
   return (
-    <div className="horizonGrid" aria-label="Horizon">
+    <div className="horizonGrid" role="group" aria-label="Horizon">
       {horizons.map((horizon) => (
-        <button key={horizon} className={horizon === value ? 'active' : ''} onClick={() => onChange(horizon)}>
+        <button key={horizon} aria-pressed={horizon === value} className={horizon === value ? 'active' : ''} onClick={() => onChange(horizon)}>
           {horizonLabel(horizon, details)}
         </button>
       ))}

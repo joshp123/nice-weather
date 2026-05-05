@@ -130,17 +130,19 @@ function NiceWeatherScreen({
               <Legend categories={manifest.legend.categories} />
             </div>
             <div className="anchorStack">
-              <div className="sectionHeader">
-                <span>Anchor Cities</span>
-                <span>{profile}</span>
-              </div>
+              <SectionHeader label="Anchor Cities" meta={profile} />
               <div className="anchorList" aria-label="Anchor city scores">
                 {visibleAnchors.map((anchor) => {
                   const anchorHorizon = anchorWithHorizon(anchor, horizon);
                   if (!anchorHorizon) return null;
                   const score = anchorHorizon.scores[profile];
                   return (
-                    <button className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'} key={anchor.name} onClick={() => onAnchorSelect(anchor)}>
+                    <button
+                      aria-pressed={anchor.name === selectedAnchor?.name}
+                      className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'}
+                      key={anchor.name}
+                      onClick={() => onAnchorSelect(anchor)}
+                    >
                       <span className="anchorDot" style={{ background: score.color }} />
                       <span>{anchor.name}</span>
                       <strong>{score.score}</strong>
@@ -206,10 +208,7 @@ function AnchorDetail({ anchor, horizon, profile }: { anchor: Anchor; horizon: s
 function ScoringGuide({ basis }: { basis: Basis }) {
   return (
     <section className="scoringGuide" aria-label="Scoring guide">
-      <div className="sectionHeader">
-        <span>Good Means</span>
-        <span>{basis === 'forecast' ? 'model forecast' : 'climate normal'}</span>
-      </div>
+      <SectionHeader label="Good Means" meta={basis === 'forecast' ? 'model forecast' : 'climate normal'} />
       <dl>
         <div><dt>Window</dt><dd>{basis === 'forecast' ? '10-20 local' : 'monthly daytime'}</dd></div>
         <div><dt>Temp</dt><dd>22-27C avg</dd></div>
@@ -219,6 +218,15 @@ function ScoringGuide({ basis }: { basis: Basis }) {
         <div><dt>Humidity</dt><dd>30-60%</dd></div>
       </dl>
     </section>
+  );
+}
+
+function SectionHeader({ label, meta }: { label: string; meta: string }) {
+  return (
+    <div className="sectionHeader">
+      <span>{label}</span>
+      <span>{meta}</span>
+    </div>
   );
 }
 

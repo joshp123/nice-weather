@@ -6,7 +6,7 @@ type Props = {
 
 export function Legend({ categories }: Props) {
   return (
-    <div className="legend">
+    <div className="legend" role="group" aria-label="Score color legend">
       {categories.map((category) => (
         <div key={category.label} className="legendItem">
           <span className="swatch" style={{ background: category.color }} />
@@ -19,4 +19,3 @@ export function Legend({ categories }: Props) {
     </div>
   );
 }
-

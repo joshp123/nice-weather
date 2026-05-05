@@ -41,10 +41,13 @@ Near-term state/plan:
 
 Borrow the xuezh app discipline for web work:
 
+- Keep the UI system intentionally small: one body/display font stack, one bottom map cockpit, one segmented-control style, one section-header style, one anchor-row style, one score-detail table style, and one map-pin style.
+- The map is the primary surface. The cockpit is supporting chrome and must not stretch into empty space on large monitors; it is capped for 57-inch/ultrawide-class workspaces.
+- Do not add cards inside cards, alternate button families, decorative palettes, or new explanatory panels unless an observed workflow needs them.
 - Add a design-system/debug route before major UI iteration, preferably `#/design-system`.
 - The design-system route must render the same production React components used by the real app, not copied demo markup.
 - Cover the important states there: map shell, loading, missing manifest, layer error, controls, legend, anchor list, anchor detail, scoring explainer, and mobile layout.
-- After UI changes, run the app in a browser, capture screenshots for the relevant states, and reject the work if text clips, controls wrap badly, map interactions break, production and design-system components drift, or the score explanation is unclear.
+- After UI changes, run the app in the Codex browser, capture screenshots for the relevant states, and reject the work if text clips, controls wrap badly, map interactions break, production and design-system components drift, large-monitor layout wastes space, or the score explanation is unclear.
 - For data changes, inspect generated artifacts, manifest, tile pixels, anchor scores, and served URLs. Do not judge correctness only from the full map screenshot.
 - Use disposable/generated artifacts for smoke checks; do not mutate source weather caches unless that is the task.
 

@@ -92,6 +92,8 @@ function AnchorMarkers({
       element.className = anchor.name === selectedAnchor?.name ? 'anchorPin selected' : 'anchorPin';
       element.style.setProperty('--pin-color', score.color);
       element.type = 'button';
+      element.setAttribute('aria-label', `${anchor.name}: ${score.score} ${score.category}`);
+      element.setAttribute('aria-pressed', String(anchor.name === selectedAnchor?.name));
       const value = document.createElement('strong');
       value.textContent = String(score.score);
       const label = document.createElement('span');
