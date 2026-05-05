@@ -2,6 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type Map } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
 import type { Anchor, LayerManifest, Profile } from '../data/types';
+import { telemetry, telemetryError } from '../telemetry';
 import { EUROPE_CENTER } from './EuropeBounds';
 import { ScoreRasterLayer } from './ScoreRasterLayer';
 
@@ -10,11 +11,12 @@ type Props = {
   anchors: Anchor[];
   profile: Profile;
   horizon: string | undefined;
+  tileMaxZoom: number;
   selectedAnchor: Anchor | null;
   onAnchorSelect: (anchor: Anchor) => void;
 };
 
-export function WeatherMap({ layer, anchors, profile, horizon, selectedAnchor, onAnchorSelect }: Props) {
+export function WeatherMap({ layer, anchors, profile, horizon, tileMaxZoom, selectedAnchor, onAnchorSelect }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const [map, setMap] = useState<Map | null>(null);
@@ -34,7 +36,22 @@ export function WeatherMap({ layer, anchors, profile, horizon, selectedAnchor, o
             attribution: 'OpenStreetMap',
           },
         },
-        layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.9 } }],
+        layers: [
+          {
+            id: 'sea-background',
+            type: 'background',
+            paint: { 'background-color': '#c7e4df' },
+          },
+          {
+            id: 'osm-context',
+            type: 'raster',
+            source: 'osm',
+            paint: {
+              'raster-opacity': 0.48,
+              'raster-saturation': -0.45,
+            },
+          },
+        ],
       },
       center: EUROPE_CENTER,
       zoom: 4.65,
@@ -44,10 +61,21 @@ export function WeatherMap({ layer, anchors, profile, horizon, selectedAnchor, o
     nextMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
     nextMap.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
     nextMap.on('load', () => {
-      console.info('nice-weather-finder:map-loaded', JSON.stringify({
+      telemetry('map-loaded', {
         elapsedMs: Math.round(performance.now() - startedAt),
-      }));
+      });
       setMap(nextMap);
+    });
+    nextMap.on('error', (event) => {
+      telemetryError('map-error', { message: event.error?.message ?? 'MapLibre error' });
+    });
+    nextMap.on('moveend', () => {
+      const center = nextMap.getCenter();
+      telemetry('map-view-changed', {
+        zoom: Number(nextMap.getZoom().toFixed(2)),
+        lng: Number(center.lng.toFixed(3)),
+        lat: Number(center.lat.toFixed(3)),
+      });
     });
     return () => {
       nextMap.remove();
@@ -58,7 +86,7 @@ export function WeatherMap({ layer, anchors, profile, horizon, selectedAnchor, o
   return (
     <div className="mapShell">
       <div ref={containerRef} className="mapCanvas" data-testid="weather-map" />
-      <ScoreRasterLayer map={map} layer={layer} />
+      <ScoreRasterLayer map={map} layer={layer} maxZoom={tileMaxZoom} />
       <AnchorMarkers map={map} anchors={anchors} profile={profile} horizon={horizon} selectedAnchor={selectedAnchor} onAnchorSelect={onAnchorSelect} />
     </div>
   );

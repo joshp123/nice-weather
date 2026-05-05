@@ -4,7 +4,7 @@
   --color-heading: #101827;
   --color-muted: #667264;
   --color-body: #3f4b3d;
-  --color-surface: rgba(250, 252, 247, 0.93);
+  --color-surface: #fbfcf7;
   --color-border: rgba(100, 116, 96, 0.2);
   --color-control-border: #c8d4c4;
   --color-control-hover: #7e977a;
@@ -52,12 +52,16 @@ button {
   width: 100%;
 }
 
+.mapCanvas {
+  background: #c7e4df;
+}
+
 .panel {
   background: var(--color-surface);
   border: 1px solid rgba(66, 86, 69, 0.18);
   border-radius: var(--radius);
   bottom: 14px;
-  box-shadow: 0 14px 42px rgba(23, 32, 51, 0.2);
+  box-shadow: 0 10px 30px rgba(23, 32, 51, 0.18);
   display: grid;
   gap: 14px;
   grid-template-columns: minmax(225px, 270px) minmax(250px, 310px) minmax(320px, 1fr) minmax(340px, 430px);
@@ -69,7 +73,6 @@ button {
   position: absolute;
   width: calc(100vw - 28px);
   z-index: 2;
-  backdrop-filter: blur(14px);
 }
 
 .statusStack,

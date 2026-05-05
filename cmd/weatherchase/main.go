@@ -90,11 +90,11 @@ func runUpdate(args []string) error {
 		return err
 	}
 	fmt.Printf("latest complete DWD ICON-EU run with %d full local forecast dates: %s\n", *days, run.ID)
-	if currentRun, ok := currentForecastRun(*out); ok && currentRun == run.ID {
+	if currentForecastReusable(*out, run.ID) {
 		if err := dwd.PruneCachedRuns(*cache, cachedRunsToKeep); err != nil {
 			return err
 		}
-		fmt.Printf("published forecast already uses DWD ICON-EU run %s; no update needed\n", run.ID)
+		fmt.Printf("published forecast already uses DWD ICON-EU run %s, tile max zoom %d, and renderer %d; no update needed\n", run.ID, tiles.MaxZoom, tiles.RendererVersion)
 		return nil
 	}
 
@@ -147,19 +147,16 @@ func runUpdate(args []string) error {
 	return nil
 }
 
-func currentForecastRun(out string) (string, bool) {
+func currentForecastReusable(out, run string) bool {
 	data, err := os.ReadFile(filepath.Join(artifact.PublishedRoot(out), "manifest.json"))
 	if err != nil {
-		return "", false
+		return false
 	}
 	var manifest artifact.Manifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return "", false
+		return false
 	}
-	if manifest.Sources.Forecast.Run == "" {
-		return "", false
-	}
-	return manifest.Sources.Forecast.Run, true
+	return manifest.Sources.Forecast.Run == run && manifest.Grid.TileMaxZoom == tiles.MaxZoom && manifest.Grid.TileRenderer == tiles.RendererVersion
 }
 
 func runInspectDWD(args []string) error {
@@ -195,10 +192,11 @@ func runInspectDWD(args []string) error {
 }
 
 type tileJob struct {
-	layer artifact.Layer
-	z     int
-	x     int
-	y     int
+	layer  artifact.Layer
+	scores tiles.ScoreGrid
+	z      int
+	x      int
+	y      int
 }
 
 func writeForecastTiles(out string, layers []artifact.Layer, inputs weatherinput.Grid) (int, error) {
@@ -212,8 +210,7 @@ func writeForecastTiles(out string, layers []artifact.Layer, inputs weatherinput
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				profile := scoring.Profile(job.layer.Profile)
-				img := tiles.RenderWeatherGridTile(inputs, profile, job.layer.Horizon, job.z, job.x, job.y)
+				img := tiles.RenderScoreGridTile(job.scores, job.z, job.x, job.y)
 				path := artifact.TilePath(out, job.layer.Basis, job.layer.Profile, job.layer.Horizon, job.z, job.x, job.y)
 				if err := tiles.WritePNG(path, img); err != nil {
 					select {
@@ -227,7 +224,8 @@ func writeForecastTiles(out string, layers []artifact.Layer, inputs weatherinput
 
 	tileCount := 0
 	for _, layer := range layers {
-		for z := 0; z <= 6; z++ {
+		scores := tiles.NewScoreGrid(inputs, scoring.Profile(layer.Profile), layer.Horizon)
+		for z := 0; z <= tiles.MaxZoom; z++ {
 			for x := 0; x < 1<<z; x++ {
 				for y := 0; y < 1<<z; y++ {
 					if !tileTouchesEurope(z, x, y) {
@@ -238,7 +236,7 @@ func writeForecastTiles(out string, layers []artifact.Layer, inputs weatherinput
 						close(jobs)
 						wg.Wait()
 						return tileCount, err
-					case jobs <- tileJob{layer: layer, z: z, x: x, y: y}:
+					case jobs <- tileJob{layer: layer, scores: scores, z: z, x: x, y: y}:
 						tileCount++
 					}
 				}
@@ -294,7 +292,7 @@ func buildManifest(inputs weatherinput.Grid, runLabel string, runStartedAt time.
 	return artifact.Manifest{
 		Version:     1,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Grid:        artifact.Grid{CRS: "EPSG:4326", CellDeg: inputs.StepDeg, Region: "Europe"},
+		Grid:        artifact.Grid{CRS: "EPSG:4326", CellDeg: inputs.StepDeg, Region: "Europe", TileMaxZoom: tiles.MaxZoom, TileRenderer: tiles.RendererVersion},
 		Sources: artifact.Sources{
 			Forecast: artifact.ForecastSource{
 				Name:               "DWD ICON-EU",

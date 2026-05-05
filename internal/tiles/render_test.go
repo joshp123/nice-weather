@@ -77,6 +77,32 @@ func TestWeatherGridTileAlphaOutsideLand(t *testing.T) {
 	}
 }
 
+func TestInterpolatedScoreUsesNeighboringVisibleCells(t *testing.T) {
+	scores := ScoreGrid{
+		Width:   2,
+		Height:  2,
+		Scores:  []float64{0, 100, 100, 100},
+		Visible: []bool{true, true, true, true},
+	}
+	sample := axisSample{nearest: 0, lower: 0, upper: 1, frac: 0.5, ok: true}
+	if got := interpolatedScore(scores, sample, sample, 0); got != 75 {
+		t.Fatalf("interpolated score = %.1f, want 75.0", got)
+	}
+}
+
+func TestInterpolatedScoreFallsBackWhenNeighborIsMasked(t *testing.T) {
+	scores := ScoreGrid{
+		Width:   2,
+		Height:  2,
+		Scores:  []float64{40, 100, 100, 100},
+		Visible: []bool{true, false, true, true},
+	}
+	sample := axisSample{nearest: 0, lower: 0, upper: 1, frac: 0.5, ok: true}
+	if got := interpolatedScore(scores, sample, sample, 0); got != 40 {
+		t.Fatalf("masked-neighbor score = %.1f, want nearest fallback 40.0", got)
+	}
+}
+
 func loadTileTestMask(t *testing.T, coordinates string) landmask.Mask {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "land.geojson")

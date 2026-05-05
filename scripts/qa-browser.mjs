@@ -11,27 +11,34 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
 const errors = [];
 const tileURLs = new Set();
+const osmTileURLs = new Set();
+const telemetryEvents = new Set();
 
 page.on('console', (message) => {
-  if (message.type() === 'error') errors.push(message.text());
+  const text = message.text();
+  const telemetryMatch = text.match(/^nice-weather-finder:([a-z-]+)/);
+  if (telemetryMatch) telemetryEvents.add(telemetryMatch[1]);
+  if (message.type() === 'error') errors.push(text);
 });
 page.on('pageerror', (error) => errors.push(error.message));
 page.on('response', (response) => {
   if (response.url().includes('/artifacts/tiles/forecast/') && response.status() === 200) {
     tileURLs.add(response.url());
   }
+  if (response.url().includes('tile.openstreetmap.org')) {
+    osmTileURLs.add(response.url());
+  }
 });
 
 try {
   await page.goto(baseURL, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.maplibregl-canvas', { timeout: 15_000 });
-  await page.waitForFunction(() => document.querySelector('.freshness')?.textContent?.includes('DWD run'), null, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelector('.freshness')?.textContent?.includes('Run '), null, { timeout: 15_000 });
   await page.waitForTimeout(1_500);
 
   const freshness = await page.locator('.freshness').innerText();
-  assertIncludes(freshness, 'DWD run');
-  assertIncludes(freshness, 'Built');
-  assertIncludes(freshness, 'Age');
+  assertIncludes(freshness, 'Model run');
+  assertIncludes(freshness, 'updated here');
   assertIncludes(freshness, '10:00-20:00');
   if (!/\d{4}-\d{2}-\d{2}/.test(freshness)) {
     throw new Error(`freshness block lacks an exact local date: ${freshness}`);
@@ -52,7 +59,7 @@ try {
   await page.waitForTimeout(800);
   const afterDetail = await page.locator('.anchorDetail').innerText();
   if (afterDetail === beforeDetail) {
-    throw new Error('anchor detail did not change after selecting Sat 9 May');
+    throw new Error('place detail did not change after selecting Sat 9 May');
   }
   await captureAndCheckMap(page, 'nice-weather-sat-9-may.png');
 
@@ -63,11 +70,12 @@ try {
   if (tileURLs.size < 3) {
     throw new Error(`expected forecast tile requests for initial/horizon/profile states, saw ${tileURLs.size}`);
   }
+  assertTelemetry(['app-started', 'manifest-loaded', 'map-loaded', 'score-layer-ready', 'resource-summary', 'horizon-changed', 'profile-changed']);
 
   await page.goto('about:blank');
   await page.goto(`${baseURL.replace(/#.*$/, '')}#design-system`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.maplibregl-canvas', { timeout: 15_000 });
-  await page.waitForFunction(() => document.querySelector('.freshness')?.textContent?.includes('DWD run'), null, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelector('.freshness')?.textContent?.includes('Run '), null, { timeout: 15_000 });
   await page.waitForTimeout(1_000);
   const designAnchorCount = await page.locator('.anchorRow').count();
   if (designAnchorCount !== 1) {
@@ -87,6 +95,13 @@ try {
 function assertIncludes(value, expected) {
   if (!value.includes(expected)) {
     throw new Error(`expected "${expected}" in:\n${value}`);
+  }
+}
+
+function assertTelemetry(expectedEvents) {
+  const missing = expectedEvents.filter((event) => !telemetryEvents.has(event));
+  if (missing.length > 0) {
+    throw new Error(`missing telemetry events: ${missing.join(', ')}; saw ${[...telemetryEvents].sort().join(', ')}`);
   }
 }
 

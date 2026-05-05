@@ -26,14 +26,14 @@ Current state:
 - Frontend build lives in `./dist`.
 - Current forecast horizons are concrete local-date IDs for five complete daytime forecast windows.
 - Forecast aggregation is `10:00-20:00` local time per grid cell using timezone lookup; the grid-cell center chooses the timezone at boundaries.
-- Forecast freshness is a hard UX requirement. The UI must show DWD run time, artifact build time, selected local date/window, age, and a stale warning when the run is older than the manifest threshold.
+- Forecast freshness is a hard UX requirement. The UI must show model run age, run time, artifact update time, selected local date/window, and a prominent stale warning when the run is older than the manifest threshold.
 - Climatology is planned but not implemented; WorldClim is the intended first source.
 
 Near-term state/plan:
 
 1. Done: multi-day forecast horizons as local calendar dates.
 2. Done: per-grid-cell local 10:00-20:00 aggregation from timezone polygons.
-3. Done: horizon-aware anchor pins/details so city scores change with selected day.
+3. Done: horizon-aware place pins/details so city scores change with selected day.
 4. Done: latest-complete DWD run detection/download, then atomic artifact rebuild/swap.
 5. Next: WorldClim monthly climatology artifacts using the same `WeatherInput -> score -> tile` path.
 
@@ -41,14 +41,14 @@ Near-term state/plan:
 
 Borrow the xuezh app discipline for web work:
 
-- Keep the UI system intentionally small: one body/display font stack, one bottom map cockpit, one segmented-control style, one section-header style, one anchor-row style, one score-detail table style, and one map-pin style.
+- Keep the UI system intentionally small: one body/display font stack, one bottom map cockpit, one segmented-control style, one section-header style, one place-row style, one score-detail table style, and one map-pin style.
 - The map is the primary surface. The cockpit is supporting chrome and must not stretch into empty space on large monitors; it is capped for 57-inch/ultrawide-class workspaces.
 - Do not add cards inside cards, alternate button families, decorative palettes, or new explanatory panels unless an observed workflow needs them.
 - Add a design-system/debug route before major UI iteration, preferably `#/design-system`.
 - The design-system route must render the same production React components used by the real app, not copied demo markup.
-- Cover the important states there: map shell, loading, missing manifest, layer error, controls, legend, anchor list, anchor detail, scoring explainer, and mobile layout.
+- Cover the important states there: map shell, loading, missing manifest, layer error, controls, legend, place list, place detail, scoring explainer, and mobile layout.
 - After UI changes, run the app in the Codex browser, capture screenshots for the relevant states, and reject the work if text clips, controls wrap badly, map interactions break, production and design-system components drift, large-monitor layout wastes space, or the score explanation is unclear.
-- For data changes, inspect generated artifacts, manifest, tile pixels, anchor scores, and served URLs. Do not judge correctness only from the full map screenshot.
+- For data changes, inspect generated artifacts, manifest, tile pixels, place scores, and served URLs. Do not judge correctness only from the full map screenshot.
 - Use disposable/generated artifacts for smoke checks; do not mutate source weather caches unless that is the task.
 
 ## Stack
@@ -100,8 +100,9 @@ Performance and telemetry targets:
 
 - artifact build must print manifest/layer/tile counts
 - manifest fetch should complete in under 500ms on localhost
-- first score layer install should complete in under 1500ms on localhost
-- browser console must log manifest load, map load, and score-layer install timings
+- first score layer ready event should complete in under 1500ms on localhost
+- browser console must log manifest load, map load, score-layer ready timings, resource summaries, and profile/horizon/place interactions
+- resource telemetry must expose forecast tile count/bytes and base-map request count, plus base-map bytes when the browser exposes transfer size
 - map tile failures are correctness bugs, not harmless warnings
 
 The agent must keep fixing until its observable checks pass. Handoff is forbidden unless the agent can state what it ran, what it observed, what was wrong before fixes, and why the current output proves the feature works.

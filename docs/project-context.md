@@ -42,7 +42,7 @@ The active app is Europe-only forecast rendering.
 - Forecast grid: native regular lat/lon `0.0625` degree ICON-EU grid.
 - Forecast horizons: today plus the next four local forecast dates.
 - Day window: `10:00-20:00` local time per grid cell. The grid-cell center chooses the IANA timezone at boundaries.
-- Forecast freshness: manifest carries DWD run time, build time, selected local date/window, and stale threshold; the UI must show these prominently.
+- Forecast freshness: manifest carries DWD run time, build time, selected local date/window, and stale threshold; the UI must show model run age, run time, artifact update time, selected local date/window, and stale state prominently.
 - Land mask: Natural Earth land polygons; masking prefers full land/coast/island coverage over perfectly excluding every sea pixel.
 - Frontend: Vite React TypeScript + MapLibre.
 - Backend/pipeline: Go CLI.
@@ -111,7 +111,7 @@ internal/landmask/              land/coast/island coverage policy
 internal/server/                serves ./dist and ./artifacts separately
 src/data/                       manifest loading and frontend layer lookup
 src/map/                        MapLibre integration and raster layer install
-src/App.tsx                     current UI shell, controls, anchors, details
+src/App.tsx                     current UI shell, controls, places, details
 ```
 
 ## Scoring Contract
@@ -248,6 +248,6 @@ curl -I http://127.0.0.1:5173/artifacts/manifest.json
 curl -I http://127.0.0.1:5173/artifacts/tiles/forecast/general/2026-05-05/6/35/24.png
 ```
 
-Use the in-app browser or Browser Use to verify the rendered map, controls, anchor details, console logs, and screenshot pixels.
-If Browser Use is unavailable, the committed `qa:browser` script is the repo fallback. It saves screenshots in `output/screenshots/` and fails on blank map screenshots, missing freshness/date/window text, missing tile requests, or design-system route drift.
+Use the in-app browser or Browser Use to verify the rendered map, controls, place details, console logs, and screenshot pixels.
+If Browser Use is unavailable, the committed `qa:browser` script is the repo fallback. It saves screenshots in `output/screenshots/` and fails on blank map screenshots, missing freshness/date/window text, missing forecast tile requests, missing telemetry, or design-system route drift.
 If Browser Use is not exposed, `npm run qa:browser` performs the same core UI checks with Playwright and saves screenshots under `output/screenshots/`.

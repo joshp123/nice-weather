@@ -7,6 +7,7 @@ import { findLayer, forecastFreshness, forecastHorizonDetail, horizonsFor, loadM
 import { formatUTC } from './data/time';
 import type { Anchor, AnchorHorizon, Basis, ForecastHorizon, Manifest, Profile } from './data/types';
 import { WeatherMap } from './map/WeatherMap';
+import { telemetry } from './telemetry';
 import './styles.css';
 
 export default function App() {
@@ -65,9 +66,18 @@ export default function App() {
       selectedAnchor={selectedAnchor}
       enabledBasis={enabledBasis}
       horizons={horizons}
-      onBasisChange={setBasis}
-      onProfileChange={setProfile}
-      onHorizonChange={setHorizon}
+      onBasisChange={(nextBasis) => {
+        telemetry('basis-changed', { from: basis, to: nextBasis });
+        setBasis(nextBasis);
+      }}
+      onProfileChange={(nextProfile) => {
+        telemetry('profile-changed', { from: profile, to: nextProfile });
+        setProfile(nextProfile);
+      }}
+      onHorizonChange={(nextHorizon) => {
+        telemetry('horizon-changed', { from: horizon, to: nextHorizon });
+        setHorizon(nextHorizon);
+      }}
       onAnchorSelect={(anchor) => setSelectedAnchorName(anchor.name)}
     />
   );
@@ -112,7 +122,7 @@ function NiceWeatherScreen({
           <div className="intro">
             <p className="eyebrow">Nice Weather Finder</p>
             <h1>Warm, dry, bike-friendly Europe.</h1>
-            <p className="summary">Scores prefer 22-27C, dry air, low cloud, and low wind.</p>
+            <p className="summary">Forecast scores for 10:00-20:00 local time across Europe.</p>
           </div>
           {error && <p className="error">{error}</p>}
           {!manifest && !error && <p className="loading">Loading real forecast artifacts...</p>}
@@ -123,15 +133,15 @@ function NiceWeatherScreen({
           <>
             <div className="controlStrip">
               <div className="controls">
-                <BasisToggle value={basis} enabled={enabledBasis} onChange={onBasisChange} />
+                {enabledBasis.length > 1 && <BasisToggle value={basis} enabled={enabledBasis} onChange={onBasisChange} />}
                 <ProfileToggle value={profile} onChange={onProfileChange} />
                 <HorizonPicker horizons={horizons} details={manifest.sources.forecast.horizonDetails ?? []} value={horizon} onChange={onHorizonChange} />
               </div>
               <Legend categories={manifest.legend.categories} />
             </div>
             <div className="anchorStack">
-              <SectionHeader label="Anchor Cities" meta={profile} />
-              <div className="anchorList" aria-label="Anchor city scores">
+              <SectionHeader label="Places" meta={`${visibleAnchors.length} shown`} />
+              <div className="anchorList" aria-label="Place scores">
                 {visibleAnchors.map((anchor) => {
                   const anchorHorizon = anchorWithHorizon(anchor, horizon);
                   if (!anchorHorizon) return null;
@@ -141,7 +151,10 @@ function NiceWeatherScreen({
                       aria-pressed={anchor.name === selectedAnchor?.name}
                       className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'}
                       key={anchor.name}
-                      onClick={() => onAnchorSelect(anchor)}
+                      onClick={() => {
+                        telemetry('place-selected', { name: anchor.name, score: score.score, profile, horizon });
+                        onAnchorSelect(anchor);
+                      }}
                     >
                       <span className="anchorDot" style={{ background: score.color }} />
                       <span>{anchor.name}</span>
@@ -158,7 +171,15 @@ function NiceWeatherScreen({
           </>
         )}
       </section>
-      <WeatherMap layer={layer} anchors={visibleAnchors} profile={profile} horizon={horizon} selectedAnchor={selectedAnchor} onAnchorSelect={onAnchorSelect} />
+      <WeatherMap
+        layer={layer}
+        anchors={visibleAnchors}
+        profile={profile}
+        horizon={horizon}
+        tileMaxZoom={manifest?.grid?.tileMaxZoom ?? 6}
+        selectedAnchor={selectedAnchor}
+        onAnchorSelect={onAnchorSelect}
+      />
     </main>
   );
 }
@@ -166,13 +187,20 @@ function NiceWeatherScreen({
 function FreshnessStatus({ manifest, horizon }: { manifest: Manifest; horizon: ForecastHorizon | undefined }) {
   const freshness = forecastFreshness(manifest);
   const isStale = freshness.state === 'stale';
+  const ageHours = freshness.ageHours === undefined ? undefined : Math.round(freshness.ageHours);
+  const staleAfter = freshness.staleAfterHours ?? manifest.sources.forecast.staleAfterHours;
+  const runText = manifest.sources.forecast.runStartedAt ? formatUTC(manifest.sources.forecast.runStartedAt) : manifest.sources.forecast.run;
+  const builtText = formatUTC(manifest.generatedAt);
   return (
     <section className={isStale ? 'freshness stale' : 'freshness'} aria-label="Forecast freshness">
-      <strong>{isStale ? 'Stale forecast' : freshness.state === 'fresh' ? 'Forecast is current' : 'Forecast age unknown'}</strong>
-      <span>DWD run {manifest.sources.forecast.runStartedAt ? formatUTC(manifest.sources.forecast.runStartedAt) : manifest.sources.forecast.run}</span>
-      <span>Built {formatUTC(manifest.generatedAt)}</span>
-      {freshness.ageHours !== undefined && <span>Age {Math.round(freshness.ageHours)}h; stale after {freshness.staleAfterHours}h</span>}
-      {horizon && <span>{horizon.label}: {horizon.localDate}, {horizon.windowStart}-{horizon.windowEnd} local time</span>}
+      <strong>{isStale ? 'Forecast needs refresh' : freshness.state === 'fresh' ? 'Forecast is current' : 'Forecast age unknown'}</strong>
+      {freshness.state === 'unknown' ? (
+        <span>Run time is missing; treat these scores cautiously.</span>
+      ) : (
+        <span>{isStale ? `Model run is ${ageHours}h old; expected under ${staleAfter}h.` : `Model run is ${ageHours}h old.`}</span>
+      )}
+      <span>Run {runText}; updated here {builtText}.</span>
+      {horizon && <span>Showing {horizon.label} ({horizon.localDate}), {horizon.windowStart}-{horizon.windowEnd} local.</span>}
     </section>
   );
 }
@@ -183,7 +211,7 @@ function AnchorDetail({ anchor, horizon, profile }: { anchor: Anchor; horizon: s
   const score = anchorHorizon.scores[profile];
   const rows = componentRows(anchorHorizon, score);
   return (
-    <section className="anchorDetail" aria-label={`${anchor.name} score details`}>
+    <section className="anchorDetail" aria-label={`${anchor.name} weather score`}>
       <div className="anchorDetailHeader">
         <div>
           <h2>{anchor.name}</h2>
@@ -208,13 +236,13 @@ function AnchorDetail({ anchor, horizon, profile }: { anchor: Anchor; horizon: s
 function ScoringGuide({ basis }: { basis: Basis }) {
   return (
     <section className="scoringGuide" aria-label="Scoring guide">
-      <SectionHeader label="Good Means" meta={basis === 'forecast' ? 'model forecast' : 'climate normal'} />
+      <SectionHeader label="Good Weather" meta={basis === 'forecast' ? 'target' : 'climate target'} />
       <dl>
-        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10-20 local' : 'monthly daytime'}</dd></div>
-        <div><dt>Temp</dt><dd>22-27C avg</dd></div>
+        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10:00-20:00 local' : 'monthly daytime'}</dd></div>
+        <div><dt>Temp</dt><dd>22-27C average</dd></div>
         <div><dt>Rain</dt><dd>near 0mm</dd></div>
-        <div><dt>Cloud</dt><dd>0-20% avg</dd></div>
-        <div><dt>Wind</dt><dd>&lt;10km/h avg</dd></div>
+        <div><dt>Cloud</dt><dd>0-20% average</dd></div>
+        <div><dt>Wind</dt><dd>&lt;10km/h average</dd></div>
         <div><dt>Humidity</dt><dd>30-60%</dd></div>
       </dl>
     </section>
@@ -274,6 +302,7 @@ function DesignSystem() {
 const designManifest: Manifest = {
   version: 1,
   generatedAt: '2026-05-05T14:00:00Z',
+  grid: { crs: 'EPSG:4326', cellDeg: 0.0625, region: 'Europe', tileMaxZoom: 7, tileRenderer: 2 },
   sources: {
     forecast: {
       name: 'DWD ICON-EU',

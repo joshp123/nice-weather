@@ -8,13 +8,13 @@ New agents should read `AGENTS.md`, then `docs/project-context.md`.
 
 - Frontend: Vite + React + TypeScript + MapLibre.
 - Backend: Go.
-- Forecast source: DWD ICON-EU GRIB2, native 0.0625 degree Europe grid, rendered as generated raster artifacts.
+- Forecast source: DWD ICON-EU GRIB2, native 0.0625 degree Europe grid, rendered as a generated z0-z7 weather tile pyramid.
 - Current map mask: Natural Earth land polygons hide sea pixels.
 - Forecast horizons: today plus the next four local forecast dates.
 - Target climate data: WorldClim 2.1 monthly normals, roughly 1 km.
 - Profiles: `general`, `cycling`.
 - Time basis: `forecast` daytime aggregate from 10:00-20:00 local time per grid cell; `climatology` returns when real monthly artifacts exist.
-- Freshness: the UI shows DWD run time, artifact build time, selected date/window, age, and a stale warning.
+- Freshness: the UI shows model run age, run time, artifact update time, selected date/window, and a stale warning.
 
 The timezone at the grid-cell center chooses the local forecast day/window. That keeps timezone boundaries explicit and avoids hardcoding Amsterdam time.
 
@@ -52,7 +52,7 @@ devenv shell -- go run ./cmd/weatherchase update \
 
 On a VPS, run that command hourly from a timer. DWD publishes runs around `00Z`, `06Z`, `12Z`, and `18Z`; the updater checks whether the newest usable run is complete before doing any work. If no newer complete run can cover five full local forecast dates, it exits without changing the published release. If a build fails, the previous `./artifacts/current` release remains live.
 
-The UI marks the forecast stale once the published DWD run is older than the manifest threshold, currently 12 hours. That warning is deliberately prominent so a dead timer or broken update is obvious from the map.
+The UI marks the forecast stale once the published DWD run is older than the manifest threshold, currently 12 hours. That warning is deliberately prominent so a dead timer or broken update is obvious from the map. Browser telemetry logs manifest load, map load, score-layer updates, tile/resource totals, and control interactions.
 
 ## Verification
 
@@ -64,16 +64,4 @@ devenv shell -- npm run build
 devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
 ```
 
-`qa:browser` expects `weatherchase serve` to be running. It opens the real app, checks the freshness/date/window UI, switches forecast horizon and profile, verifies forecast tile requests, rejects blank map screenshots, and saves screenshots under `output/screenshots/`.
-
-## Verification
-
-```bash
-devenv shell -- go test ./...
-devenv shell -- go vet ./...
-devenv shell -- npm run test
-devenv shell -- npm run build
-devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
-```
-
-Run those sequentially. `qa:browser` expects `weatherchase serve` to be running and writes ignored screenshots under `output/screenshots/`.
+Run those sequentially. `qa:browser` expects `weatherchase serve` to be running. It opens the real app, checks the freshness/date/window UI, switches forecast horizon and profile, verifies forecast tile requests, checks browser telemetry and resource summaries, rejects blank map screenshots, and saves ignored screenshots under `output/screenshots/`.

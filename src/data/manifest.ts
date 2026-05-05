@@ -1,4 +1,5 @@
 import type { Basis, ForecastHorizon, Manifest, Profile } from './types';
+import { telemetry } from '../telemetry';
 
 export async function loadManifest(): Promise<Manifest> {
   const startedAt = performance.now();
@@ -8,10 +9,12 @@ export async function loadManifest(): Promise<Manifest> {
   }
   const manifest = (await response.json()) as Manifest;
   validateManifest(manifest);
-  console.info('nice-weather-finder:manifest-loaded', JSON.stringify({
+  telemetry('manifest-loaded', {
     layers: manifest.layers.length,
+    horizons: manifest.sources.forecast.horizons.length,
+    places: manifest.anchors.length,
     elapsedMs: Math.round(performance.now() - startedAt),
-  }));
+  });
   return manifest;
 }
 

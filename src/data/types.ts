@@ -18,6 +18,13 @@ export type LegendCategory = {
 export type Manifest = {
   version: 1;
   generatedAt: string;
+  grid?: {
+    crs: string;
+    cellDeg: number;
+    region: string;
+    tileMaxZoom?: number;
+    tileRenderer?: number;
+  };
   sources: {
     forecast: {
       name: string;

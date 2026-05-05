@@ -13,9 +13,11 @@ type Manifest struct {
 }
 
 type Grid struct {
-	CRS     string  `json:"crs"`
-	CellDeg float64 `json:"cellDeg"`
-	Region  string  `json:"region"`
+	CRS          string  `json:"crs"`
+	CellDeg      float64 `json:"cellDeg"`
+	Region       string  `json:"region"`
+	TileMaxZoom  int     `json:"tileMaxZoom"`
+	TileRenderer int     `json:"tileRenderer"`
 }
 
 type Sources struct {
