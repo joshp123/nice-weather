@@ -11,6 +11,6 @@
 
   enterShell = ''
     echo "Nice Weather Finder dev shell"
-    echo "Commands: go test ./..., go run ./cmd/weatherchase update --cache ./.cache/dwd/forecast --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --days 5, go run ./cmd/weatherchase serve --web ./dist --artifacts ./artifacts, npm run dev"
+    echo "Commands: go test ./..., npm run build, go run ./cmd/niceweather fixture --out ./artifacts, go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts --smoke, go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5173"
   '';
 }
