@@ -1,370 +1,563 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BasisToggle } from './controls/BasisToggle';
-import { HorizonPicker } from './controls/HorizonPicker';
-import { Legend } from './controls/Legend';
-import { ProfileToggle } from './controls/ProfileToggle';
-import { findLayer, forecastFreshness, forecastHorizonDetail, horizonsFor, loadManifest, validHorizon } from './data/manifest';
-import { formatUTC } from './data/time';
-import type { Anchor, AnchorHorizon, Basis, ForecastHorizon, Manifest, Profile } from './data/types';
-import { WeatherMap } from './map/WeatherMap';
-import { telemetry } from './telemetry';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { isEscapeKey, isKeyboardActivation, restoreFocus } from './accessibility';
+import { forecastRunStatus, freshnessLabel, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
+import type { Mode, Period, PointWeather, Profile, WeatherManifest } from './data/types';
+import type { MapPoint, OverlayState } from './map/WeatherMap';
+import { reportResourceSummary, telemetry } from './telemetry';
 import './styles.css';
 
+const WeatherMap = lazy(() => import('./map/WeatherMap').then((module) => ({ default: module.WeatherMap })));
+
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'ready'; manifest: WeatherManifest }
+  | { status: 'error'; message: string };
+
 export default function App() {
-  if (window.location.hash === '#design-system') {
-    return <DesignSystem />;
-  }
+  const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
+  const [retry, setRetry] = useState(0);
+  const [mode, setMode] = useState<Mode>('forecast');
+  const [profile, setProfile] = useState<Profile>('nice');
+  const [periodId, setPeriodId] = useState('');
+  const [selectedPoint, setSelectedPoint] = useState<MapPoint>();
+  const [focusPoint, setFocusPoint] = useState<(MapPoint & { token: number })>();
+  const [mapNotice, setMapNotice] = useState('');
+  const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
+  const [showGuide, setShowGuide] = useState(false);
+  const [focusGuide, setFocusGuide] = useState(false);
+  const [pointState, setPointState] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; data?: PointWeather; message?: string }>({ status: 'idle' });
+  const staleReloadedRelease = useRef<string | undefined>(undefined);
+  const guideTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const pointFocusOrigin = useRef<HTMLElement | null>(null);
+  const [focusPointPanel, setFocusPointPanel] = useState(false);
 
-  const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [basis, setBasis] = useState<Basis>('forecast');
-  const [profile, setProfile] = useState<Profile>('general');
-  const [horizon, setHorizon] = useState('');
-  const [selectedAnchorName, setSelectedAnchorName] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadManifest().then(setManifest).catch((err: Error) => setError(err.message));
+  const closeGuide = useCallback(() => {
+    setShowGuide(false);
+    setFocusGuide(false);
+    restoreFocus(guideTriggerRef.current);
   }, []);
 
-  const horizons = useMemo(() => (manifest ? horizonsFor(manifest, basis) : []), [manifest, basis]);
-  const selectedHorizon = validHorizon(horizons, horizon);
-  const enabledBasis = useMemo(() => {
-    if (!manifest) return ['forecast'] as Basis[];
-    return (['forecast', 'climatology'] as Basis[]).filter((candidate) => horizonsFor(manifest, candidate).length > 0);
-  }, [manifest]);
+  const closePoint = useCallback(() => {
+    setSelectedPoint(undefined);
+    setFocusPointPanel(false);
+    restoreFocus(pointFocusOrigin.current);
+    pointFocusOrigin.current = null;
+  }, []);
+
+  useEscape(showGuide, closeGuide);
+  useEscape(Boolean(selectedPoint) && !showGuide, closePoint);
+
+  const refreshStaleRelease = useCallback((releaseId: string) => {
+    if (staleReloadedRelease.current === releaseId) return false;
+    staleReloadedRelease.current = releaseId;
+    setPointState({ status: 'idle' });
+    setPeriodId('');
+    setRetry((value) => value + 1);
+    telemetry('release-refresh', { releaseId });
+    return true;
+  }, []);
 
   useEffect(() => {
-    if (selectedHorizon && selectedHorizon !== horizon) {
-      setHorizon(selectedHorizon);
+    const controller = new AbortController();
+    const startedAt = performance.now();
+    setLoadState({ status: 'loading' });
+    loadManifest(controller.signal)
+      .then((manifest) => {
+        if (staleReloadedRelease.current && staleReloadedRelease.current !== manifest.releaseId) staleReloadedRelease.current = undefined;
+        setLoadState({ status: 'ready', manifest });
+        telemetry('manifest-ready', { elapsedMs: Math.round(performance.now() - startedAt), version: manifest.version, dataStatus: manifest.dataStatus });
+      })
+      .catch((error: Error) => {
+        if (!controller.signal.aborted) setLoadState({ status: 'error', message: error.message });
+      });
+    return () => controller.abort();
+  }, [retry]);
+
+  const manifest = loadState.status === 'ready' ? loadState.manifest : undefined;
+  const periods = useMemo(() => periodsFor(manifest, mode), [manifest, mode]);
+  const period = periods.find((item) => item.id === periodId) ?? periods[0];
+
+  useEffect(() => {
+    if (period && period.id !== periodId) setPeriodId(period.id);
+  }, [period, periodId]);
+
+  useEffect(() => {
+    if (!selectedPoint || !period || !manifest) {
+      setPointState({ status: 'idle' });
+      return;
     }
-  }, [horizon, selectedHorizon]);
+    const controller = new AbortController();
+    setPointState({ status: 'loading' });
+    loadPoint({ ...selectedPoint, releaseId: manifest.releaseId, period: period.id, profile }, controller.signal)
+      .then((data) => setPointState({ status: 'ready', data }))
+      .catch((error: Error) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof StaleReleaseError && staleReloadedRelease.current !== manifest.releaseId) {
+          refreshStaleRelease(manifest.releaseId);
+          return;
+        }
+        setPointState({ status: 'error', message: error instanceof StaleReleaseError ? 'The forecast changed again. Select this point once more.' : error.message });
+      });
+    return () => controller.abort();
+  }, [manifest, mode, period, profile, refreshStaleRelease, selectedPoint]);
 
-  const layer = useMemo(() => {
-    if (!manifest || !selectedHorizon) return null;
-    return findLayer(manifest, basis, profile, selectedHorizon);
-  }, [basis, selectedHorizon, manifest, profile]);
-  const horizonDetail = useMemo(() => {
-    if (!manifest || !selectedHorizon || basis !== 'forecast') return undefined;
-    return forecastHorizonDetail(manifest, selectedHorizon);
-  }, [basis, manifest, selectedHorizon]);
-  const selectedAnchor = useMemo(() => {
-    if (!manifest || !selectedHorizon) return null;
-    return anchorWithHorizon(manifest.anchors.find((anchor) => anchor.name === selectedAnchorName), selectedHorizon)
-      ? manifest.anchors.find((anchor) => anchor.name === selectedAnchorName) ?? null
-      : manifest.anchors.find((anchor) => anchorWithHorizon(anchor, selectedHorizon)) ?? null;
-  }, [manifest, selectedAnchorName, selectedHorizon]);
+  const overlayUrl = period && manifest ? imageAssetUrl(manifest.releaseId, period.images[profile]) : undefined;
+
+  const handleOverlayState = useCallback((state: OverlayState) => {
+    setOverlayState(state);
+    if (state.status !== 'error' || state.reason !== 'stale-release' || !manifest) return;
+    refreshStaleRelease(manifest.releaseId);
+  }, [manifest, refreshStaleRelease]);
 
   return (
-    <NiceWeatherScreen
-      manifest={manifest}
-      error={error}
-      basis={basis}
-      profile={profile}
-      horizon={selectedHorizon}
-      horizonDetail={horizonDetail}
-      layer={layer}
-      selectedAnchor={selectedAnchor}
-      enabledBasis={enabledBasis}
-      horizons={horizons}
-      onBasisChange={(nextBasis) => {
-        telemetry('basis-changed', { from: basis, to: nextBasis });
-        setBasis(nextBasis);
-      }}
-      onProfileChange={(nextProfile) => {
-        telemetry('profile-changed', { from: profile, to: nextProfile });
-        setProfile(nextProfile);
-      }}
-      onHorizonChange={(nextHorizon) => {
-        telemetry('horizon-changed', { from: horizon, to: nextHorizon });
-        setHorizon(nextHorizon);
-      }}
-      onAnchorSelect={(anchor) => setSelectedAnchorName(anchor.name)}
-    />
-  );
-}
+    <main className="appShell">
+      <Suspense fallback={<div className="mapCanvas mapLoading" aria-label="Loading map" />}>
+        <WeatherMap
+          overlayUrl={overlayUrl}
+          bounds={manifest?.bounds}
+          selectedPoint={selectedPoint}
+          focusPoint={focusPoint}
+          onSelect={(point, intent) => {
+            telemetry('point-selected', { lat: Number(point.lat.toFixed(3)), lon: Number(point.lon.toFixed(3)) });
+            const focusDetails = intent?.focusDetails === true;
+            pointFocusOrigin.current = focusDetails && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            setFocusPointPanel(focusDetails);
+            setSelectedPoint(point);
+          }}
+          onReady={(elapsedMs) => telemetry('map-ready', { elapsedMs })}
+          onOverlayState={handleOverlayState}
+          onOverlayReady={(elapsedMs, renderer, assetUrl) => {
+            telemetry('overlay-ready', { elapsedMs, renderer, assetUrl, period: period?.id, profile });
+            reportResourceSummary();
+          }}
+        />
+      </Suspense>
 
-function NiceWeatherScreen({
-  manifest,
-  error,
-  basis,
-  profile,
-  horizon,
-  horizonDetail,
-  layer,
-  selectedAnchor,
-  enabledBasis,
-  horizons,
-  onBasisChange,
-  onProfileChange,
-  onHorizonChange,
-  onAnchorSelect,
-}: {
-  manifest: Manifest | null;
-  error: string | null;
-  basis: Basis;
-  profile: Profile;
-  horizon: string | undefined;
-  horizonDetail: ForecastHorizon | undefined;
-  layer: ReturnType<typeof findLayer> | null;
-  selectedAnchor: Anchor | null;
-  enabledBasis: Basis[];
-  horizons: string[];
-  onBasisChange: (basis: Basis) => void;
-  onProfileChange: (profile: Profile) => void;
-  onHorizonChange: (horizon: string) => void;
-  onAnchorSelect: (anchor: Anchor) => void;
-}) {
-  const visibleAnchors = useMemo(() => manifest?.anchors.filter((anchor) => !!horizon && anchorWithHorizon(anchor, horizon)) ?? [], [horizon, manifest]);
-  return (
-    <main className="app">
-      <section className="panel">
-        <div className="statusStack">
-          <div className="intro">
-            <p className="eyebrow">Nice Weather Finder</p>
-            <h1>Warm, dry, bike-friendly Europe.</h1>
-            <p className="summary">Forecast scores for 10:00-20:00 local time across Europe.</p>
-          </div>
-          {error && <p className="error">{error}</p>}
-          {!manifest && !error && <p className="loading">Loading real forecast artifacts...</p>}
-          {manifest && <FreshnessStatus manifest={manifest} horizon={horizonDetail} />}
+      <header className="brandBar">
+        <div className="wordmark" aria-label="Nice Weather">
+          <SunMark />
+          <span>Nice Weather</span>
         </div>
+        {manifest?.dataStatus === 'sample' && <p className="sampleWarning"><strong>Sample data</strong><span>Not a live forecast</span></p>}
+        <SearchControl onFound={(point) => {
+          telemetry('search-selected', { lat: point.lat, lon: point.lon });
+          setSelectedPoint(point);
+          setFocusPoint({ ...point, token: Date.now() });
+        }} />
+      </header>
 
-        {manifest && (
+      <button className="locationButton mapButton" type="button" onClick={() => locate((point) => {
+        telemetry('location-selected');
+        const currentLocation = { ...point, label: 'Current location' };
+        setSelectedPoint(currentLocation);
+        setFocusPoint({ ...currentLocation, token: Date.now() });
+        setMapNotice('');
+      }, setMapNotice)} aria-label="Use my location">
+        <LocationIcon />
+      </button>
+
+      {mapNotice && <p className="mapNotice" role="status">{mapNotice}</p>}
+      {overlayState.status === 'error' && <p className="mapNotice overlayNotice" role="status">Weather colours could not be shown.</p>}
+
+      <Legend manifest={manifest} triggerRef={guideTriggerRef} onExplain={(focusGuide) => {
+        setShowGuide(true);
+        setFocusGuide(focusGuide);
+      }} />
+
+      {showGuide && <ScoringGuide focusOnOpen={focusGuide} onClose={closeGuide} />}
+
+      {selectedPoint && (
+        <PointPanel
+          state={pointState}
+          point={selectedPoint}
+          period={period}
+          focusOnOpen={focusPointPanel}
+          onClose={closePoint}
+        />
+      )}
+
+      <section className="controlDock" aria-label="Weather map controls">
+        {loadState.status === 'loading' && <LoadingDock />}
+        {loadState.status === 'error' && <ErrorDock message={loadState.message} onRetry={() => setRetry((value) => value + 1)} />}
+        {manifest && period && (
           <>
-            <div className="controlStrip">
-              <div className="controls">
-                {enabledBasis.length > 1 && <BasisToggle value={basis} enabled={enabledBasis} onChange={onBasisChange} />}
-                <ProfileToggle value={profile} onChange={onProfileChange} />
-                <HorizonPicker horizons={horizons} details={manifest.sources.forecast.horizonDetails ?? []} value={horizon} onChange={onHorizonChange} />
-              </div>
-              <Legend categories={manifest.legend.categories} />
+            <div className="dockTopline">
+              <ModeControl mode={mode} climateAvailable={Boolean(manifest.climate)} onChange={(nextMode) => {
+                telemetry('mode-changed', { mode: nextMode });
+                setMode(nextMode);
+                setPeriodId('');
+              }} />
+              <ForecastStatus manifest={manifest} mode={mode} period={period} />
+              <ProfileControl value={profile} onChange={(nextProfile) => {
+                telemetry('profile-changed', { profile: nextProfile });
+                setProfile(nextProfile);
+              }} />
             </div>
-            <div className="anchorStack">
-              <SectionHeader label="Places" meta={`${visibleAnchors.length} shown`} />
-              <div className="anchorList" aria-label="Place scores">
-                {visibleAnchors.map((anchor) => {
-                  const anchorHorizon = anchorWithHorizon(anchor, horizon);
-                  if (!anchorHorizon) return null;
-                  const score = anchorHorizon.scores[profile];
-                  return (
-                    <button
-                      aria-pressed={anchor.name === selectedAnchor?.name}
-                      className={anchor.name === selectedAnchor?.name ? 'anchorRow active' : 'anchorRow'}
-                      key={anchor.name}
-                      onClick={() => {
-                        telemetry('place-selected', { name: anchor.name, score: score.score, profile, horizon });
-                        onAnchorSelect(anchor);
-                      }}
-                    >
-                      <span className="anchorDot" style={{ background: score.color }} />
-                      <span>{anchor.name}</span>
-                      <strong>{score.score}</strong>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="detailStack">
-              {selectedAnchor && horizon && <AnchorDetail anchor={selectedAnchor} horizon={horizon} profile={profile} />}
-              <ScoringGuide basis={basis} />
-            </div>
+            <PeriodRail periods={periods} selectedId={period.id} mode={mode} onChange={(nextPeriod) => {
+              telemetry('period-changed', { period: nextPeriod, mode });
+              setPeriodId(nextPeriod);
+            }} />
           </>
         )}
       </section>
-      <WeatherMap
-        layer={layer}
-        anchors={visibleAnchors}
-        profile={profile}
-        horizon={horizon}
-        tileMaxZoom={manifest?.grid?.tileMaxZoom ?? 6}
-        selectedAnchor={selectedAnchor}
-        onAnchorSelect={onAnchorSelect}
-      />
     </main>
   );
 }
 
-function FreshnessStatus({ manifest, horizon }: { manifest: Manifest; horizon: ForecastHorizon | undefined }) {
-  const freshness = forecastFreshness(manifest);
-  const isStale = freshness.state === 'stale';
-  const ageHours = freshness.ageHours === undefined ? undefined : Math.round(freshness.ageHours);
-  const staleAfter = freshness.staleAfterHours ?? manifest.sources.forecast.staleAfterHours;
-  const runText = manifest.sources.forecast.runStartedAt ? formatUTC(manifest.sources.forecast.runStartedAt) : manifest.sources.forecast.run;
-  const builtText = formatUTC(manifest.generatedAt);
+function ModeControl({ mode, climateAvailable, onChange }: { mode: Mode; climateAvailable: boolean; onChange: (mode: Mode) => void }) {
   return (
-    <section className={isStale ? 'freshness stale' : 'freshness'} aria-label="Forecast freshness">
-      <strong>{isStale ? 'Forecast needs refresh' : freshness.state === 'fresh' ? 'Forecast is current' : 'Forecast age unknown'}</strong>
-      {freshness.state === 'unknown' ? (
-        <span>Run time is missing; treat these scores cautiously.</span>
-      ) : (
-        <span>{isStale ? `Model run is ${ageHours}h old; expected under ${staleAfter}h.` : `Model run is ${ageHours}h old.`}</span>
-      )}
-      <span>Run {runText}; updated here {builtText}.</span>
-      {horizon && <span>Showing {horizon.label} ({horizon.localDate}), {horizon.windowStart}-{horizon.windowEnd} local.</span>}
-    </section>
-  );
-}
-
-function AnchorDetail({ anchor, horizon, profile }: { anchor: Anchor; horizon: string; profile: Profile }) {
-  const anchorHorizon = anchorWithHorizon(anchor, horizon);
-  if (!anchorHorizon) return null;
-  const score = anchorHorizon.scores[profile];
-  const rows = componentRows(anchorHorizon, score);
-  return (
-    <section className="anchorDetail" aria-label={`${anchor.name} weather score`}>
-      <div className="anchorDetailHeader">
-        <div>
-          <h2>{anchor.name}</h2>
-          <p>{score.category}</p>
-        </div>
-        <strong style={{ background: score.color }}>{score.score}</strong>
-      </div>
-      <dl className="weatherFacts">
-        {rows.map((row) => (
-          <div key={row.label}>
-            <dt>{row.label}</dt>
-            <dd>{row.value}</dd>
-            <dd>{row.verdict}</dd>
-            <dd>{row.score}/100</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function ScoringGuide({ basis }: { basis: Basis }) {
-  return (
-    <section className="scoringGuide" aria-label="Scoring guide">
-      <SectionHeader label="Good Weather" meta={basis === 'forecast' ? 'target' : 'climate target'} />
-      <dl>
-        <div><dt>Window</dt><dd>{basis === 'forecast' ? '10:00-20:00 local' : 'monthly daytime'}</dd></div>
-        <div><dt>Temp</dt><dd>22-27C average</dd></div>
-        <div><dt>Rain</dt><dd>near 0mm</dd></div>
-        <div><dt>Cloud</dt><dd>0-20% average</dd></div>
-        <div><dt>Wind</dt><dd>&lt;10km/h average</dd></div>
-        <div><dt>Humidity</dt><dd>30-60%</dd></div>
-      </dl>
-    </section>
-  );
-}
-
-function SectionHeader({ label, meta }: { label: string; meta: string }) {
-  return (
-    <div className="sectionHeader">
-      <span>{label}</span>
-      <span>{meta}</span>
+    <div className="segmented compact" role="group" aria-label="Weather view">
+      <button type="button" aria-pressed={mode === 'forecast'} onClick={() => onChange('forecast')}>Forecast</button>
+      <button type="button" aria-pressed={mode === 'climate'} disabled={!climateAvailable} title={climateAvailable ? undefined : 'Typical weather is not ready yet'} onClick={() => onChange('climate')}><span className="desktopLabel">Typical year</span><span className="mobileLabel">Typical</span></button>
     </div>
   );
 }
 
-function componentRows(anchor: AnchorHorizon, score: AnchorHorizon['scores'][Profile]) {
-  return [
-    { label: 'Temp', value: `${anchor.input.tempC}C`, verdict: componentVerdict(score.temp), score: score.temp },
-    { label: 'Rain', value: `${anchor.input.rainMm}mm`, verdict: componentVerdict(score.rain), score: score.rain },
-    { label: 'Cloud', value: `${anchor.input.cloudPct}%`, verdict: componentVerdict(score.cloud), score: score.cloud },
-    { label: 'Wind', value: `${anchor.input.windKmh}km/h`, verdict: componentVerdict(score.wind), score: score.wind },
-    { label: 'Humidity', value: `${anchor.input.humidity}%`, verdict: componentVerdict(score.humidity), score: score.humidity },
-  ];
-}
-
-function anchorWithHorizon(anchor: Anchor | undefined | null, horizon: string | undefined): AnchorHorizon | undefined {
-  if (!anchor || !horizon) return undefined;
-  return anchor.horizons[horizon];
-}
-
-function DesignSystem() {
-  const [basis, setBasis] = useState<Basis>('forecast');
-  const [profile, setProfile] = useState<Profile>('general');
-  const [horizon, setHorizon] = useState('2026-05-05');
-  const [selectedAnchor, setSelectedAnchor] = useState<Anchor | null>(designManifest.anchors[0]);
-  const layer = findLayer(designManifest, basis, profile, horizon);
+function ProfileControl({ value, onChange }: { value: Profile; onChange: (profile: Profile) => void }) {
   return (
-    <NiceWeatherScreen
-      manifest={designManifest}
-      error={null}
-      basis={basis}
-      profile={profile}
-      horizon={horizon}
-      horizonDetail={forecastHorizonDetail(designManifest, horizon)}
-      layer={layer}
-      selectedAnchor={selectedAnchor}
-      enabledBasis={['forecast']}
-      horizons={designManifest.sources.forecast.horizons}
-      onBasisChange={setBasis}
-      onProfileChange={setProfile}
-      onHorizonChange={setHorizon}
-      onAnchorSelect={setSelectedAnchor}
-    />
+    <div className="segmented" role="group" aria-label="Weather preference">
+      <button type="button" aria-pressed={value === 'nice'} onClick={() => onChange('nice')}>Nice</button>
+      <button type="button" aria-pressed={value === 'cycling'} onClick={() => onChange('cycling')}><BikeIcon /> Cycling</button>
+    </div>
   );
 }
 
-const designManifest: Manifest = {
-  version: 1,
-  generatedAt: '2026-05-05T14:00:00Z',
-  grid: { crs: 'EPSG:4326', cellDeg: 0.0625, region: 'Europe', tileMaxZoom: 7, tileRenderer: 2 },
-  sources: {
-    forecast: {
-      name: 'DWD ICON-EU',
-      run: '2026050506',
-      runStartedAt: '2026-05-05T06:00:00Z',
-      staleAfterHours: 12,
-      aggregation: '10:00-20:00 local time per grid cell',
-      horizons: ['2026-05-05', '2026-05-06'],
-      horizonDetails: [
-        { id: '2026-05-05', label: 'Tue 5 May', localDate: '2026-05-05', windowStart: '10:00', windowEnd: '20:00' },
-        { id: '2026-05-06', label: 'Wed 6 May', localDate: '2026-05-06', windowStart: '10:00', windowEnd: '20:00' },
-      ],
-    },
-  },
-  layers: [
-    { basis: 'forecast', profile: 'general', horizon: '2026-05-05', tileUrl: '/artifacts/tiles/forecast/general/2026-05-05/{z}/{x}/{y}.png' },
-    { basis: 'forecast', profile: 'cycling', horizon: '2026-05-05', tileUrl: '/artifacts/tiles/forecast/cycling/2026-05-05/{z}/{x}/{y}.png' },
-    { basis: 'forecast', profile: 'general', horizon: '2026-05-06', tileUrl: '/artifacts/tiles/forecast/general/2026-05-06/{z}/{x}/{y}.png' },
-    { basis: 'forecast', profile: 'cycling', horizon: '2026-05-06', tileUrl: '/artifacts/tiles/forecast/cycling/2026-05-06/{z}/{x}/{y}.png' },
-  ],
-  anchors: [
-    {
-      name: 'Rotterdam',
-      lon: 4.4777,
-      lat: 51.9244,
-      horizons: {
-        '2026-05-05': {
-          input: { tempC: 18.4, rainMm: 0, cloudPct: 25, windKmh: 14, humidity: 64 },
-          scores: {
-            general: { score: 78, category: 'Beautiful', color: '#a3e635', temp: 75, rain: 100, cloud: 95, wind: 91, humidity: 92, why: 'clear and dry, slightly cool' },
-            cycling: { score: 77, category: 'Beautiful', color: '#a3e635', temp: 75, rain: 100, cloud: 95, wind: 91, humidity: 92, why: 'dry with okay wind' },
-          },
-        },
-        '2026-05-06': {
-          input: { tempC: 14.8, rainMm: 3.2, cloudPct: 88, windKmh: 27, humidity: 82 },
-          scores: {
-            general: { score: 38, category: 'Not Nice', color: '#9ca3af', temp: 38, rain: 50, cloud: 20, wind: 58, humidity: 42, why: 'cold, cloudy, windy' },
-            cycling: { score: 32, category: 'Not Nice', color: '#9ca3af', temp: 38, rain: 50, cloud: 20, wind: 58, humidity: 42, why: 'wet and windy' },
-          },
-        },
-      },
-    },
-  ],
-  legend: {
-    min: 0,
-    max: 100,
-    categories: [
-      { label: 'Not Nice', color: '#9ca3af', min: 0, max: 49 },
-      { label: 'Fair', color: '#7dd3fc', min: 50, max: 61 },
-      { label: 'Nice', color: '#38bdf8', min: 62, max: 71 },
-      { label: 'Beautiful', color: '#a3e635', min: 72, max: 81 },
-      { label: 'Perfect', color: '#16a34a', min: 82, max: 91 },
-      { label: 'Pristine', color: '#f59e0b', min: 92, max: 100 },
-    ],
-  },
-};
-
-function componentVerdict(score: number) {
-  if (score >= 92) return 'excellent';
-  if (score >= 82) return 'great';
-  if (score >= 72) return 'good';
-  if (score >= 62) return 'okay';
-  if (score >= 50) return 'weak';
-  return 'bad';
+function ForecastStatus({ manifest, mode, period }: { manifest: WeatherManifest; mode: Mode; period: Period }) {
+  if (mode === 'climate') return <p className="forecastStatus">Typical conditions · {manifest.climate?.period}</p>;
+  const status = forecastRunStatus(period.sourceRunAt, manifest.forecast.staleAfterHours);
+  return (
+    <p className={status.stale ? 'forecastStatus stale' : 'forecastStatus'}>
+      <span className="statusDot" />
+      {status.label}
+      <span aria-hidden="true"> · </span>
+      {period.kind === 'outlook' ? 'Outlook' : 'Detailed forecast'}
+    </p>
+  );
 }
+
+function PeriodRail({ periods, selectedId, mode, onChange }: { periods: Period[]; selectedId: string; mode: Mode; onChange: (id: string) => void }) {
+  let detailedEnd = -1;
+  periods.forEach((period, index) => { if (period.kind !== 'outlook') detailedEnd = index; });
+  return (
+    <div className="periodRailWrap">
+      {mode === 'forecast' && (
+        <div className="periodBands" aria-hidden="true">
+          <span style={{ flex: Math.max(1, detailedEnd + 1) }}>Detailed</span>
+          {detailedEnd < periods.length - 1 && <span style={{ flex: periods.length - detailedEnd - 1 }}>Outlook</span>}
+        </div>
+      )}
+      <div className="periodRail" role="group" aria-label={mode === 'forecast' ? 'Forecast day' : 'Month'}>
+        {periods.map((period) => (
+          <button key={period.id} type="button" aria-pressed={selectedId === period.id} onClick={() => onChange(period.id)}>
+            <span>{period.shortLabel}</span>
+            {mode === 'forecast' && period.date && <small>{dateNumber(period.date)}</small>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Legend({ manifest, triggerRef, onExplain }: { manifest?: WeatherManifest; triggerRef: RefObject<HTMLButtonElement | null>; onExplain: (focusGuide: boolean) => void }) {
+  if (!manifest) return null;
+  return (
+    <button ref={triggerRef} type="button" className="legend" aria-label="Explain the weather score" onClick={(event) => onExplain(isKeyboardActivation(event.detail))}>
+      <div className="legendScale">{manifest.legend.map((category) => <span key={category.label} style={{ backgroundColor: category.color }} />)}</div>
+      <div className="legendLabels"><span>Poor</span><span>Excellent</span><b>?</b></div>
+    </button>
+  );
+}
+
+function ScoringGuide({ focusOnOpen, onClose }: { focusOnOpen: boolean; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (focusOnOpen) closeRef.current?.focus({ preventScroll: true });
+  }, [focusOnOpen]);
+  return (
+    <aside className="scoringGuide" aria-label="What counts as nice weather">
+      <button ref={closeRef} className="closeButton" type="button" onClick={onClose} aria-label="Close score explanation">×</button>
+      <p className="guideEyebrow">Weather score</p>
+      <h2>Warm, dry and bright.</h2>
+      <p>Nice weather favours 22–27°C, little rain, clear skies and light wind. Cycling is stricter about rain, wind and gusts.</p>
+      <small>The colour shows the score for the selected day and preference.</small>
+    </aside>
+  );
+}
+
+function PointPanel({ state, point, period, focusOnOpen, onClose }: {
+  state: { status: 'idle' | 'loading' | 'ready' | 'error'; data?: PointWeather; message?: string };
+  point: MapPoint;
+  period?: Period;
+  focusOnOpen: boolean;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (focusOnOpen) closeRef.current?.focus({ preventScroll: true });
+  }, [focusOnOpen]);
+  return (
+    <aside className="pointPanel" aria-live="polite" aria-label="Weather at selected point">
+      <button ref={closeRef} className="closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
+      {state.status === 'loading' && <PointSkeleton />}
+      {state.status === 'error' && (
+        <div className="pointMessage"><strong>Details are not available</strong><p>{state.message}</p></div>
+      )}
+      {state.status === 'ready' && state.data && <PointDetails data={state.data} point={point} period={period} />}
+      {state.status === 'idle' && (
+        <div className="pointMessage"><strong>{point.label ?? 'Selected point'}</strong><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}° · {period?.label}</p></div>
+      )}
+    </aside>
+  );
+}
+
+function PointDetails({ data, point }: { data: PointWeather; point: MapPoint; period?: Period }) {
+  const sky = data.metrics.cloudPct !== undefined
+    ? ['Cloud', `${format(data.metrics.cloudPct, 0)}%`]
+    : data.metrics.solarEnergyMJm2 !== undefined
+      ? ['Sun energy', `${format(data.metrics.solarEnergyMJm2, 1)} MJ/m²`]
+      : ['Sun', 'Not available'];
+  const metrics = [
+    ['Temperature', `${format(data.metrics.temperatureC, 0)}°C · ${format(data.metrics.minTempC, 0)}–${format(data.metrics.maxTempC, 0)}°`],
+    ['Rain', `${format(data.metrics.rainMm, 1)} mm${data.metrics.wetTimeFraction !== undefined ? ` · ${format(data.metrics.wetTimeFraction * 100, 0)}% wet` : ''}`],
+    sky,
+    ['Wind', `${format(data.metrics.windKmh, 0)} km/h${data.metrics.gustKmh !== undefined ? ` · gusts ${format(data.metrics.gustKmh, 0)}` : ''}`],
+  ];
+  return (
+    <>
+      <div className="pointHeading">
+        <div><p>{data.periodLabel}</p><h2>{point.label ?? `${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}°`}</h2></div>
+        <div className="score"><strong>{Math.round(data.score)}</strong><span>{data.category}</span></div>
+      </div>
+      <p className="pointSummary">{data.summary}</p>
+      <dl className="metricGrid">
+        {metrics.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>
+      <p className="dataNote">{sourceSummary(data)}</p>
+      <details className="scoreWhy">
+        <summary>Why this score</summary>
+        <p className="evidenceTitle">Score parts</p>
+        <dl>
+          {Object.entries(data.components).map(([label, value]) => <div key={label}><dt>{componentLabel(label)}</dt><dd>{Math.round(value)}</dd></div>)}
+        </dl>
+        <p className="evidenceTitle">Weather used</p>
+        <dl className="scoreEvidence">
+          {scoreEvidence(data).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+        </dl>
+        {data.source.basis === 'forecast' && (
+          <>
+            <p className="evidenceTitle">Forecast timing</p>
+            <dl className="scoreEvidence sourceTiming">
+              {sourceTiming(data).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            </dl>
+          </>
+        )}
+      </details>
+    </>
+  );
+}
+
+function scoreEvidence(data: PointWeather): Array<[string, string]> {
+  return [
+    ['Temperature', `${format(data.metrics.temperatureC, 0)}°C`],
+    ['Minimum', `${format(data.metrics.minTempC, 0)}°C`],
+    ['Maximum', `${format(data.metrics.maxTempC, 0)}°C`],
+    ['Rain', `${format(data.metrics.rainMm, 1)} mm`],
+    ['Wet time', optionalMetric(data.metrics.wetTimeFraction, (value) => `${format(value * 100, 0)}%`)],
+    ['Sun energy', optionalMetric(data.metrics.solarEnergyMJm2, (value) => `${format(value, 1)} MJ/m²`)],
+    ['Cloud', optionalMetric(data.metrics.cloudPct, (value) => `${format(value, 0)}%`)],
+    ['Wind', `${format(data.metrics.windKmh, 0)} km/h`],
+    ['Gusts', optionalMetric(data.metrics.gustKmh, (value) => `${format(value, 0)} km/h`)],
+    ['Humidity', optionalMetric(data.metrics.humidityPct, (value) => `${format(value, 0)}%`)],
+    ['Dew point', optionalMetric(data.metrics.dewPointC, (value) => `${format(value, 0)}°C`)],
+  ];
+}
+
+function optionalMetric(value: number | undefined, present: (value: number) => string): string {
+  return value === undefined ? 'Not available' : present(value);
+}
+
+function sourceSummary(data: PointWeather): string {
+  const source = data.source;
+  const resolution = `${Math.round(source.resolutionKm)} km grid`;
+  const detail = source.temporalResolutionHours > 24 ? 'Monthly normal' : source.temporalResolutionHours === 1 ? 'Hourly detail' : `${source.temporalResolutionHours}-hour detail`;
+  if (source.basis === 'climate') return `Typical month · ${source.referencePeriod} · ${source.providerLabel} · ${resolution}`;
+  return `${source.detailLabel} · ${source.providerLabel} · ${resolution} · ${detail} · ${freshnessLabel(source.artifactGeneratedAt)}`;
+}
+
+function sourceTiming(data: PointWeather): Array<[string, string]> {
+  return [
+    ['Model run', formatMoment(data.source.runAt)],
+    ['Valid from', formatMoment(data.source.validFrom)],
+    ['Valid to', formatMoment(data.source.validTo)],
+  ];
+}
+
+function formatMoment(value: string | undefined): string {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+function SearchControl({ onFound }: { onFound: (point: MapPoint) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [message, setMessage] = useState('');
+  const [results, setResults] = useState<Array<{ name: string; country?: string; lat: number; lon: number }>>([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreTriggerAfterClose = useRef(false);
+  const searchController = useRef<AbortController | undefined>(undefined);
+
+  useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
+  useEffect(() => {
+    if (open || !restoreTriggerAfterClose.current) return;
+    restoreTriggerAfterClose.current = false;
+    restoreFocus(triggerRef.current);
+  }, [open]);
+  useEffect(() => () => searchController.current?.abort(), []);
+
+  function cancelSearch() {
+    searchController.current?.abort();
+    searchController.current = undefined;
+  }
+
+  function closeSearch() {
+    cancelSearch();
+    setOpen(false);
+    setMessage('');
+    setResults([]);
+    restoreTriggerAfterClose.current = true;
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    cancelSearch();
+    const coordinates = parseCoordinates(query);
+    if (coordinates) {
+      onFound(coordinates);
+      closeSearch();
+      return;
+    }
+    const controller = new AbortController();
+    searchController.current = controller;
+    setMessage('Checking featured cities…');
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+      if (!response.ok) throw new Error();
+      const result = await response.json() as { results?: Array<{ name: string; country?: string; lat: number; lon: number }> };
+      if (controller.signal.aborted || searchController.current !== controller) return;
+      if (!result.results?.length) throw new Error();
+      setResults(result.results.slice(0, 5));
+      setMessage('');
+    } catch {
+      if (controller.signal.aborted || searchController.current !== controller) return;
+      setMessage('Not in featured cities. Try latitude, longitude.');
+    } finally {
+      if (searchController.current === controller) searchController.current = undefined;
+    }
+  }
+
+  return (
+    <div className={open ? 'searchControl open' : 'searchControl'} onKeyDown={(event) => {
+      if (!open || !isEscapeKey(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeSearch();
+    }}>
+      {open ? (
+        <form onSubmit={submit}>
+          <SearchIcon />
+          <label className="srOnly" htmlFor="place-search">Featured cities or coordinates</label>
+          <input id="place-search" ref={inputRef} value={query} onChange={(event) => { cancelSearch(); setQuery(event.target.value); setMessage(''); setResults([]); }} placeholder="City or coordinates" autoComplete="off" />
+          <button type="button" onClick={closeSearch} aria-label="Close search">×</button>
+          {message && <p role="status">{message}</p>}
+          {results.length > 0 && (
+            <ul className="searchResults" aria-label="Places">
+              {results.map((result) => (
+                <li key={`${result.name}-${result.lat}-${result.lon}`}><button type="button" onClick={() => {
+                    onFound({ lat: result.lat, lon: result.lon, label: [result.name, result.country].filter(Boolean).join(', ') });
+                    closeSearch();
+                  }}>
+                    <strong>{result.name}</strong>{result.country && <span>{result.country}</span>}
+                  </button></li>
+              ))}
+            </ul>
+          )}
+        </form>
+      ) : (
+        <button ref={triggerRef} type="button" className="searchButton" onClick={() => setOpen(true)}><SearchIcon /> <span>Featured cities or coordinates</span></button>
+      )}
+    </div>
+  );
+}
+
+function useEscape(active: boolean, onEscape: () => void) {
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+  useEffect(() => {
+    if (!active) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isEscapeKey(event.key)) return;
+      event.preventDefault();
+      onEscapeRef.current();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [active]);
+}
+
+function LoadingDock() {
+  return <div className="dockMessage"><span className="spinner" /><div><strong>Loading the forecast</strong><span>The map will be ready shortly.</span></div></div>;
+}
+
+function ErrorDock({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <div className="dockMessage error"><div><strong>The forecast could not be loaded</strong><span>{message}</span></div><button type="button" onClick={onRetry}>Try again</button></div>;
+}
+
+function PointSkeleton() {
+  return <div className="pointSkeleton" aria-label="Loading weather details"><span /><span /><span /></div>;
+}
+
+function periodsFor(manifest: WeatherManifest | undefined, mode: Mode): Period[] {
+  if (!manifest) return [];
+  return mode === 'climate' ? manifest.climate.months : manifest.forecast.days;
+}
+
+function componentLabel(value: string): string {
+  return value === 'sun' ? 'Sun' : value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function dateNumber(date: string): string {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+}
+
+function format(value: number, digits: number): string {
+  return new Intl.NumberFormat('en-GB', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value);
+}
+
+function parseCoordinates(query: string): MapPoint | undefined {
+  const match = query.trim().match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return undefined;
+  const lat = Number(match[1]);
+  const lon = Number(match[2]);
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return undefined;
+  return { lat, lon };
+}
+
+function locate(onSuccess: (point: MapPoint) => void, onError: (message: string) => void) {
+  if (!navigator.geolocation) {
+    onError('Location is not available in this browser.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (position) => onSuccess({ lat: position.coords.latitude, lon: position.coords.longitude }),
+    () => onError('Allow location access to show weather near you.'),
+    { enableHighAccuracy: false, timeout: 8_000, maximumAge: 300_000 },
+  );
+}
+
+function SunMark() { return <svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="5.5" /><path d="M15 1.5v5M15 23.5v5M1.5 15h5M23.5 15h5M5.5 5.5l3.6 3.6M20.9 20.9l3.6 3.6M24.5 5.5l-3.6 3.6M9.1 20.9l-3.6 3.6" /></svg>; }
+function SearchIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>; }
+function LocationIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 7.5 17.5L12 17l-7.5 3.5L12 3Z" /></svg>; }
+function BikeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="17" r="3.5" /><circle cx="18" cy="17" r="3.5" /><path d="m6 17 4-8h4l4 8m-8-8 4 8H6m3.5-11H13" /></svg>; }

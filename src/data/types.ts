@@ -1,11 +1,28 @@
-export type Basis = 'forecast' | 'climatology';
-export type Profile = 'general' | 'cycling';
+export type Mode = 'forecast' | 'climate';
+export type Profile = 'nice' | 'cycling';
+export type ForecastKind = 'detailed' | 'outlook';
+export type DataStatus = 'live' | 'sample';
 
-export type LayerManifest = {
-  basis: Basis;
-  profile: Profile;
-  horizon: string;
-  tileUrl: string;
+export type WeatherImage = {
+  url: string;
+  sha256: string;
+  width: number;
+  height: number;
+  projection: 'web-mercator';
+};
+
+export type Period = {
+  id: string;
+  label: string;
+  shortLabel: string;
+  date?: string;
+  month?: number;
+  kind?: ForecastKind;
+  resolutionKm: number;
+  images: Record<Profile, WeatherImage>;
+  providerLabel: string;
+  sourceRunAt: string;
+  temporalResolutionHours: number;
 };
 
 export type LegendCategory = {
@@ -15,71 +32,77 @@ export type LegendCategory = {
   max: number;
 };
 
-export type Manifest = {
-  version: 1;
+export type WeatherManifest = {
+  version: 3;
+  releaseId: string;
+  productContract: 'nice-weather-v5';
+  dataStatus: DataStatus;
   generatedAt: string;
-  grid?: {
-    crs: string;
-    cellDeg: number;
-    region: string;
-    tileMaxZoom?: number;
-    tileRenderer?: number;
+  bounds: [number, number, number, number];
+  forecast: {
+    updatedAt: string;
+    staleAfterHours: number;
+    days: Period[];
   };
-  sources: {
-    forecast: {
-      name: string;
-      run: string;
-      runStartedAt?: string;
-      aggregation?: string;
-      staleAfterHours?: number;
-      horizons: string[];
-      horizonDetails?: ForecastHorizon[];
-    };
-    climatology?: { name: string; period: string; horizons: string[] };
+  climate: {
+    period: string;
+    months: Period[];
   };
-  layers: LayerManifest[];
-  anchors: Anchor[];
-  legend: {
-    min: number;
-    max: number;
-    categories: LegendCategory[];
-  };
+  legend: LegendCategory[];
 };
 
-export type ForecastHorizon = {
-  id: string;
-  label: string;
-  localDate: string;
-  windowStart: string;
-  windowEnd: string;
+export type PointMetrics = {
+  temperatureC: number;
+  minTempC: number;
+  maxTempC: number;
+  rainMm: number;
+  wetTimeFraction?: number;
+  solarEnergyMJm2?: number;
+  cloudPct?: number;
+  windKmh: number;
+  gustKmh?: number;
+  humidityPct?: number;
+  dewPointC?: number;
 };
 
-export type AnchorScore = {
+export type ScoreComponents = {
+  warmth: number;
+  dryness: number;
+  sun: number;
+  wind: number;
+  comfort: number;
+};
+
+export type PointWeather = {
+  releaseId: string;
+  lat: number;
+  lon: number;
+  periodLabel: string;
   score: number;
   category: string;
-  color: string;
-  temp: number;
-  rain: number;
-  cloud: number;
-  wind: number;
-  humidity: number;
-  why: string;
+  components: ScoreComponents;
+  summary: string;
+  metrics: PointMetrics;
+  source: PointSource;
 };
 
-export type Anchor = {
-  name: string;
-  lon: number;
+export type PointSource = {
+  basis: 'forecast' | 'climate';
+  detailLabel: string;
+  providerLabel: string;
+  resolutionKm: number;
+  temporalResolutionHours: number;
+  artifactGeneratedAt: string;
+  runAt?: string;
+  validFrom?: string;
+  validTo?: string;
+  referencePeriod?: string;
+};
+
+export type PointRequest = {
+  releaseId: string;
   lat: number;
-  horizons: Record<string, AnchorHorizon>;
-};
-
-export type AnchorHorizon = {
-  input: {
-    tempC: number;
-    humidity: number;
-    rainMm: number;
-    cloudPct: number;
-    windKmh: number;
-  };
-  scores: Record<Profile, AnchorScore>;
+  lon: number;
+  period: string;
+  profile: Profile;
 };

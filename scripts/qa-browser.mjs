@@ -8,143 +8,126 @@ const screenshotDir = path.resolve('output/screenshots');
 await mkdir(screenshotDir, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors = [];
-const tileURLs = new Set();
-const osmTileURLs = new Set();
 const telemetryEvents = new Set();
 
 page.on('console', (message) => {
-  const text = message.text();
-  const telemetryMatch = text.match(/^nice-weather-finder:([a-z-]+)/);
-  if (telemetryMatch) telemetryEvents.add(telemetryMatch[1]);
-  if (message.type() === 'error') errors.push(text);
+  const match = message.text().match(/^nice-weather:([a-z-]+)/);
+  if (match) telemetryEvents.add(match[1]);
+  if (message.type() === 'error') errors.push(message.text());
 });
 page.on('pageerror', (error) => errors.push(error.message));
-page.on('response', (response) => {
-  if (response.url().includes('/artifacts/tiles/forecast/') && response.status() === 200) {
-    tileURLs.add(response.url());
-  }
-  if (response.url().includes('tile.openstreetmap.org')) {
-    osmTileURLs.add(response.url());
-  }
-});
 
 try {
   await page.goto(baseURL, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('.maplibregl-canvas', { timeout: 15_000 });
-  await page.waitForFunction(() => document.querySelector('.freshness')?.textContent?.includes('Run '), null, { timeout: 15_000 });
-  await page.waitForTimeout(1_500);
-
-  const freshness = await page.locator('.freshness').innerText();
-  assertIncludes(freshness, 'Model run');
-  assertIncludes(freshness, 'updated here');
-  assertIncludes(freshness, '10:00-20:00');
-  if (!/\d{4}-\d{2}-\d{2}/.test(freshness)) {
-    throw new Error(`freshness block lacks an exact local date: ${freshness}`);
-  }
-
-  const horizons = await page.locator('.horizonGrid button').allTextContents();
-  if (horizons.length !== 5) {
-    throw new Error(`expected five forecast horizon buttons, saw ${horizons.length}: ${horizons.join(', ')}`);
-  }
-  if (!horizons.includes('Sat 9 May')) {
-    throw new Error(`expected concrete Sat 9 May horizon label, saw: ${horizons.join(', ')}`);
-  }
-
-  const beforeDetail = await page.locator('.anchorDetail').innerText();
-  await captureAndCheckMap(page, 'nice-weather-main.png');
-
-  await page.getByRole('button', { name: 'Sat 9 May' }).click();
-  await page.waitForTimeout(800);
-  const afterDetail = await page.locator('.anchorDetail').innerText();
-  if (afterDetail === beforeDetail) {
-    throw new Error('place detail did not change after selecting Sat 9 May');
-  }
-  await captureAndCheckMap(page, 'nice-weather-sat-9-may.png');
-
-  await page.getByRole('button', { name: 'cycling' }).click();
-  await page.waitForTimeout(800);
-  await captureAndCheckMap(page, 'nice-weather-cycling.png');
-
-  if (tileURLs.size < 3) {
-    throw new Error(`expected forecast tile requests for initial/horizon/profile states, saw ${tileURLs.size}`);
-  }
-  assertTelemetry(['app-started', 'manifest-loaded', 'map-loaded', 'score-layer-ready', 'resource-summary', 'horizon-changed', 'profile-changed']);
-
-  await page.goto('about:blank');
-  await page.goto(`${baseURL.replace(/#.*$/, '')}#design-system`, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('.maplibregl-canvas', { timeout: 15_000 });
-  await page.waitForFunction(() => document.querySelector('.freshness')?.textContent?.includes('Run '), null, { timeout: 15_000 });
+  await page.waitForSelector('.controlDock .periodRail button', { timeout: 15_000 });
   await page.waitForTimeout(1_000);
-  const designAnchorCount = await page.locator('.anchorRow').count();
-  if (designAnchorCount !== 1) {
-    throw new Error(`design-system route did not render the fixture state; expected 1 anchor row, saw ${designAnchorCount}`);
-  }
-  await captureAndCheckMap(page, 'nice-weather-design-system.png');
 
-  if (errors.length > 0) {
-    throw new Error(`browser console errors:\n${errors.join('\n')}`);
+  const manifest = await page.evaluate(async () => (await fetch('/manifest.json')).json());
+  if (manifest.version !== 3 || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
+    throw new Error(`unexpected production manifest: v${manifest.version}, ${manifest.forecast?.days?.length} days, ${manifest.climate?.months?.length} months`);
   }
+  const sampleWarnings = await page.locator('.sampleWarning').count();
+  if ((manifest.dataStatus === 'sample') !== (sampleWarnings === 1)) {
+    throw new Error(`sample warning disagrees with dataStatus=${manifest.dataStatus}`);
+  }
+  if (await page.locator('.periodRail button').count() !== 14) throw new Error('forecast rail must contain 14 days');
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[0].id, 'nice', manifest.forecast.days[0].images.nice);
+  await capture(page, 'nice-weather-desktop.png');
 
-  console.log(`qa-browser ok: ${tileURLs.size} forecast tile responses; screenshots in ${screenshotDir}`);
+  await page.locator('.periodRail button').nth(1).click();
+  await page.getByRole('button', { name: /Cycling/i }).click();
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[1].id, 'cycling', manifest.forecast.days[1].images.cycling);
+  await page.getByRole('region', { name: 'Weather score map' }).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.pointPanel .score', { timeout: 10_000 });
+  await assertText(page, '.pointPanel', 'Why this score');
+  await page.locator('.scoreWhy summary').click();
+  for (const label of ['Temperature', 'Minimum', 'Maximum', 'Rain', 'Wet time', 'Sun energy', 'Cloud', 'Wind', 'Gusts', 'Humidity', 'Dew point']) {
+    await assertText(page, '.scoreWhy', label);
+  }
+  await capture(page, 'nice-weather-point.png');
+
+  await page.getByRole('button', { name: /Typical year|Typical$/i }).click();
+  if (await page.locator('.periodRail button').count() !== 12) throw new Error('climate rail must contain 12 months');
+  await page.locator('.periodRail button').nth(6).click();
+  await assertText(page, '.forecastStatus', manifest.climate.referencePeriod);
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.climate.months[6].id, 'cycling', manifest.climate.months[6].images.cycling);
+  await assertText(page, '.pointPanel .dataNote', `Typical month · ${manifest.climate.referencePeriod}`);
+  const climateSource = await page.locator('.pointPanel .dataNote').innerText();
+  if (climateSource.includes('Updated')) throw new Error(`climate source must not claim forecast freshness: ${climateSource}`);
+  await assertText(page, '.scoreWhy', 'Not available');
+  await capture(page, 'nice-weather-typical.png');
+  await assertMapLibreCanvas(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.controlDock .periodRail button', { timeout: 15_000 });
+  await capture(page, 'nice-weather-phone.png');
+
+  for (const event of ['manifest-ready', 'map-ready', 'overlay-ready', 'resource-summary', 'period-changed', 'profile-changed', 'mode-changed', 'map-keyboard']) {
+    if (!telemetryEvents.has(event)) throw new Error(`missing telemetry event ${event}; saw ${[...telemetryEvents].sort().join(', ')}`);
+  }
+  if (errors.length) throw new Error(`browser console errors:\n${errors.join('\n')}`);
+
+  console.log(`qa-browser ok: selected MapLibre assets and UI states verified; screenshots in ${screenshotDir}`);
 } finally {
   await browser.close();
 }
 
-function assertIncludes(value, expected) {
-  if (!value.includes(expected)) {
-    throw new Error(`expected "${expected}" in:\n${value}`);
-  }
+async function assertText(page, selector, expected) {
+  await page.waitForFunction(({ selector, expected }) => document.querySelector(selector)?.textContent?.includes(expected), { selector, expected }, { timeout: 10_000 });
+  const value = await page.locator(selector).innerText();
+  if (!value.includes(expected)) throw new Error(`expected "${expected}" in:\n${value}`);
 }
 
-function assertTelemetry(expectedEvents) {
-  const missing = expectedEvents.filter((event) => !telemetryEvents.has(event));
-  if (missing.length > 0) {
-    throw new Error(`missing telemetry events: ${missing.join(', ')}; saw ${[...telemetryEvents].sort().join(', ')}`);
-  }
+async function assertMapLibreAsset(page, releaseId, period, profile, image) {
+  const expected = withChecksum(releaseId, image);
+  await page.waitForFunction(({ assetUrl, period, profile }) => window.__niceWeatherTelemetry?.some((event) =>
+    event.event === 'overlay-ready' && event.renderer === 'maplibre' && event.assetUrl === assetUrl && event.period === period && event.profile === profile
+  ), { assetUrl: expected, period, profile }, { timeout: 12_000 });
+  const event = await page.evaluate(({ assetUrl, period, profile }) => window.__niceWeatherTelemetry.findLast((candidate) =>
+    candidate.event === 'overlay-ready' && candidate.renderer === 'maplibre' && candidate.assetUrl === assetUrl && candidate.period === period && candidate.profile === profile
+  ), { assetUrl: expected, period, profile });
+  if (!Number.isFinite(event?.elapsedMs) || event.elapsedMs < 0) throw new Error(`invalid selected MapLibre readiness event: ${JSON.stringify(event)}`);
 }
 
-async function captureAndCheckMap(page, name) {
+function withChecksum(releaseId, image) {
+  const hashAt = image.url.indexOf('#');
+  const fragment = hashAt >= 0 ? image.url.slice(hashAt) : '';
+  const withoutFragment = hashAt >= 0 ? image.url.slice(0, hashAt) : image.url;
+  const queryAt = withoutFragment.indexOf('?');
+  const assetPath = (queryAt >= 0 ? withoutFragment.slice(0, queryAt) : withoutFragment).replace(/^\//, '');
+  const query = new URLSearchParams(queryAt >= 0 ? withoutFragment.slice(queryAt + 1) : '');
+  query.set('v', image.sha256);
+  return `/releases/${encodeURIComponent(releaseId)}/${assetPath}?${query.toString()}${fragment}`;
+}
+
+async function assertMapLibreCanvas(page) {
+  const canvas = page.locator('.maplibregl-canvas');
+  if (!await canvas.isVisible()) throw new Error('MapLibre canvas is not visible after selected overlay readiness');
+  const pixels = PNG.sync.read(await canvas.screenshot());
+  const colours = new Set();
+  for (let y = 0; y < pixels.height; y += 12) {
+    for (let x = 0; x < pixels.width; x += 12) {
+      const offset = (pixels.width * y + x) * 4;
+      colours.add(`${pixels.data[offset]},${pixels.data[offset + 1]},${pixels.data[offset + 2]}`);
+    }
+  }
+  if (colours.size < 24) throw new Error(`MapLibre canvas lacks rendered pixel variation: ${colours.size} colours`);
+}
+
+async function capture(page, name) {
   const screenshotPath = path.join(screenshotDir, name);
-  const deadline = Date.now() + 12_000;
-  let lastError;
-  while (Date.now() < deadline) {
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    try {
-      await assertMapPixels(screenshotPath);
-      return;
-    } catch (error) {
-      lastError = error;
-      await page.waitForTimeout(500);
-    }
-  }
-  throw lastError;
-}
-
-async function assertMapPixels(screenshotPath) {
+  await page.screenshot({ path: screenshotPath, fullPage: true });
   const png = PNG.sync.read(await readFile(screenshotPath));
-  const maxY = Math.floor(png.height * 0.45);
-  let sampled = 0;
-  let colored = 0;
-  const unique = new Set();
-  for (let y = 0; y < maxY; y += 4) {
-    for (let x = 0; x < png.width; x += 4) {
+  const colours = new Set();
+  for (let y = 0; y < png.height; y += 8) {
+    for (let x = 0; x < png.width; x += 8) {
       const offset = (png.width * y + x) * 4;
-      const r = png.data[offset];
-      const g = png.data[offset + 1];
-      const b = png.data[offset + 2];
-      const a = png.data[offset + 3];
-      if (a < 16) continue;
-      sampled += 1;
-      unique.add(`${Math.round(r / 16)},${Math.round(g / 16)},${Math.round(b / 16)}`);
-      if (Math.max(r, g, b) - Math.min(r, g, b) > 24) {
-        colored += 1;
-      }
+      colours.add(`${png.data[offset]},${png.data[offset + 1]},${png.data[offset + 2]}`);
     }
   }
-  const coloredRatio = sampled === 0 ? 0 : colored / sampled;
-  if (unique.size < 24 || coloredRatio < 0.03) {
-    throw new Error(`map screenshot looks blank: ${screenshotPath}, unique=${unique.size}, coloredRatio=${coloredRatio.toFixed(3)}`);
-  }
+  if (colours.size < 32) throw new Error(`screenshot looks blank: ${screenshotPath}`);
 }
