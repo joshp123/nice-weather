@@ -1,253 +1,140 @@
-# Nice Weather Finder Project Context
+---
+written_by: ai
+---
 
-This document is the handoff brief for new agents. Root `AGENTS.md` is still project law; this file captures the working context and roadmap.
+# Project context
 
-## Product Intent
+This is the short technical handoff for Nice Weather Finder. `AGENTS.md` sets the project rules; `.agent/execplan-pending.md` records implementation and review evidence.
 
-Nice Weather Finder helps Josh avoid Dutch grey/cold weather and find warm, sunny, dry, bike-friendly places for camper-van travel, flying, and digital nomad planning.
+## Product decision
 
-The product preference is deliberately warm-biased:
+The product is a map for choosing where to go, not a weather dashboard. It is Europe-first and tuned for escaping Dutch grey and cold weather.
 
-- ideal temperature is `22..27C`
-- `16C` is mediocre, not good
-- rain and cloud hurt general niceness
-- rain and wind hurt cycling niceness more strongly
-- sea weather is mostly irrelevant because the user cannot cycle at sea
+“Nice” means comfortably warm, bright, dry and not too windy. “Cycling” makes rain, sustained wind and gusts more costly. The warm bias is intentional: 22–27°C is ideal and 16°C cannot score above Mixed.
 
-## Current Location
+The permanent interface stays small:
 
-Local project path:
+- a full-screen geographic map;
+- a compact bottom dock for day, profile and forecast/typical mode;
+- place search and current location;
+- a point panel, opened on demand, that explains the score and data source.
+
+Map colours use five stable judgements: Poor, Mixed, Good, Very good and Excellent. The map must remain recognisable; weather colour must not hide geography.
+
+## Current data contract
+
+The live release contains 14 complete local forecast days and 12 climate months:
+
+| Period | Source | Product grid | Time step | Label |
+| --- | --- | ---: | ---: | --- |
+| Detailed forecast | DWD ICON-EU | about 7 km | hourly, then three-hourly | Detailed forecast |
+| Outlook | ECMWF AIFS | about 28 km | 6 hours | Outlook |
+| Typical month | CHELSA 2.1, 1981–2010 | about 11 km | monthly normal | Typical month · 1981–2010 |
+
+ICON-EU is used only for days it covers. AIFS continues the same 14-day product without pretending that its native resolution is finer. CHELSA source rasters are about 1 km, but climate delivery is deliberately resampled to 0.1° and reported as about 11 km across Europe. Monthly precipitation is used as a daily average; CHELSA does not provide wet-time frequency, so that evidence remains absent rather than being invented.
+
+Natural Earth 5.1.1 land polygons at 1:10 million scale are the explicit land authority. Forecast masks use all-touched rasterisation at the provider grid. Climate uses two masks: centre-on-land and coastline-touch-only cells are published only when all eight CHELSA fields are present. A missing field leaves either kind of cell transparent; no weather value is filled or inferred. The build rejects a month when missing centre support exceeds 2%.
+
+Forecast cells aggregate the local 10:00–20:00 window. A timezone lookup is performed for each grid cell; UTC is used where no land timezone is found. The climate layer describes typical conditions, not a forecast.
+
+## One scoring path
+
+All providers translate their fields to `weather.DailyMetrics`. Optional evidence is explicit. Missing solar, cloud, gust, wet-time, humidity or dew-point values are not silently turned into zeros.
 
 ```text
-/Users/josh/code/nice-weather-finder
+provider fields
+    -> normalised forecast intervals or monthly climate values
+    -> weather.DailyMetrics
+    -> weather.Score(profile)
+    -> delivery records and profile PNGs
 ```
 
-Useful generated/runtime paths:
+Map pixels and point details use the same score. The frontend only selects a period and profile; client-side scoring is forbidden.
+
+The score has five explainable components: warmth, dryness, sun, wind and comfort. Deal-breaker rules stop cold, very wet or very windy days from winning through averages alone.
+
+## Backend boundaries
+
+- `internal/providers/dwd` discovers complete ICON-EU runs and downloads bounded, validated bzip2/GRIB files.
+- `internal/providers/aifs` reads ECMWF indexes, retrieves exact byte ranges and validates complete GRIB2 messages.
+- `internal/pipeline` decodes through ecCodes/GDAL, normalises units and accumulations, aggregates local days, applies the land mask and renders output.
+- `internal/weather` owns canonical facts, validation, scoring, ratings and deterministic summaries.
+- `internal/delivery` owns the manifest, compact binary grid, image metadata, validation and atomic `current`/`previous` publication.
+- `internal/update` plans 14 days, owns the pinned Natural Earth land source, builds all 12 CHELSA months and publishes one complete release.
+- `internal/appserver` serves one immutable release snapshot, detects publication changes and swaps to a fully validated replacement between requests. Point lookups remain constant time.
+
+There is no provider fallback soup, live tile rendering, client-side score policy or compatibility layer for the discarded prototype.
+
+## Artifact contract
+
+Runtime output is separate from the frontend build:
 
 ```text
-./.cache/dwd/forecast/             cached DWD ICON-EU GRIB2 forecast runs
-./.cache/land/ne_50m_land.geojson  Natural Earth land mask
-./artifacts/current/               published weather manifest and PNG tiles
-./artifacts/releases/              retained generated releases
-./dist/                            Vite frontend build
+dist/                         Vite application
+artifacts/current/manifest.json
+artifacts/current/images/     one map PNG per period and profile
+artifacts/current/grids/      one compact point-lookup grid per period
+artifacts/.building/           unpublished release under construction
+artifacts/releases/           validated release directories
+.cache/weather/staging/       bounded, temporary update work
+.cache/weather/land/          validated Natural Earth source cache
+.cache/weather/climate/       validated monthly climate checkpoints
 ```
 
-`./artifacts`, `./dist`, caches, and `node_modules` are ignored build/runtime output.
+A live update starts in `artifacts/.building`. After the manifest, all 26 periods, both profile images for every period, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-## Current Implementation
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v5` binds scoring, masks, grid and display projection semantics. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
 
-The active app is Europe-only forecast rendering.
+Public runtime routes:
 
-- Forecast source: newest complete DWD ICON-EU GRIB2 run that can cover the requested full local-day windows.
-- Forecast grid: native regular lat/lon `0.0625` degree ICON-EU grid.
-- Forecast horizons: today plus the next four local forecast dates.
-- Day window: `10:00-20:00` local time per grid cell. The grid-cell center chooses the IANA timezone at boundaries.
-- Forecast freshness: manifest carries DWD run time, build time, selected local date/window, and stale threshold; the UI must show model run age, run time, artifact update time, selected local date/window, and stale state prominently.
-- Land mask: Natural Earth land polygons; masking prefers full land/coast/island coverage over perfectly excluding every sea pixel.
-- Frontend: Vite React TypeScript + MapLibre.
-- Backend/pipeline: Go CLI.
-- Static serving: `weatherchase serve --web ./dist --artifacts ./artifacts`.
+```text
+GET /                         React application
+GET /manifest.json            release catalogue
+GET /releases/<id>/images/... immutable score overlay for that release
+GET /api/point?...            score and weather at a coordinate
+GET /api/search?q=...         small local European place index
+```
 
-Current CLI:
+## Frontend boundaries
+
+React owns product state, controls, loading and disclosure. MapLibre owns geographic interaction and compositing. The overlay is a single Web Mercator image source whose release-scoped URL changes without rebuilding the map. The old raster is removed before a new selection loads and remains hidden until the exact new source has rendered; failed or stale assets cannot remain under new controls.
+
+A DOM/SVG fallback uses the same Web Mercator geometry. It preserves a recognisable, clickable map when WebGL is unavailable and loads its weather image only when it becomes the active renderer.
+
+The app must work at phone width and on a 57-inch display. The dock is width-capped; the map keeps the remaining space. Avoid permanent lists, cards inside cards, alternate control styles and raw model jargon in the primary interface.
+
+## Commands
 
 ```bash
-devenv shell
-go run ./cmd/weatherchase update \
-  --cache ./.cache/dwd/forecast \
-  --land ./.cache/land/ne_50m_land.geojson \
-  --out ./artifacts \
-  --days 5
-go run ./cmd/weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:5173
+# Deterministic sample release
+go run ./cmd/niceweather fixture --out ./artifacts
+
+# Verify upstream data, metadata and units without publishing
+go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts --smoke
+
+# Build and publish current live weather
+go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts
+
+# Serve the built frontend and current weather release
+go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5173
 ```
 
-Current frontend URL:
+Local product URL: <http://127.0.0.1:5173/>
 
-```text
-http://127.0.0.1:5173/
-```
+## Verification order
 
-## Architecture
+Check boundaries before judging the full map:
 
-There is one scoring path:
+1. Run `go test ./...` and deterministic scoring cases.
+2. Inspect update logs, `manifest.json`, period counts, source metadata and resolutions.
+3. Verify binary-grid lookup against a known record on disk and inspect exact PNG pixels, including transparent sea.
+4. Run `go vet ./...`, `npm run test` and `npm run build`.
+5. Start the Go server and fetch the manifest, a point response and every referenced asset type.
+6. In the internal browser and Chrome or Safari, change day, profile and basis; search; click the map; and inspect desktop and mobile layouts.
+7. Record manifest latency, score-layer readiness, transferred bytes, long tasks, frame timing, JavaScript heap and browser errors.
 
-```text
-source field -> WeatherInput -> component score -> profile score -> tile
-```
+Target localhost performance remains: manifest under 500 ms and first score layer ready under 1.5 seconds. Map tile or overlay failures are correctness bugs.
 
-Canonical weather input:
+## Deployment direction
 
-```ts
-type WeatherInput = {
-  tempC: number;
-  humidity: number;
-  rainMm: number;
-  cloudPct: number;
-  windKmh: number;
-};
-```
-
-Frontend must never rescore weather. The frontend reads `/artifacts/manifest.json`, selects a manifest layer, and asks MapLibre to render that layer's tile URL.
-
-Generated forecast artifacts are dynamic data, not frontend assets. The frontend build and generated weather artifacts are served as separate roots:
-
-```text
-./dist               -> app shell and JS/CSS
-./artifacts/current  -> manifest and weather tiles
-```
-
-`weatherchase update` builds a release under `./artifacts/releases/` and atomically repoints `./artifacts/current` after validation. This keeps climate and forecast artifacts free to have different rebuild cadences without changing the UI contract.
-
-## Important Modules
-
-```text
-cmd/weatherchase/main.go        CLI entrypoint: update, build, inspect-dwd, serve
-internal/dwd/                   DWD ICON-EU field loading and mapping
-internal/timezone/              coordinate -> IANA timezone lookup
-internal/weatherinput/          canonical input grid and aggregation
-internal/scoring/               only scoring policy
-internal/tiles/                 WeatherInput grid -> scored PNG tile
-internal/artifact/              manifest, tile path, release publish contract
-internal/landmask/              land/coast/island coverage policy
-internal/server/                serves ./dist and ./artifacts separately
-src/data/                       manifest loading and frontend layer lookup
-src/map/                        MapLibre integration and raster layer install
-src/App.tsx                     current UI shell, controls, places, details
-```
-
-## Scoring Contract
-
-Temperature curve:
-
-```text
-<=8C 0, 12C 20, 16C 45, 18C 70, 20C 88, 22..27C 100,
-30C 85, 33C 55, 36C 20, >=39C 0
-```
-
-Weights:
-
-```text
-general: temp .40, rain .25, cloud .20, wind .10, humidity .05
-cycling: rain .35, wind .25, temp .25, cloud .10, humidity .05
-```
-
-Cycling score must not exceed general score and is capped by rain and wind component scores.
-
-Current palette:
-
-```text
-Not Nice  #9ca3af
-Fair      #7dd3fc
-Nice      #38bdf8
-Beautiful #a3e635
-Perfect   #16a34a
-Pristine  #f59e0b
-```
-
-## Known Gaps
-
-- Climatology is not implemented.
-- Land mask uses Natural Earth 50m; good enough for the current Europe-first forecast, not final coastline precision.
-- Timezone selection uses the grid-cell center. That is the intended simple rule for timezone boundaries.
-- Open-sea grid centers without a timezone fall back to UTC, then the land mask hides open sea pixels.
-- Current tiles are PNG filesystem tiles; revisit PMTiles or COG only when artifact size or serving complexity demands it.
-
-## Forecast Workflow
-
-The forecast workflow is pre-rendered and boring:
-
-1. Detect the newest complete DWD ICON-EU run that can cover the requested full local-day windows by checking required files, not by trusting the clock.
-2. Download/decompress required fields and steps into `.cache/dwd`.
-3. Build forecast horizons as local calendar dates.
-4. For each grid cell, map lon/lat to an IANA timezone using timezone polygons.
-5. For each local date, convert local `10:00..20:00` to UTC forecast steps for that cell.
-6. Aggregate temperature, humidity, cloud, and wind as daytime averages.
-7. Aggregate rain as the precipitation accumulation delta across the local daytime window.
-8. Convert to `WeatherInput`, score once, render tiles, write manifest.
-9. Write artifacts to a release directory, validate, then atomically repoint `./artifacts/current`.
-
-Rebuild cadence:
-
-- run the updater hourly on a VPS
-- rebuild only when a newer complete usable DWD run is available
-- expect DWD run candidates around `00Z`, `06Z`, `12Z`, and `18Z`; never assume a run is complete or usable until the files are present and it can cover the requested full local-day windows
-- do not live-render tiles per HTTP request
-- do not bundle forecast data into `./dist`
-
-Plain-English VPS workflow:
-
-- A Linux timer runs one command every so often.
-- That command checks whether DWD has published a newer complete forecast that can produce the requested full local-day windows.
-- If nothing changed, it exits without touching the live site.
-- If there is a newer complete run, it downloads the required files, builds tiles in a temporary staging directory, validates them, then swaps the finished directory into place.
-- Users either see the previous good forecast or the new good forecast; they should not see a half-built artifact tree.
-
-When time advances:
-
-- manifest horizon IDs should remain local dates such as `2026-05-05`
-- frontend labels can render `today`, `tomorrow`, or weekday/date from those IDs
-- a new DWD run replaces artifacts atomically
-- stale forecast state must be visually obvious if the published run is older than the manifest threshold
-
-## Climatology Roadmap
-
-WorldClim is the intended first climatology source. It should use the same canonical scoring path:
-
-```text
-WorldClim monthly field -> WeatherInput -> component score -> profile score -> tile
-```
-
-Monthly horizons should be `jan..dec` or date-independent month IDs. Climate artifacts are static-ish and can be rebuilt rarely, but they still belong under `./artifacts`, not in `./dist`.
-
-## Short-Term Priorities
-
-1. Add WorldClim monthly climatology artifacts.
-2. Improve visual polish through the production-component design-system route.
-3. Add VPS deployment docs/timer unit after the update command settles.
-4. Keep frontend tests in the Node environment unless a test actually needs DOM APIs; `vite.config.ts` is typechecked with Node types and Vitest config typing.
-
-## Xuezh Workflow Lessons To Port
-
-The Chinese app's strongest practices apply here:
-
-- Use a design-system route for production components and key UI states.
-- Keep browser-visible self-review mandatory for UI work; screenshots are evidence, not decoration.
-- Keep the server/pipeline as the source of truth. The frontend may select and render manifest state but must not own scoring or weather policy.
-- Use one deep boundary for unattended updating. For this app that means one forecast updater command that owns run discovery, download/cache, build, validation, and atomic publish.
-- Make updater reruns idempotent: running the command twice for the same complete DWD run should not change published artifacts.
-- Prefer disposable fixture/generated artifacts for smoke checks.
-
-## Longer-Term Direction
-
-- Europe-first until the workflow is correct and fast.
-- Expand geography only after forecast and climatology artifact contracts are stable.
-- Keep one source per basis until a concrete reason forces another choice.
-- Add route/campsite/city search only after the map layers are trusted.
-- Consider PMTiles, COG, or object storage only when filesystem PNG tiles become a measured bottleneck.
-
-## Verification Contract
-
-Before handoff after any changeset:
-
-```bash
-go test ./...
-go vet ./...
-devenv shell -- npm run test
-devenv shell -- npm run build
-devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
-devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
-```
-
-Run these sequentially. Parallel `devenv shell` commands can race on `.devenv/load-exports`.
-
-Observable checks:
-
-```bash
-go run ./cmd/weatherchase update --cache ./.cache/dwd/forecast --land ./.cache/land/ne_50m_land.geojson --out ./artifacts --days 5
-go run ./cmd/weatherchase serve --web ./dist --artifacts ./artifacts --addr 127.0.0.1:5173
-curl -I http://127.0.0.1:5173/artifacts/manifest.json
-curl -I http://127.0.0.1:5173/artifacts/tiles/forecast/general/2026-05-05/6/35/24.png
-```
-
-Use the in-app browser or Browser Use to verify the rendered map, controls, place details, console logs, and screenshot pixels.
-If Browser Use is unavailable, the committed `qa:browser` script is the repo fallback. It saves screenshots in `output/screenshots/` and fails on blank map screenshots, missing freshness/date/window text, missing forecast tile requests, missing telemetry, or design-system route drift.
-If Browser Use is not exposed, `npm run qa:browser` performs the same core UI checks with Playwright and saves screenshots under `output/screenshots/`.
+For now the service binds to loopback. The eventual mini-PC deployment should run the updater from a Nix-managed timer, serve only completed releases and expose the application at `nice.jjpcodes`. Keep refresh controls private to local or Tailnet administration. World coverage can follow only after the Europe data and interaction contracts remain fast and trustworthy in production.

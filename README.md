@@ -1,67 +1,108 @@
+---
+written_by: ai
+---
+
 # Nice Weather Finder
 
-Europe-first weather map that helps chase pleasant weather for travel and cycling.
+Nice Weather Finder answers one question: where in Europe will the weather be warm, bright, dry and calm enough to enjoy?
 
-New agents should read `AGENTS.md`, then `docs/project-context.md`.
+The map shows 14 forecast days and 12 typical months. Select a day, choose **Nice** or **Cycling**, then click anywhere on land for the score and weather behind the colour.
 
-## Scope
+## Data
 
-- Frontend: Vite + React + TypeScript + MapLibre.
-- Backend: Go.
-- Forecast source: DWD ICON-EU GRIB2, native 0.0625 degree Europe grid, rendered as a generated z0-z7 weather tile pyramid.
-- Current map mask: Natural Earth land polygons hide sea pixels.
-- Forecast horizons: today plus the next four local forecast dates.
-- Target climate data: WorldClim 2.1 monthly normals, roughly 1 km.
-- Profiles: `general`, `cycling`.
-- Time basis: `forecast` daytime aggregate from 10:00-20:00 local time per grid cell; `climatology` returns when real monthly artifacts exist.
-- Freshness: the UI shows model run age, run time, artifact update time, selected date/window, and a stale warning.
+- **Detailed forecast:** DWD ICON-EU at about 7 km, used while its forecast remains available.
+- **Outlook:** ECMWF AIFS at about 28 km, extending the forecast to day 14.
+- **Typical month:** CHELSA 2.1 monthly climate normals for 1981–2010. The source is about 1 km; this product resamples it to an honest 0.1° grid, about 11 km across Europe.
+- **Land:** Natural Earth 5.1.1 land polygons at 1:10 million scale. Forecast cells use all land touched by a cell; climate requires complete CHELSA evidence and treats coastline-only cells as best effort.
 
-The timezone at the grid-cell center chooses the local forecast day/window. That keeps timezone boundaries explicit and avoids hardcoding Amsterdam time.
+Forecast values describe the local daytime window. Source, forecast detail and resolution are shown for the selected place. A 16°C day is deliberately treated as mediocre: this is a warm-weather finder, not a generic forecast map.
 
-## One Scoring Contract
+## Run locally
 
-All source data must map into one canonical weather input:
-
-```ts
-type WeatherInput = {
-  tempC: number;
-  humidity: number;
-  rainMm: number;
-  cloudPct: number;
-  windKmh: number;
-};
-```
-
-The scoring engine is source-agnostic. It only accepts `WeatherInput` and returns component scores plus `general` and `cycling` composites.
-
-## Backend Direction
-
-Use Go for the backend/pipeline. This is grid/file processing, not app-server cleverness. Keep it boring: download source files, normalize fields, score cells, emit map artifacts and small metadata JSON.
-
-Forecast artifacts are dynamic generated data, not frontend assets. `weatherchase update` writes a release under `./artifacts/releases/` and points `./artifacts/current` at the latest valid release. It chooses the newest complete DWD run that can cover the requested number of full `10:00-20:00` local forecast dates. `weatherchase serve --web ./dist --artifacts ./artifacts` serves the React build and generated weather data as separate roots. Climate artifacts can later be rebuilt rarely from WorldClim, but should still use the same `/artifacts/*` URL contract.
-
-## Forecast Update
+Enter the development shell, install the frontend packages if needed, then build a sample release:
 
 ```bash
-devenv shell -- go run ./cmd/weatherchase update \
-  --cache ./.cache/dwd/forecast \
-  --land ./.cache/land/ne_50m_land.geojson \
+devenv shell
+npm install
+npm run build
+go run ./cmd/niceweather fixture --out ./artifacts
+go run ./cmd/niceweather serve \
+  --web ./dist \
+  --artifacts ./artifacts \
+  --listen 127.0.0.1:5173
+```
+
+Open <http://127.0.0.1:5173/>. Useful checks are:
+
+- <http://127.0.0.1:5173/manifest.json>
+- <http://127.0.0.1:5173/api/search?q=Amsterdam>
+- `http://127.0.0.1:5173/api/point?release=<release-id>&period=<period-id>&profile=nice&lat=52.37&lon=4.90`
+
+The fixture is deterministic sample data. It exercises all 14 forecast days, all 12 climate months, both profiles and the same delivery contract as a live release. The manifest sets `dataStatus` to `sample`, so the interface cannot mistake it for current weather; a production update sets it to `live`.
+
+## Build live weather
+
+First check the current upstream files and their units without publishing:
+
+```bash
+go run ./cmd/niceweather update \
+  --cache ./.cache/weather \
   --out ./artifacts \
-  --days 5
+  --smoke
 ```
 
-On a VPS, run that command hourly from a timer. DWD publishes runs around `00Z`, `06Z`, `12Z`, and `18Z`; the updater checks whether the newest usable run is complete before doing any work. If no newer complete run can cover five full local forecast dates, it exits without changing the published release. If a build fails, the previous `./artifacts/current` release remains live.
-
-The UI marks the forecast stale once the published DWD run is older than the manifest threshold, currently 12 hours. That warning is deliberately prominent so a dead timer or broken update is obvious from the map. Browser telemetry logs manifest load, map load, score-layer updates, tile/resource totals, and control interactions.
-
-## Verification
+Then build and atomically publish a complete live release:
 
 ```bash
-devenv shell -- go test ./...
-devenv shell -- go vet ./...
-devenv shell -- npm run test
-devenv shell -- npm run build
-devenv shell -- npm run qa:browser -- http://127.0.0.1:5173/
+go run ./cmd/niceweather update \
+  --cache ./.cache/weather \
+  --out ./artifacts
 ```
 
-Run those sequentially. `qa:browser` expects `weatherchase serve` to be running. It opens the real app, checks the freshness/date/window UI, switches forecast horizon and profile, verifies forecast tile requests, checks browser telemetry and resource summaries, rejects blank map screenshots, and saves ignored screenshots under `output/screenshots/`.
+The updater downloads current ICON-EU and AIFS fields, reads CHELSA through GDAL, rasterises the pinned Natural Earth land source, aggregates local daytime weather and scores every land cell with complete source evidence. It builds under `artifacts/.building`, validates the complete release, moves it into `artifacts/releases`, then atomically changes `artifacts/current`. A failed build leaves the last good release in place. Temporary download staging is removed when the command exits.
+
+Each validated climate month is checkpointed transactionally. A provider outage can stop a run without discarding completed months; the next run revalidates and reuses only checkpoints produced by the current product contract. The pinned Natural Earth archive is also cached after its size, SHA-256 and members validate.
+
+A running server notices when `artifacts/current` changes. It validates the new immutable release and swaps the whole in-memory snapshot between requests, so publication does not require a restart and a request cannot combine old and new data.
+
+## Architecture
+
+Go owns source retrieval, normalisation, scoring, release generation and HTTP serving. Every source passes through one path:
+
+```text
+source field -> DailyMetrics -> component scores -> profile score -> grid and PNG
+```
+
+Each period contains a compact EPSG:4326 binary grid for constant-time point lookup and one categorical Web Mercator PNG per profile for map rendering. The manifest binds those assets to their source, projection, hashes, dimensions and resolution. The browser requests images through `/releases/<release-id>/...` with the image checksum, so a tab cannot mix assets from different publications.
+
+React owns selection and progressive disclosure. MapLibre renders the map; the browser does not recalculate scores. A lightweight geographic fallback keeps the product usable when WebGL is unavailable.
+
+Key packages:
+
+```text
+cmd/niceweather       CLI entry point
+internal/providers    guarded DWD and AIFS clients
+internal/pipeline     decode, normalise, aggregate, mask and render
+internal/weather      canonical metrics and the only scoring policy
+internal/delivery     binary grids, manifest and atomic releases
+internal/update       complete live release job
+internal/appserver    static files, search and point lookup
+src                   React and MapLibre interface
+```
+
+Generated weather belongs in `artifacts`; the Vite build belongs in `dist`. Neither is source code.
+
+## Verify
+
+Run checks sequentially because parallel development shells can race while loading the environment:
+
+```bash
+go test ./...
+go vet ./...
+npm run test
+npm run build
+```
+
+With the server running, inspect the manifest, a point response and the referenced PNG. Validate the referenced grid on disk. Then test the map in a real browser at desktop and phone widths: change day, profile and forecast/typical mode; search for a place; click the map; and check that the source and resolution change with the period.
+
+New agents should read [AGENTS.md](AGENTS.md), [docs/project-context.md](docs/project-context.md) and [.agent/execplan-pending.md](.agent/execplan-pending.md) before editing.
