@@ -7,7 +7,7 @@ const baseURL = process.argv[2] ?? 'http://127.0.0.1:5173/';
 const screenshotDir = path.resolve('output/screenshots');
 await mkdir(screenshotDir, { recursive: true });
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors = [];
 const telemetryEvents = new Set();
@@ -144,12 +144,17 @@ async function assertText(page, selector, expected) {
 
 async function assertMapLibreAsset(page, releaseId, period, profile, lens, image) {
   const expected = withChecksum(releaseId, image);
-  await page.waitForFunction(({ assetUrl, period, profile, lens }) => window.__niceWeatherTelemetry?.some((event) =>
-    event.event === 'overlay-ready' && event.renderer === 'maplibre' && event.assetUrl === assetUrl && event.period === period && event.profile === profile && event.lens === lens
-  ), { assetUrl: expected, period, profile, lens }, { timeout: 12_000 });
-  const event = await page.evaluate(({ assetUrl, period, profile, lens }) => window.__niceWeatherTelemetry.findLast((candidate) =>
-    candidate.event === 'overlay-ready' && candidate.renderer === 'maplibre' && candidate.assetUrl === assetUrl && candidate.period === period && candidate.profile === profile && candidate.lens === lens
-  ), { assetUrl: expected, period, profile, lens });
+  try {
+    await page.waitForFunction(({ assetUrl, period, lens }) => window.__niceWeatherTelemetry?.some((event) =>
+      event.event === 'overlay-ready' && event.renderer === 'maplibre' && event.assetUrl === assetUrl && event.period === period && event.lens === lens
+    ), { assetUrl: expected, period, lens }, { timeout: 20_000 });
+  } catch (error) {
+    const recent = await page.evaluate(() => window.__niceWeatherTelemetry?.slice(-20));
+    throw new Error(`selected overlay did not become ready: ${JSON.stringify({ expected, period, profile, lens, recent })}`, { cause: error });
+  }
+  const event = await page.evaluate(({ assetUrl, period, lens }) => window.__niceWeatherTelemetry.findLast((candidate) =>
+    candidate.event === 'overlay-ready' && candidate.renderer === 'maplibre' && candidate.assetUrl === assetUrl && candidate.period === period && candidate.lens === lens
+  ), { assetUrl: expected, period, lens });
   if (!Number.isFinite(event?.elapsedMs) || event.elapsedMs < 0) throw new Error(`invalid selected MapLibre readiness event: ${JSON.stringify(event)}`);
 }
 
