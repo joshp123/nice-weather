@@ -47,7 +47,7 @@ export default function App() {
   }, []);
 
   useEscape(showGuide, closeGuide);
-  useEscape(Boolean(selectedPoint) && !showGuide, closePoint);
+  useEscape(Boolean(selectedPoint) && !showGuide && transient === undefined, closePoint);
 
   const refreshStaleRelease = useCallback((releaseId: string) => {
     if (staleReloadedRelease.current === releaseId) return false;
@@ -276,7 +276,7 @@ function PeriodRail({ periods, selectedId, mode, onChange }: { periods: Period[]
 
 const LENSES: Array<{ id: Lens; label: string; note: string }> = [
   { id: 'overall', label: 'Overall', note: 'The complete judgement' },
-  { id: 'comfort', label: 'Comfort', note: 'Temperature and moisture' },
+  { id: 'comfort', label: 'Comfort', note: 'Warmth and moisture' },
   { id: 'dry', label: 'Dry', note: 'Rain amount and wet time' },
   { id: 'bright', label: 'Bright', note: 'Sun and cloud' },
   { id: 'wind', label: 'Wind', note: 'Sustained wind and gusts' },
@@ -312,7 +312,7 @@ function ScoringGuide({ focusOnOpen, onClose }: { focusOnOpen: boolean; onClose:
       <button ref={closeRef} className="closeButton" type="button" onClick={onClose} aria-label="Close score explanation">×</button>
       <p className="guideEyebrow">Weather score</p>
       <h2>Warm, dry and bright.</h2>
-      <p>Overall combines comfort, dry weather, brightness and wind. Comfort accounts for moisture: hot and dry can feel good while hot and humid does not. Cold, damp weather is worse than cold, dry weather.</p>
+      <p>Overall combines comfort, dry weather, brightness and wind. Comfort asks whether it is warm enough, then accounts for moisture: hot and dry can feel good while hot and humid does not. Cold, damp weather is worse than cold, dry weather.</p>
       <small>Awful is reserved for the days that are genuinely miserable. Cycling is stricter about rain, wind and gusts.</small>
     </aside>
   );
@@ -458,6 +458,7 @@ function SearchControl({ open, onOpenChange, onFound }: { open: boolean; onOpenC
     restoreFocus(triggerRef.current);
   }, [open]);
   useEffect(() => () => searchController.current?.abort(), []);
+  useEscape(open, closeSearch);
 
   function cancelSearch() {
     searchController.current?.abort();
@@ -501,12 +502,7 @@ function SearchControl({ open, onOpenChange, onFound }: { open: boolean; onOpenC
   }
 
   return (
-    <div className={open ? 'searchControl open' : 'searchControl'} onKeyDown={(event) => {
-      if (!open || !isEscapeKey(event.key)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeSearch();
-    }}>
+    <div className={open ? 'searchControl open' : 'searchControl'}>
       {open ? (
         <form onSubmit={submit}>
           <SearchIcon />

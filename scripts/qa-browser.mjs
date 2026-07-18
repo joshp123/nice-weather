@@ -25,7 +25,7 @@ try {
   await page.waitForTimeout(1_000);
 
   const manifest = await page.evaluate(async () => (await fetch('/manifest.json')).json());
-  if (manifest.version !== 4 || manifest.productContract !== 'nice-weather-v6' || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
+  if (manifest.version !== 4 || manifest.productContract !== 'nice-weather-v7' || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
     throw new Error(`unexpected production manifest: v${manifest.version}, ${manifest.forecast?.days?.length} days, ${manifest.climate?.months?.length} months`);
   }
   const sampleWarnings = await page.locator('.sampleWarning').count();
@@ -58,8 +58,15 @@ try {
   }
   await page.locator('.legend').click();
   if (await page.locator('.pointPanel').count() !== 0 || await page.locator('.lensMenu').count() !== 1) throw new Error('lens menu must replace point details');
+  await page.keyboard.press('Escape');
+  if (await page.locator('.lensMenu').count() !== 0 || await page.locator('.pointPanel').count() !== 1) throw new Error('escaping the lens menu must restore point details');
+  await page.locator('.legend').click();
   await page.getByRole('button', { name: 'Search featured cities or coordinates' }).click();
   if (await page.locator('.pointPanel').count() !== 0 || await page.locator('.lensMenu').count() !== 0) throw new Error('search must replace lens and point details');
+  await page.getByRole('region', { name: 'Weather score map' }).focus();
+  await page.keyboard.press('Escape');
+  if (await page.locator('.searchControl.open').count() !== 0 || await page.locator('.pointPanel').count() !== 1) throw new Error('document Escape must close only search and restore point details');
+  await page.getByRole('button', { name: 'Search featured cities or coordinates' }).click();
   await page.getByRole('button', { name: 'Close search' }).click();
   if (await page.locator('.pointPanel').count() !== 1) throw new Error('point details did not return after closing search');
   await page.getByRole('button', { name: 'Explain the weather score' }).click();

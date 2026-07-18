@@ -30,7 +30,7 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 			m.ProductContract = "Nice Weather"
 		},
 		"product contract mismatch": func(m *Manifest) {
-			m.ProductContract = "nice-weather-v1"
+			m.ProductContract = "nice-weather-v6"
 		},
 		"data status":   func(m *Manifest) { m.DataStatus = "preview" },
 		"timestamp":     func(m *Manifest) { m.GeneratedAt = "today" },

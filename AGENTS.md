@@ -33,7 +33,7 @@ Current state:
 - Frontend build lives in `./dist`.
 - Forecast horizons are 14 concrete local-date IDs. Climate horizons are 12 explicit months.
 - Forecast aggregation is `10:00-20:00` local time per grid cell using timezone lookup; the grid-cell center chooses the timezone at boundaries.
-- The manifest is version 4 with product contract `nice-weather-v6` and explicitly identifies `live` or `sample` data. Sample data must never look live.
+- The manifest is version 4 with product contract `nice-weather-v7` and explicitly identifies `live` or `sample` data. Sample data must never look live.
 - The running server validates and swaps complete release snapshots when `current` changes. A request must never mix manifest, image and point data from different releases.
 - Forecast freshness, source, forecast detail and resolution are hard UX requirements. Raw provider detail belongs in progressive disclosure.
 

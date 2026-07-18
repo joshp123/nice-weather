@@ -30,19 +30,6 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
 .mapUnavailable p { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
 .maplibreSurface { position: absolute; inset: 0; }
 .mapStack > .maplibreSurface { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
-.mapSvg { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; user-select: none; }
-.graticule line { stroke: rgba(62,87,90,.12); stroke-width: .7; vector-effect: non-scaling-stroke; }
-.land { fill: #f5f0df; stroke: none; }
-.weatherOverlay { image-rendering: auto; }
-.coastline { fill: none; stroke: rgba(43,61,64,.55); stroke-width: .9; vector-effect: non-scaling-stroke; }
-.mapLabels circle { fill: #26383c; stroke: rgba(255,253,247,.9); stroke-width: .8; vector-effect: non-scaling-stroke; }
-.mapLabels text { fill: #203237; stroke: rgba(255,253,247,.92); stroke-width: 1.5px; paint-order: stroke; font-size: 6px; font-weight: 650; letter-spacing: -.01em; vector-effect: non-scaling-stroke; }
-.svgMarker circle:first-child { fill: var(--paper); stroke: #16272b; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.svgMarker circle:last-child { fill: var(--accent); }
-.mapZoomControls { position: absolute; z-index: 3; top: 72px; right: 12px; display: grid; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: 0 3px 12px rgba(21,42,46,.14); }
-.mapZoomControls button { width: 42px; height: 42px; border: 0; border-bottom: 1px solid var(--line); background: transparent; font-size: 22px; cursor: pointer; }
-.mapZoomControls button:last-child { border-bottom: 0; }
-.mapAttribution { position: absolute; left: 4px; bottom: 2px; margin: 0; padding: 2px 4px; border-radius: 3px; background: rgba(255,255,255,.72); color: #536268; font-size: 9px; }
 .maplibregl-canvas { cursor: crosshair; }
 .maplibreSurface .maplibregl-ctrl-top-right { top: 72px; right: 12px; }
 .maplibregl-ctrl-group { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgba(21, 42, 46, 0.14); }

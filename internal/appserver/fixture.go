@@ -17,7 +17,7 @@ import (
 
 var fixtureTime = time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 
-const fixtureRelease = "fixture-20260718-v9"
+const fixtureRelease = "fixture-20260718-v11"
 
 var fixtureLegend = delivery.CanonicalLegend()
 var fixturePalette = delivery.CanonicalPalette()

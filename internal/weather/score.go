@@ -110,7 +110,9 @@ func drynessScore(m DailyMetrics) int {
 	if !m.WetTimeFraction.Available {
 		return rounded(rain)
 	}
-	return rounded(.65*rain + .35*piecewise(m.WetTimeFraction.Value, wetTimeCurve))
+	// A short downpour and hours of drizzle are different ways to lose a dry
+	// day. The better dimension must not average away the worse one.
+	return rounded(math.Min(rain, piecewise(m.WetTimeFraction.Value, wetTimeCurve)))
 }
 
 func niceWindScore(wind float64, gust OptionalFloat) int {
@@ -118,7 +120,7 @@ func niceWindScore(wind float64, gust OptionalFloat) int {
 	if !gust.Available {
 		return rounded(sustained)
 	}
-	return rounded(.7*sustained + .3*piecewise(gust.Value, niceGustCurve))
+	return rounded(math.Min(sustained, piecewise(gust.Value, niceGustCurve)))
 }
 
 func cyclingWindScore(wind float64, gust OptionalFloat) int {
@@ -126,7 +128,7 @@ func cyclingWindScore(wind float64, gust OptionalFloat) int {
 	if !gust.Available {
 		return rounded(sustained)
 	}
-	return rounded(.65*sustained + .35*piecewise(gust.Value, cyclingGustCurve))
+	return rounded(math.Min(sustained, piecewise(gust.Value, cyclingGustCurve)))
 }
 
 func sunScore(m DailyMetrics) int {
@@ -158,9 +160,9 @@ func thermalScore(m DailyMetrics) int {
 	}
 
 	// Cold damp misery is a compound condition, not "humidity" by itself.
-	// Wetness, grey sky and wind progressively matter below 16°C. A cold, dry,
-	// bright and calm day therefore remains comfortable even though it is not
-	// warm enough to score well overall.
+	// Wetness, grey sky and wind progressively matter below 16°C. Cold and dry
+	// is better than cold and damp, but this warm-weather product still treats
+	// both as less desirable than a genuinely warm day.
 	coldDamp := 100.0
 	if m.ComfortableTempC < 16 {
 		damp := 0.0
@@ -184,18 +186,10 @@ func thermalScore(m DailyMetrics) int {
 }
 
 func applyDealbreakers(score float64, m DailyMetrics, profile Profile, components Components) float64 {
-	// Warmth is the main purpose of the product. A flawless but cold day must
-	// not outrank a genuinely warm one.
-	score = math.Min(score, piecewise(m.ComfortableTempC, temperatureCeilingCurve))
-	if m.ComfortableTempC >= 28 && components.Thermal <= 25 {
-		// Oppressive heat cannot average its way into a good day.
-		score = math.Min(score, 39)
-	}
-	if m.ComfortableTempC <= 12 && components.Thermal <= 24 {
-		// Cold, damp exposure is the distinction between merely cold and
-		// genuinely awful northern-maritime weather.
-		score = math.Min(score, 24)
-	}
+	// Warmth is the main purpose of the product, so Overall cannot outrank its
+	// visible Comfort component. This keeps the judgement legible instead of
+	// applying a second hidden temperature policy after component scoring.
+	score = math.Min(score, float64(components.Thermal))
 	if profile == ProfileCycling {
 		if m.RainMM >= 8 || (m.WetTimeFraction.Available && m.WetTimeFraction.Value >= .65) || m.WindSpeedKPH >= 38 || (m.GustKPH.Available && m.GustKPH.Value >= 55) {
 			return math.Min(score, 25)
@@ -217,18 +211,17 @@ func applyDealbreakers(score float64, m DailyMetrics, profile Profile, component
 type point struct{ input, score float64 }
 
 var (
-	thermalCurve            = []point{{-15, 0}, {-5, 8}, {0, 25}, {5, 55}, {8, 68}, {12, 82}, {16, 94}, {19, 100}, {27, 100}, {30, 88}, {34, 45}, {38, 8}, {42, 0}}
-	temperatureCeilingCurve = []point{{-15, 0}, {-5, 10}, {0, 20}, {5, 25}, {8, 35}, {12, 45}, {16, 54}, {19, 75}, {22, 100}, {29, 100}, {32, 75}, {35, 45}, {38, 25}, {40, 15}, {45, 0}}
-	rainCurve               = []point{{0, 100}, {.2, 96}, {1, 80}, {3, 48}, {6, 18}, {10, 0}}
-	wetTimeCurve            = []point{{0, 100}, {.1, 92}, {.25, 70}, {.5, 30}, {.8, 0}}
-	solarCurve              = []point{{0, 0}, {4, 20}, {8, 45}, {12, 70}, {18, 100}}
-	cloudCurve              = []point{{0, 100}, {25, 90}, {50, 60}, {75, 25}, {100, 0}}
-	dewPointCurve           = []point{{8, 100}, {12, 100}, {16, 84}, {18, 64}, {21, 30}, {24, 0}}
-	hotHumidityCurve        = []point{{40, 100}, {60, 90}, {75, 65}, {90, 30}, {100, 0}}
-	niceWindCurve           = []point{{0, 100}, {12, 100}, {20, 82}, {30, 48}, {45, 0}}
-	niceGustCurve           = []point{{0, 100}, {20, 100}, {35, 75}, {50, 35}, {65, 0}}
-	cyclingWindCurve        = []point{{0, 100}, {14, 100}, {20, 78}, {28, 38}, {35, 10}, {42, 0}}
-	cyclingGustCurve        = []point{{0, 100}, {20, 100}, {30, 70}, {40, 30}, {50, 0}}
+	thermalCurve     = []point{{-15, 0}, {-5, 8}, {0, 20}, {5, 25}, {8, 35}, {12, 45}, {16, 54}, {19, 75}, {22, 100}, {27, 100}, {30, 88}, {34, 45}, {38, 8}, {42, 0}}
+	rainCurve        = []point{{0, 100}, {.2, 96}, {1, 80}, {3, 48}, {6, 18}, {10, 0}}
+	wetTimeCurve     = []point{{0, 100}, {.1, 92}, {.25, 70}, {.5, 30}, {.8, 0}}
+	solarCurve       = []point{{0, 0}, {4, 20}, {8, 45}, {12, 70}, {18, 100}}
+	cloudCurve       = []point{{0, 100}, {25, 90}, {50, 60}, {75, 25}, {100, 0}}
+	dewPointCurve    = []point{{8, 100}, {12, 100}, {16, 84}, {18, 64}, {21, 30}, {24, 0}}
+	hotHumidityCurve = []point{{40, 100}, {60, 90}, {75, 65}, {90, 30}, {100, 0}}
+	niceWindCurve    = []point{{0, 100}, {12, 100}, {20, 82}, {30, 48}, {45, 0}}
+	niceGustCurve    = []point{{0, 100}, {20, 100}, {35, 75}, {50, 35}, {65, 0}}
+	cyclingWindCurve = []point{{0, 100}, {14, 100}, {20, 78}, {28, 38}, {35, 10}, {42, 0}}
+	cyclingGustCurve = []point{{0, 100}, {20, 100}, {30, 70}, {40, 30}, {50, 0}}
 )
 
 func piecewise(value float64, points []point) float64 {

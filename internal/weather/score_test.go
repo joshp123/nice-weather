@@ -33,11 +33,11 @@ func TestSixteenDegreesIsMediocre(t *testing.T) {
 	day := idealDay()
 	day.ComfortableTempC = 16
 	result := Score(day, ProfileNice)
-	if result.Components.Thermal != 94 {
-		t.Fatalf("comfort = %d, want 94", result.Components.Thermal)
+	if result.Components.Thermal != 54 {
+		t.Fatalf("comfort = %d, want 54", result.Components.Thermal)
 	}
-	if result.Score > 54 || result.Rating != "Mixed" {
-		t.Fatalf("16°C day = %+v; want a mixed score no higher than 54", result)
+	if result.Score != result.Components.Thermal || result.Rating != "Mixed" {
+		t.Fatalf("16°C day = %+v; want visible Comfort to explain the Mixed overall score", result)
 	}
 }
 
@@ -79,7 +79,7 @@ func TestThermalComfortDistinguishesHeatAndColdMoisture(t *testing.T) {
 	coldDamp.RainMM, coldDamp.WetTimeFraction = 5, known(.8)
 	coldDamp.CloudCoverPercent, coldDamp.WindSpeedKPH = known(100), 30
 	coldDamp.GustKPH, coldDamp.DewPointC, coldDamp.RelativeHumidityPercent = known(45), known(7), known(100)
-	if dry, damp := Score(coldDry, ProfileNice), Score(coldDamp, ProfileNice); dry.Components.Thermal < 60 || damp.Components.Thermal > 15 || damp.Rating != "Awful" || dry.Rating != "Poor" {
+	if dry, damp := Score(coldDry, ProfileNice), Score(coldDamp, ProfileNice); dry.Components.Thermal < 25 || damp.Components.Thermal > 15 || damp.Rating != "Awful" || dry.Rating != "Poor" {
 		t.Fatalf("cold dry = %+v, cold damp = %+v", dry, damp)
 	}
 }
@@ -90,7 +90,7 @@ func TestAwfulRequiresMoreThanColdAlone(t *testing.T) {
 	coldDry.RainMM, coldDry.WetTimeFraction = 0, known(0)
 	coldDry.CloudCoverPercent, coldDry.WindSpeedKPH, coldDry.GustKPH = known(5), 5, known(8)
 	coldDry.DewPointC, coldDry.RelativeHumidityPercent = known(-5), known(35)
-	if got := Score(coldDry, ProfileNice); got.Rating != "Poor" || got.Components.Thermal < 50 {
+	if got := Score(coldDry, ProfileNice); got.Rating != "Poor" || got.Components.Thermal != 25 {
 		t.Fatalf("cold dry day = %+v; cold alone must not be awful", got)
 	}
 
@@ -208,6 +208,34 @@ func TestGeneralDealbreakers(t *testing.T) {
 	}
 }
 
+func TestDealbreakersAreVisibleInTheirComponent(t *testing.T) {
+	tests := []struct {
+		name      string
+		profile   Profile
+		edit      func(*DailyMetrics)
+		component func(Components) int
+	}{
+		{"cycling rain", ProfileCycling, func(day *DailyMetrics) { day.RainMM = 3 }, func(c Components) int { return c.Dryness }},
+		{"cycling wet time", ProfileCycling, func(day *DailyMetrics) { day.WetTimeFraction.Value = .35 }, func(c Components) int { return c.Dryness }},
+		{"cycling wind", ProfileCycling, func(day *DailyMetrics) { day.WindSpeedKPH = 28 }, func(c Components) int { return c.Wind }},
+		{"cycling gusts", ProfileCycling, func(day *DailyMetrics) { day.GustKPH.Value = 40 }, func(c Components) int { return c.Wind }},
+		{"general rain", ProfileNice, func(day *DailyMetrics) { day.RainMM = 7 }, func(c Components) int { return c.Dryness }},
+		{"general wet time", ProfileNice, func(day *DailyMetrics) { day.WetTimeFraction.Value = .6 }, func(c Components) int { return c.Dryness }},
+		{"general wind", ProfileNice, func(day *DailyMetrics) { day.WindSpeedKPH = 40 }, func(c Components) int { return c.Wind }},
+		{"general gusts", ProfileNice, func(day *DailyMetrics) { day.GustKPH.Value = 60 }, func(c Components) int { return c.Wind }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			day := idealDay()
+			test.edit(&day)
+			result := Score(day, test.profile)
+			if visible := test.component(result.Components); Rating(visible) == "Good" || Rating(visible) == "Very good" || Rating(visible) == "Excellent" {
+				t.Fatalf("dealbreaker is hidden: result=%+v relevant component=%d", result, visible)
+			}
+		})
+	}
+}
+
 func TestBadConditionsNeverIncreaseScore(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -237,7 +265,7 @@ func TestBadConditionsNeverIncreaseScore(t *testing.T) {
 }
 
 func TestThermalPeaksAtComfortableTemperatures(t *testing.T) {
-	want := map[float64]int{-15: 0, -5: 8, 0: 25, 8: 68, 12: 82, 16: 94, 19: 100, 22: 100, 27: 100, 30: 88, 34: 45, 38: 8, 42: 0}
+	want := map[float64]int{-15: 0, -5: 8, 0: 20, 5: 25, 8: 35, 12: 45, 16: 54, 19: 75, 22: 100, 27: 100, 30: 88, 34: 45, 38: 8, 42: 0}
 	for temperature, wantScore := range want {
 		day := idealDay()
 		day.MinTempC = math.Min(day.MinTempC, temperature)
@@ -351,8 +379,8 @@ func TestMissingWetTimeUsesRainEvidenceOnly(t *testing.T) {
 
 	day.WetTimeFraction = known(0)
 	withDryTiming := Score(day, ProfileNice)
-	if withDryTiming.Components.Dryness != 87 {
-		t.Fatalf("dryness with explicit dry timing = %d, want 87", withDryTiming.Components.Dryness)
+	if withDryTiming.Components.Dryness != 80 {
+		t.Fatalf("dryness with explicit dry timing = %d, want rain-limited score 80", withDryTiming.Components.Dryness)
 	}
 }
 

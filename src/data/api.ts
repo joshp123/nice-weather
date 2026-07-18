@@ -49,7 +49,7 @@ export function imageAssetUrl(release: string, image: WeatherImage): string {
 function parseManifest(value: unknown): WeatherManifest {
   const data = object(value, 'manifest');
   if (data.version !== 4) throw new Error('This forecast uses an unsupported data format.');
-  if (data.productContract !== 'nice-weather-v6') throw new Error('This forecast uses an unsupported product contract.');
+  if (data.productContract !== 'nice-weather-v7') throw new Error('This forecast uses an unsupported product contract.');
   if (data.dataStatus !== 'live' && data.dataStatus !== 'sample') throw new Error('Invalid manifest dataStatus.');
   const region = object(data.region, 'region');
   const bounds = object(region.bounds, 'region bounds');
@@ -65,7 +65,7 @@ function parseManifest(value: unknown): WeatherManifest {
   return {
     version: 4,
     releaseId: releaseId(data.releaseId, 'releaseId'),
-    productContract: 'nice-weather-v6',
+    productContract: 'nice-weather-v7',
     dataStatus: data.dataStatus,
     generatedAt: text(data.generatedAt, 'generatedAt'),
     bounds: [number(bounds.west, 'west'), number(bounds.south, 'south'), number(bounds.east, 'east'), number(bounds.north, 'north')],

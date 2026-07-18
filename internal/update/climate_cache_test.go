@@ -38,7 +38,7 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	}
 
 	data, err := json.Marshal(climateCheckpoint{
-		Contract: delivery.ProductContract + "|chelsa-2.1-1981-2010-0p1|validated-finite-v1",
+		Contract: "nice-weather-v6|chelsa-2.1-1981-2010-0p1|validated-finite|overlap-renderer-v2",
 		Period:   checkpoint,
 	})
 	if err != nil {
@@ -49,11 +49,11 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok, err := loadClimateCheckpoint(cache, filepath.Join(root, "obsolete-copy"), 1); err != nil || ok {
-		t.Fatalf("obsolete renderer checkpoint: ok=%v err=%v", ok, err)
+		t.Fatalf("obsolete scoring checkpoint: ok=%v err=%v", ok, err)
 	}
 	for _, relative := range periodAssets(period) {
 		if _, err := os.Stat(filepath.Join(cache, filepath.FromSlash(relative))); !os.IsNotExist(err) {
-			t.Fatalf("obsolete renderer asset %q was retained: %v", relative, err)
+			t.Fatalf("obsolete scoring asset %q was retained: %v", relative, err)
 		}
 	}
 	if _, err := os.Stat(checkpointPath + ".invalid"); err != nil {

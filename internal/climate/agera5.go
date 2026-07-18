@@ -45,9 +45,9 @@ type Distribution struct {
 	Ratings       map[string]int
 }
 
-// DecodeAgERA5 reads a bounded newline-delimited interchange emitted by the
-// authenticated ARCO extraction step. The official Zarr access itself remains
-// outside this pure product boundary.
+// DecodeAgERA5 reads a bounded newline-delimited interchange for single-cell
+// scoring conformance and source research. It is not a regional extraction or
+// grouping pipeline. Official Zarr access remains outside this seam.
 func DecodeAgERA5(reader io.Reader, maximumRows int) ([]AgERA5Day, error) {
 	if maximumRows <= 0 {
 		return nil, errors.New("positive AgERA5 row limit is required")

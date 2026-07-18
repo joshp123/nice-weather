@@ -55,7 +55,7 @@ describe('manifest contract', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
 
     const manifest = await loadManifest();
-    expect(manifest).toMatchObject({ version: 4, releaseId: 'release-20260718', productContract: 'nice-weather-v6', dataStatus: 'sample', bounds: [-25, 30, 45, 72] });
+    expect(manifest).toMatchObject({ version: 4, releaseId: 'release-20260718', productContract: 'nice-weather-v7', dataStatus: 'sample', bounds: [-25, 30, 45, 72] });
     expect(manifest.forecast.days).toHaveLength(14);
     expect(manifest.climate.months).toHaveLength(12);
     expect(manifest.forecast.days[0]).toMatchObject({ shortLabel: 'Sat 18', kind: 'detailed', providerLabel: 'Test forecast' });
@@ -72,7 +72,7 @@ describe('manifest contract', () => {
   });
 
   it('rejects a different product contract', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...manifestFixture(), productContract: 'nice-weather-v1' }), { status: 200 })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...manifestFixture(), productContract: 'nice-weather-v6' }), { status: 200 })));
     await expect(loadManifest()).rejects.toThrow('unsupported product contract');
   });
 
@@ -128,7 +128,7 @@ function manifestFixture() {
     gridUrl: `/weather/${id}.nwg`, gridSha256: `grid-${id}`, ...extra,
   });
   return {
-    version: 4, releaseId: 'release-20260718', productContract: 'nice-weather-v6', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 4, releaseId: 'release-20260718', productContract: 'nice-weather-v7', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: [
