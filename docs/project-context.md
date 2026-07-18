@@ -19,7 +19,7 @@ The permanent interface stays small:
 - place search and current location;
 - a point panel, opened on demand, that explains the score and data source.
 
-Map colours use five stable judgements: Poor, Mixed, Good, Very good and Excellent. The map must remain recognisable; weather colour must not hide geography.
+Map colours use six stable judgements: Awful, Poor, Mixed, Good, Very good and Excellent. Awful is reserved for genuinely miserable conditions; it is not a dramatic synonym for merely suboptimal weather. A restrained continuous ramp carries the underlying score while keeping geography legible.
 
 ## Current data contract
 
@@ -31,7 +31,9 @@ The live release contains 14 complete local forecast days and 12 climate months:
 | Outlook | ECMWF AIFS | about 28 km | 6 hours | Outlook |
 | Typical month | CHELSA 2.1, 1981–2010 | about 11 km | monthly normal | Typical month · 1981–2010 |
 
-ICON-EU is used only for days it covers. AIFS continues the same 14-day product without pretending that its native resolution is finer. CHELSA source rasters are about 1 km, but climate delivery is deliberately resampled to 0.1° and reported as about 11 km across Europe. Monthly precipitation is used as a daily average; CHELSA does not provide wet-time frequency, so that evidence remains absent rather than being invented.
+ICON-EU is used only for days it covers. AIFS continues the same 14-day product without pretending that its native resolution is finer. CHELSA source rasters are about 1 km, but climate delivery is deliberately resampled to 0.1° and reported as about 11 km across Europe. Monthly precipitation is used as a daily average; CHELSA does not provide wet-time frequency, so that evidence remains absent rather than being invented. Because nonlinear daily scores cannot be reconstructed from monthly means, the product labels this view as a monthly average rather than claiming a probability of nice weather. A future climate replacement must score recent observed days before aggregating their distribution.
+
+The chosen replacement source is AgERA5 v2.0. Its official 0.1° daily product supplies daytime temperature, dew point, precipitation amount and duration, cloud, solar energy and 10 m wind from 1979 onward. It is topography-corrected/interpolated ERA5 rather than independent 11 km atmospheric detail. Its “local time” uses eight longitude zones in three-hour steps, not IANA civil time. The target climate period is 2006–2025: score every real day, then publish monthly Nice and Awful fractions, mean and median score, and rating counts. The pure importer and aggregation schema exist in `internal/climate`; authenticated ARCO extraction remains blocked until a CDS personal access token and dataset terms are available.
 
 Natural Earth 5.1.1 land polygons at 1:10 million scale are the explicit land authority. Forecast masks use all-touched rasterisation at the provider grid. Climate uses two masks: centre-on-land and coastline-touch-only cells are published only when all eight CHELSA fields are present. A missing field leaves either kind of cell transparent; no weather value is filled or inferred. The build rejects a month when missing centre support exceeds 2%.
 
@@ -51,7 +53,7 @@ provider fields
 
 Map pixels and point details use the same score. The frontend only selects a period and profile; client-side scoring is forbidden.
 
-The score has five explainable components: warmth, dryness, sun, wind and comfort. Deal-breaker rules stop cold, very wet or very windy days from winning through averages alone.
+The score has four orthogonal components: thermal comfort, dryness, brightness and wind. Thermal comfort combines temperature with moisture: hot-dry and hot-humid conditions are deliberately different, as are cold-dry and cold-damp conditions. Deal-breaker rules stop cold, oppressive, very wet or very windy days from winning through averages alone.
 
 ## Backend boundaries
 
@@ -72,7 +74,7 @@ Runtime output is separate from the frontend build:
 ```text
 dist/                         Vite application
 artifacts/current/manifest.json
-artifacts/current/images/     one map PNG per period and profile
+artifacts/current/images/     overall and component map PNGs per period
 artifacts/current/grids/      one compact point-lookup grid per period
 artifacts/.building/           unpublished release under construction
 artifacts/releases/           validated release directories
@@ -81,11 +83,11 @@ artifacts/releases/           validated release directories
 .cache/weather/climate/       validated monthly climate checkpoints
 ```
 
-A live update starts in `artifacts/.building`. After the manifest, all 26 periods, both profile images for every period, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
+A live update starts in `artifacts/.building`. After the manifest, all 26 periods, their overall and component images, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v5` binds scoring, masks, grid and display projection semantics. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v6` binds scoring, component lenses, six ratings, masks, grid and display projection semantics. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
 
-Public runtime routes:
+Runtime routes:
 
 ```text
 GET /                         React application
@@ -99,7 +101,7 @@ GET /api/search?q=...         small local European place index
 
 React owns product state, controls, loading and disclosure. MapLibre owns geographic interaction and compositing. The overlay is a single Web Mercator image source whose release-scoped URL changes without rebuilding the map. The old raster is removed before a new selection loads and remains hidden until the exact new source has rendered; failed or stale assets cannot remain under new controls.
 
-A DOM/SVG fallback uses the same Web Mercator geometry. It preserves a recognisable, clickable map when WebGL is unavailable and loads its weather image only when it becomes the active renderer.
+WebGL is required for the decision map. If it is unavailable, the interface shows a clear unavailable state instead of presenting simplified or potentially misleading geography.
 
 The app must work at phone width and on a 57-inch display. The dock is width-capped; the map keeps the remaining space. Avoid permanent lists, cards inside cards, alternate control styles and raw model jargon in the primary interface.
 
@@ -138,3 +140,9 @@ Target localhost performance remains: manifest under 500 ms and first score laye
 ## Deployment direction
 
 For now the service binds to loopback. The eventual mini-PC deployment should run the updater from a Nix-managed timer, serve only completed releases and expose the application at `nice.jjpcodes`. Keep refresh controls private to local or Tailnet administration. World coverage can follow only after the Europe data and interaction contracts remain fast and trustworthy in production.
+
+## Nullschool evidence
+
+Current Earth Nullschool does not use sub-kilometre global weather. Direct Chrome requests show separate GFS `.epak` fields at 0.5° by default and 0.25° in HD mode. Wind and temperature are separate packs; changing the scalar temperature overlay leaves wind particles active. Its global weather updates every three hours. The 0.25° wind pack was about 1.08 MB compressed and 2.08 MB decoded; the matching temperature pack was about 472 kB compressed and 1.04 MB decoded. On this Mac it sustained about 96 fps with roughly 16 MB JavaScript heap at a global view, excluding GPU memory.
+
+The apparent detail comes from bilinear scalar interpolation, animated vectors and sharp geography. Nullschool's 2026 basemap uses projection-agnostic Natural Earth tiles through six zoom levels; its creator says this is nearly seven times more geographic detail than the classic map. Nice Weather's 7 km ICON-EU days already have finer native weather than Nullschool HD GFS. The useful lessons are smooth scalar presentation, direct time manipulation and independent scalar/vector layers—not copying particles or pretending interpolation creates resolution.

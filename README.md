@@ -6,13 +6,13 @@ written_by: ai
 
 Nice Weather Finder answers one question: where in Europe will the weather be warm, bright, dry and calm enough to enjoy?
 
-The map shows 14 forecast days and 12 typical months. Select a day, choose **Nice** or **Cycling**, then click anywhere on land for the score and weather behind the colour.
+The map shows 14 forecast days and 12 typical months. Select a day, choose **Nice** or **Cycling**, then click anywhere on land for the score and weather behind the colour. Switch the map between **Overall**, **Comfort**, **Dry**, **Bright** and **Wind** to see which part of the judgement drives a place.
 
 ## Data
 
 - **Detailed forecast:** DWD ICON-EU at about 7 km, used while its forecast remains available.
 - **Outlook:** ECMWF AIFS at about 28 km, extending the forecast to day 14.
-- **Typical month:** CHELSA 2.1 monthly climate normals for 1981–2010. The source is about 1 km; this product resamples it to an honest 0.1° grid, about 11 km across Europe.
+- **Typical month:** CHELSA 2.1 monthly climate normals for 1981–2010. The source is about 1 km; this product resamples it to an honest 0.1° grid, about 11 km across Europe. This view scores a monthly average, not the chance of getting a nice day; the interface says so plainly.
 - **Land:** Natural Earth 5.1.1 land polygons at 1:10 million scale. Forecast cells use all land touched by a cell; climate requires complete CHELSA evidence and treats coastline-only cells as best effort.
 
 Forecast values describe the local daytime window. Source, forecast detail and resolution are shown for the selected place. A 16°C day is deliberately treated as mediocre: this is a warm-weather finder, not a generic forecast map.
@@ -73,9 +73,9 @@ Go owns source retrieval, normalisation, scoring, release generation and HTTP se
 source field -> DailyMetrics -> component scores -> profile score -> grid and PNG
 ```
 
-Each period contains a compact EPSG:4326 binary grid for constant-time point lookup and one categorical Web Mercator PNG per profile for map rendering. The manifest binds those assets to their source, projection, hashes, dimensions and resolution. The browser requests images through `/releases/<release-id>/...` with the image checksum, so a tab cannot mix assets from different publications.
+Each period contains a compact EPSG:4326 binary grid for constant-time point lookup, two overall Web Mercator PNGs and five component PNGs. Overall and wind differ by profile; comfort, dryness and brightness are shared facts. PNG pixels hold the canonical 0–100 judgement through a continuous colour ramp, which MapLibre interpolates without inventing another scoring model. The manifest binds every asset to its source, projection, hash, dimensions and resolution. The browser requests images through `/releases/<release-id>/...` with the image checksum, so a tab cannot mix assets from different publications.
 
-React owns selection and progressive disclosure. MapLibre renders the map; the browser does not recalculate scores. A lightweight geographic fallback keeps the product usable when WebGL is unavailable.
+React owns selection and progressive disclosure. MapLibre renders the map; the browser does not recalculate scores. If WebGL is unavailable, the product says so explicitly instead of presenting approximate geography.
 
 Key packages:
 
