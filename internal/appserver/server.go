@@ -65,11 +65,15 @@ type pointScore struct {
 }
 
 type pointComponents struct {
-	Warmth  int `json:"warmth"`
-	Dryness int `json:"dryness"`
-	Sun     int `json:"sun"`
-	Wind    int `json:"wind"`
-	Comfort int `json:"comfort"`
+	Comfort pointComponent `json:"comfort"`
+	Dryness pointComponent `json:"dryness"`
+	Sun     pointComponent `json:"sun"`
+	Wind    pointComponent `json:"wind"`
+}
+
+type pointComponent struct {
+	Value    int    `json:"value"`
+	Category string `json:"category"`
 }
 
 type pointWeather struct {
@@ -330,12 +334,16 @@ func (app *application) servePoint(w http.ResponseWriter, r *http.Request, snaps
 		ReleaseID: snapshot.manifest.ReleaseID, PeriodID: periodID, PeriodLabel: reader.period.Label, Profile: profileID,
 		Location: map[string]float64{"lat": lat, "lon": lon}, Summary: weather.Summary(m),
 		Score: pointScore{Value: result.Score, Category: result.Rating, Components: pointComponents{
-			Warmth: result.Components.Warmth, Dryness: result.Components.Dryness, Sun: result.Components.Sun,
-			Wind: result.Components.Wind, Comfort: result.Components.Comfort,
+			Comfort: componentResponse(result.Components.Thermal), Dryness: componentResponse(result.Components.Dryness),
+			Sun: componentResponse(result.Components.Sun), Wind: componentResponse(result.Components.Wind),
 		}},
 		Weather: pointWeatherResponse(m), Source: snapshot.pointSource(periodID, reader.period),
 	}
 	writeJSON(w, r, http.StatusOK, response, "no-store")
+}
+
+func componentResponse(value int) pointComponent {
+	return pointComponent{Value: value, Category: weather.Rating(value)}
 }
 
 func (snapshot *releaseSnapshot) pointSource(periodID string, period delivery.Period) pointSource {

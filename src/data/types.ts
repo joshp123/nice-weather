@@ -1,5 +1,6 @@
 export type Mode = 'forecast' | 'climate';
 export type Profile = 'nice' | 'cycling';
+export type Lens = 'overall' | 'comfort' | 'dry' | 'bright' | 'wind';
 export type ForecastKind = 'detailed' | 'outlook';
 export type DataStatus = 'live' | 'sample';
 
@@ -20,6 +21,7 @@ export type Period = {
   kind?: ForecastKind;
   resolutionKm: number;
   images: Record<Profile, WeatherImage>;
+  lenses: Record<'comfort' | 'dry' | 'bright' | 'wind-nice' | 'wind-cycling', WeatherImage>;
   providerLabel: string;
   sourceRunAt: string;
   temporalResolutionHours: number;
@@ -32,10 +34,12 @@ export type LegendCategory = {
   max: number;
 };
 
+export type PaletteStop = { score: number; color: string };
+
 export type WeatherManifest = {
-  version: 3;
+  version: 4;
   releaseId: string;
-  productContract: 'nice-weather-v5';
+  productContract: 'nice-weather-v6';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];
@@ -49,6 +53,7 @@ export type WeatherManifest = {
     months: Period[];
   };
   legend: LegendCategory[];
+  palette: PaletteStop[];
 };
 
 export type PointMetrics = {
@@ -66,12 +71,13 @@ export type PointMetrics = {
 };
 
 export type ScoreComponents = {
-  warmth: number;
-  dryness: number;
-  sun: number;
-  wind: number;
-  comfort: number;
+  comfort: ComponentScore;
+  dryness: ComponentScore;
+  sun: ComponentScore;
+  wind: ComponentScore;
 };
+
+export type ComponentScore = { value: number; category: string };
 
 export type PointWeather = {
   releaseId: string;

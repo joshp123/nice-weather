@@ -16,12 +16,24 @@ const (
 
 // Components explains the score. Every component is in the range 0–100.
 type Components struct {
-	Warmth  int
+	Thermal int
 	Dryness int
 	Sun     int
 	Wind    int
-	Comfort int
 }
+
+// Lens selects one already-evaluated weather judgement for a map overlay. It
+// never changes the scoring policy; it only chooses which part of Result is
+// shown.
+type Lens string
+
+const (
+	LensOverall Lens = "overall"
+	LensComfort Lens = "comfort"
+	LensDry     Lens = "dry"
+	LensBright  Lens = "bright"
+	LensCalm    Lens = "calm"
+)
 
 // Result is the complete product judgement for one day and place.
 type Result struct {
@@ -32,7 +44,7 @@ type Result struct {
 }
 
 type weights struct {
-	warmth, dryness, sun, wind, comfort float64
+	warmth, dryness, sun, wind float64
 }
 
 // Score applies the single scoring path used by both map rendering and point
@@ -44,30 +56,52 @@ func Score(m DailyMetrics, profile Profile) Result {
 	}
 
 	components := Components{
-		Warmth:  rounded(piecewise(m.ComfortableTempC, warmthCurve)),
+		Thermal: thermalScore(m),
 		Dryness: drynessScore(m),
 		Sun:     sunScore(m),
-		Comfort: comfortScore(m),
 	}
 
 	var w weights
 	if profile == ProfileCycling {
 		components.Wind = cyclingWindScore(m.WindSpeedKPH, m.GustKPH)
-		w = weights{warmth: .25, dryness: .30, sun: .10, wind: .25, comfort: .10}
+		w = weights{warmth: .35, dryness: .30, sun: .10, wind: .25}
 	} else {
 		components.Wind = niceWindScore(m.WindSpeedKPH, m.GustKPH)
-		w = weights{warmth: .35, dryness: .25, sun: .20, wind: .10, comfort: .10}
+		w = weights{warmth: .45, dryness: .25, sun: .20, wind: .10}
 	}
 
-	value := float64(components.Warmth)*w.warmth + float64(components.Dryness)*w.dryness +
-		float64(components.Sun)*w.sun + float64(components.Wind)*w.wind + float64(components.Comfort)*w.comfort
-	value = applyDealbreakers(value, m, profile)
+	value := float64(components.Thermal)*w.warmth + float64(components.Dryness)*w.dryness +
+		float64(components.Sun)*w.sun + float64(components.Wind)*w.wind
+	value = applyDealbreakers(value, m, profile, components)
 	score := rounded(value)
 	return Result{
 		Available:  true,
 		Score:      score,
-		Rating:     rating(score),
+		Rating:     Rating(score),
 		Components: components,
+	}
+}
+
+// LensValue returns the selected value from the canonical score. Rendering
+// code uses this rather than duplicating component maths.
+func LensValue(m DailyMetrics, profile Profile, lens Lens) (int, bool) {
+	result := Score(m, profile)
+	if !result.Available {
+		return 0, false
+	}
+	switch lens {
+	case LensOverall:
+		return result.Score, true
+	case LensComfort:
+		return result.Components.Thermal, true
+	case LensDry:
+		return result.Components.Dryness, true
+	case LensBright:
+		return result.Components.Sun, true
+	case LensCalm:
+		return result.Components.Wind, true
+	default:
+		return 0, false
 	}
 }
 
@@ -108,23 +142,60 @@ func sunScore(m DailyMetrics) int {
 	return rounded(score / weight)
 }
 
-func comfortScore(m DailyMetrics) int {
-	score, weight := 0.0, 0.0
-	if m.DewPointC.Available {
-		score += .8 * piecewise(m.DewPointC.Value, dewPointCurve)
-		weight += .8
+func thermalScore(m DailyMetrics) int {
+	base := piecewise(m.ComfortableTempC, thermalCurve)
+	// Warm-air moisture is best described by dew point: 30°C with a low dew
+	// point can feel excellent while the same temperature with a 24°C dew
+	// point is oppressive. Relative humidity is used only when dew point is not
+	// available because it changes meaning with temperature.
+	heat := 100.0
+	if m.ComfortableTempC >= 18 {
+		if m.DewPointC.Available {
+			heat = piecewise(m.DewPointC.Value, dewPointCurve)
+		} else {
+			heat = piecewise(m.RelativeHumidityPercent.Value, hotHumidityCurve)
+		}
 	}
-	if m.RelativeHumidityPercent.Available {
-		score += .2 * piecewise(m.RelativeHumidityPercent.Value, humidityCurve)
-		weight += .2
+
+	// Cold damp misery is a compound condition, not "humidity" by itself.
+	// Wetness, grey sky and wind progressively matter below 16°C. A cold, dry,
+	// bright and calm day therefore remains comfortable even though it is not
+	// warm enough to score well overall.
+	coldDamp := 100.0
+	if m.ComfortableTempC < 16 {
+		damp := 0.0
+		if m.WetTimeFraction.Available {
+			damp = math.Max(damp, m.WetTimeFraction.Value)
+		} else {
+			damp = math.Max(damp, math.Min(1, m.RainMM/6))
+		}
+		if m.CloudCoverPercent.Available {
+			damp = .55*damp + .45*math.Max(0, (m.CloudCoverPercent.Value-45)/55)
+		}
+		if m.RelativeHumidityPercent.Available {
+			damp = .75*damp + .25*math.Max(0, (m.RelativeHumidityPercent.Value-70)/30)
+		}
+		windExposure := math.Max(0, math.Min(1, (m.WindSpeedKPH-8)/24))
+		damp = math.Min(1, .75*damp+.25*windExposure)
+		coldWeight := math.Min(1, math.Max(0, (16-m.ComfortableTempC)/9))
+		coldDamp = 100 * (1 - coldWeight*damp)
 	}
-	return rounded(score / weight)
+	return rounded(math.Min(base, math.Min(heat, coldDamp)))
 }
 
-func applyDealbreakers(score float64, m DailyMetrics, profile Profile) float64 {
+func applyDealbreakers(score float64, m DailyMetrics, profile Profile, components Components) float64 {
 	// Warmth is the main purpose of the product. A flawless but cold day must
 	// not outrank a genuinely warm one.
 	score = math.Min(score, piecewise(m.ComfortableTempC, temperatureCeilingCurve))
+	if m.ComfortableTempC >= 28 && components.Thermal <= 25 {
+		// Oppressive heat cannot average its way into a good day.
+		score = math.Min(score, 39)
+	}
+	if m.ComfortableTempC <= 12 && components.Thermal <= 24 {
+		// Cold, damp exposure is the distinction between merely cold and
+		// genuinely awful northern-maritime weather.
+		score = math.Min(score, 24)
+	}
 	if profile == ProfileCycling {
 		if m.RainMM >= 8 || (m.WetTimeFraction.Available && m.WetTimeFraction.Value >= .65) || m.WindSpeedKPH >= 38 || (m.GustKPH.Available && m.GustKPH.Value >= 55) {
 			return math.Min(score, 25)
@@ -146,14 +217,14 @@ func applyDealbreakers(score float64, m DailyMetrics, profile Profile) float64 {
 type point struct{ input, score float64 }
 
 var (
-	warmthCurve             = []point{{8, 0}, {12, 18}, {16, 45}, {19, 72}, {22, 100}, {27, 100}, {30, 78}, {34, 35}, {38, 0}}
-	temperatureCeilingCurve = []point{{8, 15}, {12, 30}, {16, 54}, {19, 75}, {22, 100}, {29, 100}, {32, 75}, {35, 45}, {38, 20}}
+	thermalCurve            = []point{{-15, 0}, {-5, 8}, {0, 25}, {5, 55}, {8, 68}, {12, 82}, {16, 94}, {19, 100}, {27, 100}, {30, 88}, {34, 45}, {38, 8}, {42, 0}}
+	temperatureCeilingCurve = []point{{-15, 0}, {-5, 10}, {0, 20}, {5, 25}, {8, 35}, {12, 45}, {16, 54}, {19, 75}, {22, 100}, {29, 100}, {32, 75}, {35, 45}, {38, 25}, {40, 15}, {45, 0}}
 	rainCurve               = []point{{0, 100}, {.2, 96}, {1, 80}, {3, 48}, {6, 18}, {10, 0}}
 	wetTimeCurve            = []point{{0, 100}, {.1, 92}, {.25, 70}, {.5, 30}, {.8, 0}}
 	solarCurve              = []point{{0, 0}, {4, 20}, {8, 45}, {12, 70}, {18, 100}}
 	cloudCurve              = []point{{0, 100}, {25, 90}, {50, 60}, {75, 25}, {100, 0}}
 	dewPointCurve           = []point{{8, 100}, {12, 100}, {16, 84}, {18, 64}, {21, 30}, {24, 0}}
-	humidityCurve           = []point{{50, 100}, {70, 100}, {80, 80}, {90, 50}, {100, 20}}
+	hotHumidityCurve        = []point{{40, 100}, {60, 90}, {75, 65}, {90, 30}, {100, 0}}
 	niceWindCurve           = []point{{0, 100}, {12, 100}, {20, 82}, {30, 48}, {45, 0}}
 	niceGustCurve           = []point{{0, 100}, {20, 100}, {35, 75}, {50, 35}, {65, 0}}
 	cyclingWindCurve        = []point{{0, 100}, {14, 100}, {20, 78}, {28, 38}, {35, 10}, {42, 0}}
@@ -178,7 +249,9 @@ func rounded(value float64) int {
 	return int(math.Round(math.Max(0, math.Min(100, value))))
 }
 
-func rating(score int) string {
+// Rating returns the canonical semantic band for any evaluated score or
+// component. It is used by the API so the browser never owns category policy.
+func Rating(score int) string {
 	switch {
 	case score >= 85:
 		return "Excellent"
@@ -188,8 +261,10 @@ func rating(score int) string {
 		return "Good"
 	case score >= 40:
 		return "Mixed"
-	default:
+	case score >= 25:
 		return "Poor"
+	default:
+		return "Awful"
 	}
 }
 

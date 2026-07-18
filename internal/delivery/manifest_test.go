@@ -32,12 +32,13 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"product contract mismatch": func(m *Manifest) {
 			m.ProductContract = "nice-weather-v1"
 		},
-		"data status":  func(m *Manifest) { m.DataStatus = "preview" },
-		"timestamp":    func(m *Manifest) { m.GeneratedAt = "today" },
-		"profile":      func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
-		"legend gap":   func(m *Manifest) { m.Legend[2].Min++ },
-		"legend color": func(m *Manifest) { m.Legend[0].Color = "orange" },
-		"source time":  func(m *Manifest) { m.Forecast.Days[0].Source.ValidTo = "2026-07-18T07:00:00Z" },
+		"data status":   func(m *Manifest) { m.DataStatus = "preview" },
+		"timestamp":     func(m *Manifest) { m.GeneratedAt = "today" },
+		"profile":       func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
+		"legend gap":    func(m *Manifest) { m.Legend[2].Min++ },
+		"legend color":  func(m *Manifest) { m.Legend[0].Color = "orange" },
+		"palette order": func(m *Manifest) { m.Palette[1].Score = 0 },
+		"source time":   func(m *Manifest) { m.Forecast.Days[0].Source.ValidTo = "2026-07-18T07:00:00Z" },
 		"image checksum": func(m *Manifest) {
 			asset := m.Forecast.Days[0].Images["nice"]
 			asset.SHA256 = "bad"
@@ -59,6 +60,8 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"checksum":              func(m *Manifest) { m.Forecast.Days[0].GridSHA256 = "abc" },
 		"path escape":           func(m *Manifest) { m.Forecast.Days[0].GridURL = "../secret" },
 		"missing profile image": func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
+		"missing lens image":    func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
+		"unexpected lens image": func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
 		"duplicate period":      func(m *Manifest) { m.Climate.Months[0].ID = m.Forecast.Days[0].ID },
 		"duplicate date": func(m *Manifest) {
 			copy := m.Forecast.Days[0]
@@ -140,6 +143,13 @@ func validManifest(checksum string) Manifest {
 			"nice":    {URL: "images/nice.png", SHA256: strings.Repeat("b", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
 			"cycling": {URL: "images/cycling.png", SHA256: strings.Repeat("c", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
 		},
+		Lenses: map[string]ImageAsset{
+			LensComfort:    {URL: "images/comfort.png", SHA256: strings.Repeat("d", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+			LensDry:        {URL: "images/dry.png", SHA256: strings.Repeat("e", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+			LensBright:     {URL: "images/bright.png", SHA256: strings.Repeat("f", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+			"wind-nice":    {URL: "images/wind-nice.png", SHA256: strings.Repeat("1", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+			"wind-cycling": {URL: "images/wind-cycling.png", SHA256: strings.Repeat("2", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+		},
 		GridURL: "grids/day.nwg", GridSHA256: checksum,
 	}
 	climate := period
@@ -149,6 +159,7 @@ func validManifest(checksum string) Manifest {
 		Region:   Region{ID: "europe", Label: "Europe", Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}},
 		Profiles: []Profile{{ID: ProfileNice, Label: "Nice"}, {ID: ProfileCycling, Label: "Cycling"}},
 		Legend:   CanonicalLegend(),
+		Palette:  CanonicalPalette(),
 		Forecast: ForecastCatalog{UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 18, Days: []ForecastPeriod{{Period: period, Date: "2026-07-18", Kind: "detailed"}}},
 		Climate:  &ClimateCatalog{Label: "Typical year", ReferencePeriod: "1991–2020", Months: []ClimatePeriod{{Period: climate, Month: 7}}},
 	}

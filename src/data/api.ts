@@ -48,8 +48,8 @@ export function imageAssetUrl(release: string, image: WeatherImage): string {
 
 function parseManifest(value: unknown): WeatherManifest {
   const data = object(value, 'manifest');
-  if (data.version !== 3) throw new Error('This forecast uses an unsupported data format.');
-  if (data.productContract !== 'nice-weather-v5') throw new Error('This forecast uses an unsupported product contract.');
+  if (data.version !== 4) throw new Error('This forecast uses an unsupported data format.');
+  if (data.productContract !== 'nice-weather-v6') throw new Error('This forecast uses an unsupported product contract.');
   if (data.dataStatus !== 'live' && data.dataStatus !== 'sample') throw new Error('Invalid manifest dataStatus.');
   const region = object(data.region, 'region');
   const bounds = object(region.bounds, 'region bounds');
@@ -63,9 +63,9 @@ function parseManifest(value: unknown): WeatherManifest {
   if (months.length !== 12) throw new Error('Typical weather must contain 12 months.');
 
   return {
-    version: 3,
+    version: 4,
     releaseId: releaseId(data.releaseId, 'releaseId'),
-    productContract: 'nice-weather-v5',
+    productContract: 'nice-weather-v6',
     dataStatus: data.dataStatus,
     generatedAt: text(data.generatedAt, 'generatedAt'),
     bounds: [number(bounds.west, 'west'), number(bounds.south, 'south'), number(bounds.east, 'east'), number(bounds.north, 'north')],
@@ -79,7 +79,21 @@ function parseManifest(value: unknown): WeatherManifest {
       months,
     },
     legend: legendList(data.legend),
+    palette: paletteList(data.palette),
   };
+}
+
+function paletteList(value: unknown): Array<{ score: number; color: string }> {
+  const stops = array(value, 'palette stops');
+  if (stops.length !== 12) throw new Error('Invalid palette stops.');
+  const parsed = stops.map((item, index) => {
+    const stop = object(item, `palette stop ${index + 1}`);
+    return { score: number(stop.score, 'palette score'), color: text(stop.color, 'palette color') };
+  });
+  if (parsed[0].score !== 0 || parsed[parsed.length - 1].score !== 100 || parsed.some((stop, index) => !/^#[0-9A-Fa-f]{6}$/.test(stop.color) || (index > 0 && stop.score <= parsed[index - 1].score))) {
+    throw new Error('Invalid palette stops.');
+  }
+  return parsed;
 }
 
 function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
@@ -87,6 +101,7 @@ function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
     const row = object(item, `${basis} period ${index + 1}`);
     const source = object(row.source, `${basis} source`);
     const images = object(row.images, `${basis} images`);
+    const lenses = object(row.lenses, `${basis} lenses`);
     const label = text(row.label, `${basis} label`);
     const period: Period = {
       id: text(row.id, `${basis} id`),
@@ -99,6 +114,13 @@ function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
       images: {
         nice: weatherImage(images.nice, `${basis} nice image`),
         cycling: weatherImage(images.cycling, `${basis} cycling image`),
+      },
+      lenses: {
+        comfort: weatherImage(lenses.comfort, `${basis} comfort lens`),
+        dry: weatherImage(lenses.dry, `${basis} dry lens`),
+        bright: weatherImage(lenses.bright, `${basis} bright lens`),
+        'wind-nice': weatherImage(lenses['wind-nice'], `${basis} nice wind lens`),
+        'wind-cycling': weatherImage(lenses['wind-cycling'], `${basis} cycling wind lens`),
       },
     };
     if (basis === 'forecast') {
@@ -141,7 +163,7 @@ function imagePath(value: string, label: string): string {
 
 function legendList(value: unknown): LegendCategory[] {
   const categories = array(value, 'legend categories');
-  if (categories.length !== 5) throw new Error('Invalid legend categories.');
+  if (categories.length !== 6) throw new Error('Invalid legend categories.');
   return categories.map((item, index) => {
     const row = object(item, `legend category ${index + 1}`);
     return {
@@ -176,11 +198,10 @@ function parsePoint(value: unknown): PointWeather {
     score: number(score.value, 'score'),
     category: text(score.category, 'score category'),
     components: {
-      warmth: number(components.warmth, 'warmth score'),
-      dryness: number(components.dryness, 'dryness score'),
-      sun: number(components.sun, 'sun score'),
-      wind: number(components.wind, 'wind score'),
-      comfort: number(components.comfort, 'comfort score'),
+      comfort: componentScore(components.comfort, 'comfort'),
+      dryness: componentScore(components.dryness, 'dryness'),
+      sun: componentScore(components.sun, 'sun'),
+      wind: componentScore(components.wind, 'wind'),
     },
     summary: text(data.summary, 'summary'),
     metrics: {
@@ -209,6 +230,11 @@ function parsePoint(value: unknown): PointWeather {
       referencePeriod,
     },
   };
+}
+
+function componentScore(value: unknown, label: string): { value: number; category: string } {
+  const component = object(value, `${label} component`);
+  return { value: number(component.value, `${label} score`), category: text(component.category, `${label} category`) };
 }
 
 export function freshnessLabel(updatedAt: string, now = new Date()): string {

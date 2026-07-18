@@ -884,10 +884,10 @@ func TestDeliveryAndOverlayShareCanonicalMetricsAndLegend(t *testing.T) {
 	if !records[0].Valid || records[0].ComfortableTemperatureDeciC != 240 || records[0].RainDeciMM != 0 || records[1].Valid {
 		t.Fatalf("unexpected delivery records: %+v", records)
 	}
-	legend := canonicalLegend()
+	paletteStops := delivery.CanonicalPalette()
 	var output bytes.Buffer
 	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 1}, Rows: 1, Cols: 2}
-	if err := RenderWebMercatorOverlay(&output, spec, []weather.DailyMetrics{metric, {}}, weather.ProfileNice, legend); err != nil {
+	if err := RenderWebMercatorOverlay(&output, spec, []weather.DailyMetrics{metric, {}}, weather.ProfileNice, paletteStops); err != nil {
 		t.Fatal(err)
 	}
 	decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
@@ -895,12 +895,29 @@ func TestDeliveryAndOverlayShareCanonicalMetricsAndLegend(t *testing.T) {
 		t.Fatal(err)
 	}
 	pixel := color.NRGBAModel.Convert(decoded.At(0, 0)).(color.NRGBA)
-	if pixel.R != 0xF2 || pixel.G != 0x8A || pixel.B != 0x43 || pixel.A != 210 {
+	wantPalette, err := scorePalette(paletteStops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wantPalette[weather.Score(metric, weather.ProfileNice).Score]
+	if pixel != want {
 		t.Fatalf("excellent pixel drifted from manifest legend: %02x%02x%02x/%d", pixel.R, pixel.G, pixel.B, pixel.A)
 	}
 	_, _, _, a := decoded.At(1, 0).RGBA()
 	if a != 0 {
 		t.Fatal("no-data pixel is not transparent")
+	}
+}
+
+func TestScorePaletteKeepsSemanticBoundariesVisible(t *testing.T) {
+	palette, err := scorePalette(delivery.CanonicalPalette())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, boundary := range []int{25, 40, 55, 70, 85} {
+		if palette[boundary-1] == palette[boundary] {
+			t.Fatalf("semantic boundary %d has no visible colour change", boundary)
+		}
 	}
 }
 
@@ -933,7 +950,7 @@ func TestWebMercatorOverlayRowsUseValidAwareOverlap(t *testing.T) {
 	}
 	metrics := []weather.DailyMetrics{valid, {}, {}, valid}
 	var output bytes.Buffer
-	if err := RenderWebMercatorOverlay(&output, spec, metrics, weather.ProfileNice, canonicalLegend()); err != nil {
+	if err := RenderWebMercatorOverlay(&output, spec, metrics, weather.ProfileNice, delivery.CanonicalPalette()); err != nil {
 		t.Fatal(err)
 	}
 	decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
@@ -1039,26 +1056,31 @@ func TestPointLookupMatchesRenderedPixelAtCoastalCoordinates(t *testing.T) {
 			}
 			for period := 1; period <= test.periods; period++ {
 				for _, profile := range []weather.Profile{weather.ProfileNice, weather.ProfileCycling} {
-					var output bytes.Buffer
-					if err := RenderWebMercatorOverlay(&output, test.spec, metrics, profile, canonicalLegend()); err != nil {
-						t.Fatal(err)
-					}
-					decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
-					if err != nil {
-						t.Fatal(err)
-					}
-					actual := color.NRGBAModel.Convert(decoded.At(pixelCol, pixelRow)).(color.NRGBA)
 					pointMetrics, err := got.WeatherMetrics(metric.NativeResolutionKM)
 					if err != nil {
 						t.Fatal(err)
 					}
-					score := weather.Score(pointMetrics, profile)
-					palette, err := legendPalette(canonicalLegend())
+					palette, err := scorePalette(delivery.CanonicalPalette())
 					if err != nil {
 						t.Fatal(err)
 					}
-					if want := palette[score.Score]; actual != want {
-						t.Fatalf("period %d %s point/image mismatch: pixel=%+v point score=%d want=%+v", period, profile, actual, score.Score, want)
+					for _, lens := range []weather.Lens{weather.LensOverall, weather.LensComfort, weather.LensDry, weather.LensBright, weather.LensCalm} {
+						var output bytes.Buffer
+						if err := RenderWebMercatorLens(&output, test.spec, metrics, profile, lens, delivery.CanonicalPalette()); err != nil {
+							t.Fatal(err)
+						}
+						decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
+						if err != nil {
+							t.Fatal(err)
+						}
+						actual := color.NRGBAModel.Convert(decoded.At(pixelCol, pixelRow)).(color.NRGBA)
+						value, ok := weather.LensValue(pointMetrics, profile, lens)
+						if !ok {
+							t.Fatalf("period %d %s %s point lens unavailable", period, profile, lens)
+						}
+						if want := palette[value]; actual != want {
+							t.Fatalf("period %d %s %s point/image mismatch: pixel=%+v point value=%d want=%+v", period, profile, lens, actual, value, want)
+						}
 					}
 				}
 			}
@@ -1093,15 +1115,5 @@ func rawSolarFluxFrame(field Field, start, end time.Time, value float32) Frame {
 	return Frame{
 		Field: field, Start: start, End: end, Semantics: CumulativeMean, Units: "W m-2", PackingError: 2, NativeResolutionKM: 7,
 		Grid: FloatGrid{Spec: delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 1, South: 0, North: 1}, Rows: 1, Cols: 1}, Values: []float32{value}},
-	}
-}
-
-func canonicalLegend() []delivery.LegendCategory {
-	return []delivery.LegendCategory{
-		{Label: "Poor", Color: "#64717A", Min: 0, Max: 39},
-		{Label: "Mixed", Color: "#7F9C9B", Min: 40, Max: 54},
-		{Label: "Good", Color: "#65B58A", Min: 55, Max: 69},
-		{Label: "Very good", Color: "#E0C65C", Min: 70, Max: 84},
-		{Label: "Excellent", Color: "#F28A43", Min: 85, Max: 100},
 	}
 }

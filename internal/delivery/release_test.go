@@ -435,10 +435,16 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 		}
 		assets[profile] = writeTestPNG(t, path)
 	}
+	lenses := make(map[string]ImageAsset)
+	for _, lens := range RequiredLensAssets() {
+		path := filepath.Join(release, "images", lens+".png")
+		lenses[lens] = writeTestPNG(t, path)
+	}
 	manifest := validManifest(meta.SHA256)
 	manifest.ReleaseID = name
 	manifest.Climate = nil
 	manifest.Forecast.Days[0].Images = assets
+	manifest.Forecast.Days[0].Lenses = lenses
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)
 	}

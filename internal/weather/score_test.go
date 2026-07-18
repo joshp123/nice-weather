@@ -33,8 +33,8 @@ func TestSixteenDegreesIsMediocre(t *testing.T) {
 	day := idealDay()
 	day.ComfortableTempC = 16
 	result := Score(day, ProfileNice)
-	if result.Components.Warmth != 45 {
-		t.Fatalf("warmth = %d, want 45", result.Components.Warmth)
+	if result.Components.Thermal != 94 {
+		t.Fatalf("comfort = %d, want 94", result.Components.Thermal)
 	}
 	if result.Score > 54 || result.Rating != "Mixed" {
 		t.Fatalf("16°C day = %+v; want a mixed score no higher than 54", result)
@@ -50,12 +50,102 @@ func TestRatingThresholds(t *testing.T) {
 		{84, "Very good"}, {70, "Very good"},
 		{69, "Good"}, {55, "Good"},
 		{54, "Mixed"}, {40, "Mixed"},
-		{39, "Poor"}, {0, "Poor"},
+		{39, "Poor"}, {25, "Poor"},
+		{24, "Awful"}, {0, "Awful"},
 	}
 	for _, test := range tests {
-		if got := rating(test.score); got != test.want {
-			t.Errorf("rating(%d) = %q, want %q", test.score, got, test.want)
+		if got := Rating(test.score); got != test.want {
+			t.Errorf("Rating(%d) = %q, want %q", test.score, got, test.want)
 		}
+	}
+}
+
+func TestThermalComfortDistinguishesHeatAndColdMoisture(t *testing.T) {
+	hotDry := idealDay()
+	hotDry.ComfortableTempC, hotDry.MaxTempC = 30, 34
+	hotDry.DewPointC, hotDry.RelativeHumidityPercent = known(5), known(20)
+	hotHumid := hotDry
+	hotHumid.DewPointC, hotHumid.RelativeHumidityPercent = known(25), known(95)
+	if dry, humid := Score(hotDry, ProfileNice), Score(hotHumid, ProfileNice); dry.Components.Thermal < 85 || humid.Components.Thermal != 0 || humid.Score > 39 || dry.Score <= humid.Score {
+		t.Fatalf("hot dry = %+v, hot humid = %+v", dry, humid)
+	}
+
+	coldDry := idealDay()
+	coldDry.ComfortableTempC, coldDry.MinTempC, coldDry.MaxTempC = 7, 3, 10
+	coldDry.RainMM, coldDry.WetTimeFraction = 0, known(0)
+	coldDry.CloudCoverPercent, coldDry.WindSpeedKPH = known(5), 5
+	coldDry.DewPointC, coldDry.RelativeHumidityPercent = known(-5), known(35)
+	coldDamp := coldDry
+	coldDamp.RainMM, coldDamp.WetTimeFraction = 5, known(.8)
+	coldDamp.CloudCoverPercent, coldDamp.WindSpeedKPH = known(100), 30
+	coldDamp.GustKPH, coldDamp.DewPointC, coldDamp.RelativeHumidityPercent = known(45), known(7), known(100)
+	if dry, damp := Score(coldDry, ProfileNice), Score(coldDamp, ProfileNice); dry.Components.Thermal < 60 || damp.Components.Thermal > 15 || damp.Rating != "Awful" || dry.Rating != "Poor" {
+		t.Fatalf("cold dry = %+v, cold damp = %+v", dry, damp)
+	}
+}
+
+func TestAwfulRequiresMoreThanColdAlone(t *testing.T) {
+	coldDry := idealDay()
+	coldDry.ComfortableTempC, coldDry.MinTempC, coldDry.MaxTempC = 5, 1, 8
+	coldDry.RainMM, coldDry.WetTimeFraction = 0, known(0)
+	coldDry.CloudCoverPercent, coldDry.WindSpeedKPH, coldDry.GustKPH = known(5), 5, known(8)
+	coldDry.DewPointC, coldDry.RelativeHumidityPercent = known(-5), known(35)
+	if got := Score(coldDry, ProfileNice); got.Rating != "Poor" || got.Components.Thermal < 50 {
+		t.Fatalf("cold dry day = %+v; cold alone must not be awful", got)
+	}
+
+	maritime := coldDry
+	maritime.ComfortableTempC, maritime.MinTempC, maritime.MaxTempC = 7, 4, 9
+	maritime.RainMM, maritime.WetTimeFraction = 4, known(.65)
+	maritime.CloudCoverPercent, maritime.WindSpeedKPH, maritime.GustKPH = known(95), 25, known(40)
+	maritime.DewPointC, maritime.RelativeHumidityPercent = known(6), known(95)
+	if got := Score(maritime, ProfileNice); got.Rating != "Awful" || got.Components.Thermal > 24 {
+		t.Fatalf("ordinary cold maritime day = %+v; want awful compound conditions", got)
+	}
+}
+
+func TestPhysicalTemperatureExtremesAreAwful(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		temperature float64
+		minimum     float64
+		maximum     float64
+	}{
+		{name: "severe mountain cold", temperature: -10, minimum: -15, maximum: -5},
+		{name: "extreme heat", temperature: 40, minimum: 34, maximum: 45},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			day := idealDay()
+			day.ComfortableTempC, day.MinTempC, day.MaxTempC = test.temperature, test.minimum, test.maximum
+			if test.temperature < 0 {
+				day.DewPointC, day.RelativeHumidityPercent = known(-20), known(20)
+			} else {
+				day.DewPointC, day.RelativeHumidityPercent = known(5), known(15)
+			}
+			result := Score(day, ProfileNice)
+			if result.Rating != "Awful" || result.Score > 24 || result.Components.Thermal > 24 {
+				t.Fatalf("%s = %+v; want an awful physical extreme", test.name, result)
+			}
+		})
+	}
+}
+
+func TestEveryLensUsesCanonicalComponents(t *testing.T) {
+	day := idealDay()
+	result := Score(day, ProfileCycling)
+	want := map[Lens]int{
+		LensOverall: result.Score, LensComfort: result.Components.Thermal,
+		LensDry: result.Components.Dryness, LensBright: result.Components.Sun,
+		LensCalm: result.Components.Wind,
+	}
+	for lens, expected := range want {
+		value, ok := LensValue(day, ProfileCycling, lens)
+		if !ok || value != expected {
+			t.Errorf("%s = %d,%v; want %d,true", lens, value, ok, expected)
+		}
+	}
+	if _, ok := LensValue(day, ProfileNice, Lens("humidity")); ok {
+		t.Fatal("unknown lens was available")
 	}
 }
 
@@ -146,15 +236,15 @@ func TestBadConditionsNeverIncreaseScore(t *testing.T) {
 	}
 }
 
-func TestWarmthPeaksAtComfortableTemperatures(t *testing.T) {
-	want := map[float64]int{8: 0, 12: 18, 16: 45, 19: 72, 22: 100, 27: 100, 30: 78, 34: 35, 38: 0}
+func TestThermalPeaksAtComfortableTemperatures(t *testing.T) {
+	want := map[float64]int{-15: 0, -5: 8, 0: 25, 8: 68, 12: 82, 16: 94, 19: 100, 22: 100, 27: 100, 30: 88, 34: 45, 38: 8, 42: 0}
 	for temperature, wantScore := range want {
 		day := idealDay()
 		day.MinTempC = math.Min(day.MinTempC, temperature)
 		day.MaxTempC = math.Max(day.MaxTempC, temperature)
 		day.ComfortableTempC = temperature
-		if got := Score(day, ProfileNice).Components.Warmth; got != wantScore {
-			t.Errorf("%v°C warmth = %d, want %d", temperature, got, wantScore)
+		if got := Score(day, ProfileNice).Components.Thermal; got != wantScore {
+			t.Errorf("%v°C thermal = %d, want %d", temperature, got, wantScore)
 		}
 	}
 }
@@ -218,12 +308,12 @@ func TestOptionalEvidenceIsRenormalised(t *testing.T) {
 		{
 			"dew point without humidity",
 			func(day *DailyMetrics) { day.RelativeHumidityPercent = OptionalFloat{} },
-			func(result Result) bool { return result.Components.Comfort == 100 },
+			func(result Result) bool { return result.Components.Thermal == 100 },
 		},
 		{
 			"humidity without dew point",
 			func(day *DailyMetrics) { day.DewPointC = OptionalFloat{} },
-			func(result Result) bool { return result.Components.Comfort == 100 },
+			func(result Result) bool { return result.Components.Thermal >= 80 },
 		},
 		{
 			"wind without gusts",
@@ -362,7 +452,7 @@ func TestComponentsAndScoreStayInRange(t *testing.T) {
 	}}
 	for _, day := range days {
 		result := Score(day, ProfileCycling)
-		values := []int{result.Score, result.Components.Warmth, result.Components.Dryness, result.Components.Sun, result.Components.Wind, result.Components.Comfort}
+		values := []int{result.Score, result.Components.Thermal, result.Components.Dryness, result.Components.Sun, result.Components.Wind}
 		for _, value := range values {
 			if value < 0 || value > 100 {
 				t.Fatalf("out-of-range value %d in %+v", value, result)

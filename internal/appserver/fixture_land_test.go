@@ -126,7 +126,7 @@ func TestFixtureReleaseHasInvalidOceanAndTransparentSea(t *testing.T) {
 		Cols:   1,
 	}
 	var canonicalPNG bytes.Buffer
-	if err := pipeline.RenderWebMercatorOverlay(&canonicalPNG, canonicalSpec, []weather.DailyMetrics{landMetric}, weather.ProfileNice, fixtureLegend); err != nil {
+	if err := pipeline.RenderWebMercatorOverlay(&canonicalPNG, canonicalSpec, []weather.DailyMetrics{landMetric}, weather.ProfileNice, fixturePalette); err != nil {
 		t.Fatal(err)
 	}
 	canonicalImage, err := png.Decode(bytes.NewReader(canonicalPNG.Bytes()))

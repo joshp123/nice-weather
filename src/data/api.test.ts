@@ -51,11 +51,11 @@ describe('image asset URLs', () => {
 });
 
 describe('manifest contract', () => {
-  it('accepts only the complete version 3 contract', async () => {
+  it('accepts only the complete version 4 contract', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
 
     const manifest = await loadManifest();
-    expect(manifest).toMatchObject({ version: 3, releaseId: 'release-20260718', productContract: 'nice-weather-v5', dataStatus: 'sample', bounds: [-25, 30, 45, 72] });
+    expect(manifest).toMatchObject({ version: 4, releaseId: 'release-20260718', productContract: 'nice-weather-v6', dataStatus: 'sample', bounds: [-25, 30, 45, 72] });
     expect(manifest.forecast.days).toHaveLength(14);
     expect(manifest.climate.months).toHaveLength(12);
     expect(manifest.forecast.days[0]).toMatchObject({ shortLabel: 'Sat 18', kind: 'detailed', providerLabel: 'Test forecast' });
@@ -90,7 +90,10 @@ describe('point contract', () => {
       releaseId: 'release-20260718',
       periodId: '2026-07-18', periodLabel: 'Saturday 18 July', profile: 'cycling',
       location: { lat: 39.47, lon: -0.38 }, summary: 'Warm, dry, sunny, light wind',
-      score: { value: 88, category: 'Excellent', components: { warmth: 91, dryness: 100, sun: 85, wind: 82, comfort: 88 } },
+      score: { value: 88, category: 'Excellent', components: {
+        comfort: { value: 91, category: 'Excellent' }, dryness: { value: 100, category: 'Excellent' },
+        sun: { value: 85, category: 'Excellent' }, wind: { value: 82, category: 'Very good' },
+      } },
       weather: { temperatureC: 25, minTempC: 20, maxTempC: 29, rainMm: 0, wetTimeFraction: 0, solarEnergyMJm2: 19.2, windKmh: 11, gustKmh: 18 },
       source: {
         basis: 'forecast', detailLabel: 'Detailed forecast', providerLabel: 'ICON-EU', resolutionKm: 7, temporalResolutionHours: 1,
@@ -100,7 +103,7 @@ describe('point contract', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const point = await loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: '2026-07-18', profile: 'cycling' });
-    expect(point).toMatchObject({ score: 88, category: 'Excellent', source: { basis: 'forecast', detailLabel: 'Detailed forecast', providerLabel: 'ICON-EU' }, components: { warmth: 91, dryness: 100 } });
+    expect(point).toMatchObject({ score: 88, category: 'Excellent', source: { basis: 'forecast', detailLabel: 'Detailed forecast', providerLabel: 'ICON-EU' }, components: { comfort: { value: 91, category: 'Excellent' }, dryness: { value: 100, category: 'Excellent' } } });
     expect(point.metrics).toMatchObject({ minTempC: 20, maxTempC: 29, wetTimeFraction: 0, solarEnergyMJm2: 19.2, gustKmh: 18 });
     expect(String(fetchMock.mock.calls[0][0])).toContain('release=release-20260718');
   });
@@ -121,16 +124,25 @@ function manifestFixture() {
     source: { providerId: 'test', providerLabel: 'Test forecast', runAt: '2026-07-18T06:00:00Z', validFrom: '2026-07-18T10:00:00Z', validTo: '2026-07-18T20:00:00Z' },
     nativeResolutionKm: 7, temporalResolutionHours: 1,
     images: { nice: image(`${id}-nice`), cycling: image(`${id}-cycling`) },
+    lenses: { comfort: image(`${id}-comfort`), dry: image(`${id}-dry`), bright: image(`${id}-bright`), 'wind-nice': image(`${id}-wind-nice`), 'wind-cycling': image(`${id}-wind-cycling`) },
     gridUrl: `/weather/${id}.nwg`, gridSha256: `grid-${id}`, ...extra,
   });
   return {
-    version: 3, releaseId: 'release-20260718', productContract: 'nice-weather-v5', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 4, releaseId: 'release-20260718', productContract: 'nice-weather-v6', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: [
-      { label: 'Poor', color: '#64717A', min: 0, max: 39 }, { label: 'Mixed', color: '#7F9C9B', min: 40, max: 54 },
-      { label: 'Good', color: '#65B58A', min: 55, max: 69 }, { label: 'Very good', color: '#E0C65C', min: 70, max: 84 },
-      { label: 'Excellent', color: '#F28A43', min: 85, max: 100 },
+      { label: 'Awful', color: '#3F505A', min: 0, max: 24 }, { label: 'Poor', color: '#73858D', min: 25, max: 39 },
+      { label: 'Mixed', color: '#A5B2AA', min: 40, max: 54 }, { label: 'Good', color: '#68AE8A', min: 55, max: 69 },
+      { label: 'Very good', color: '#D7BD62', min: 70, max: 84 }, { label: 'Excellent', color: '#E5A073', min: 85, max: 100 },
+    ],
+    palette: [
+      { score: 0, color: '#314047' }, { score: 24, color: '#52636B' },
+      { score: 25, color: '#73858D' }, { score: 39, color: '#87969B' },
+      { score: 40, color: '#9CAAA3' }, { score: 54, color: '#B5BDB3' },
+      { score: 55, color: '#5B9B7A' }, { score: 69, color: '#78BA95' },
+      { score: 70, color: '#C7AD55' }, { score: 84, color: '#E0C873' },
+      { score: 85, color: '#DE956A' }, { score: 100, color: '#F0B085' },
     ],
     forecast: { updatedAt: '2026-07-18T09:30:00Z', staleAfterHours: 12, days: Array.from({ length: 14 }, (_, index) => {
       const date = `2026-07-${String(18 + index).padStart(2, '0')}`;

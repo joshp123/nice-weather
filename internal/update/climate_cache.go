@@ -99,7 +99,7 @@ func loadClimateCheckpoint(cacheRoot, releaseDir string, month int) (delivery.Cl
 	if period.Month != month || period.ID != fmt.Sprintf("month-%02d", month) ||
 		period.Label != time.Month(month).String() || period.Source.ProviderID != "chelsa" || period.Source.ProviderLabel != "CHELSA 2.1 · CC0" ||
 		period.Source.RunAt != "1981-01-01T00:00:00Z" || period.Source.ValidFrom != "1981-01-01T00:00:00Z" || period.Source.ValidTo != "2011-01-01T00:00:00Z" ||
-		period.NativeResolutionKM != 11 || period.TemporalResolutionHours != 720 || period.GridURL == "" || len(period.Images) != 2 {
+		period.NativeResolutionKM != 11 || period.TemporalResolutionHours != 720 || period.GridURL == "" || len(period.Images) != 2 || len(period.Lenses) != len(delivery.RequiredLensAssets()) {
 		return invalidateClimateCheckpoint(cacheRoot, month, fmt.Errorf("climate month %02d checkpoint contract is invalid", month))
 	}
 	if !safeCacheAsset(period.GridURL) || !strings.Contains(filepath.Base(period.GridURL), period.GridSHA256) {
@@ -111,12 +111,23 @@ func loadClimateCheckpoint(cacheRoot, releaseDir string, month int) (delivery.Cl
 			return invalidateClimateCheckpoint(cacheRoot, month, fmt.Errorf("climate month %02d cached image contract is invalid", month))
 		}
 	}
+	for _, lens := range delivery.RequiredLensAssets() {
+		asset, ok := period.Lenses[lens]
+		if !ok || !safeCacheAsset(asset.URL) || !strings.Contains(filepath.Base(asset.URL), asset.SHA256) {
+			return invalidateClimateCheckpoint(cacheRoot, month, fmt.Errorf("climate month %02d cached lens contract is invalid", month))
+		}
+	}
 	gridPath := filepath.Join(cacheRoot, filepath.FromSlash(period.GridURL))
 	metadata, err := delivery.ValidateGrid(gridPath)
 	if err != nil || metadata.SHA256 != period.GridSHA256 || metadata.Bounds != pipelineBounds() || metadata.Rows != 425 || metadata.Cols != 690 {
 		return invalidateClimateCheckpoint(cacheRoot, month, fmt.Errorf("climate month %02d cached grid is invalid", month))
 	}
 	for _, image := range period.Images {
+		if err := validateCachedImage(filepath.Join(cacheRoot, filepath.FromSlash(image.URL)), image); err != nil {
+			return invalidateClimateCheckpoint(cacheRoot, month, err)
+		}
+	}
+	for _, image := range period.Lenses {
 		if err := validateCachedImage(filepath.Join(cacheRoot, filepath.FromSlash(image.URL)), image); err != nil {
 			return invalidateClimateCheckpoint(cacheRoot, month, err)
 		}
@@ -166,6 +177,11 @@ func periodAssets(period delivery.Period) []string {
 	result := []string{period.GridURL}
 	for _, profile := range []string{delivery.ProfileNice, delivery.ProfileCycling} {
 		if asset, ok := period.Images[profile]; ok {
+			result = append(result, asset.URL)
+		}
+	}
+	for _, lens := range delivery.RequiredLensAssets() {
+		if asset, ok := period.Lenses[lens]; ok {
 			result = append(result, asset.URL)
 		}
 	}

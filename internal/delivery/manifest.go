@@ -13,12 +13,12 @@ import (
 	"time"
 )
 
-const ManifestVersion = 3
+const ManifestVersion = 4
 
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v5"
+const ProductContract = "nice-weather-v6"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -51,6 +51,7 @@ type Manifest struct {
 	Region          Region           `json:"region"`
 	Profiles        []Profile        `json:"profiles"`
 	Legend          []LegendCategory `json:"legend"`
+	Palette         []PaletteStop    `json:"palette"`
 	Forecast        ForecastCatalog  `json:"forecast"`
 	Climate         *ClimateCatalog  `json:"climate,omitempty"`
 }
@@ -74,6 +75,13 @@ type LegendCategory struct {
 	Color string `json:"color"`
 	Min   int    `json:"min"`
 	Max   int    `json:"max"`
+}
+
+// PaletteStop describes rendering colour independently of semantic rating
+// bands. Adjacent bands may therefore have a deliberate visible boundary.
+type PaletteStop struct {
+	Score int    `json:"score"`
+	Color string `json:"color"`
 }
 
 type ForecastCatalog struct {
@@ -106,8 +114,19 @@ type Period struct {
 	NativeResolutionKM      float64               `json:"nativeResolutionKm"`
 	TemporalResolutionHours int                   `json:"temporalResolutionHours"`
 	Images                  map[string]ImageAsset `json:"images"`
+	Lenses                  map[string]ImageAsset `json:"lenses"`
 	GridURL                 string                `json:"gridUrl"`
 	GridSHA256              string                `json:"gridSha256"`
+}
+
+const (
+	LensComfort = "comfort"
+	LensDry     = "dry"
+	LensBright  = "bright"
+)
+
+func RequiredLensAssets() []string {
+	return []string{LensComfort, LensDry, LensBright, "wind-" + ProfileNice, "wind-" + ProfileCycling}
 }
 
 type Source struct {
@@ -206,6 +225,9 @@ func ValidateManifest(manifest Manifest) error {
 	if err := validateLegend(manifest.Legend); err != nil {
 		return err
 	}
+	if err := validatePalette(manifest.Palette); err != nil {
+		return err
+	}
 	if _, err := time.Parse(time.RFC3339, manifest.Forecast.UpdatedAt); err != nil {
 		return errors.New("forecast updatedAt must be RFC3339")
 	}
@@ -248,8 +270,8 @@ func ValidateManifest(manifest Manifest) error {
 }
 
 func validateLegend(legend []LegendCategory) error {
-	if len(legend) != 5 {
-		return errors.New("manifest legend must contain five categories")
+	if len(legend) != 6 {
+		return errors.New("manifest legend must contain six categories")
 	}
 	wantMin := 0
 	for _, category := range legend {
@@ -263,6 +285,20 @@ func validateLegend(legend []LegendCategory) error {
 	}
 	if wantMin != 101 {
 		return errors.New("manifest legend must cover 0–100 in order without gaps or overlaps")
+	}
+	return nil
+}
+
+func validatePalette(palette []PaletteStop) error {
+	if len(palette) < 2 || palette[0].Score != 0 || palette[len(palette)-1].Score != 100 {
+		return errors.New("manifest palette must run from 0 to 100")
+	}
+	previous := -1
+	for _, stop := range palette {
+		if stop.Score <= previous || stop.Score < 0 || stop.Score > 100 || !hexColorPattern.MatchString(stop.Color) {
+			return errors.New("manifest palette stops must have ordered scores and six-digit hex colors")
+		}
+		previous = stop.Score
 	}
 	return nil
 }
@@ -310,6 +346,32 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 		if asset.Projection != ImageProjectionWebMercator {
 			return fmt.Errorf("image for profile %q projection must be %q", profile, ImageProjectionWebMercator)
 		}
+	}
+	requiredLenses := RequiredLensAssets()
+	if len(period.Lenses) != len(requiredLenses) {
+		return errors.New("period must have every component lens image")
+	}
+	for _, lens := range requiredLenses {
+		asset, exists := period.Lenses[lens]
+		if !exists {
+			return fmt.Errorf("period is missing component lens %q", lens)
+		}
+		if err := validateImageAsset(asset); err != nil {
+			return fmt.Errorf("component lens %q: %w", lens, err)
+		}
+	}
+	return nil
+}
+
+func validateImageAsset(asset ImageAsset) error {
+	if err := validateAssetPath(asset.URL); err != nil {
+		return err
+	}
+	if !validSHA256(asset.SHA256) || asset.Width <= 0 || asset.Height <= 0 {
+		return errors.New("image needs SHA-256 and positive dimensions")
+	}
+	if asset.Projection != ImageProjectionWebMercator {
+		return fmt.Errorf("image projection must be %q", ImageProjectionWebMercator)
 	}
 	return nil
 }
@@ -360,6 +422,15 @@ func ValidateProductionManifest(manifest Manifest) error {
 			return errors.New("production manifest must use the canonical score legend")
 		}
 	}
+	wantPalette := CanonicalPalette()
+	if len(manifest.Palette) != len(wantPalette) {
+		return errors.New("production manifest must use the canonical score palette")
+	}
+	for index := range wantPalette {
+		if manifest.Palette[index] != wantPalette[index] {
+			return errors.New("production manifest must use the canonical score palette")
+		}
+	}
 	if len(manifest.Forecast.Days) != 14 {
 		return errors.New("production manifest must contain exactly 14 forecast days")
 	}
@@ -385,11 +456,23 @@ func ValidateProductionManifest(manifest Manifest) error {
 
 func CanonicalLegend() []LegendCategory {
 	return []LegendCategory{
-		{Label: "Poor", Color: "#64717A", Min: 0, Max: 39},
-		{Label: "Mixed", Color: "#7F9C9B", Min: 40, Max: 54},
-		{Label: "Good", Color: "#65B58A", Min: 55, Max: 69},
-		{Label: "Very good", Color: "#E0C65C", Min: 70, Max: 84},
-		{Label: "Excellent", Color: "#F28A43", Min: 85, Max: 100},
+		{Label: "Awful", Color: "#3F505A", Min: 0, Max: 24},
+		{Label: "Poor", Color: "#73858D", Min: 25, Max: 39},
+		{Label: "Mixed", Color: "#A5B2AA", Min: 40, Max: 54},
+		{Label: "Good", Color: "#68AE8A", Min: 55, Max: 69},
+		{Label: "Very good", Color: "#D7BD62", Min: 70, Max: 84},
+		{Label: "Excellent", Color: "#E5A073", Min: 85, Max: 100},
+	}
+}
+
+func CanonicalPalette() []PaletteStop {
+	return []PaletteStop{
+		{Score: 0, Color: "#314047"}, {Score: 24, Color: "#52636B"},
+		{Score: 25, Color: "#73858D"}, {Score: 39, Color: "#87969B"},
+		{Score: 40, Color: "#9CAAA3"}, {Score: 54, Color: "#B5BDB3"},
+		{Score: 55, Color: "#5B9B7A"}, {Score: 69, Color: "#78BA95"},
+		{Score: 70, Color: "#C7AD55"}, {Score: 84, Color: "#E0C873"},
+		{Score: 85, Color: "#DE956A"}, {Score: 100, Color: "#F0B085"},
 	}
 }
 

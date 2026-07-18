@@ -226,7 +226,14 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 		if err != nil {
 			return nil, fmt.Errorf("derive image geometry for %q: %w", period.ID, err)
 		}
+		assets := make([]ImageAsset, 0, len(period.Images)+len(period.Lenses))
 		for _, asset := range period.Images {
+			assets = append(assets, asset)
+		}
+		for _, asset := range period.Lenses {
+			assets = append(assets, asset)
+		}
+		for _, asset := range assets {
 			path, err := releaseAsset(releaseDir, asset.URL)
 			if err != nil {
 				return nil, err

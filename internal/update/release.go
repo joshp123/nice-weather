@@ -43,6 +43,7 @@ func newReleaseWriter(root, name string, generated time.Time) (*releaseWriter, e
 		Region:   delivery.Region{ID: "europe", Label: "Europe", Bounds: pipeline.EuropeGridBounds()},
 		Profiles: []delivery.Profile{{ID: delivery.ProfileNice, Label: "Nice"}, {ID: delivery.ProfileCycling, Label: "Cycling"}},
 		Legend:   delivery.CanonicalLegend(),
+		Palette:  delivery.CanonicalPalette(),
 		Forecast: delivery.ForecastCatalog{UpdatedAt: generated.UTC().Format(time.RFC3339), StaleAfterHours: 18},
 		Climate:  &delivery.ClimateCatalog{Label: "Typical month", ReferencePeriod: "1981–2010"},
 	}}, nil
@@ -63,6 +64,10 @@ func (writer *releaseWriter) writePeriod(group, id, label string, spec delivery.
 	if err != nil {
 		return delivery.Period{}, err
 	}
+	quantized, err := pipeline.QuantizedMetrics(records, metrics)
+	if err != nil {
+		return delivery.Period{}, err
+	}
 	gridDirectory := filepath.Join(writer.dir, "grids", group)
 	gridTemporary := filepath.Join(gridDirectory, "."+id+".building.nwg")
 	meta, err := delivery.WriteGrid(gridTemporary, spec, records)
@@ -74,6 +79,7 @@ func (writer *releaseWriter) writePeriod(group, id, label string, spec delivery.
 		return delivery.Period{}, fmt.Errorf("name %s grid by content: %w", id, err)
 	}
 	images := make(map[string]delivery.ImageAsset, 2)
+	lenses := make(map[string]delivery.ImageAsset, len(delivery.RequiredLensAssets()))
 	imageWidth, imageHeight, err := delivery.WebMercatorImageDimensions(spec)
 	if err != nil {
 		return delivery.Period{}, err
@@ -82,44 +88,70 @@ func (writer *releaseWriter) writePeriod(group, id, label string, spec delivery.
 		id      string
 		profile weather.Profile
 	}{{delivery.ProfileNice, weather.ProfileNice}, {delivery.ProfileCycling, weather.ProfileCycling}} {
-		directory := filepath.Join(writer.dir, "images", group)
-		if err := os.MkdirAll(directory, 0o755); err != nil {
-			return delivery.Period{}, err
-		}
-		file, err := os.CreateTemp(directory, ".overlay-*.tmp")
+		asset, err := writer.renderOverlay(group, id, item.id, spec, records, quantized, item.profile, weather.LensOverall, imageWidth, imageHeight)
 		if err != nil {
 			return delivery.Period{}, err
 		}
-		temporary := file.Name()
-		if err := pipeline.RenderWebMercatorOverlay(file, spec, metrics, item.profile, writer.manifest.Legend); err != nil {
-			_ = file.Close()
-			_ = os.Remove(temporary)
-			return delivery.Period{}, fmt.Errorf("render %s %s overlay: %w", id, item.id, err)
-		}
-		if err := file.Close(); err != nil {
-			_ = os.Remove(temporary)
-			return delivery.Period{}, err
-		}
-		data, err := os.ReadFile(temporary)
+		images[item.id] = asset
+	}
+	for _, item := range []struct {
+		id      string
+		profile weather.Profile
+		lens    weather.Lens
+	}{
+		{delivery.LensComfort, weather.ProfileNice, weather.LensComfort},
+		{delivery.LensDry, weather.ProfileNice, weather.LensDry},
+		{delivery.LensBright, weather.ProfileNice, weather.LensBright},
+		{"wind-" + delivery.ProfileNice, weather.ProfileNice, weather.LensCalm},
+		{"wind-" + delivery.ProfileCycling, weather.ProfileCycling, weather.LensCalm},
+	} {
+		asset, err := writer.renderOverlay(group, id, item.id, spec, records, quantized, item.profile, item.lens, imageWidth, imageHeight)
 		if err != nil {
 			return delivery.Period{}, err
 		}
-		digest := sha256.Sum256(data)
-		checksum := hex.EncodeToString(digest[:])
-		url := filepath.ToSlash(filepath.Join("images", group, id+"-"+item.id+"-"+checksum+".png"))
-		if err := os.Rename(temporary, filepath.Join(writer.dir, filepath.FromSlash(url))); err != nil {
-			_ = os.Remove(temporary)
-			return delivery.Period{}, err
-		}
-		images[item.id] = delivery.ImageAsset{
-			URL: url, SHA256: checksum, Width: imageWidth, Height: imageHeight,
-			Projection: delivery.ImageProjectionWebMercator,
-		}
+		lenses[item.id] = asset
 	}
 	return delivery.Period{
 		ID: id, Label: label, Source: source, NativeResolutionKM: resolution,
-		TemporalResolutionHours: temporalHours, Images: images, GridURL: gridURL, GridSHA256: meta.SHA256,
+		TemporalResolutionHours: temporalHours, Images: images, Lenses: lenses, GridURL: gridURL, GridSHA256: meta.SHA256,
 	}, nil
+}
+
+func (writer *releaseWriter) renderOverlay(group, periodID, assetID string, spec delivery.GridSpec, records []delivery.DailyRecord, metrics []weather.DailyMetrics, profile weather.Profile, lens weather.Lens, width, height int) (delivery.ImageAsset, error) {
+	directory := filepath.Join(writer.dir, "images", group)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	file, err := os.CreateTemp(directory, ".overlay-*.tmp")
+	if err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	temporary := file.Name()
+	committed := false
+	defer func() {
+		_ = file.Close()
+		if !committed {
+			_ = os.Remove(temporary)
+		}
+	}()
+	if err := pipeline.RenderWebMercatorLensRecords(file, spec, records, metrics, profile, lens, writer.manifest.Palette); err != nil {
+		return delivery.ImageAsset{}, fmt.Errorf("render %s %s overlay: %w", periodID, assetID, err)
+	}
+	if err := file.Close(); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	data, err := os.ReadFile(temporary)
+	if err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	digest := sha256.Sum256(data)
+	checksum := hex.EncodeToString(digest[:])
+	url := filepath.ToSlash(filepath.Join("images", group, periodID+"-"+assetID+"-"+checksum+".png"))
+	if err := os.Rename(temporary, filepath.Join(writer.dir, filepath.FromSlash(url))); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	committed = true
+	return delivery.ImageAsset{URL: url, SHA256: checksum, Width: width, Height: height, Projection: delivery.ImageProjectionWebMercator}, nil
 }
 
 func (writer *releaseWriter) finish(root string) error {

@@ -33,7 +33,7 @@ Current state:
 - Frontend build lives in `./dist`.
 - Forecast horizons are 14 concrete local-date IDs. Climate horizons are 12 explicit months.
 - Forecast aggregation is `10:00-20:00` local time per grid cell using timezone lookup; the grid-cell center chooses the timezone at boundaries.
-- The manifest is version 3 with product contract `nice-weather-v5` and explicitly identifies `live` or `sample` data. Sample data must never look live.
+- The manifest is version 4 with product contract `nice-weather-v6` and explicitly identifies `live` or `sample` data. Sample data must never look live.
 - The running server validates and swaps complete release snapshots when `current` changes. A request must never mix manifest, image and point data from different releases.
 - Forecast freshness, source, forecast detail and resolution are hard UX requirements. Raw provider detail belongs in progressive disclosure.
 
@@ -41,7 +41,7 @@ Current product boundaries:
 
 1. One weather domain and scoring path serves map pixels and point details.
 2. One compact binary grid per period provides constant-time point lookup.
-3. One categorical PNG per profile and period keeps browser rendering cheap.
+3. Pre-evaluated overall and component PNGs keep browser rendering cheap. They use the one canonical scoring path; the browser never rescales or scores weather.
 4. Forecast and climate may have different honest resolutions; never resample to imply false fidelity.
 5. Europe comes first. World coverage waits until this contract remains fast and trustworthy after deployment.
 
@@ -90,7 +90,7 @@ Required observable checks:
 - CLI real build: run `go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts`; inspect all 14 days, 12 months, sources, resolutions, grids and images.
 - Static server: run `go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5173`; fetch expected URLs and prove a same-process release swap.
 - Frontend: open in browser, switch controls, verify map layer changes, inspect screenshots.
-- Images: sample PNGs and verify non-empty pixels, only canonical category colours, and alpha outside land.
+- Images: sample PNGs and verify non-empty pixels, colours from the canonical continuous palette, exact point/lens parity, and alpha outside land.
 - Scores: run deterministic scoring cases and compare expected numeric/category outputs.
 
 Verify layer by layer before end-to-end claims:

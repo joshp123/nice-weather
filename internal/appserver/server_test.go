@@ -292,9 +292,9 @@ func TestPointUsesCanonicalGridAndScore(t *testing.T) {
 	var payload struct {
 		Summary string `json:"summary"`
 		Score   struct {
-			Value      int                `json:"value"`
-			Category   string             `json:"category"`
-			Components weather.Components `json:"components"`
+			Value      int             `json:"value"`
+			Category   string          `json:"category"`
+			Components pointComponents `json:"components"`
 		} `json:"score"`
 		Weather struct {
 			WetTime *float64 `json:"wetTimeFraction"`
@@ -318,7 +318,8 @@ func TestPointUsesCanonicalGridAndScore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := weather.Score(wantMetrics, weather.ProfileNice); payload.Score.Value != want.Score || payload.Score.Category != want.Rating || payload.Score.Components != want.Components {
+	if want := weather.Score(wantMetrics, weather.ProfileNice); payload.Score.Value != want.Score || payload.Score.Category != want.Rating ||
+		payload.Score.Components != (pointComponents{Comfort: componentResponse(want.Components.Thermal), Dryness: componentResponse(want.Components.Dryness), Sun: componentResponse(want.Components.Sun), Wind: componentResponse(want.Components.Wind)}) {
 		t.Fatalf("API score %+v; want %+v", payload.Score, want)
 	}
 	if want := weather.Summary(wantMetrics); payload.Summary != want {
