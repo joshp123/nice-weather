@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { isEscapeKey, isKeyboardActivation, restoreFocus } from './accessibility';
 import { forecastRunStatus, freshnessLabel, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
-import type { Mode, Period, PointWeather, Profile, WeatherManifest } from './data/types';
+import type { Lens, Mode, Period, PointWeather, Profile, WeatherManifest } from './data/types';
 import type { MapPoint, OverlayState } from './map/WeatherMap';
 import { reportResourceSummary, telemetry } from './telemetry';
 import './styles.css';
@@ -18,12 +18,14 @@ export default function App() {
   const [retry, setRetry] = useState(0);
   const [mode, setMode] = useState<Mode>('forecast');
   const [profile, setProfile] = useState<Profile>('nice');
+  const [lens, setLens] = useState<Lens>('overall');
   const [periodId, setPeriodId] = useState('');
   const [selectedPoint, setSelectedPoint] = useState<MapPoint>();
   const [focusPoint, setFocusPoint] = useState<(MapPoint & { token: number })>();
   const [mapNotice, setMapNotice] = useState('');
   const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
   const [showGuide, setShowGuide] = useState(false);
+  const [transient, setTransient] = useState<'search' | 'lens' | undefined>();
   const [focusGuide, setFocusGuide] = useState(false);
   const [pointState, setPointState] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; data?: PointWeather; message?: string }>({ status: 'idle' });
   const staleReloadedRelease = useRef<string | undefined>(undefined);
@@ -101,7 +103,7 @@ export default function App() {
     return () => controller.abort();
   }, [manifest, mode, period, profile, refreshStaleRelease, selectedPoint]);
 
-  const overlayUrl = period && manifest ? imageAssetUrl(manifest.releaseId, period.images[profile]) : undefined;
+  const overlayUrl = period && manifest ? imageAssetUrl(manifest.releaseId, lensAsset(period, profile, lens)) : undefined;
 
   const handleOverlayState = useCallback((state: OverlayState) => {
     setOverlayState(state);
@@ -110,7 +112,7 @@ export default function App() {
   }, [manifest, refreshStaleRelease]);
 
   return (
-    <main className="appShell">
+    <main className={selectedPoint && !showGuide && transient === undefined ? 'appShell detailOpen' : 'appShell'}>
       <Suspense fallback={<div className="mapCanvas mapLoading" aria-label="Loading map" />}>
         <WeatherMap
           overlayUrl={overlayUrl}
@@ -122,12 +124,14 @@ export default function App() {
             const focusDetails = intent?.focusDetails === true;
             pointFocusOrigin.current = focusDetails && document.activeElement instanceof HTMLElement ? document.activeElement : null;
             setFocusPointPanel(focusDetails);
+            setTransient(undefined);
+            setShowGuide(false);
             setSelectedPoint(point);
           }}
           onReady={(elapsedMs) => telemetry('map-ready', { elapsedMs })}
           onOverlayState={handleOverlayState}
           onOverlayReady={(elapsedMs, renderer, assetUrl) => {
-            telemetry('overlay-ready', { elapsedMs, renderer, assetUrl, period: period?.id, profile });
+            telemetry('overlay-ready', { elapsedMs, renderer, assetUrl, period: period?.id, profile, lens });
             reportResourceSummary();
           }}
         />
@@ -139,7 +143,10 @@ export default function App() {
           <span>Nice Weather</span>
         </div>
         {manifest?.dataStatus === 'sample' && <p className="sampleWarning"><strong>Sample data</strong><span>Not a live forecast</span></p>}
-        <SearchControl onFound={(point) => {
+        <SearchControl open={transient === 'search'} onOpenChange={(open) => {
+          setTransient(open ? 'search' : undefined);
+          if (open) setShowGuide(false);
+        }} onFound={(point) => {
           telemetry('search-selected', { lat: point.lat, lon: point.lon });
           setSelectedPoint(point);
           setFocusPoint({ ...point, token: Date.now() });
@@ -159,18 +166,27 @@ export default function App() {
       {mapNotice && <p className="mapNotice" role="status">{mapNotice}</p>}
       {overlayState.status === 'error' && <p className="mapNotice overlayNotice" role="status">Weather colours could not be shown.</p>}
 
-      <Legend manifest={manifest} triggerRef={guideTriggerRef} onExplain={(focusGuide) => {
+      <Legend manifest={manifest} lens={lens} open={transient === 'lens'} onOpenChange={(open) => {
+        setTransient(open ? 'lens' : undefined);
+        if (open) setShowGuide(false);
+      }} onLensChange={(nextLens) => {
+        telemetry('lens-changed', { lens: nextLens });
+        setLens(nextLens);
+      }} triggerRef={guideTriggerRef} onExplain={(focusGuide) => {
+        setTransient(undefined);
         setShowGuide(true);
         setFocusGuide(focusGuide);
       }} />
 
       {showGuide && <ScoringGuide focusOnOpen={focusGuide} onClose={closeGuide} />}
 
-      {selectedPoint && (
+      {selectedPoint && !showGuide && transient === undefined && (
         <PointPanel
           state={pointState}
           point={selectedPoint}
           period={period}
+          lens={lens}
+          onLensChange={setLens}
           focusOnOpen={focusPointPanel}
           onClose={closePoint}
         />
@@ -223,7 +239,7 @@ function ProfileControl({ value, onChange }: { value: Profile; onChange: (profil
 }
 
 function ForecastStatus({ manifest, mode, period }: { manifest: WeatherManifest; mode: Mode; period: Period }) {
-  if (mode === 'climate') return <p className="forecastStatus">Typical conditions · {manifest.climate?.period}</p>;
+  if (mode === 'climate') return <p className="forecastStatus climate">Monthly average · {manifest.climate?.period}</p>;
   const status = forecastRunStatus(period.sourceRunAt, manifest.forecast.staleAfterHours);
   return (
     <p className={status.stale ? 'forecastStatus stale' : 'forecastStatus'}>
@@ -258,13 +274,31 @@ function PeriodRail({ periods, selectedId, mode, onChange }: { periods: Period[]
   );
 }
 
-function Legend({ manifest, triggerRef, onExplain }: { manifest?: WeatherManifest; triggerRef: RefObject<HTMLButtonElement | null>; onExplain: (focusGuide: boolean) => void }) {
+const LENSES: Array<{ id: Lens; label: string; note: string }> = [
+  { id: 'overall', label: 'Overall', note: 'The complete judgement' },
+  { id: 'comfort', label: 'Comfort', note: 'Temperature and moisture' },
+  { id: 'dry', label: 'Dry', note: 'Rain amount and wet time' },
+  { id: 'bright', label: 'Bright', note: 'Sun and cloud' },
+  { id: 'wind', label: 'Wind', note: 'Sustained wind and gusts' },
+];
+
+function Legend({ manifest, lens, open, onOpenChange, onLensChange, triggerRef, onExplain }: { manifest?: WeatherManifest; lens: Lens; open: boolean; onOpenChange: (open: boolean) => void; onLensChange: (lens: Lens) => void; triggerRef: RefObject<HTMLButtonElement | null>; onExplain: (focusGuide: boolean) => void }) {
+  const lensButtonRef = useRef<HTMLButtonElement | null>(null);
+  useEscape(open, () => { onOpenChange(false); restoreFocus(lensButtonRef.current); });
   if (!manifest) return null;
+  const active = LENSES.find((item) => item.id === lens) ?? LENSES[0];
   return (
-    <button ref={triggerRef} type="button" className="legend" aria-label="Explain the weather score" onClick={(event) => onExplain(isKeyboardActivation(event.detail))}>
-      <div className="legendScale">{manifest.legend.map((category) => <span key={category.label} style={{ backgroundColor: category.color }} />)}</div>
-      <div className="legendLabels"><span>Poor</span><span>Excellent</span><b>?</b></div>
-    </button>
+    <div className="legendCluster">
+      <button ref={lensButtonRef} type="button" className="legend" aria-haspopup="true" aria-expanded={open} aria-controls="lens-menu" onClick={() => onOpenChange(!open)}>
+        <strong>{active.label}<span aria-hidden="true">⌄</span></strong>
+        <span className="legendScale" style={{ background: `linear-gradient(to right, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(', ')})` }} />
+        <span className="legendLabels"><span>Awful</span><span>Excellent</span></span>
+      </button>
+      <button ref={triggerRef} type="button" className="legendHelp" aria-label="Explain the weather score" onClick={(event) => onExplain(isKeyboardActivation(event.detail))}>?</button>
+      {open && <div id="lens-menu" className="lensMenu" role="radiogroup" aria-label="Map colours">
+        {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={item.id === lens} onClick={() => { onLensChange(item.id); onOpenChange(false); }}><span><strong>{item.label}</strong><small>{item.note}</small></span><b aria-hidden="true">{item.id === lens ? '✓' : ''}</b></button>)}
+      </div>}
+    </div>
   );
 }
 
@@ -278,16 +312,18 @@ function ScoringGuide({ focusOnOpen, onClose }: { focusOnOpen: boolean; onClose:
       <button ref={closeRef} className="closeButton" type="button" onClick={onClose} aria-label="Close score explanation">×</button>
       <p className="guideEyebrow">Weather score</p>
       <h2>Warm, dry and bright.</h2>
-      <p>Nice weather favours 22–27°C, little rain, clear skies and light wind. Cycling is stricter about rain, wind and gusts.</p>
-      <small>The colour shows the score for the selected day and preference.</small>
+      <p>Overall combines comfort, dry weather, brightness and wind. Comfort accounts for moisture: hot and dry can feel good while hot and humid does not. Cold, damp weather is worse than cold, dry weather.</p>
+      <small>Awful is reserved for the days that are genuinely miserable. Cycling is stricter about rain, wind and gusts.</small>
     </aside>
   );
 }
 
-function PointPanel({ state, point, period, focusOnOpen, onClose }: {
+function PointPanel({ state, point, period, lens, onLensChange, focusOnOpen, onClose }: {
   state: { status: 'idle' | 'loading' | 'ready' | 'error'; data?: PointWeather; message?: string };
   point: MapPoint;
   period?: Period;
+  lens: Lens;
+  onLensChange: (lens: Lens) => void;
   focusOnOpen: boolean;
   onClose: () => void;
 }) {
@@ -302,7 +338,7 @@ function PointPanel({ state, point, period, focusOnOpen, onClose }: {
       {state.status === 'error' && (
         <div className="pointMessage"><strong>Details are not available</strong><p>{state.message}</p></div>
       )}
-      {state.status === 'ready' && state.data && <PointDetails data={state.data} point={point} period={period} />}
+      {state.status === 'ready' && state.data && <PointDetails data={state.data} point={point} period={period} lens={lens} onLensChange={onLensChange} />}
       {state.status === 'idle' && (
         <div className="pointMessage"><strong>{point.label ?? 'Selected point'}</strong><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}° · {period?.label}</p></div>
       )}
@@ -310,7 +346,7 @@ function PointPanel({ state, point, period, focusOnOpen, onClose }: {
   );
 }
 
-function PointDetails({ data, point }: { data: PointWeather; point: MapPoint; period?: Period }) {
+function PointDetails({ data, point, lens, onLensChange }: { data: PointWeather; point: MapPoint; period?: Period; lens: Lens; onLensChange: (lens: Lens) => void }) {
   const sky = data.metrics.cloudPct !== undefined
     ? ['Cloud', `${format(data.metrics.cloudPct, 0)}%`]
     : data.metrics.solarEnergyMJm2 !== undefined
@@ -322,23 +358,29 @@ function PointDetails({ data, point }: { data: PointWeather; point: MapPoint; pe
     sky,
     ['Wind', `${format(data.metrics.windKmh, 0)} km/h${data.metrics.gustKmh !== undefined ? ` · gusts ${format(data.metrics.gustKmh, 0)}` : ''}`],
   ];
+  const rows = componentRows(data);
+  const selectedComponent = lens === 'overall' ? undefined : rows.find((item) => item.lens === lens);
+  const activeScore = selectedComponent ?? { label: 'Overall', value: Math.round(data.score), category: data.category };
   return (
     <>
       <div className="pointHeading">
         <div><p>{data.periodLabel}</p><h2>{point.label ?? `${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}°`}</h2></div>
-        <div className="score"><strong>{Math.round(data.score)}</strong><span>{data.category}</span></div>
+        <div className="score">
+          <small>{activeScore.label}</small><strong>{activeScore.value}</strong><span>{activeScore.category}</span>
+          {selectedComponent && <em>Overall {Math.round(data.score)} · {data.category}</em>}
+        </div>
       </div>
       <p className="pointSummary">{data.summary}</p>
+      {data.source.basis === 'climate' && <p className="climateCaveat">Monthly average from {data.source.referencePeriod}. This is not yet the chance of getting a nice day.</p>}
+      <div className="componentRows" role="group" aria-label="Weather score parts">
+        {rows.map((item) => <button key={item.lens} type="button" aria-pressed={lens === item.lens} aria-label={`${item.label}: ${item.value}, ${item.category}, ${item.evidence}. Show on map`} onClick={() => onLensChange(item.lens)}><span><strong>{item.label}</strong><small>{item.evidence}</small></span><i><b style={{ width: `${item.value}%` }} /></i><em><b>{item.value}</b><small>{item.category}</small></em></button>)}
+      </div>
       <dl className="metricGrid">
         {metrics.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
       </dl>
       <p className="dataNote">{sourceSummary(data)}</p>
       <details className="scoreWhy">
         <summary>Why this score</summary>
-        <p className="evidenceTitle">Score parts</p>
-        <dl>
-          {Object.entries(data.components).map(([label, value]) => <div key={label}><dt>{componentLabel(label)}</dt><dd>{Math.round(value)}</dd></div>)}
-        </dl>
         <p className="evidenceTitle">Weather used</p>
         <dl className="scoreEvidence">
           {scoreEvidence(data).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
@@ -381,7 +423,7 @@ function sourceSummary(data: PointWeather): string {
   const resolution = `${Math.round(source.resolutionKm)} km grid`;
   const detail = source.temporalResolutionHours > 24 ? 'Monthly normal' : source.temporalResolutionHours === 1 ? 'Hourly detail' : `${source.temporalResolutionHours}-hour detail`;
   if (source.basis === 'climate') return `Typical month · ${source.referencePeriod} · ${source.providerLabel} · ${resolution}`;
-  return `${source.detailLabel} · ${source.providerLabel} · ${resolution} · ${detail} · ${freshnessLabel(source.artifactGeneratedAt)}`;
+  return `${source.detailLabel} · ${source.providerLabel} · ${resolution} · ${detail}`;
 }
 
 function sourceTiming(data: PointWeather): Array<[string, string]> {
@@ -389,6 +431,7 @@ function sourceTiming(data: PointWeather): Array<[string, string]> {
     ['Model run', formatMoment(data.source.runAt)],
     ['Valid from', formatMoment(data.source.validFrom)],
     ['Valid to', formatMoment(data.source.validTo)],
+    ['Map built', formatMoment(data.source.artifactGeneratedAt)],
   ];
 }
 
@@ -399,8 +442,7 @@ function formatMoment(value: string | undefined): string {
   return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
-function SearchControl({ onFound }: { onFound: (point: MapPoint) => void }) {
-  const [open, setOpen] = useState(false);
+function SearchControl({ open, onOpenChange, onFound }: { open: boolean; onOpenChange: (open: boolean) => void; onFound: (point: MapPoint) => void }) {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
   const [results, setResults] = useState<Array<{ name: string; country?: string; lat: number; lon: number }>>([]);
@@ -424,7 +466,7 @@ function SearchControl({ onFound }: { onFound: (point: MapPoint) => void }) {
 
   function closeSearch() {
     cancelSearch();
-    setOpen(false);
+    onOpenChange(false);
     setMessage('');
     setResults([]);
     restoreTriggerAfterClose.current = true;
@@ -486,7 +528,7 @@ function SearchControl({ onFound }: { onFound: (point: MapPoint) => void }) {
           )}
         </form>
       ) : (
-        <button ref={triggerRef} type="button" className="searchButton" onClick={() => setOpen(true)}><SearchIcon /> <span>Featured cities or coordinates</span></button>
+        <button ref={triggerRef} type="button" className="searchButton" aria-label="Search featured cities or coordinates" onClick={() => onOpenChange(true)}><SearchIcon /> <span>Featured cities or coordinates</span></button>
       )}
     </div>
   );
@@ -524,8 +566,26 @@ function periodsFor(manifest: WeatherManifest | undefined, mode: Mode): Period[]
   return mode === 'climate' ? manifest.climate.months : manifest.forecast.days;
 }
 
-function componentLabel(value: string): string {
-  return value === 'sun' ? 'Sun' : value.charAt(0).toUpperCase() + value.slice(1);
+function lensAsset(period: Period, profile: Profile, lens: Lens) {
+  if (lens === 'overall') return period.images[profile];
+  if (lens === 'wind') return period.lenses[`wind-${profile}`];
+  return period.lenses[lens];
+}
+
+function componentRows(data: PointWeather): Array<{ lens: Exclude<Lens, 'overall'>; label: string; value: number; category: string; evidence: string }> {
+  const comfortEvidence = [
+    `${format(data.metrics.temperatureC, 0)}°C`,
+    data.metrics.dewPointC !== undefined ? `${format(data.metrics.dewPointC, 0)}° dew point` : data.metrics.humidityPct !== undefined ? `${format(data.metrics.humidityPct, 0)}% humidity` : '',
+  ].filter(Boolean).join(' · ');
+  const dryEvidence = `${format(data.metrics.rainMm, 1)} mm${data.metrics.wetTimeFraction !== undefined ? ` · ${format(data.metrics.wetTimeFraction * 100, 0)}% wet` : ''}`;
+  const brightEvidence = data.metrics.solarEnergyMJm2 !== undefined ? `${format(data.metrics.solarEnergyMJm2, 1)} MJ/m²` : data.metrics.cloudPct !== undefined ? `${format(data.metrics.cloudPct, 0)}% cloud` : 'No sky detail';
+  const windEvidence = `${format(data.metrics.windKmh, 0)} km/h${data.metrics.gustKmh !== undefined ? ` · gusts ${format(data.metrics.gustKmh, 0)}` : ''}`;
+  return [
+    { lens: 'comfort', label: 'Comfort', value: Math.round(data.components.comfort.value), category: data.components.comfort.category, evidence: comfortEvidence },
+    { lens: 'dry', label: 'Dry', value: Math.round(data.components.dryness.value), category: data.components.dryness.category, evidence: dryEvidence },
+    { lens: 'bright', label: 'Bright', value: Math.round(data.components.sun.value), category: data.components.sun.category, evidence: brightEvidence },
+    { lens: 'wind', label: 'Wind', value: Math.round(data.components.wind.value), category: data.components.wind.category, evidence: windEvidence },
+  ];
 }
 
 function dateNumber(date: string): string {

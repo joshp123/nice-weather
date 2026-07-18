@@ -24,14 +24,16 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
 .mapLoading { background: #d4e1df radial-gradient(circle at 54% 45%, rgba(255,255,255,0.65), transparent 45%); }
 .mapStack { overflow: hidden; }
 .mapStack:focus-visible { outline: 4px solid rgba(30,101,112,.72); outline-offset: -4px; }
-.fallbackMap, .maplibreSurface { position: absolute; inset: 0; }
-.fallbackMap { z-index: 0; overflow: hidden; pointer-events: none; background: #c9dedd; }
-.fallbackMap.interactive { z-index: 2; pointer-events: auto; }
+.mapUnavailable { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; background: #d4e1df; text-align: center; }
+.mapUnavailable div { max-width: 360px; padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); box-shadow: var(--shadow); }
+.mapUnavailable strong { font: 600 22px/1.2 "Iowan Old Style", Baskerville, Georgia, serif; }
+.mapUnavailable p { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.maplibreSurface { position: absolute; inset: 0; }
 .mapStack > .maplibreSurface { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
 .mapSvg { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; user-select: none; }
 .graticule line { stroke: rgba(62,87,90,.12); stroke-width: .7; vector-effect: non-scaling-stroke; }
 .land { fill: #f5f0df; stroke: none; }
-.weatherOverlay { image-rendering: pixelated; }
+.weatherOverlay { image-rendering: auto; }
 .coastline { fill: none; stroke: rgba(43,61,64,.55); stroke-width: .9; vector-effect: non-scaling-stroke; }
 .mapLabels circle { fill: #26383c; stroke: rgba(255,253,247,.9); stroke-width: .8; vector-effect: non-scaling-stroke; }
 .mapLabels text { fill: #203237; stroke: rgba(255,253,247,.92); stroke-width: 1.5px; paint-order: stroke; font-size: 6px; font-weight: 650; letter-spacing: -.01em; vector-effect: non-scaling-stroke; }
@@ -78,12 +80,21 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
 .mapNotice { position: absolute; z-index: 5; top: 213px; right: 12px; max-width: 240px; margin: 0; padding: 9px 11px; border-radius: 8px; background: var(--ink); color: white; box-shadow: 0 3px 12px rgba(21, 42, 46, 0.18); font-size: 12px; line-height: 1.35; }
 .overlayNotice { top: 265px; }
 
-.legend { position: absolute; z-index: 4; right: 14px; bottom: 162px; width: 118px; padding: 8px 10px 7px; border: 1px solid rgba(24, 36, 42, 0.12); border-radius: 10px; background: rgba(255, 253, 247, 0.92); box-shadow: 0 3px 12px rgba(21, 42, 46, 0.12); backdrop-filter: blur(12px); cursor: pointer; }
-.legendScale { display: flex; overflow: hidden; height: 7px; border-radius: 4px; }
-.legendScale span { flex: 1; }
-.legendLabels { display: grid; grid-template-columns: 1fr 1fr auto; margin-top: 5px; color: #526167; font-size: 10px; font-weight: 650; letter-spacing: 0.02em; text-align: left; }
+.legendCluster { position: absolute; z-index: 7; right: 14px; bottom: 162px; display: flex; align-items: stretch; gap: 5px; }
+.legend { width: 142px; min-height: 58px; padding: 7px 9px 6px; border: 1px solid rgba(24, 36, 42, 0.12); border-radius: 10px; background: rgba(255, 253, 247, 0.94); box-shadow: 0 3px 12px rgba(21, 42, 46, 0.12); backdrop-filter: blur(12px); cursor: pointer; text-align: left; }
+.legend > strong { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px; }
+.legend > strong span { color: var(--muted); }
+.legendScale { display: block; overflow: hidden; height: 7px; border-radius: 4px; }
+.legendLabels { display: grid; grid-template-columns: 1fr 1fr; margin-top: 4px; color: #526167; font-size: 9px; font-weight: 650; letter-spacing: 0.02em; text-align: left; }
 .legendLabels span:nth-child(2) { text-align: right; }
-.legendLabels b { display: grid; place-items: center; width: 14px; height: 14px; margin: -2px -2px -2px 6px; border: 1px solid currentColor; border-radius: 50%; font-size: 9px; }
+.legendHelp { width: 44px; border: 1px solid rgba(24,36,42,.12); border-radius: 10px; background: rgba(255,253,247,.94); box-shadow: 0 3px 12px rgba(21,42,46,.12); color: #526167; cursor: pointer; font-weight: 750; }
+.lensMenu { position: absolute; right: 49px; bottom: 65px; width: 244px; overflow: hidden; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow); }
+.lensMenu button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 50px; padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.lensMenu button:hover, .lensMenu button[aria-checked="true"] { background: rgba(24,36,42,.06); }
+.lensMenu span, .lensMenu small { display: block; }
+.lensMenu strong { font-size: 13px; }
+.lensMenu small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.lensMenu b { color: var(--focus); }
 .scoringGuide { position: absolute; z-index: 7; right: 14px; bottom: 162px; width: min(310px, calc(100vw - 28px)); padding: 18px 42px 18px 18px; border: 1px solid rgba(24, 36, 42, 0.13); border-radius: 13px; background: rgba(255, 253, 247, 0.98); box-shadow: var(--shadow); }
 .guideEyebrow { margin: 0 0 4px; color: var(--accent); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
 .scoringGuide h2 { margin: 0; font: 600 22px/1.1 "Iowan Old Style", Baskerville, Georgia, serif; }
@@ -93,7 +104,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
 .controlDock { position: absolute; z-index: 6; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); width: min(1100px, calc(100vw - 32px)); min-height: 126px; transform: translateX(-50%); padding: 13px 14px 12px; border: 1px solid rgba(24, 36, 42, 0.13); border-radius: 16px; background: rgba(255, 253, 247, 0.96); box-shadow: var(--shadow); backdrop-filter: blur(18px); }
 .dockTopline { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; align-items: center; gap: 14px; margin-bottom: 10px; }
 .segmented { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: rgba(24, 36, 42, 0.055); }
-.segmented button { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 92px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: #526167; font-size: 13px; font-weight: 650; cursor: pointer; }
+.segmented button { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 92px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: #526167; font-size: 13px; font-weight: 650; cursor: pointer; }
 .mobileLabel { display: none; }
 .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 4px rgba(24, 36, 42, 0.14); }
 .segmented button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -130,9 +141,23 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
 .pointHeading p { margin: 0 0 3px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .pointHeading h2 { margin: 0; font: 600 25px/1.06 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -0.025em; }
 .score { display: grid; justify-items: center; flex: 0 0 auto; }
+.score > small { color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }
 .score strong { font: 650 31px/0.9 "Iowan Old Style", Baskerville, Georgia, serif; }
 .score span { margin-top: 4px; color: var(--accent); font-size: 11px; font-weight: 750; text-transform: uppercase; }
+.score em { margin-top: 5px; color: var(--muted); font-size: 9px; font-style: normal; white-space: nowrap; }
 .pointSummary { margin: 17px 0; color: #34464c; font-size: 15px; line-height: 1.4; }
+.climateCaveat { margin: -8px 0 13px; padding: 8px 10px; border-left: 3px solid #9b704b; background: rgba(229,160,115,.13); color: #5d4b3d; font-size: 11px; line-height: 1.4; }
+.componentRows { display: grid; gap: 3px; margin: 0 0 13px; }
+.componentRows button { display: grid; grid-template-columns: minmax(105px,1fr) 64px 58px; align-items: center; gap: 8px; min-height: 44px; padding: 5px 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: left; cursor: pointer; }
+.componentRows button:hover, .componentRows button[aria-pressed="true"] { border-color: var(--line); background: rgba(24,36,42,.045); }
+.componentRows button > span, .componentRows small { display: block; min-width: 0; }
+.componentRows strong { font-size: 12px; }
+.componentRows small { overflow: hidden; margin-top: 1px; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.componentRows i { height: 5px; overflow: hidden; border-radius: 3px; background: rgba(24,36,42,.1); }
+.componentRows i b { display: block; height: 100%; border-radius: inherit; background: var(--focus); }
+.componentRows em { display: grid; justify-items: end; font-size: 12px; font-style: normal; font-weight: 750; text-align: right; }
+.componentRows em b { font-weight: 750; }
+.componentRows em small { margin: 0; font-size: 8px; line-height: 1.1; }
 .metricGrid { display: grid; grid-template-columns: 1fr 1fr; margin: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .metricGrid div { padding: 10px 11px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .metricGrid dt { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
@@ -170,7 +195,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
   .searchButton { width: 46px; justify-content: center; padding: 0; }
   .maplibreSurface .maplibregl-ctrl-top-right { top: 68px; right: 8px; }
   .locationButton { top: 155px; right: 8px; }
-  .legend { right: 9px; bottom: 166px; }
+  .legendCluster { right: 9px; bottom: 166px; }
   .controlDock { width: calc(100vw - 16px); bottom: max(8px, env(safe-area-inset-bottom)); min-height: 142px; padding: 10px 9px 9px; border-radius: 14px; }
   .dockTopline { grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
   .forecastStatus { grid-column: 1 / -1; grid-row: 1; min-height: 18px; }
@@ -181,6 +206,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
   .periodRail { grid-auto-columns: 62px; }
   .periodBands { display: none; }
   .pointPanel { position: absolute; top: auto; left: 8px; right: 8px; bottom: calc(158px + env(safe-area-inset-bottom)); width: auto; padding: 17px 18px 15px; max-height: calc(100vh - 240px); overflow-y: auto; border-radius: 15px; }
+  .detailOpen .controlDock, .detailOpen .legendCluster, .detailOpen .locationButton, .detailOpen .maplibregl-ctrl { display: none; }
+  .detailOpen .pointPanel { top: max(88px, calc(env(safe-area-inset-top) + 70px)); bottom: max(8px, env(safe-area-inset-bottom)); max-height: none; padding-top: 25px; overscroll-behavior: contain; border-radius: 18px; }
+  .detailOpen .pointPanel::before { position: absolute; top: 8px; left: 50%; width: 38px; height: 4px; border-radius: 3px; background: rgba(24,36,42,.18); content: ""; transform: translateX(-50%); }
   .pointSummary { margin: 12px 0; }
   .metricGrid div { padding: 8px 10px; }
 }
@@ -194,6 +222,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(30, 101, 112
   .wordmark span { display: none; }
   .wordmark { width: 46px; justify-content: center; padding: 0; }
   .pointPanel { bottom: calc(158px + env(safe-area-inset-bottom)); }
+  .detailOpen .pointPanel { bottom: max(8px, env(safe-area-inset-bottom)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

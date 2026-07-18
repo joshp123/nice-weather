@@ -25,7 +25,7 @@ try {
   await page.waitForTimeout(1_000);
 
   const manifest = await page.evaluate(async () => (await fetch('/manifest.json')).json());
-  if (manifest.version !== 3 || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
+  if (manifest.version !== 4 || manifest.productContract !== 'nice-weather-v6' || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
     throw new Error(`unexpected production manifest: v${manifest.version}, ${manifest.forecast?.days?.length} days, ${manifest.climate?.months?.length} months`);
   }
   const sampleWarnings = await page.locator('.sampleWarning').count();
@@ -33,12 +33,21 @@ try {
     throw new Error(`sample warning disagrees with dataStatus=${manifest.dataStatus}`);
   }
   if (await page.locator('.periodRail button').count() !== 14) throw new Error('forecast rail must contain 14 days');
-  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[0].id, 'nice', manifest.forecast.days[0].images.nice);
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[0].id, 'nice', 'overall', manifest.forecast.days[0].images.nice);
+  await page.locator('.legend').focus();
+  await page.keyboard.press('Enter');
+  if (await page.locator('.lensMenu').count() !== 1) throw new Error('lens menu did not open');
+  await page.getByRole('button', { name: 'Search featured cities or coordinates' }).click();
+  if (await page.locator('.lensMenu').count() !== 0) throw new Error('search and lens menu must be mutually exclusive');
+  await page.getByRole('button', { name: 'Close search' }).click();
+  await page.locator('.legend').click();
+  await page.getByRole('radio', { name: /Comfort/i }).click();
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[0].id, 'nice', 'comfort', manifest.forecast.days[0].lenses.comfort);
   await capture(page, 'nice-weather-desktop.png');
 
   await page.locator('.periodRail button').nth(1).click();
   await page.getByRole('button', { name: /Cycling/i }).click();
-  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[1].id, 'cycling', manifest.forecast.days[1].images.cycling);
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.forecast.days[1].id, 'cycling', 'comfort', manifest.forecast.days[1].lenses.comfort);
   await page.getByRole('region', { name: 'Weather score map' }).focus();
   await page.keyboard.press('Enter');
   await page.waitForSelector('.pointPanel .score', { timeout: 10_000 });
@@ -47,24 +56,75 @@ try {
   for (const label of ['Temperature', 'Minimum', 'Maximum', 'Rain', 'Wet time', 'Sun energy', 'Cloud', 'Wind', 'Gusts', 'Humidity', 'Dew point']) {
     await assertText(page, '.scoreWhy', label);
   }
+  await page.locator('.legend').click();
+  if (await page.locator('.pointPanel').count() !== 0 || await page.locator('.lensMenu').count() !== 1) throw new Error('lens menu must replace point details');
+  await page.getByRole('button', { name: 'Search featured cities or coordinates' }).click();
+  if (await page.locator('.pointPanel').count() !== 0 || await page.locator('.lensMenu').count() !== 0) throw new Error('search must replace lens and point details');
+  await page.getByRole('button', { name: 'Close search' }).click();
+  if (await page.locator('.pointPanel').count() !== 1) throw new Error('point details did not return after closing search');
+  await page.getByRole('button', { name: 'Explain the weather score' }).click();
+  if (await page.locator('.pointPanel').count() !== 0 || await page.locator('.scoringGuide').count() !== 1) throw new Error('guide must replace point details');
+  await page.locator('.legend').focus();
+  await page.keyboard.press('Enter');
+  if (await page.locator('.scoringGuide').count() !== 0 || await page.locator('.lensMenu').count() !== 1) throw new Error('lens menu must replace the guide');
+  await page.getByRole('radio', { name: /Comfort/i }).click();
+  if (await page.locator('.pointPanel').count() !== 1) throw new Error('point details did not return after closing lens menu');
   await capture(page, 'nice-weather-point.png');
 
   await page.getByRole('button', { name: /Typical year|Typical$/i }).click();
   if (await page.locator('.periodRail button').count() !== 12) throw new Error('climate rail must contain 12 months');
   await page.locator('.periodRail button').nth(6).click();
   await assertText(page, '.forecastStatus', manifest.climate.referencePeriod);
-  await assertMapLibreAsset(page, manifest.releaseId, manifest.climate.months[6].id, 'cycling', manifest.climate.months[6].images.cycling);
+  await assertMapLibreAsset(page, manifest.releaseId, manifest.climate.months[6].id, 'cycling', 'comfort', manifest.climate.months[6].lenses.comfort);
   await assertText(page, '.pointPanel .dataNote', `Typical month · ${manifest.climate.referencePeriod}`);
   const climateSource = await page.locator('.pointPanel .dataNote').innerText();
   if (climateSource.includes('Updated')) throw new Error(`climate source must not claim forecast freshness: ${climateSource}`);
-  await assertText(page, '.scoreWhy', 'Not available');
   await capture(page, 'nice-weather-typical.png');
   await assertMapLibreCanvas(page);
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 393, height: 852 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.controlDock .periodRail button', { timeout: 15_000 });
   await capture(page, 'nice-weather-phone.png');
+  await page.getByRole('button', { name: 'Search featured cities or coordinates' }).click();
+  await page.getByLabel('Featured cities or coordinates').fill('36.72, -4.42');
+  await page.getByLabel('Featured cities or coordinates').press('Enter');
+  await page.waitForSelector('.pointPanel .score', { timeout: 10_000 });
+  if (await page.locator('.controlDock:visible').count() !== 0 || await page.locator('.legendCluster:visible').count() !== 0) {
+    throw new Error('mobile point details must own the chrome; dock and legend remain visible');
+  }
+  const mobileLayout = await page.evaluate(() => ({
+    bodyWidth: document.body.scrollWidth,
+    viewportWidth: window.innerWidth,
+    panel: document.querySelector('.pointPanel')?.getBoundingClientRect().toJSON(),
+    panelScrollHeight: document.querySelector('.pointPanel')?.scrollHeight,
+    panelClientHeight: document.querySelector('.pointPanel')?.clientHeight,
+  }));
+  if (mobileLayout.bodyWidth > mobileLayout.viewportWidth || !mobileLayout.panel || mobileLayout.panel.x < 0 || mobileLayout.panel.right > mobileLayout.viewportWidth) {
+    throw new Error(`mobile point details overflow: ${JSON.stringify(mobileLayout)}`);
+  }
+  await page.locator('.pointPanel').evaluate((panel) => { panel.scrollTop = panel.scrollHeight; });
+  await page.locator('.scoreWhy summary').click();
+  await page.locator('.scoreWhy summary').scrollIntoViewIfNeeded();
+  if (!await page.getByText('Weather used', { exact: true }).isVisible()) throw new Error('mobile provenance is not reachable inside point details');
+  await capture(page, 'nice-weather-phone-point.png');
+  await page.getByRole('button', { name: 'Close weather details' }).click();
+  if (await page.locator('.controlDock:visible').count() !== 1 || await page.locator('.legendCluster:visible').count() !== 1) {
+    throw new Error('mobile map controls did not return after closing details');
+  }
+
+  const unavailable = await browser.newPage({ viewport: { width: 393, height: 852 } });
+  await unavailable.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function getContext(type, ...args) {
+      return typeof type === 'string' && type.startsWith('webgl') ? null : original.call(this, type, ...args);
+    };
+  });
+  await unavailable.goto(baseURL, { waitUntil: 'domcontentloaded' });
+  await unavailable.getByRole('alert').filter({ hasText: 'The map is not available' }).waitFor({ timeout: 15_000 });
+  if (await unavailable.locator('.fallbackMap').count() !== 0) throw new Error('WebGL failure must not show invented fallback geography');
+  await unavailable.screenshot({ path: path.join(screenshotDir, 'nice-weather-no-webgl.png') });
+  await unavailable.close();
 
   for (const event of ['manifest-ready', 'map-ready', 'overlay-ready', 'resource-summary', 'period-changed', 'profile-changed', 'mode-changed', 'map-keyboard']) {
     if (!telemetryEvents.has(event)) throw new Error(`missing telemetry event ${event}; saw ${[...telemetryEvents].sort().join(', ')}`);
@@ -82,14 +142,14 @@ async function assertText(page, selector, expected) {
   if (!value.includes(expected)) throw new Error(`expected "${expected}" in:\n${value}`);
 }
 
-async function assertMapLibreAsset(page, releaseId, period, profile, image) {
+async function assertMapLibreAsset(page, releaseId, period, profile, lens, image) {
   const expected = withChecksum(releaseId, image);
-  await page.waitForFunction(({ assetUrl, period, profile }) => window.__niceWeatherTelemetry?.some((event) =>
-    event.event === 'overlay-ready' && event.renderer === 'maplibre' && event.assetUrl === assetUrl && event.period === period && event.profile === profile
-  ), { assetUrl: expected, period, profile }, { timeout: 12_000 });
-  const event = await page.evaluate(({ assetUrl, period, profile }) => window.__niceWeatherTelemetry.findLast((candidate) =>
-    candidate.event === 'overlay-ready' && candidate.renderer === 'maplibre' && candidate.assetUrl === assetUrl && candidate.period === period && candidate.profile === profile
-  ), { assetUrl: expected, period, profile });
+  await page.waitForFunction(({ assetUrl, period, profile, lens }) => window.__niceWeatherTelemetry?.some((event) =>
+    event.event === 'overlay-ready' && event.renderer === 'maplibre' && event.assetUrl === assetUrl && event.period === period && event.profile === profile && event.lens === lens
+  ), { assetUrl: expected, period, profile, lens }, { timeout: 12_000 });
+  const event = await page.evaluate(({ assetUrl, period, profile, lens }) => window.__niceWeatherTelemetry.findLast((candidate) =>
+    candidate.event === 'overlay-ready' && candidate.renderer === 'maplibre' && candidate.assetUrl === assetUrl && candidate.period === period && candidate.profile === profile && candidate.lens === lens
+  ), { assetUrl: expected, period, profile, lens });
   if (!Number.isFinite(event?.elapsedMs) || event.elapsedMs < 0) throw new Error(`invalid selected MapLibre readiness event: ${JSON.stringify(event)}`);
 }
 
