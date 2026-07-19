@@ -1,6 +1,7 @@
 package weather
 
 import (
+	"errors"
 	"math"
 	"strconv"
 	"strings"
@@ -277,11 +278,41 @@ func Rating(score int) string {
 // Summary describes observed conditions without trying to explain or market
 // the score. Invalid data has one clear fallback.
 func Summary(m DailyMetrics) string {
-	if m.Validate() != nil {
+	code, err := EncodeSummary(m)
+	if err != nil {
 		return "No forecast data"
 	}
-	parts := []string{temperaturePhrase(m.ComfortableTempC), rainPhrase(m), sunPhrase(m), windPhrase(m.WindSpeedKPH, m.GustKPH)}
+	parts := SummaryParts(code)
+	parts = append([]string{temperaturePhrase(m.ComfortableTempC)}, parts...)
 	return strings.Join(parts, " · ")
+}
+
+// EncodeSummary freezes the three descriptive phrase choices beside the Go
+// scoring path. Point assets carry this byte so the browser only maps codes to
+// copy; it does not re-evaluate weather thresholds.
+func EncodeSummary(m DailyMetrics) (uint8, error) {
+	if err := m.Validate(); err != nil {
+		return 0, err
+	}
+	rain := map[string]uint8{"dry": 0, "brief rain": 1, "some rain": 2, "wet": 3}[rainPhrase(m)]
+	sun := map[string]uint8{"overcast": 0, "mixed cloud": 1, "bright": 2, "sunny": 3}[sunPhrase(m)]
+	wind, ok := map[string]uint8{"light wind": 0, "breezy": 1, "windy": 2, "strong gusts": 3, "severe gusts": 4}[windPhrase(m.WindSpeedKPH, m.GustKPH)]
+	if !ok {
+		return 0, errors.New("weather summary phrase is not encodable")
+	}
+	return rain | sun<<2 | wind<<4, nil
+}
+
+func SummaryParts(code uint8) []string {
+	rain, sun, wind := code&3, (code>>2)&3, (code>>4)&7
+	if rain > 3 || sun > 3 || wind > 4 || code&0x80 != 0 {
+		return nil
+	}
+	return []string{
+		[]string{"dry", "brief rain", "some rain", "wet"}[rain],
+		[]string{"overcast", "mixed cloud", "bright", "sunny"}[sun],
+		[]string{"light wind", "breezy", "windy", "strong gusts", "severe gusts"}[wind],
+	}
 }
 
 func temperaturePhrase(celsius float64) string {

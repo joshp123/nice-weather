@@ -139,11 +139,11 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 			t.Fatalf("image URL is mutable: %s", image.URL)
 		}
 	}
-	if !strings.Contains(manifest.Forecast.Days[0].GridURL, manifest.Forecast.Days[0].GridSHA256) {
-		t.Fatal("grid URL is mutable")
+	if !strings.Contains(manifest.Forecast.Days[0].Point.URL, manifest.Forecast.Days[0].Point.SHA256) {
+		t.Fatal("point asset URL is mutable")
 	}
 	for profile, asset := range manifest.Forecast.Window.Profiles {
-		if !strings.Contains(asset.GridURL, asset.GridSHA256) || !strings.Contains(asset.Image.URL, asset.Image.SHA256) {
+		if !strings.Contains(manifest.Forecast.Window.Point.URL, manifest.Forecast.Window.Point.SHA256) || !strings.Contains(asset.Image.URL, asset.Image.SHA256) {
 			t.Fatalf("forecast window %s assets are mutable: %+v", profile, asset)
 		}
 	}
@@ -389,15 +389,16 @@ func TestForecastWindowUsesThePublishedDailyQuantizationAtScoreThresholds(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := delivery.OpenRangeGrid(filepath.Join(writer.dir, filepath.FromSlash(window.Profiles[delivery.ProfileNice].GridURL)))
+	reader, err := delivery.OpenPointAsset(filepath.Join(writer.dir, filepath.FromSlash(window.Point.URL)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	record, valid, err := reader.RecordAt(5, 50)
+	pointRecord, valid, err := reader.RangeAt(5, 50)
 	if err != nil || !valid {
 		t.Fatalf("range point valid=%t err=%v", valid, err)
 	}
+	record := pointRecord.Nice
 	if int(record.Score) != weather.Score(quantized, weather.ProfileNice).Score || int(record.Score) == raw.Score {
 		t.Fatalf("range score %d did not use published daily score %d (raw was %d)", record.Score, weather.Score(quantized, weather.ProfileNice).Score, raw.Score)
 	}

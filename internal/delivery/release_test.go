@@ -44,23 +44,27 @@ func TestPublishReleaseMaintainsAtomicCurrentAndPrevious(t *testing.T) {
 	assertPublished(t, root, "previous", "001")
 }
 
-func TestValidateReleaseChecksManifestGridAndImages(t *testing.T) {
+func TestValidateReleaseChecksManifestPointAssetAndImages(t *testing.T) {
 	root := t.TempDir()
 	release := makeRelease(t, root, "001", 210)
 	if _, err := ValidateRelease(release); err != nil {
 		t.Fatal(err)
 	}
-	grid := filepath.Join(release, "grids/day.nwg")
-	data, err := os.ReadFile(grid)
+	manifest, err := ValidateRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	point := filepath.Join(release, filepath.FromSlash(manifest.Forecast.Days[0].Point.URL))
+	data, err := os.ReadFile(point)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data[len(data)-1] ^= 0xff
-	if err := os.WriteFile(grid, data, 0o644); err != nil {
+	if err := os.WriteFile(point, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ValidateRelease(release); err == nil {
-		t.Fatal("release with corrupt grid was accepted")
+		t.Fatal("release with corrupt point asset was accepted")
 	}
 }
 
@@ -83,7 +87,7 @@ func TestReleaseCatalogOpensValidatedGridsForRepeatedLookup(t *testing.T) {
 	}
 	for _, profile := range []string{ProfileNice, ProfileCycling} {
 		record, ok, err := catalog.LookupRange(profile, 5, 50)
-		if err != nil || !ok || record.DayCount != 1 || record.Score != 70 {
+		if err != nil || !ok || record.DayCount != ForecastPointDayCount || record.Score != 70 {
 			t.Fatalf("range lookup %s = (%+v, %v, %v)", profile, record, ok, err)
 		}
 	}
@@ -99,59 +103,45 @@ func TestValidateReleaseRejectsForecastWindowCorruptionAndWrongDayCount(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	asset := manifest.Forecast.Window.Profiles[ProfileNice]
-	gridPath := filepath.Join(release, filepath.FromSlash(asset.GridURL))
-	data, err := os.ReadFile(gridPath)
+	pointPath := filepath.Join(release, filepath.FromSlash(manifest.Forecast.Window.Point.URL))
+	data, err := os.ReadFile(pointPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data[len(data)-1] ^= 0xff
-	if err := os.WriteFile(gridPath, data, 0o644); err != nil {
+	if err := os.WriteFile(pointPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ValidateRelease(release); err == nil {
-		t.Fatal("release with corrupt forecast window grid was accepted")
+		t.Fatal("release with corrupt forecast window point asset was accepted")
 	}
-
 	release = makeRelease(t, root, "002", 210)
 	manifest, err = ValidateRelease(release)
 	if err != nil {
 		t.Fatal(err)
 	}
-	asset = manifest.Forecast.Window.Profiles[ProfileNice]
-	gridPath = filepath.Join(release, filepath.FromSlash(asset.GridURL))
-	meta, err := WriteRangeGrid(gridPath, GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 1}, []RangeRecord{rangeRecord(70, 2)})
+	falseGeometry, err := NewPointGeometry(GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	asset.GridSHA256 = meta.SHA256
-	manifest.Forecast.Window.Profiles[ProfileNice] = asset
-	if err := WriteManifest(release, manifest); err != nil {
-		t.Fatal(err)
+	falseRecords := make([]RangePointRecord, int(falseGeometry.Rows)*int(falseGeometry.Cols))
+	for index := range falseRecords {
+		falseRecords[index] = testRangePointRecord(70)
 	}
-	if _, err := ValidateRelease(release); err == nil || !strings.Contains(err.Error(), "contains 2 days; want 1") {
-		t.Fatalf("wrong range day count was accepted: %v", err)
-	}
-
-	release = makeRelease(t, root, "003", 210)
-	manifest, err = ValidateRelease(release)
+	temporary := filepath.Join(release, "points", ".false-geometry.nwp")
+	metadata, err := WriteRangePointAsset(temporary, manifest.ReleaseID, falseGeometry, falseRecords)
 	if err != nil {
 		t.Fatal(err)
 	}
-	asset = manifest.Forecast.Window.Profiles[ProfileNice]
-	gridPath = filepath.Join(release, filepath.FromSlash(asset.GridURL))
-	wrongSpec := GridSpec{Bounds: manifest.Region.Bounds, Rows: 2, Cols: 2}
-	meta, err = WriteRangeGrid(gridPath, wrongSpec, []RangeRecord{rangeRecord(70, 1), rangeRecord(70, 1), rangeRecord(70, 1), rangeRecord(70, 1)})
-	if err != nil {
+	pointURL := filepath.ToSlash(filepath.Join("points", "false-geometry-"+metadata.SHA256+".nwp"))
+	if err := os.Rename(temporary, filepath.Join(release, filepath.FromSlash(pointURL))); err != nil {
 		t.Fatal(err)
 	}
-	width, height, err := WebMercatorImageDimensions(wrongSpec)
-	if err != nil {
-		t.Fatal(err)
+	manifest.Forecast.Window.Point = PointAssetFromMetadata(pointURL, metadata)
+	for profile, asset := range manifest.Forecast.Window.Profiles {
+		asset.Image = writeTestPNGSize(t, filepath.Join(release, "images", "false-geometry-"+profile+".png"), int(falseGeometry.Cols), int(falseGeometry.Rows))
+		manifest.Forecast.Window.Profiles[profile] = asset
 	}
-	asset.GridSHA256 = meta.SHA256
-	asset.Image = writeTestPNGSize(t, filepath.Join(release, filepath.FromSlash(asset.Image.URL)), width, height)
-	manifest.Forecast.Window.Profiles[ProfileNice] = asset
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +157,9 @@ func TestValidateReleaseChecksPNGChecksumAndDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	asset := manifest.Forecast.Days[0].Images["nice"]
-	asset.Width++
+	asset := writeTestPNGSize(t, filepath.Join(release, "images", "wrong-declared-size.png"), 2, 1)
+	asset.Width = int(manifest.Forecast.Days[0].Point.Geometry.Cols)
+	asset.Height = int(manifest.Forecast.Days[0].Point.Geometry.Rows)
 	manifest.Forecast.Days[0].Images["nice"] = asset
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)
@@ -217,11 +208,8 @@ func TestCatalogRequiresSharedGridImageAndRegionGeometry(t *testing.T) {
 	path := filepath.Join(release, "images", "nice.png")
 	asset := writeTestPNGSize(t, path, 2, 1)
 	manifest.Forecast.Days[0].Images["nice"] = asset
-	if err := WriteManifest(release, manifest); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := OpenReleaseCatalog(release); err == nil {
-		t.Fatal("image/grid dimensions mismatch was accepted")
+	if err := WriteManifest(release, manifest); err == nil || !strings.Contains(err.Error(), "geometry does not match point asset") {
+		t.Fatalf("image/point dimensions mismatch was accepted or misclassified: %v", err)
 	}
 }
 
@@ -499,9 +487,18 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gridPath := filepath.Join(release, "grids/day.nwg")
-	meta, err := WriteGrid(gridPath, GridSpec{Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}, Rows: 1, Cols: 1}, []DailyRecord{record(temperature)})
+	sourceSpec := GridSpec{Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}, Rows: 1, Cols: 1}
+	dailyGeometry, dailyRecords, err := DailyPointRecords(sourceSpec, []DailyRecord{record(temperature)})
 	if err != nil {
+		t.Fatal(err)
+	}
+	dailyTemporary := filepath.Join(release, "points", ".day.nwp")
+	dailyMeta, err := WriteDailyPointAsset(dailyTemporary, name, PointKindForecastDay, dailyGeometry, dailyRecords)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dailyURL := filepath.ToSlash(filepath.Join("points", "day-"+dailyMeta.SHA256+".nwp"))
+	if err := os.Rename(dailyTemporary, filepath.Join(release, filepath.FromSlash(dailyURL))); err != nil {
 		t.Fatal(err)
 	}
 	assets := make(map[string]ImageAsset)
@@ -510,49 +507,72 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		assets[profile] = writeTestPNG(t, path)
+		assets[profile] = writeTestPNGSize(t, path, int(dailyGeometry.Cols), int(dailyGeometry.Rows))
 	}
 	lenses := make(map[string]ImageAsset)
 	for _, lens := range RequiredLensAssets() {
 		path := filepath.Join(release, "images", lens+".png")
-		lenses[lens] = writeTestPNG(t, path)
+		lenses[lens] = writeTestPNGSize(t, path, int(dailyGeometry.Cols), int(dailyGeometry.Rows))
 	}
-	manifest := validManifest(meta.SHA256)
+	manifest := validManifest(dailyMeta.SHA256)
 	manifest.ReleaseID = name
 	manifest.Climate = nil
-	manifest.Forecast.Days[0].Images = assets
-	manifest.Forecast.Days[0].Lenses = lenses
-	for index := range manifest.Forecast.Days[0].WindFrames {
-		temporary := filepath.Join(release, "wind", ".frame-"+string(rune('a'+index))+".nww.gz")
-		windMeta, err := WriteWindGridGzip(temporary, GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 1}, []WindVector{{U: float32(index + 2), V: -1, Valid: true}})
-		if err != nil {
-			t.Fatal(err)
+	for dayIndex := range manifest.Forecast.Days {
+		manifest.Forecast.Days[dayIndex].Images = assets
+		manifest.Forecast.Days[dayIndex].Lenses = lenses
+		manifest.Forecast.Days[dayIndex].Point = PointAssetFromMetadata(dailyURL, dailyMeta)
+		for frameIndex := range manifest.Forecast.Days[dayIndex].WindFrames {
+			temporary := filepath.Join(release, "wind", ".frame-"+string(rune('a'+dayIndex))+string(rune('a'+frameIndex))+".nww.gz")
+			windMeta, err := WriteWindGridGzip(temporary, sourceSpec, []WindVector{{U: float32(frameIndex + 2), V: -1, Valid: true}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(release, "wind", "frame-"+string(rune('a'+dayIndex))+string(rune('a'+frameIndex))+"-"+windMeta.SHA256+".nww.gz")
+			if err := os.Rename(temporary, path); err != nil {
+				t.Fatal(err)
+			}
+			manifest.Forecast.Days[dayIndex].WindFrames[frameIndex].URL = filepath.ToSlash(strings.TrimPrefix(path, release+string(filepath.Separator)))
+			manifest.Forecast.Days[dayIndex].WindFrames[frameIndex].SHA256 = windMeta.SHA256
+			manifest.Forecast.Days[dayIndex].WindFrames[frameIndex].ClippedComponents = windMeta.ClippedComponents
 		}
-		path := filepath.Join(release, "wind", "frame-"+string(rune('a'+index))+"-"+windMeta.SHA256+".nww.gz")
-		if err := os.Rename(temporary, path); err != nil {
-			t.Fatal(err)
-		}
-		manifest.Forecast.Days[0].WindFrames[index].URL = filepath.ToSlash(strings.TrimPrefix(path, release+string(filepath.Separator)))
-		manifest.Forecast.Days[0].WindFrames[index].SHA256 = windMeta.SHA256
-		manifest.Forecast.Days[0].WindFrames[index].ClippedComponents = windMeta.ClippedComponents
 	}
 	manifest.Forecast.Window.Profiles = make(map[string]ForecastRangeAsset, 2)
+	rangeRecord := testRangePointRecord(70)
+	rangeRecords := make([]RangePointRecord, int(dailyGeometry.Rows)*int(dailyGeometry.Cols))
+	for index := range rangeRecords {
+		rangeRecords[index] = rangeRecord
+	}
+	rangeTemporary := filepath.Join(release, "points", ".range.nwp")
+	rangeMeta, err := WriteRangePointAsset(rangeTemporary, name, dailyGeometry, rangeRecords)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rangeURL := filepath.ToSlash(filepath.Join("points", "range-"+rangeMeta.SHA256+".nwp"))
+	if err := os.Rename(rangeTemporary, filepath.Join(release, filepath.FromSlash(rangeURL))); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Forecast.Window.Point = PointAssetFromMetadata(rangeURL, rangeMeta)
 	for _, profile := range []string{ProfileNice, ProfileCycling} {
-		gridPath := filepath.Join(release, "grids", "range-"+profile+".nwr")
-		rangeMeta, err := WriteRangeGrid(gridPath, GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 1}, []RangeRecord{rangeRecord(70, 1)})
-		if err != nil {
-			t.Fatal(err)
-		}
 		imagePath := filepath.Join(release, "images", "range-"+profile+".png")
 		manifest.Forecast.Window.Profiles[profile] = ForecastRangeAsset{
-			GridURL: filepath.ToSlash(strings.TrimPrefix(gridPath, release+string(filepath.Separator))), GridSHA256: rangeMeta.SHA256,
-			Image: writeTestPNG(t, imagePath),
+			Image: writeTestPNGSize(t, imagePath, int(dailyGeometry.Cols), int(dailyGeometry.Rows)),
 		}
 	}
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)
 	}
 	return release
+}
+
+func testRangePointRecord(score uint8) RangePointRecord {
+	record := RangePointRecord{
+		Nice:    RangeRecord{Score: score, MedianScore: score, Thermal: score, Dryness: score, Sun: score, Wind: score, NiceDays: ForecastPointDayCount, DayCount: ForecastPointDayCount, Valid: true},
+		Cycling: RangeRecord{Score: score, MedianScore: score, Thermal: score, Dryness: score, Sun: score, Wind: score, NiceDays: ForecastPointDayCount, DayCount: ForecastPointDayCount, Valid: true},
+	}
+	for index := range record.NiceDays {
+		record.NiceDays[index], record.CyclingDays[index] = score, score
+	}
+	return record
 }
 
 func writeTestPNG(t *testing.T, path string) ImageAsset {

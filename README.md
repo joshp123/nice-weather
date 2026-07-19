@@ -36,7 +36,7 @@ Open <http://127.0.0.1:5198/>. Useful checks are:
 
 - <http://127.0.0.1:5198/manifest.json>
 - <http://127.0.0.1:5198/places/current.json>
-- `http://127.0.0.1:5198/api/point?release=<release-id>&period=<period-id>&profile=nice&lat=52.37&lon=4.90`
+- `/releases/<release-id>/points/<checksummed-file>.nwp` from the manifest; point details use exact HTTP byte ranges from this immutable file
 
 The fixture is deterministic sample data. It exercises all 14 forecast days, all 12 climate months, both profiles and a seven-place search index through the production artifact schemas. The manifest sets `dataStatus` to `sample`, so the interface cannot mistake it for current weather; a production update sets it to `live`.
 
@@ -79,10 +79,12 @@ A running server notices when `artifacts/current` changes. It validates the new 
 Go owns source retrieval, normalisation, scoring, release generation and HTTP serving. Every weather source passes through one path:
 
 ```text
-source field -> DailyMetrics -> component scores -> profile score -> grid and PNG
+source field -> DailyMetrics -> component scores -> profile score -> point record and PNG
 ```
 
-Daily forecasts and climate months contain compact EPSG:4326 binary grids for constant-time point lookup, two overall Web Mercator PNGs and five component PNGs. Forecast days also contain checked, compressed u/v wind frames. The forecast window has its own evaluated range grid and map image per profile. Overall and calm differ by profile; comfort, dryness and brightness are shared facts. PNG pixels hold the canonical 0–100 judgement through a continuous colour ramp, which MapLibre interpolates without inventing another scoring model. The manifest binds every asset to its source, projection, hash, dimensions and resolution. The browser requests release-scoped, checksummed assets, so a tab cannot mix data from different publications.
+Each period has one compact point file containing the evaluated Nice and Cycling records behind the rendered Web Mercator texels. The browser reads only its 128-byte header and the 30-byte daily or 44-byte forecast-window record for the selected coordinate. Go remains the only scorer. The browser decodes stored weather and stored scores; it does not recalculate them. Forecast days also contain checked, compressed u/v wind frames. Overall and calm differ by profile; comfort, dryness and brightness are shared facts.
+
+The score PNG and point file use the same snapped image geometry and coastline fallback, so a selected place describes the visible texel. The 14-day record contains the exact daily judgements used to build its summary at the coarsest forecast cell. Every point, image and wind request is release-scoped and content-addressed. The manifest records the literal file hash, binary layout, dimensions and source metadata.
 
 Place search is a separate static index. Publication installs immutable `places/releases/<id>` files and writes `places/current.json` last. The browser fetches one three-character shard for a query and verifies manifest and shard checksums. There is no runtime search endpoint.
 
@@ -95,9 +97,9 @@ cmd/niceweather       CLI entry point
 internal/providers    guarded DWD and AIFS clients
 internal/pipeline     decode, normalise, aggregate, mask and render
 internal/weather      canonical metrics and the only scoring policy
-internal/delivery     binary grids, manifest and atomic releases
+internal/delivery     binary point files, manifest and atomic releases
 internal/update       complete live release job
-internal/appserver    static files and point lookup
+internal/appserver    static immutable files and release pointers
 internal/places       GeoNames index build, validation and publication
 src                   React and MapLibre interface
 ```
@@ -115,6 +117,6 @@ npm run test
 npm run build
 ```
 
-With the server running, inspect the manifest, a point response and the referenced PNG. Validate the referenced grid on disk. Then test the map in a real browser at desktop and phone widths: change day, profile and forecast/typical mode; search for a place; click the map; and check that the source and resolution change with the period.
+With the server running, inspect the manifest, an exact byte-range response from a referenced point file and the matching PNG. Then test the map in a real browser at desktop and phone widths: change day, profile and forecast/typical mode; search for a place; click the map; and check that the source and resolution change with the period.
 
 New agents should read [AGENTS.md](AGENTS.md), [docs/project-context.md](docs/project-context.md) and [.agent/execplan-pending.md](.agent/execplan-pending.md) before editing.

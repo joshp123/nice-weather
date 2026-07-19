@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/weather"
 )
 
 type Config struct {
@@ -46,12 +45,6 @@ type releaseSnapshot struct {
 	releaseRoot string
 	manifest    delivery.Manifest
 	manifestRaw []byte
-	periods     map[string]periodReader
-	catalog     *delivery.ReleaseCatalog
-}
-
-type periodReader struct {
-	period delivery.Period
 }
 
 type apiError struct {
@@ -59,74 +52,6 @@ type apiError struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
-}
-
-type pointScore struct {
-	Value      int             `json:"value"`
-	Category   string          `json:"category"`
-	Components pointComponents `json:"components"`
-}
-
-type pointComponents struct {
-	Comfort pointComponent `json:"comfort"`
-	Dryness pointComponent `json:"dryness"`
-	Sun     pointComponent `json:"sun"`
-	Wind    pointComponent `json:"wind"`
-}
-
-type pointComponent struct {
-	Value    int    `json:"value"`
-	Category string `json:"category"`
-}
-
-type pointWeather struct {
-	TemperatureC float64  `json:"temperatureC"`
-	MinTempC     float64  `json:"minTempC"`
-	MaxTempC     float64  `json:"maxTempC"`
-	RainMM       float64  `json:"rainMm"`
-	WetTime      *float64 `json:"wetTimeFraction,omitempty"`
-	SolarMJm2    *float64 `json:"solarEnergyMJm2,omitempty"`
-	CloudPercent *float64 `json:"cloudPct,omitempty"`
-	WindKPH      float64  `json:"windKmh"`
-	GustKPH      *float64 `json:"gustKmh,omitempty"`
-	Humidity     *float64 `json:"humidityPct,omitempty"`
-	DewPointC    *float64 `json:"dewPointC,omitempty"`
-}
-
-type pointSource struct {
-	Basis                   string  `json:"basis"`
-	DetailLabel             string  `json:"detailLabel"`
-	ProviderLabel           string  `json:"providerLabel"`
-	ResolutionKM            float64 `json:"resolutionKm"`
-	TemporalResolutionHours int     `json:"temporalResolutionHours"`
-	ArtifactGeneratedAt     string  `json:"artifactGeneratedAt"`
-	RunAt                   string  `json:"runAt,omitempty"`
-	ValidFrom               string  `json:"validFrom,omitempty"`
-	ValidTo                 string  `json:"validTo,omitempty"`
-	ReferencePeriod         string  `json:"referencePeriod,omitempty"`
-}
-
-type pointForecastWindow struct {
-	StartDate      string `json:"startDate"`
-	EndDate        string `json:"endDate"`
-	DayCount       int    `json:"dayCount"`
-	NiceDays       int    `json:"niceDays"`
-	AwfulDays      int    `json:"awfulDays"`
-	MedianScore    int    `json:"medianScore"`
-	LongestPoorRun int    `json:"longestPoorRun"`
-}
-
-type pointForecastDay struct {
-	Date     string `json:"date"`
-	Score    int    `json:"score"`
-	Category string `json:"category"`
-}
-
-type pointForecastWindowSource struct {
-	Basis               string  `json:"basis"`
-	DetailLabel         string  `json:"detailLabel"`
-	ResolutionKM        float64 `json:"resolutionKm"`
-	ArtifactGeneratedAt string  `json:"artifactGeneratedAt"`
 }
 
 func Serve(config Config) error {
@@ -173,12 +98,10 @@ func NewHandler(config Config) (http.Handler, error) {
 	}
 	previous, err := loadPreviousAssets(artifactRoot, snapshot.releaseRoot)
 	if err != nil {
-		_ = snapshot.catalog.Close()
 		return nil, err
 	}
 	artifactFS, err := os.OpenRoot(artifactRoot)
 	if err != nil {
-		_ = snapshot.catalog.Close()
 		return nil, fmt.Errorf("open artifact root: %w", err)
 	}
 	return &application{webRoot: webRoot, artifactRoot: artifactRoot, artifactFS: artifactFS, snapshot: snapshot, previous: previous}, nil
@@ -212,39 +135,15 @@ func loadCurrentSnapshot(artifactRoot string) (*releaseSnapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve current release: %w", err)
 	}
-	catalog, err := delivery.OpenProductionReleaseCatalog(releaseRoot)
+	manifest, err := delivery.ValidateProductionRelease(releaseRoot)
 	if err != nil {
 		return nil, fmt.Errorf("validate current release: %w", err)
 	}
-	success := false
-	defer func() {
-		if !success {
-			_ = catalog.Close()
-		}
-	}()
-	manifest := catalog.Manifest()
 	manifestRaw, err := os.ReadFile(filepath.Join(releaseRoot, "manifest.json"))
 	if err != nil {
 		return nil, err
 	}
-	snapshot := &releaseSnapshot{
-		releaseRoot: releaseRoot, manifest: manifest, manifestRaw: manifestRaw,
-		periods: make(map[string]periodReader), catalog: catalog,
-	}
-	all := make([]delivery.Period, 0, len(manifest.Forecast.Days)+12)
-	for _, day := range manifest.Forecast.Days {
-		all = append(all, day.Period)
-	}
-	if manifest.Climate != nil {
-		for _, month := range manifest.Climate.Months {
-			all = append(all, month.Period)
-		}
-	}
-	for _, period := range all {
-		snapshot.periods[period.ID] = periodReader{period: period}
-	}
-	success = true
-	return snapshot, nil
+	return &releaseSnapshot{releaseRoot: releaseRoot, manifest: manifest, manifestRaw: manifestRaw}, nil
 }
 
 func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -258,8 +157,6 @@ func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/manifest.json":
 		w.Header().Set("Cache-Control", "no-cache")
 		serveBytes(w, r, snapshot.manifestRaw, "application/json; charset=utf-8")
-	case r.URL.Path == "/api/point":
-		app.servePoint(w, r, snapshot)
 	default:
 		app.serveFile(w, r, snapshot)
 	}
@@ -294,15 +191,13 @@ func (app *application) reloadIfChanged() error {
 	}
 	previousAssets, err := loadPreviousAssets(app.artifactRoot, next.releaseRoot)
 	if err != nil {
-		_ = next.catalog.Close()
 		return err
 	}
 	app.snapshotMu.Lock()
-	previous := app.snapshot
 	app.snapshot = next
 	app.previous = previousAssets
 	app.snapshotMu.Unlock()
-	return previous.catalog.Close()
+	return nil
 }
 
 func (app *application) close() error {
@@ -310,200 +205,7 @@ func (app *application) close() error {
 	defer app.reloadMu.Unlock()
 	app.snapshotMu.Lock()
 	defer app.snapshotMu.Unlock()
-	return errors.Join(app.snapshot.catalog.Close(), app.artifactFS.Close())
-}
-
-func (app *application) servePoint(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Use GET for this endpoint.")
-		return
-	}
-	if r.URL.Query().Get("release") != snapshot.manifest.ReleaseID {
-		writeError(w, http.StatusConflict, "stale_release", "Weather data changed. Refresh the forecast and try again.")
-		return
-	}
-	periodID := strings.TrimSpace(r.URL.Query().Get("period"))
-	profileID := r.URL.Query().Get("profile")
-	profile := weather.ProfileNice
-	if profileID == "cycling" {
-		profile = weather.ProfileCycling
-	} else if profileID != "nice" {
-		writeError(w, http.StatusBadRequest, "unknown_profile", "Profile must be nice or cycling.")
-		return
-	}
-	lon, lonErr := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
-	lat, latErr := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
-	if lonErr != nil || latErr != nil {
-		writeError(w, http.StatusBadRequest, "invalid_location", "Latitude and longitude must be numbers.")
-		return
-	}
-	if periodID == snapshot.manifest.Forecast.Window.ID {
-		app.serveForecastWindowPoint(w, r, snapshot, profileID, lon, lat)
-		return
-	}
-	reader, ok := snapshot.periods[periodID]
-	if !ok {
-		writeError(w, http.StatusBadRequest, "unknown_period", "Choose a period from the manifest.")
-		return
-	}
-	record, valid, err := snapshot.catalog.Lookup(periodID, lon, lat)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "read_failed", "Weather data could not be read.")
-		return
-	}
-	if !valid {
-		writeError(w, http.StatusNotFound, "no_data", "No weather data is available at this point.")
-		return
-	}
-	m, err := record.WeatherMetrics(reader.period.NativeResolutionKM)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "decode_failed", "Weather data could not be decoded.")
-		return
-	}
-	result := weather.Score(m, profile)
-	response := struct {
-		ReleaseID   string             `json:"releaseId"`
-		PeriodID    string             `json:"periodId"`
-		PeriodLabel string             `json:"periodLabel"`
-		Profile     string             `json:"profile"`
-		Location    map[string]float64 `json:"location"`
-		Summary     string             `json:"summary"`
-		Score       pointScore         `json:"score"`
-		Weather     pointWeather       `json:"weather"`
-		Source      pointSource        `json:"source"`
-	}{
-		ReleaseID: snapshot.manifest.ReleaseID, PeriodID: periodID, PeriodLabel: reader.period.Label, Profile: profileID,
-		Location: map[string]float64{"lat": lat, "lon": lon}, Summary: weather.Summary(m),
-		Score: pointScore{Value: result.Score, Category: result.Rating, Components: pointComponents{
-			Comfort: componentResponse(result.Components.Thermal), Dryness: componentResponse(result.Components.Dryness),
-			Sun: componentResponse(result.Components.Sun), Wind: componentResponse(result.Components.Wind),
-		}},
-		Weather: pointWeatherResponse(m), Source: snapshot.pointSource(periodID, reader.period),
-	}
-	writeJSON(w, r, http.StatusOK, response, "no-store")
-}
-
-func (app *application) serveForecastWindowPoint(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot, profileID string, lon, lat float64) {
-	record, valid, err := snapshot.catalog.LookupRange(profileID, lon, lat)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "read_failed", "The forecast window could not be read.")
-		return
-	}
-	if !valid {
-		writeError(w, http.StatusNotFound, "no_data", "A complete 14-day forecast is not available at this point.")
-		return
-	}
-	summary, err := record.Summary()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "decode_failed", "The forecast window could not be decoded.")
-		return
-	}
-	days, err := snapshot.forecastFingerprint(profileID, lon, lat)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "read_failed", "The daily forecast could not be read.")
-		return
-	}
-	window := snapshot.manifest.Forecast.Window
-	response := struct {
-		ReleaseID string                    `json:"releaseId"`
-		PeriodID  string                    `json:"periodId"`
-		Label     string                    `json:"periodLabel"`
-		Profile   string                    `json:"profile"`
-		Location  map[string]float64        `json:"location"`
-		Score     pointScore                `json:"score"`
-		Window    pointForecastWindow       `json:"window"`
-		Days      []pointForecastDay        `json:"days"`
-		Source    pointForecastWindowSource `json:"source"`
-	}{
-		ReleaseID: snapshot.manifest.ReleaseID, PeriodID: window.ID, Label: window.Label, Profile: profileID,
-		Location: map[string]float64{"lat": lat, "lon": lon},
-		Score: pointScore{Value: summary.Score, Category: summary.Rating, Components: pointComponents{
-			Comfort: componentResponse(summary.Components.Thermal), Dryness: componentResponse(summary.Components.Dryness),
-			Sun: componentResponse(summary.Components.Sun), Wind: componentResponse(summary.Components.Wind),
-		}},
-		Window: pointForecastWindow{
-			StartDate: window.StartDate, EndDate: window.EndDate, DayCount: summary.Days,
-			NiceDays: summary.NiceDays, AwfulDays: summary.AwfulDays, MedianScore: summary.MedianScore,
-			LongestPoorRun: summary.LongestPoorRun,
-		},
-		Days: days,
-		Source: pointForecastWindowSource{
-			Basis: "forecast-window", DetailLabel: "14-day forecast", ResolutionKM: window.GridResolutionKM,
-			ArtifactGeneratedAt: snapshot.manifest.GeneratedAt,
-		},
-	}
-	writeJSON(w, r, http.StatusOK, response, "no-store")
-}
-
-// forecastFingerprint reads the exact daily records used by the day-by-day
-// map at this coordinate. It performs no aggregation and owns no scoring
-// policy: weather.Score remains the one canonical evaluation path.
-func (snapshot *releaseSnapshot) forecastFingerprint(profileID string, lon, lat float64) ([]pointForecastDay, error) {
-	profile := weather.Profile(profileID)
-	days := make([]pointForecastDay, len(snapshot.manifest.Forecast.Days))
-	for index, day := range snapshot.manifest.Forecast.Days {
-		record, valid, err := snapshot.catalog.Lookup(day.ID, lon, lat)
-		if err != nil {
-			return nil, fmt.Errorf("lookup forecast day %s: %w", day.ID, err)
-		}
-		if !valid {
-			return nil, fmt.Errorf("forecast day %s is unavailable at the selected point", day.ID)
-		}
-		metrics, err := record.WeatherMetrics(day.NativeResolutionKM)
-		if err != nil {
-			return nil, fmt.Errorf("decode forecast day %s: %w", day.ID, err)
-		}
-		result := weather.Score(metrics, profile)
-		if !result.Available {
-			return nil, fmt.Errorf("score forecast day %s", day.ID)
-		}
-		days[index] = pointForecastDay{Date: day.Date, Score: result.Score, Category: result.Rating}
-	}
-	return days, nil
-}
-
-func componentResponse(value int) pointComponent {
-	return pointComponent{Value: value, Category: weather.Rating(value)}
-}
-
-func (snapshot *releaseSnapshot) pointSource(periodID string, period delivery.Period) pointSource {
-	result := pointSource{
-		ProviderLabel: period.Source.ProviderLabel, ResolutionKM: period.NativeResolutionKM,
-		TemporalResolutionHours: period.TemporalResolutionHours, ArtifactGeneratedAt: snapshot.manifest.GeneratedAt,
-	}
-	for _, day := range snapshot.manifest.Forecast.Days {
-		if day.ID == periodID {
-			result.Basis = "forecast"
-			result.RunAt, result.ValidFrom, result.ValidTo = period.Source.RunAt, period.Source.ValidFrom, period.Source.ValidTo
-			if day.Kind == "detailed" {
-				result.DetailLabel = "Detailed forecast"
-				return result
-			}
-			result.DetailLabel = "Outlook"
-			return result
-		}
-	}
-	result.Basis, result.DetailLabel = "climate", "Typical weather"
-	if snapshot.manifest.Climate != nil {
-		result.ReferencePeriod = snapshot.manifest.Climate.ReferencePeriod
-	}
-	return result
-}
-
-func pointWeatherResponse(m weather.DailyMetrics) pointWeather {
-	optional := func(value weather.OptionalFloat) *float64 {
-		if !value.Available {
-			return nil
-		}
-		result := value.Value
-		return &result
-	}
-	return pointWeather{
-		TemperatureC: m.ComfortableTempC, MinTempC: m.MinTempC, MaxTempC: m.MaxTempC,
-		RainMM: m.RainMM, WetTime: optional(m.WetTimeFraction), SolarMJm2: optional(m.SolarEnergyMJm2),
-		CloudPercent: optional(m.CloudCoverPercent), WindKPH: m.WindSpeedKPH, GustKPH: optional(m.GustKPH),
-		Humidity: optional(m.RelativeHumidityPercent), DewPointC: optional(m.DewPointC),
-	}
+	return app.artifactFS.Close()
 }
 
 func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot) {
@@ -664,7 +366,7 @@ func releaseAssetPath(requestPath string) (releaseID, assetPath string, matched 
 		return "", "", false, nil
 	}
 	parts := strings.SplitN(strings.TrimPrefix(requestPath, "releases/"), "/", 2)
-	if len(parts) != 2 || !validReleaseID(parts[0]) || (!strings.HasPrefix(parts[1], "images/") && !strings.HasPrefix(parts[1], "wind/")) {
+	if len(parts) != 2 || !validReleaseID(parts[0]) || (!strings.HasPrefix(parts[1], "images/") && !strings.HasPrefix(parts[1], "wind/") && !strings.HasPrefix(parts[1], "points/")) {
 		return "", "", true, errors.New("unsafe release asset path")
 	}
 	if _, joinErr := safeJoin(".", parts[1]); joinErr != nil {

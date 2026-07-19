@@ -12,13 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/places"
-	"nice-weather-finder/internal/weather"
 )
 
 type testApplication struct {
@@ -90,52 +88,20 @@ func newTestApplication(t testing.TB) testApplication {
 func TestRunningServerReloadsPublishedReleaseCoherently(t *testing.T) {
 	app := newTestApplication(t)
 	day := app.manifest.Forecast.Days[0]
-	oldPoint := requestPointScore(t, app.handler, app.manifest.ReleaseID, day.ID)
 	oldImageURL := releaseImageURL(app.manifest.ReleaseID, day.Images[delivery.ProfileNice].URL)
 	oldImage := requestBody(t, app.handler, oldImageURL)
 
 	if err := generateFixture(app.root, "fixture-reload-b", -12); err != nil {
 		t.Fatal(err)
 	}
-	var wait sync.WaitGroup
-	errorsFound := make(chan string, 16)
-	start := make(chan struct{})
-	for index := 0; index < 16; index++ {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			<-start
-			response := httptest.NewRecorder()
-			app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID+"&period="+day.ID+"&profile=nice&lat=52.3676&lon=4.9041", nil))
-			if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "stale_release") {
-				errorsFound <- response.Body.String()
-			}
-		}()
-	}
-	close(start)
-	wait.Wait()
-	close(errorsFound)
-	for message := range errorsFound {
-		t.Errorf("concurrent reload request failed: %s", message)
-	}
-
 	manifestResponse := requestBody(t, app.handler, "/manifest.json")
 	newManifest, err := delivery.ParseManifest(manifestResponse)
 	if err != nil {
 		t.Fatal(err)
 	}
 	newDay := newManifest.Forecast.Days[0]
-	if newDay.GridSHA256 == day.GridSHA256 || newDay.Images[delivery.ProfileNice].SHA256 == day.Images[delivery.ProfileNice].SHA256 {
-		t.Fatal("reloaded manifest still describes the old grid or image")
-	}
-	stalePoint := httptest.NewRecorder()
-	app.handler.ServeHTTP(stalePoint, httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID+"&period="+day.ID+"&profile=nice&lat=52.3676&lon=4.9041", nil))
-	if stalePoint.Code != http.StatusConflict || !strings.Contains(stalePoint.Body.String(), `"code":"stale_release"`) {
-		t.Fatalf("stale release point = %d %s", stalePoint.Code, stalePoint.Body.String())
-	}
-	newPoint := requestPointScore(t, app.handler, newManifest.ReleaseID, newDay.ID)
-	if newPoint == oldPoint {
-		t.Fatalf("point score did not change after publication: %d", newPoint)
+	if newDay.Point.SHA256 == day.Point.SHA256 || newDay.Images[delivery.ProfileNice].SHA256 == day.Images[delivery.ProfileNice].SHA256 {
+		t.Fatal("reloaded manifest still describes the old point asset or image")
 	}
 	oldImageAfterSwap := httptest.NewRecorder()
 	app.handler.ServeHTTP(oldImageAfterSwap, httptest.NewRequest(http.MethodGet, oldImageURL, nil))
@@ -258,20 +224,6 @@ func releaseImageURL(releaseID, imagePath string) string {
 	return "/releases/" + releaseID + "/" + strings.TrimPrefix(imagePath, "/")
 }
 
-func requestPointScore(t *testing.T, handler http.Handler, releaseID, periodID string) int {
-	t.Helper()
-	body := requestBody(t, handler, "/api/point?release="+releaseID+"&period="+periodID+"&profile=nice&lat=52.3676&lon=4.9041")
-	var response struct {
-		Score struct {
-			Value int `json:"value"`
-		} `json:"score"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		t.Fatal(err)
-	}
-	return response.Score.Value
-}
-
 func requestBody(t *testing.T, handler http.Handler, path string) []byte {
 	t.Helper()
 	response := httptest.NewRecorder()
@@ -282,172 +234,56 @@ func requestBody(t *testing.T, handler http.Handler, path string) []byte {
 	return response.Body.Bytes()
 }
 
-func TestPointUsesCanonicalGridAndScore(t *testing.T) {
+func TestPointAssetsUseStaticByteRangeContract(t *testing.T) {
 	app := newTestApplication(t)
 	day := app.manifest.Forecast.Days[0]
-	request := httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID+"&period="+day.ID+"&profile=nice&lat=52.3676&lon=4.9041", nil)
+	pointURL := "/releases/" + app.manifest.ReleaseID + "/" + day.Point.URL
+	current, _ := delivery.CurrentDir(app.root)
+	releaseRoot, err := filepath.EvalSymlinks(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(releaseRoot, filepath.FromSlash(day.Point.URL)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uint64(len(data)) != day.Point.Bytes {
+		t.Fatalf("point bytes = %d; manifest says %d", len(data), day.Point.Bytes)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, pointURL, nil)
+	request.Header.Set("Range", "bytes=0-127")
+	request.Header.Set("Accept-Encoding", "gzip")
 	response := httptest.NewRecorder()
 	app.handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("point returned %d: %s", response.Code, response.Body.String())
-	}
-	var payload struct {
-		Summary string `json:"summary"`
-		Score   struct {
-			Value      int             `json:"value"`
-			Category   string          `json:"category"`
-			Components pointComponents `json:"components"`
-		} `json:"score"`
-		Weather struct {
-			WetTime *float64 `json:"wetTimeFraction"`
-		} `json:"weather"`
-		Source pointSource `json:"source"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	current, _ := delivery.CurrentDir(app.root)
-	grid, err := delivery.OpenGrid(filepath.Join(current, filepath.FromSlash(day.GridURL)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer grid.Close()
-	record, valid, err := grid.RecordAt(4.9041, 52.3676)
-	if err != nil || !valid {
-		t.Fatalf("grid point: valid=%v err=%v", valid, err)
-	}
-	wantMetrics, err := record.WeatherMetrics(day.NativeResolutionKM)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := weather.Score(wantMetrics, weather.ProfileNice); payload.Score.Value != want.Score || payload.Score.Category != want.Rating ||
-		payload.Score.Components != (pointComponents{Comfort: componentResponse(want.Components.Thermal), Dryness: componentResponse(want.Components.Dryness), Sun: componentResponse(want.Components.Sun), Wind: componentResponse(want.Components.Wind)}) {
-		t.Fatalf("API score %+v; want %+v", payload.Score, want)
-	}
-	if want := weather.Summary(wantMetrics); payload.Summary != want {
-		t.Fatalf("API summary %q; want %q", payload.Summary, want)
-	}
-	if payload.Weather.WetTime == nil {
-		t.Fatal("forecast point omitted available wet-time evidence")
-	}
-	if payload.Source.Basis != "forecast" || payload.Source.DetailLabel != "Detailed forecast" || payload.Source.ProviderLabel == "" || payload.Source.RunAt == "" || payload.Source.ValidFrom == "" || payload.Source.ValidTo == "" || payload.Source.ArtifactGeneratedAt != app.manifest.GeneratedAt {
-		t.Fatalf("forecast source is incomplete: %+v", payload.Source)
-	}
-	if payload.Source.ReferencePeriod != "" || strings.Contains(response.Body.String(), `"updatedAt"`) || strings.Contains(response.Body.String(), `"referencePeriod"`) {
-		t.Fatalf("forecast source contains climate or overloaded freshness fields: %s", response.Body.String())
+	if response.Code != http.StatusPartialContent || response.Body.String() != string(data[:delivery.PointAssetHeaderBytes]) ||
+		response.Header().Get("Content-Range") != fmt.Sprintf("bytes 0-127/%d", len(data)) ||
+		response.Header().Get("Content-Length") != fmt.Sprint(delivery.PointAssetHeaderBytes) ||
+		response.Header().Get("Content-Type") != "application/octet-stream" || response.Header().Get("Content-Encoding") != "" ||
+		response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("point header range: %d %+v body=%d", response.Code, response.Header(), response.Body.Len())
 	}
 
-	climateID := app.manifest.Climate.Months[0].ID
-	climateRequest := httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID+"&period="+climateID+"&profile=nice&lat=52.3676&lon=4.9041", nil)
-	climateResponse := httptest.NewRecorder()
-	app.handler.ServeHTTP(climateResponse, climateRequest)
-	if climateResponse.Code != http.StatusOK {
-		t.Fatalf("climate point returned %d: %s", climateResponse.Code, climateResponse.Body.String())
-	}
-	var climatePayload struct {
-		Weather struct {
-			WetTime *float64 `json:"wetTimeFraction"`
-		} `json:"weather"`
-		Source pointSource `json:"source"`
-	}
-	if err := json.Unmarshal(climateResponse.Body.Bytes(), &climatePayload); err != nil {
-		t.Fatal(err)
-	}
-	if climatePayload.Weather.WetTime != nil || strings.Contains(climateResponse.Body.String(), `"wetTimeFraction"`) {
-		t.Fatalf("climate point invented wet-time evidence: %s", climateResponse.Body.String())
-	}
-	if climatePayload.Source.Basis != "climate" || climatePayload.Source.DetailLabel != "Typical weather" || climatePayload.Source.ReferencePeriod != app.manifest.Climate.ReferencePeriod || climatePayload.Source.ArtifactGeneratedAt != app.manifest.GeneratedAt {
-		t.Fatalf("climate source is incomplete: %+v", climatePayload.Source)
-	}
-	if climatePayload.Source.RunAt != "" || climatePayload.Source.ValidFrom != "" || climatePayload.Source.ValidTo != "" || strings.Contains(climateResponse.Body.String(), `"updatedAt"`) || strings.Contains(climateResponse.Body.String(), `"runAt"`) || strings.Contains(climateResponse.Body.String(), `"validFrom"`) || strings.Contains(climateResponse.Body.String(), `"validTo"`) {
-		t.Fatalf("climate source was presented as a fresh forecast: %s", climateResponse.Body.String())
+	start, end := delivery.PointAssetHeaderBytes, delivery.PointAssetHeaderBytes+delivery.DailyPointRecordBytes-1
+	recordRequest := httptest.NewRequest(http.MethodGet, pointURL, nil)
+	recordRequest.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	record := httptest.NewRecorder()
+	app.handler.ServeHTTP(record, recordRequest)
+	if record.Code != http.StatusPartialContent || record.Body.String() != string(data[start:end+1]) ||
+		record.Header().Get("Content-Range") != fmt.Sprintf("bytes %d-%d/%d", start, end, len(data)) {
+		t.Fatalf("point record range: %d %+v body=%d", record.Code, record.Header(), record.Body.Len())
 	}
 
-	missing := httptest.NewRecorder()
-	app.handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID+"&period=nope&profile=nice&lat=52&lon=5", nil))
-	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "unknown_period") {
-		t.Fatalf("unexpected structured error: %d %s", missing.Code, missing.Body.String())
+	head := httptest.NewRecorder()
+	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, pointURL, nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(len(data)) || head.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("point HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
 	}
-}
 
-func TestForecastWindowPointReturnsCanonicalRangeWithoutFakeDailyWeather(t *testing.T) {
-	app := newTestApplication(t)
-	window := app.manifest.Forecast.Window
-	body := requestBody(t, app.handler, "/api/point?release="+app.manifest.ReleaseID+"&period="+window.ID+"&profile=nice&lat=52.3676&lon=4.9041")
-	var payload struct {
-		PeriodID string                    `json:"periodId"`
-		Score    pointScore                `json:"score"`
-		Window   pointForecastWindow       `json:"window"`
-		Days     []pointForecastDay        `json:"days"`
-		Source   pointForecastWindowSource `json:"source"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
-	current, _ := delivery.CurrentDir(app.root)
-	resolved, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := delivery.OpenProductionReleaseCatalog(resolved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer catalog.Close()
-	record, valid, err := catalog.LookupRange(delivery.ProfileNice, 4.9041, 52.3676)
-	if err != nil || !valid {
-		t.Fatalf("range lookup valid=%t err=%v", valid, err)
-	}
-	want, err := record.Summary()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if payload.PeriodID != window.ID || payload.Score.Value != want.Score || payload.Score.Category != want.Rating ||
-		payload.Score.Components != (pointComponents{Comfort: componentResponse(want.Components.Thermal), Dryness: componentResponse(want.Components.Dryness), Sun: componentResponse(want.Components.Sun), Wind: componentResponse(want.Components.Wind)}) {
-		t.Fatalf("range score = %+v; want %+v", payload.Score, want)
-	}
-	if payload.Window != (pointForecastWindow{
-		StartDate: window.StartDate, EndDate: window.EndDate, DayCount: want.Days, NiceDays: want.NiceDays,
-		AwfulDays: want.AwfulDays, MedianScore: want.MedianScore, LongestPoorRun: want.LongestPoorRun,
-	}) {
-		t.Fatalf("range evidence = %+v; want %+v", payload.Window, want)
-	}
-	if len(payload.Days) != len(app.manifest.Forecast.Days) {
-		t.Fatalf("forecast fingerprint has %d days; want %d", len(payload.Days), len(app.manifest.Forecast.Days))
-	}
-	for index, day := range app.manifest.Forecast.Days {
-		dailyRecord, dailyValid, lookupErr := catalog.Lookup(day.ID, 4.9041, 52.3676)
-		if lookupErr != nil || !dailyValid {
-			t.Fatalf("day %d lookup valid=%t err=%v", index, dailyValid, lookupErr)
-		}
-		metrics, metricsErr := dailyRecord.WeatherMetrics(day.NativeResolutionKM)
-		if metricsErr != nil {
-			t.Fatalf("day %d metrics: %v", index, metricsErr)
-		}
-		dailyScore := weather.Score(metrics, weather.ProfileNice)
-		if payload.Days[index] != (pointForecastDay{Date: day.Date, Score: dailyScore.Score, Category: dailyScore.Rating}) {
-			t.Fatalf("forecast fingerprint day %d = %+v; want date=%s score=%d category=%s", index, payload.Days[index], day.Date, dailyScore.Score, dailyScore.Rating)
-		}
-	}
-	if payload.Source.Basis != "forecast-window" || payload.Source.DetailLabel != "14-day forecast" || payload.Source.ResolutionKM != 28 || payload.Source.ArtifactGeneratedAt != app.manifest.GeneratedAt {
-		t.Fatalf("range source = %+v", payload.Source)
-	}
-	if strings.Contains(string(body), `"weather"`) || strings.Contains(string(body), `"temperatureC"`) || strings.Contains(string(body), `"summary"`) {
-		t.Fatalf("range response pretends to be one physical day: %s", body)
-	}
-}
-
-func BenchmarkForecastWindowPoint(b *testing.B) {
-	app := newTestApplication(b)
-	path := "/api/point?release=" + app.manifest.ReleaseID + "&period=" + app.manifest.Forecast.Window.ID + "&profile=nice&lat=52.3676&lon=4.9041"
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		response := httptest.NewRecorder()
-		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
-		if response.Code != http.StatusOK {
-			b.Fatalf("point returned %d: %s", response.Code, response.Body.String())
-		}
+	removedAPI := httptest.NewRecorder()
+	app.handler.ServeHTTP(removedAPI, httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID, nil))
+	if removedAPI.Code != http.StatusNotFound {
+		t.Fatalf("removed runtime point API returned %d: %s", removedAPI.Code, removedAPI.Body.String())
 	}
 }
 

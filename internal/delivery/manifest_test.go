@@ -76,8 +76,8 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"date":                  func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
 		"kind":                  func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
 		"resolution":            func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
-		"checksum":              func(m *Manifest) { m.Forecast.Days[0].GridSHA256 = "abc" },
-		"path escape":           func(m *Manifest) { m.Forecast.Days[0].GridURL = "../secret" },
+		"checksum":              func(m *Manifest) { m.Forecast.Days[0].Point.SHA256 = "abc" },
+		"path escape":           func(m *Manifest) { m.Forecast.Days[0].Point.URL = "../secret" },
 		"missing profile image": func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
 		"missing lens image":    func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
 		"unexpected lens image": func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
@@ -93,11 +93,7 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"window date":             func(m *Manifest) { m.Forecast.Window.EndDate = "2026-07-19" },
 		"window resolution":       func(m *Manifest) { m.Forecast.Window.GridResolutionKM = 28 },
 		"window profile":          func(m *Manifest) { delete(m.Forecast.Window.Profiles, ProfileCycling) },
-		"window grid checksum": func(m *Manifest) {
-			asset := m.Forecast.Window.Profiles[ProfileNice]
-			asset.GridSHA256 = "bad"
-			m.Forecast.Window.Profiles[ProfileNice] = asset
-		},
+		"window point checksum":   func(m *Manifest) { m.Forecast.Window.Point.SHA256 = "bad" },
 		"window image geometry": func(m *Manifest) {
 			asset := m.Forecast.Window.Profiles[ProfileNice]
 			asset.Image.Height = 0
@@ -178,6 +174,7 @@ func TestValidateProductionManifestRequiresCompleteOrderedPeriods(t *testing.T) 
 	manifest.Forecast.Window.EndDate = manifest.Forecast.Days[13].Date
 	climate := first.Period
 	climate.WindFrames = nil
+	climate.Point = manifestPointAsset(PointKindLegacyClimateMonth, strings.Repeat("9", 64))
 	for month := 1; month <= 12; month++ {
 		period := climate
 		period.ID = fmt.Sprintf("m%02d", month)
@@ -220,12 +217,22 @@ func validManifest(checksum string) Manifest {
 			"wind-nice":    {URL: "images/wind-nice.png", SHA256: strings.Repeat("1", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
 			"wind-cycling": {URL: "images/wind-cycling.png", SHA256: strings.Repeat("2", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
 		},
-		GridURL: "grids/day.nwg", GridSHA256: checksum,
+		Point:      manifestPointAsset(PointKindForecastDay, checksum),
 		WindFrames: testWindFrames(time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC), 1),
 	}
 	climate := period
 	climate.ID, climate.Label, climate.Source.ProviderLabel = "07", "July", "Typical weather"
+	climate.Point = manifestPointAsset(PointKindLegacyClimateMonth, strings.Repeat("9", 64))
 	climate.WindFrames = nil
+	days := make([]ForecastPeriod, ForecastPointDayCount)
+	for index := range days {
+		day := period
+		date := time.Date(2026, 7, 18+index, 0, 0, 0, 0, time.UTC)
+		day.ID, day.Label = date.Format("2006-01-02"), date.Format("Mon 2")
+		day.Source.ValidFrom, day.Source.ValidTo = date.Add(8*time.Hour).Format(time.RFC3339), date.Add(20*time.Hour).Format(time.RFC3339)
+		day.WindFrames = testWindFrames(date.Add(8*time.Hour), 1)
+		days[index] = ForecastPeriod{Period: day, Date: date.Format("2006-01-02"), Kind: "detailed"}
+	}
 	return Manifest{
 		Version: ManifestVersion, ReleaseID: "test-release", ProductContract: ProductContract, DataStatus: DataStatusLive, GeneratedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
 		Region:   Region{ID: "europe", Label: "Europe", Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}},
@@ -235,15 +242,29 @@ func validManifest(checksum string) Manifest {
 		Forecast: ForecastCatalog{
 			UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 18,
 			Window: ForecastWindow{
-				ID: "next-14-days", Label: "Next 14 days", StartDate: "2026-07-18", EndDate: "2026-07-18", DayCount: 1, GridResolutionKM: 7,
+				ID: "next-14-days", Label: "Next 14 days", StartDate: "2026-07-18", EndDate: "2026-07-31", DayCount: ForecastPointDayCount, GridResolutionKM: 7,
+				Point: manifestPointAsset(PointKindForecastWindow, strings.Repeat("3", 64)),
 				Profiles: map[string]ForecastRangeAsset{
-					ProfileNice:    {GridURL: "grids/range-nice.nwr", GridSHA256: strings.Repeat("3", 64), Image: ImageAsset{URL: "images/range-nice.png", SHA256: strings.Repeat("4", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
-					ProfileCycling: {GridURL: "grids/range-cycling.nwr", GridSHA256: strings.Repeat("5", 64), Image: ImageAsset{URL: "images/range-cycling.png", SHA256: strings.Repeat("6", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
+					ProfileNice:    {Image: ImageAsset{URL: "images/range-nice.png", SHA256: strings.Repeat("4", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
+					ProfileCycling: {Image: ImageAsset{URL: "images/range-cycling.png", SHA256: strings.Repeat("6", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
 				},
 			},
-			Days: []ForecastPeriod{{Period: period, Date: "2026-07-18", Kind: "detailed"}},
+			Days: days,
 		},
 		Climate: &ClimateCatalog{Label: "Typical year", ReferencePeriod: "1991–2020", Months: []ClimatePeriod{{Period: climate, Month: 7}}},
+	}
+}
+
+func manifestPointAsset(kind PointKind, checksum string) PointAsset {
+	geometry, err := NewPointGeometry(GridSpec{Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}, Rows: 1, Cols: 1})
+	if err != nil {
+		panic(err)
+	}
+	recordBytes, _ := pointRecordBytes(kind)
+	return PointAsset{
+		URL: "points/test-" + checksum + ".nwp", SHA256: checksum, PayloadSHA256: strings.Repeat("0", 64),
+		Bytes: uint64(PointAssetHeaderBytes) + uint64(geometry.Rows)*uint64(geometry.Cols)*uint64(recordBytes),
+		Kind:  PointKindName(kind), HeaderBytes: PointAssetHeaderBytes, RecordBytes: recordBytes, Projection: "web-mercator-image", Geometry: geometry,
 	}
 }
 

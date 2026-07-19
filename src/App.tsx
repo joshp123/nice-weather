@@ -90,7 +90,7 @@ export default function App() {
     }
     const controller = new AbortController();
     setPointState({ status: 'loading' });
-    loadPoint({ ...selectedPoint, releaseId: manifest.releaseId, period: activePeriodId, profile }, controller.signal, manifest.forecast.window, manifest.legend)
+    loadPoint({ ...selectedPoint, releaseId: manifest.releaseId, period: activePeriodId, profile }, manifest, controller.signal)
       .then((data) => setPointState({ status: 'ready', data }))
       .catch((error: Error) => {
         if (controller.signal.aborted) return;

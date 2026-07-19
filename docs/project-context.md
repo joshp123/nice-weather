@@ -61,9 +61,9 @@ The score has four orthogonal components: thermal comfort, dryness, brightness a
 - `internal/providers/aifs` reads ECMWF indexes, retrieves exact byte ranges and validates complete GRIB2 messages.
 - `internal/pipeline` decodes through ecCodes/GDAL, normalises units and accumulations, aggregates local days, applies the land mask and renders output.
 - `internal/weather` owns canonical facts, validation, scoring, ratings and deterministic summaries.
-- `internal/delivery` owns the manifest, compact binary grid, image metadata, validation and atomic `current`/`previous` publication.
+- `internal/delivery` owns the manifest, compact binary point files, image metadata, validation and atomic `current`/`previous` publication.
 - `internal/update` plans 14 days, owns the pinned Natural Earth land source, builds all 12 CHELSA months and publishes one complete release.
-- `internal/appserver` serves one immutable release snapshot, detects publication changes and swaps to a fully validated replacement between requests. Point lookups remain constant time.
+- `internal/appserver` serves one immutable release snapshot, detects publication changes and swaps to a fully validated replacement between requests. Point selection happens in the browser through two constant-size byte-range reads from the release-scoped point file.
 
 There is no provider fallback soup, live tile rendering, client-side score policy or compatibility layer for the discarded prototype.
 
@@ -75,7 +75,7 @@ Runtime output is separate from the frontend build:
 dist/                         Vite application
 artifacts/current/manifest.json
 artifacts/current/images/     overall and component map PNGs per period
-artifacts/current/grids/      one compact point-lookup grid per period
+artifacts/current/points/     one immutable point-detail file per period
 artifacts/current/wind/       immutable gzip-compressed u/v frames per forecast day
 artifacts/.building/           unpublished release under construction
 artifacts/releases/           validated release directories
@@ -86,9 +86,11 @@ artifacts/places/releases/     immutable place manifests and shards
 .cache/weather/climate/       validated monthly climate checkpoints
 ```
 
-A live update starts in `artifacts/.building`. After the forecast window, daily forecasts, climate months, images, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
+A live update starts in `artifacts/.building`. After the forecast window, daily forecasts, climate months, images, point files, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates the complete release and swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v13` carries the v12 exact native-time wind-vector contract and makes Cycling's Calm judgement monotonically stricter than Nice. Older releases and climate checkpoints are rejected because their pre-evaluated component grids and images contain the previous scoring semantics. Each wind frame is an immutable content-addressed `.nww.gz` file containing signed 8-bit u/v components at 0.5 m/s. The browser verifies the compressed file and checked inner grid before use. Image and wind requests include the release ID and SHA-256; the server exposes only the current and published previous release.
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v14` adds static point delivery to the v13 weather and wind semantics. Older releases and climate checkpoints are rejected. Each point file has a fixed header, a literal whole-file SHA-256 and a separate embedded payload checksum. Its path contains the whole-file hash. The browser accepts only exact `206 Partial Content` responses with the expected range, total size, byte count, content type and no content encoding. It does not claim to verify a whole-file hash after reading two small ranges.
+
+The point plane is laid out one-for-one with the snapped Web Mercator score image, including the same coastline fallback. Daily records contain both profiles. The forecast-window record contains both summaries and the exact 14 daily judgements used at that coarse 28 km cell; it does not re-query finer daily cells after selection.
 
 Runtime routes:
 
@@ -96,8 +98,8 @@ Runtime routes:
 GET /                         React application
 GET /manifest.json            release catalogue
 GET /releases/<id>/images/... immutable score overlay for that release
+GET /releases/<id>/points/... immutable point records with byte-range support
 GET /releases/<id>/wind/...   immutable compressed wind-vector frame
-GET /api/point?...            score and weather at a coordinate
 GET /places/current.json      revalidated place-index pointer
 GET /places/releases/<id>/... immutable place manifest and search shards
 ```
@@ -141,9 +143,9 @@ Check boundaries before judging the full map:
 
 1. Run `go test ./...` and deterministic scoring cases.
 2. Inspect update logs, `manifest.json`, period counts, source metadata and resolutions.
-3. Verify binary-grid lookup against a known record on disk and inspect exact PNG pixels, including transparent sea.
+3. Verify the binary point header and selected record against exact PNG pixels, including transparent sea.
 4. Run `go vet ./...`, `npm run test` and `npm run build`.
-5. Start the Go server and fetch the manifest, a point response and every referenced asset type.
+5. Start the Go server on `5198` and fetch the manifest, exact point-file ranges and every referenced asset type.
 6. In the internal browser and Chrome or Safari, change day, profile and basis; search; click the map; and inspect desktop and mobile layouts.
 7. Record manifest latency, score-layer readiness, transferred bytes, long tasks, frame timing, JavaScript heap and browser errors.
 

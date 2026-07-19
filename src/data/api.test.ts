@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { forecastRunStatus, freshnessLabel, imageAssetUrl, isStale, loadManifest, loadPoint, StaleReleaseError } from './api';
+import pointVector from './testdata/point-asset-vector.json';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('weather delivery client', () => {
-  it('parses manifest v5 with the canonical 14-day window', async () => {
+  it('parses manifest v6 with the canonical 14-day window', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v13');
+    expect(manifest.productContract).toBe('nice-weather-v14');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
     expect(manifest.forecast.days).toHaveLength(14);
     expect(manifest.climate?.months).toHaveLength(12);
@@ -55,6 +56,24 @@ describe('weather delivery client', () => {
     await expect(loadManifest()).rejects.toThrow('forecast could not be read');
   });
 
+  it('rejects manifest point geometry that differs from its images or region', async () => {
+    for (const mutate of [
+      (fixture: any) => { fixture.forecast.days[0].images.nice.width = 2; },
+      (fixture: any) => { fixture.forecast.days[0].point.geometry.bounds.west = -24; },
+      (fixture: any) => { fixture.forecast.window.point.geometry.quad.west = 0.1; },
+      (fixture: any) => {
+        const points = [fixture.forecast.window.point, ...fixture.forecast.days.map((day: any) => day.point), ...fixture.climate.months.map((month: any) => month.point)];
+        points.forEach((point: any) => { point.geometry.quad.west += 1 / 8192; });
+      },
+    ]) {
+      const fixture = manifestFixture(); mutate(fixture);
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+      await expect(loadManifest()).rejects.toThrow('forecast could not be read');
+      vi.restoreAllMocks();
+    }
+  });
+
   it('rejects duplicate or gapped forecast dates', async () => {
     const fixture = manifestFixture();
     fixture.forecast.days[1].date = fixture.forecast.days[0].date;
@@ -89,110 +108,100 @@ describe('weather delivery client', () => {
     expect(() => imageAssetUrl('../bad', image('score'))).toThrow('Invalid releaseId');
   });
 
-  it('parses a range point without inventing daily weather', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      releaseId: 'release-20260718', periodId: 'next-14-days', periodLabel: 'Next 14 days', profile: 'nice',
-      location: { lat: 39.47, lon: -0.38 },
-      score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
-      window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
-      days: forecastFingerprintFixture(),
-      source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
-    }), { status: 200 })));
-    const point = await loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' }, undefined, undefined, POINT_LEGEND);
-    expect(point).toMatchObject({ kind: 'range', score: 82, window: { niceDays: 10, awfulDays: 1, longestPoorRun: 2 } });
-    expect('metrics' in point).toBe(false);
+  it('reads daily point bytes with exact ranges and caches the immutable header', async () => {
+    const manifest = await parsedManifest('daily-range-test');
+    const asset = manifest.forecast.days[0].point;
+    const file = joinPointFile(pointHeader(asset, 1), dailyRecord());
+    const fetch = vi.fn(rangeFetch(file));
+    vi.stubGlobal('fetch', fetch);
+    const request = { releaseId: manifest.releaseId, lat: 39.47, lon: -0.38, period: manifest.forecast.days[0].id, profile: 'cycling' as const };
+    const point = await loadPoint(request, manifest);
+    expect(point).toMatchObject({ kind: 'daily', score: 88, summary: '25°C · dry · bright · light wind', metrics: { maxTempC: 29, rainMm: 0 }, source: { basis: 'forecast' } });
+    const nice = await loadPoint({ ...request, profile: 'nice' }, manifest);
+    expect(nice).toMatchObject({ kind: 'daily', score: 87 });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.map((call) => new Headers(call[1]?.headers).get('Range'))).toEqual(['bytes=0-127', 'bytes=128-157', 'bytes=128-157']);
   });
 
-  it('rejects missing, out-of-order or mislabelled forecast fingerprint days', async () => {
+  it('decodes the literal Go binary vector including negative half-degree rounding', async () => {
+    const manifest = await parsedManifest('shared-vector-test');
+    const asset = manifest.forecast.days[0].point;
+    asset.payloadSha256 = '11'.repeat(32);
+    const file = joinPointFile(hexBytes(pointVector.headerHex), hexBytes(pointVector.dailyRecordHex));
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(file)));
+    const point = await loadPoint({ releaseId: manifest.releaseId, lat: 45, lon: 0, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest);
+    expect(point).toMatchObject({ kind: 'daily', score: 19, summary: '-1°C · brief rain · bright · light wind', metrics: { temperatureC: -0.5, rainMm: 0.2 } });
+  });
+
+  it('reads the one 14-day record and rejects a forged aggregate', async () => {
+    const manifest = await parsedManifest('range-fingerprint-test');
+    const asset = manifest.forecast.window.point;
+    const record = rangeRecord();
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(pointHeader(asset, 2), record))));
+    const request = { releaseId: manifest.releaseId, lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' as const };
+    const point = await loadPoint(request, manifest);
+    expect(point).toMatchObject({ kind: 'range', score: 70, window: { niceDays: 14, awfulDays: 0, longestPoorRun: 0 } });
+    expect('metrics' in point).toBe(false);
+
+    const forgedManifest = await parsedManifest('range-forged-test');
+    const forged = rangeRecord(); forged[6] = 13;
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const response = () => ({
-      releaseId: 'release-20260718', periodId: 'next-14-days', periodLabel: 'Next 14 days', profile: 'nice',
-      location: { lat: 39.47, lon: -0.38 },
-      score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
-      window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
-      days: forecastFingerprintFixture(),
-      source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
-    });
-    const broken = [response(), response(), response()];
-    broken[0].days.pop();
-    [broken[1].days[5], broken[1].days[6]] = [broken[1].days[6], broken[1].days[5]];
-    broken[2].days[0].category = 'Awful';
-    for (const payload of broken) {
-      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })));
-      await expect(loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' }, undefined, undefined, POINT_LEGEND)).rejects.toThrow('could not be read');
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(pointHeader(forgedManifest.forecast.window.point, 2), forged))));
+    await expect(loadPoint({ ...request, releaseId: forgedManifest.releaseId }, forgedManifest)).rejects.toThrow('could not be read');
+  });
+
+  it('fails closed on 200, encoded, truncated, and stale range responses', async () => {
+    for (const [release, response] of [
+      ['point-200-test', () => new Response(new Uint8Array(128), { status: 200, headers: { 'Content-Type': 'application/octet-stream' } })],
+      ['point-encoded-test', () => new Response(new Uint8Array(128), { status: 206, headers: { 'Content-Type': 'application/octet-stream', 'Content-Encoding': 'gzip', 'Content-Range': 'bytes 0-127/158' } })],
+      ['point-parameter-content-type-test', () => new Response(new Uint8Array(128), { status: 206, headers: { 'Content-Type': 'application/octet-stream; charset=binary', 'Content-Range': 'bytes 0-127/158', 'Content-Length': '128' } })],
+      ['point-truncated-test', () => new Response(new Uint8Array(127), { status: 206, headers: { 'Content-Type': 'application/octet-stream', 'Content-Range': 'bytes 0-127/158' } })],
+      ['point-wildcard-total-test', () => new Response(new Uint8Array(128), { status: 206, headers: { 'Content-Type': 'application/octet-stream', 'Content-Range': 'bytes 0-127/*' } })],
+      ['point-wrong-total-test', () => new Response(new Uint8Array(128), { status: 206, headers: { 'Content-Type': 'application/octet-stream', 'Content-Range': 'bytes 0-127/159' } })],
+    ] as const) {
+      const manifest = await parsedManifest(release);
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.stubGlobal('fetch', vi.fn(response));
+      await expect(loadPoint({ releaseId: release, lat: 39, lon: 0, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest)).rejects.toThrow('could not be read');
+      vi.restoreAllMocks();
+    }
+    for (const status of [404, 409, 410]) {
+      const manifest = await parsedManifest(`point-stale-${status}-test`);
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status })));
+      await expect(loadPoint({ releaseId: manifest.releaseId, lat: 39, lon: 0, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest)).rejects.toBeInstanceOf(StaleReleaseError);
     }
   });
 
-  it('rejects a range point whose dates do not match the loaded manifest', async () => {
+  it('rejects reserved header bytes and unsafe manifest dimensions', async () => {
+    const manifest = await parsedManifest('point-reserved-test');
+    const header = pointHeader(manifest.forecast.days[0].point, 1); header[120] = 1;
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      releaseId: 'release-20260718', periodId: 'next-14-days', periodLabel: 'Next 14 days', profile: 'nice',
-      location: { lat: 39.47, lon: -0.38 },
-      score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
-      window: { startDate: '2026-07-19', endDate: '2026-08-01', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
-      days: forecastFingerprintFixture('2026-07-19'),
-      source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
-    }), { status: 200 })));
-    const expected = { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14 } as const;
-    await expect(loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' }, undefined, expected)).rejects.toThrow('could not be read');
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(header, dailyRecord()))));
+    await expect(loadPoint({ releaseId: manifest.releaseId, lat: 39, lon: 0, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest)).rejects.toThrow('could not be read');
+
+    const fixture = manifestFixture('unsafe-point-size-test');
+    fixture.forecast.days[0].point.geometry.rows = Number.MAX_SAFE_INTEGER;
+    fixture.forecast.days[0].point.bytes = Number.MAX_SAFE_INTEGER;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+    await expect(loadManifest()).rejects.toThrow('forecast could not be read');
   });
 
-  it('parses daily physical weather and source evidence', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      releaseId: 'release-20260718', periodId: '2026-07-18', periodLabel: 'Saturday 18 July', profile: 'cycling',
-      location: { lat: 39.47, lon: -0.38 }, summary: 'Dry, bright and calm.',
-      score: { value: 88, category: 'Excellent', components: componentFixture(91, 100, 82, 79) },
-      weather: { temperatureC: 25, minTempC: 20, maxTempC: 29, rainMm: 0, wetTimeFraction: 0, cloudPct: 18, solarEnergyMJm2: 19.2, windKmh: 11, gustKmh: 18 },
-      source: { basis: 'forecast', detailLabel: 'Detailed forecast', providerLabel: 'ICON-EU', resolutionKm: 7, temporalResolutionHours: 1, artifactGeneratedAt: '2026-07-18T10:00:00Z', runAt: '2026-07-18T06:00:00Z', validFrom: '2026-07-18T10:00:00Z', validTo: '2026-07-18T20:00:00Z' },
-    }), { status: 200 })));
-    const point = await loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: '2026-07-18', profile: 'cycling' });
-    expect(point).toMatchObject({ kind: 'daily', score: 88, metrics: { maxTempC: 29, rainMm: 0 }, source: { basis: 'forecast', providerLabel: 'ICON-EU' } });
-  });
+  it('uses the rendered texel plane for coastline no-data and legacy climate', async () => {
+    const manifest = await parsedManifest('coast-texel-test');
+    const asset = manifest.forecast.days[0].point;
+    asset.geometry.cols = 2; asset.bytes = 128 + 2 * 30;
+    const header = pointHeader(asset, 1);
+    const file = new Uint8Array(asset.bytes); file.set(header); file.set(dailyRecord(), 128 + 30);
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(file)));
+    await expect(loadPoint({ releaseId: manifest.releaseId, lat: 45, lon: -10, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest)).rejects.toThrow('no complete weather record');
+    const land = await loadPoint({ releaseId: manifest.releaseId, lat: 45, lon: 30, period: manifest.forecast.days[0].id, profile: 'cycling' }, manifest);
+    expect(land).toMatchObject({ kind: 'daily', score: 88 });
 
-  it('keeps the climate reference period supplied by the artifact', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      releaseId: 'release-20260718', periodId: 'month-11', periodLabel: 'November', profile: 'nice',
-      location: { lat: 36.72, lon: -4.42 }, summary: 'Warm and dry.',
-      score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
-      weather: { temperatureC: 22, minTempC: 17, maxTempC: 25, rainMm: 1.2, cloudPct: 24, windKmh: 10 },
-      source: { basis: 'climate', detailLabel: 'Typical month', providerLabel: 'CHELSA 2.1', resolutionKm: 11, temporalResolutionHours: 744, artifactGeneratedAt: '2026-07-18T10:00:00Z', referencePeriod: '1981–2010' },
-    }), { status: 200 })));
-
-    const point = await loadPoint({ releaseId: 'release-20260718', lat: 36.72, lon: -4.42, period: 'month-11', profile: 'nice' });
-    expect(point).toMatchObject({ kind: 'daily', source: { basis: 'climate', referencePeriod: '1981–2010' } });
-  });
-
-  it('returns a typed stale release error for a conflict', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'stale_release', message: 'changed' } }), { status: 409 })));
-    await expect(loadPoint({ releaseId: 'release-old', lat: 52.37, lon: 4.9, period: 'next-14-days', profile: 'nice' })).rejects.toBeInstanceOf(StaleReleaseError);
-  });
-
-  it('rejects a point response for a different period or profile', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      releaseId: 'release-20260718', periodId: 'next-14-days', periodLabel: 'Next 14 days', profile: 'cycling',
-      location: { lat: 39.47, lon: -0.38 },
-      score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
-      window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
-      days: forecastFingerprintFixture(),
-      source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
-    }), { status: 200 })));
-
-    await expect(loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' })).rejects.toThrow('could not be read');
-  });
-
-  it('rejects an impossible split of awful days into a shorter poor run', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      releaseId: 'release-20260718', periodId: 'next-14-days', periodLabel: 'Next 14 days', profile: 'nice',
-      location: { lat: 39.47, lon: -0.38 },
-      score: { value: 22, category: 'Awful', components: componentFixture(20, 20, 20, 20) },
-      window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 0, awfulDays: 14, medianScore: 20, longestPoorRun: 1 },
-      days: forecastFingerprintFixture(),
-      source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
-    }), { status: 200 })));
-
-    await expect(loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' })).rejects.toThrow('could not be read');
+    const climateManifest = await parsedManifest('legacy-climate-test');
+    const month = climateManifest.climate!.months[10];
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(pointHeader(month.point, 3), dailyRecord()))));
+    const climate = await loadPoint({ releaseId: climateManifest.releaseId, lat: 36.72, lon: -4.42, period: month.id, profile: 'nice' }, climateManifest);
+    expect(climate).toMatchObject({ kind: 'daily', source: { basis: 'climate', referencePeriod: '1981–2010' } });
   });
 });
 
@@ -208,14 +217,14 @@ describe('forecast freshness copy', () => {
   });
 });
 
-function manifestFixture(): Record<string, any> {
+function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
   const period = (id: string, extra: Record<string, unknown>) => ({
     id, label: id,
     source: { providerId: 'test', providerLabel: 'Test forecast', runAt: '2026-07-18T06:00:00Z', validFrom: '2026-07-18T10:00:00Z', validTo: '2026-07-18T20:00:00Z' },
-    nativeResolutionKm: 7, temporalResolutionHours: 1,
+    nativeResolutionKm: extra.kind === 'outlook' ? 28 : 7, temporalResolutionHours: 1,
     images: { nice: image(`${id}-nice`), cycling: image(`${id}-cycling`) },
     lenses: { comfort: image(`${id}-comfort`), dry: image(`${id}-dry`), bright: image(`${id}-bright`), 'wind-nice': image(`${id}-wind-nice`), 'wind-cycling': image(`${id}-wind-cycling`) },
-    gridUrl: `grids/${id}.nwg`, gridSha256: digest(`${id}-grid`), ...extra,
+    point: pointAsset(id, 'forecast-day'), ...extra,
   });
   const days = Array.from({ length: 14 }, (_, index) => {
     const date = `2026-07-${String(18 + index).padStart(2, '0')}`;
@@ -228,38 +237,96 @@ function manifestFixture(): Record<string, any> {
     return period(date, { date, kind: index < 5 ? 'detailed' : 'outlook', windFrames });
   });
   return {
-    version: 5, releaseId: 'release-20260718', productContract: 'nice-weather-v13', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 6, releaseId, productContract: 'nice-weather-v14', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: POINT_LEGEND,
     palette: Array.from({ length: 12 }, (_, index) => ({ score: index === 11 ? 100 : index * 9, color: `#${String(index + 1).repeat(6).slice(0, 6)}` })),
     forecast: {
       updatedAt: '2026-07-18T09:30:00Z', staleAfterHours: 12,
-      window: { id: 'next-14-days', label: 'Next 14 days', startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, gridResolutionKm: 28, profiles: {
-        nice: { gridUrl: 'grids/window-nice.nwr', gridSha256: digest('window-nice-grid'), image: image('window-nice') },
-        cycling: { gridUrl: 'grids/window-cycling.nwr', gridSha256: digest('window-cycling-grid'), image: image('window-cycling') },
+      window: { id: 'next-14-days', label: 'Next 14 days', startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, gridResolutionKm: 28, point: pointAsset('window', 'forecast-window'), profiles: {
+        nice: { image: image('window-nice') },
+        cycling: { image: image('window-cycling') },
       } },
       days,
     },
-    climate: { label: 'Typical year', referencePeriod: '1981–2010', months: Array.from({ length: 12 }, (_, index) => period(`month-${index + 1}`, { label: new Date(2026, index, 1).toLocaleString('en-GB', { month: 'long' }), month: index + 1 })) },
+    climate: { label: 'Typical year', referencePeriod: '1981–2010', months: Array.from({ length: 12 }, (_, index) => period(`month-${index + 1}`, { label: new Date(2026, index, 1).toLocaleString('en-GB', { month: 'long' }), month: index + 1, point: pointAsset(`month-${index + 1}`, 'legacy-climate-month') })) },
   };
 }
 
-function image(id: string) { return { url: `images/${id}.png`, sha256: digest(id), width: 900, height: 600, projection: 'web-mercator' as const }; }
+function image(id: string) { return { url: `images/${id}.png`, sha256: digest(id), width: 1, height: 1, projection: 'web-mercator' as const }; }
 function digest(value: string) { return Array.from(value).reduce((total, char) => (total * 31 + char.charCodeAt(0)) >>> 0, 0).toString(16).padStart(8, '0').repeat(8); }
-function componentFixture(comfort: number, dryness: number, sun: number, wind: number) {
-  const score = (value: number) => ({ value, category: value >= 85 ? 'Excellent' : value >= 70 ? 'Very good' : value >= 55 ? 'Good' : value >= 40 ? 'Mixed' : value >= 25 ? 'Poor' : 'Awful' });
-  return { comfort: score(comfort), dryness: score(dryness), sun: score(sun), wind: score(wind) };
+
+function pointAsset(id: string, kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month') {
+  const sha256 = digest(`point-${id}-${kind}`);
+  const recordBytes = kind === 'forecast-window' ? 44 : 30;
+  const bounds = { west: -25, east: 45, south: 30, north: 72 };
+  return {
+    url: `points/${id}-${sha256}.nwp`, sha256, payloadSha256: digest(`payload-${id}-${kind}`), bytes: 128 + recordBytes,
+    kind, headerBytes: 128, recordBytes, projection: 'web-mercator-image',
+    geometry: { bounds, quad: canonicalTestQuad(bounds), rows: 1, cols: 1 },
+  };
 }
 
-function forecastFingerprintFixture(startDate = '2026-07-18') {
-  const scores = [91, 88, 84, 77, 72, 68, 61, 55, 48, 42, 36, 29, 20, 12];
-  const category = (score: number) => score >= 85 ? 'Excellent' : score >= 70 ? 'Very good' : score >= 55 ? 'Good' : score >= 40 ? 'Mixed' : score >= 25 ? 'Poor' : 'Awful';
-  return scores.map((score, index) => {
-    const day = new Date(`${startDate}T00:00:00Z`);
-    day.setUTCDate(day.getUTCDate() + index);
-    return { date: day.toISOString().slice(0, 10), score, category: category(score) };
-  });
+function canonicalTestQuad(bounds: { west: number; east: number; south: number; north: number }) {
+  const x = (longitude: number) => (longitude + 180) / 360;
+  const y = (latitude: number) => 0.5 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / (2 * Math.PI);
+  const west = x(bounds.west); const east = x(bounds.east); const north = y(bounds.north); const south = y(bounds.south);
+  const scale = 2 ** Math.max(0, Math.floor(-Math.log2(Math.max(east - west, south - north)))) * 8192;
+  const snap = (value: number) => Math.round(value * scale) / scale;
+  return { west: snap(west), east: snap(east), north: snap(north), south: snap(south) };
+}
+
+async function parsedManifest(release: string) {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture(release)), { status: 200 })));
+  return loadManifest();
+}
+
+function pointHeader(asset: any, kindCode: 1 | 2 | 3): Uint8Array {
+  const bytes = new Uint8Array(128); const view = new DataView(bytes.buffer);
+  bytes.set(new TextEncoder().encode('NWFPOINT'));
+  view.setUint16(8, 1, true); view.setUint16(10, 128, true); view.setUint16(12, asset.recordBytes, true);
+  view.setUint8(14, kindCode); view.setUint8(15, 1); view.setUint32(16, asset.geometry.rows, true); view.setUint32(20, asset.geometry.cols, true);
+  const values = [asset.geometry.bounds.west, asset.geometry.bounds.east, asset.geometry.bounds.south, asset.geometry.bounds.north, asset.geometry.quad.west, asset.geometry.quad.east, asset.geometry.quad.north, asset.geometry.quad.south];
+  values.forEach((value, index) => view.setFloat64(24 + index * 8, value, true));
+  bytes.set(hexBytes(asset.payloadSha256), 88);
+  return bytes;
+}
+
+function dailyRecord(): Uint8Array {
+  const bytes = new Uint8Array(30); const view = new DataView(bytes.buffer);
+  view.setInt16(0, 250, true); view.setInt16(2, 200, true); view.setInt16(4, 290, true); view.setInt16(6, 150, true);
+  view.setUint16(8, 0, true); view.setUint16(10, 110, true); view.setUint16(12, 180, true); view.setUint16(14, 1920, true); view.setUint16(16, 0, true);
+  bytes[18] = 18; bytes[19] = 50; bytes[20] = 0x7f;
+  bytes.set([91, 100, 82, 87, 85, 88, 79, 8], 22);
+  return bytes;
+}
+
+function rangeRecord(): Uint8Array {
+  const bytes = new Uint8Array(44);
+  bytes.set([80, 90, 75, 70, 70, 85, 14, 0, 0, 70, 70, 78, 14, 0, 0], 0);
+  bytes.fill(70, 15, 43); bytes[43] = 1;
+  return bytes;
+}
+
+function joinPointFile(header: Uint8Array, record: Uint8Array): Uint8Array {
+  const result = new Uint8Array(header.length + record.length); result.set(header); result.set(record, header.length); return result;
+}
+
+function rangeFetch(file: Uint8Array) {
+  return async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const range = new Headers(init?.headers).get('Range');
+    const match = /^bytes=(\d+)-(\d+)$/.exec(range ?? '');
+    if (!match) return new Response(null, { status: 416 });
+    const start = Number(match[1]); const end = Number(match[2]); const body = file.slice(start, end + 1);
+    return new Response(body, { status: 206, headers: {
+      'Content-Type': 'application/octet-stream', 'Content-Range': `bytes ${start}-${end}/${file.length}`, 'Content-Length': String(body.length),
+    } });
+  };
+}
+
+function hexBytes(value: string): Uint8Array {
+  return Uint8Array.from(value.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16));
 }
 
 const POINT_LEGEND = [

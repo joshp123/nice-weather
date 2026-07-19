@@ -185,6 +185,74 @@ func RenderWebMercatorRangeRecords(w io.Writer, spec delivery.GridSpec, records 
 	return nil
 }
 
+// RenderPointDailyRecords paints the already-evaluated browser point plane.
+// The point asset and overlay therefore have one texel authority: neither the
+// browser nor image generation reselects a source cell or scores weather.
+func RenderPointDailyRecords(w io.Writer, geometry delivery.PointGeometry, records []delivery.DailyPointRecord, profile weather.Profile, lens weather.Lens, paletteStops []delivery.PaletteStop) error {
+	if len(records) != int(geometry.Rows)*int(geometry.Cols) {
+		return fmt.Errorf("daily point overlay geometry does not match records")
+	}
+	palette, err := scorePalette(paletteStops)
+	if err != nil {
+		return err
+	}
+	imageData := image.NewNRGBA(image.Rect(0, 0, int(geometry.Cols), int(geometry.Rows)))
+	for index, record := range records {
+		if !record.Weather.Valid {
+			continue
+		}
+		var score uint8
+		switch lens {
+		case weather.LensOverall:
+			if profile == weather.ProfileCycling {
+				score = record.CyclingScore
+			} else {
+				score = record.NiceScore
+			}
+		case weather.LensComfort:
+			score = record.Thermal
+		case weather.LensDry:
+			score = record.Dryness
+		case weather.LensBright:
+			score = record.Sun
+		case weather.LensCalm:
+			if profile == weather.ProfileCycling {
+				score = record.CyclingWind
+			} else {
+				score = record.NiceWind
+			}
+		default:
+			return fmt.Errorf("unsupported daily point lens %q", lens)
+		}
+		imageData.SetNRGBA(index%int(geometry.Cols), index/int(geometry.Cols), palette[score])
+	}
+	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
+	return encoder.Encode(w, imageData)
+}
+
+func RenderPointRangeRecords(w io.Writer, geometry delivery.PointGeometry, records []delivery.RangePointRecord, profile weather.Profile, paletteStops []delivery.PaletteStop) error {
+	if len(records) != int(geometry.Rows)*int(geometry.Cols) {
+		return fmt.Errorf("forecast-window point overlay geometry does not match records")
+	}
+	palette, err := scorePalette(paletteStops)
+	if err != nil {
+		return err
+	}
+	imageData := image.NewNRGBA(image.Rect(0, 0, int(geometry.Cols), int(geometry.Rows)))
+	for index, record := range records {
+		if !record.Nice.Valid {
+			continue
+		}
+		score := record.Nice.Score
+		if profile == weather.ProfileCycling {
+			score = record.Cycling.Score
+		}
+		imageData.SetNRGBA(index%int(geometry.Cols), index/int(geometry.Cols), palette[score])
+	}
+	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
+	return encoder.Encode(w, imageData)
+}
+
 func scorePalette(stops []delivery.PaletteStop) ([101]color.NRGBA, error) {
 	var palette [101]color.NRGBA
 	if len(stops) < 2 || stops[0].Score != 0 || stops[len(stops)-1].Score != 100 {

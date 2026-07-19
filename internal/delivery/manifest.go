@@ -13,12 +13,12 @@ import (
 	"time"
 )
 
-const ManifestVersion = 5
+const ManifestVersion = 6
 
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v13"
+const ProductContract = "nice-weather-v14"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -102,13 +102,12 @@ type ForecastWindow struct {
 	EndDate          string                        `json:"endDate"`
 	DayCount         int                           `json:"dayCount"`
 	GridResolutionKM float64                       `json:"gridResolutionKm"`
+	Point            PointAsset                    `json:"point"`
 	Profiles         map[string]ForecastRangeAsset `json:"profiles"`
 }
 
 type ForecastRangeAsset struct {
-	GridURL    string     `json:"gridUrl"`
-	GridSHA256 string     `json:"gridSha256"`
-	Image      ImageAsset `json:"image"`
+	Image ImageAsset `json:"image"`
 }
 
 type ClimateCatalog struct {
@@ -136,8 +135,7 @@ type Period struct {
 	TemporalResolutionHours int                   `json:"temporalResolutionHours"`
 	Images                  map[string]ImageAsset `json:"images"`
 	Lenses                  map[string]ImageAsset `json:"lenses"`
-	GridURL                 string                `json:"gridUrl"`
-	GridSHA256              string                `json:"gridSha256"`
+	Point                   PointAsset            `json:"point"`
 	WindFrames              []WindFrameAsset      `json:"windFrames,omitempty"`
 }
 
@@ -272,7 +270,7 @@ func ValidateManifest(manifest Manifest) error {
 		if !datePattern.MatchString(day.Date) || !validDate(day.Date) || (day.Kind != "detailed" && day.Kind != "outlook") {
 			return fmt.Errorf("invalid forecast day %q", day.ID)
 		}
-		if err := validatePeriod(day.Period, profiles, seen); err != nil {
+		if err := validatePeriod(day.Period, profiles, seen, manifest.ReleaseID, PointKindForecastDay); err != nil {
 			return fmt.Errorf("forecast day %q: %w", day.ID, err)
 		}
 		if err := validateWindFrames(day.Period, seenWindPaths); err != nil {
@@ -283,7 +281,7 @@ func ValidateManifest(manifest Manifest) error {
 		}
 		seenDates[day.Date] = struct{}{}
 	}
-	if err := validateForecastWindow(manifest.Forecast.Window, manifest.Forecast.Days, profiles, seen); err != nil {
+	if err := validateForecastWindow(manifest.Forecast.Window, manifest.Forecast.Days, profiles, seen, manifest.ReleaseID); err != nil {
 		return fmt.Errorf("forecast window: %w", err)
 	}
 	if manifest.Climate != nil {
@@ -299,7 +297,7 @@ func ValidateManifest(manifest Manifest) error {
 				return fmt.Errorf("duplicate climate month %d", month.Month)
 			}
 			seenMonths[month.Month] = struct{}{}
-			if err := validatePeriod(month.Period, profiles, seen); err != nil {
+			if err := validatePeriod(month.Period, profiles, seen, manifest.ReleaseID, PointKindLegacyClimateMonth); err != nil {
 				return fmt.Errorf("climate month %q: %w", month.ID, err)
 			}
 			if len(month.WindFrames) != 0 {
@@ -310,7 +308,7 @@ func ValidateManifest(manifest Manifest) error {
 	return nil
 }
 
-func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profiles, seen map[string]struct{}) error {
+func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profiles, seen map[string]struct{}, releaseID string) error {
 	if !safeIDPattern.MatchString(window.ID) || strings.TrimSpace(window.Label) == "" {
 		return errors.New("identity and label are required")
 	}
@@ -318,7 +316,7 @@ func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profil
 		return fmt.Errorf("duplicate period ID %q", window.ID)
 	}
 	seen[window.ID] = struct{}{}
-	if len(days) == 0 || window.DayCount != len(days) || window.StartDate != days[0].Date || window.EndDate != days[len(days)-1].Date {
+	if len(days) != ForecastPointDayCount || window.DayCount != ForecastPointDayCount || window.StartDate != days[0].Date || window.EndDate != days[len(days)-1].Date {
 		return errors.New("dates and day count must match the complete forecast catalog")
 	}
 	if !finite(window.GridResolutionKM) || window.GridResolutionKM <= 0 {
@@ -333,30 +331,31 @@ func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profil
 	if window.GridResolutionKM != coarsest {
 		return errors.New("grid resolution must match the coarsest forecast day")
 	}
+	if err := ValidatePointAssetDescriptor(window.Point, releaseID, PointKindForecastWindow); err != nil {
+		return fmt.Errorf("point asset: %w", err)
+	}
+	if window.Point.Geometry.Bounds != days[0].Point.Geometry.Bounds {
+		return errors.New("point asset bounds must match forecast periods")
+	}
 	if len(window.Profiles) != len(profiles) {
 		return errors.New("must contain one range grid and image per profile")
 	}
-	paths := make(map[string]string, len(profiles)*2)
+	paths := make(map[string]string, len(profiles))
 	for profile := range profiles {
 		asset, ok := window.Profiles[profile]
 		if !ok {
 			return fmt.Errorf("missing profile %q", profile)
 		}
-		if err := validateAssetPath(asset.GridURL); err != nil {
-			return fmt.Errorf("profile %q grid URL: %w", profile, err)
-		}
-		if !validSHA256(asset.GridSHA256) {
-			return fmt.Errorf("profile %q grid needs SHA-256", profile)
-		}
 		if err := validateImageAsset(asset.Image); err != nil {
 			return fmt.Errorf("profile %q image: %w", profile, err)
 		}
-		for kind, path := range map[string]string{"grid": asset.GridURL, "image": asset.Image.URL} {
-			if owner, exists := paths[path]; exists {
-				return fmt.Errorf("profile %q %s path duplicates %s", profile, kind, owner)
-			}
-			paths[path] = profile + " " + kind
+		if asset.Image.Width != int(window.Point.Geometry.Cols) || asset.Image.Height != int(window.Point.Geometry.Rows) {
+			return fmt.Errorf("profile %q image geometry does not match point asset", profile)
 		}
+		if owner, exists := paths[asset.Image.URL]; exists {
+			return fmt.Errorf("profile %q image path duplicates %s", profile, owner)
+		}
+		paths[asset.Image.URL] = profile + " image"
 	}
 	return nil
 }
@@ -400,7 +399,7 @@ func validDate(value string) bool {
 	return err == nil
 }
 
-func validatePeriod(period Period, profiles map[string]struct{}, seen map[string]struct{}) error {
+func validatePeriod(period Period, profiles map[string]struct{}, seen map[string]struct{}, releaseID string, pointKind PointKind) error {
 	if period.ID == "" || period.Label == "" {
 		return errors.New("period identity and provider are required")
 	}
@@ -414,12 +413,8 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 	if !finite(period.NativeResolutionKM) || period.NativeResolutionKM <= 0 || period.TemporalResolutionHours <= 0 {
 		return errors.New("native and temporal resolution must be positive")
 	}
-	if err := validateAssetPath(period.GridURL); err != nil {
-		return fmt.Errorf("grid URL: %w", err)
-	}
-	checksum, err := hex.DecodeString(period.GridSHA256)
-	if err != nil || len(checksum) != sha256Size {
-		return errors.New("grid SHA-256 must contain 64 hexadecimal characters")
+	if err := ValidatePointAssetDescriptor(period.Point, releaseID, pointKind); err != nil {
+		return fmt.Errorf("point asset: %w", err)
 	}
 	if len(period.Images) != len(profiles) {
 		return errors.New("period must have one image per profile")
@@ -438,6 +433,9 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 		if asset.Projection != ImageProjectionWebMercator {
 			return fmt.Errorf("image for profile %q projection must be %q", profile, ImageProjectionWebMercator)
 		}
+		if asset.Width != int(period.Point.Geometry.Cols) || asset.Height != int(period.Point.Geometry.Rows) {
+			return fmt.Errorf("image for profile %q geometry does not match point asset", profile)
+		}
 	}
 	requiredLenses := RequiredLensAssets()
 	if len(period.Lenses) != len(requiredLenses) {
@@ -450,6 +448,9 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 		}
 		if err := validateImageAsset(asset); err != nil {
 			return fmt.Errorf("component lens %q: %w", lens, err)
+		}
+		if asset.Width != int(period.Point.Geometry.Cols) || asset.Height != int(period.Point.Geometry.Rows) {
+			return fmt.Errorf("component lens %q geometry does not match point asset", lens)
 		}
 	}
 	return nil

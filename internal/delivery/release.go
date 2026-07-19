@@ -93,11 +93,10 @@ func ValidateProductionRelease(releaseDir string) (Manifest, error) {
 }
 
 type ReleaseCatalog struct {
-	manifest       Manifest
-	byPeriod       map[string]*GridReader
-	byPath         map[string]*GridReader
-	rangeByProfile map[string]*RangeGridReader
-	rangeByPath    map[string]*RangeGridReader
+	manifest    Manifest
+	byPeriod    map[string]*PointAssetReader
+	byPath      map[string]*PointAssetReader
+	rangeReader *PointAssetReader
 }
 
 func OpenReleaseCatalog(releaseDir string) (*ReleaseCatalog, error) {
@@ -115,15 +114,22 @@ func (catalog *ReleaseCatalog) Lookup(periodID string, lon, lat float64) (DailyR
 	if !ok {
 		return DailyRecord{}, false, fmt.Errorf("unknown period %q", periodID)
 	}
-	return reader.RecordAt(lon, lat)
+	record, valid, err := reader.DailyAt(lon, lat)
+	return record.Weather, valid, err
 }
 
 func (catalog *ReleaseCatalog) LookupRange(profile string, lon, lat float64) (RangeRecord, bool, error) {
-	reader, ok := catalog.rangeByProfile[profile]
-	if !ok {
+	if profile != ProfileNice && profile != ProfileCycling {
 		return RangeRecord{}, false, fmt.Errorf("unknown range profile %q", profile)
 	}
-	return reader.RecordAt(lon, lat)
+	record, valid, err := catalog.rangeReader.RangeAt(lon, lat)
+	if err != nil || !valid {
+		return RangeRecord{}, valid, err
+	}
+	if profile == ProfileCycling {
+		return record.Cycling, true, nil
+	}
+	return record.Nice, true, nil
 }
 
 func (catalog *ReleaseCatalog) Close() error {
@@ -133,15 +139,9 @@ func (catalog *ReleaseCatalog) Close() error {
 			result = errors.Join(result, err)
 		}
 	}
-	for _, reader := range catalog.rangeByPath {
-		if err := reader.Close(); err != nil {
-			result = errors.Join(result, err)
-		}
-	}
 	catalog.byPath = nil
 	catalog.byPeriod = nil
-	catalog.rangeByPath = nil
-	catalog.rangeByProfile = nil
+	catalog.rangeReader = nil
 	return result
 }
 
@@ -201,10 +201,7 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			return nil, err
 		}
 	}
-	catalog := &ReleaseCatalog{
-		manifest: manifest, byPeriod: make(map[string]*GridReader), byPath: make(map[string]*GridReader),
-		rangeByProfile: make(map[string]*RangeGridReader), rangeByPath: make(map[string]*RangeGridReader),
-	}
+	catalog := &ReleaseCatalog{manifest: manifest, byPeriod: make(map[string]*PointAssetReader), byPath: make(map[string]*PointAssetReader)}
 	success := false
 	defer func() {
 		if !success {
@@ -221,31 +218,25 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 		}
 	}
 	for _, period := range periods {
-		gridPath, err := releaseAsset(releaseDir, period.GridURL)
+		pointPath, err := releaseAsset(releaseDir, period.Point.URL)
 		if err != nil {
 			return nil, err
 		}
-		reader, exists := catalog.byPath[gridPath]
+		reader, exists := catalog.byPath[pointPath]
 		if !exists {
-			reader, err = OpenGrid(gridPath)
+			reader, err = OpenPointAsset(pointPath)
 			if err != nil {
-				return nil, fmt.Errorf("validate grid %q: %w", period.GridURL, err)
+				return nil, fmt.Errorf("validate point asset %q: %w", period.Point.URL, err)
 			}
-			catalog.byPath[gridPath] = reader
+			catalog.byPath[pointPath] = reader
 		}
-		if reader.Metadata().SHA256 != strings.ToLower(period.GridSHA256) {
-			return nil, fmt.Errorf("grid %q checksum does not match manifest", period.GridURL)
+		if err := pointMetadataMatchesAsset(reader.Metadata(), period.Point, manifest.ReleaseID); err != nil {
+			return nil, fmt.Errorf("point asset %q: %w", period.Point.URL, err)
 		}
-		if reader.Metadata().Bounds != manifest.Region.Bounds {
-			return nil, fmt.Errorf("grid %q bounds do not match manifest region", period.GridURL)
+		if reader.Metadata().Geometry.Bounds != manifest.Region.Bounds {
+			return nil, fmt.Errorf("point asset %q bounds do not match manifest region", period.Point.URL)
 		}
 		catalog.byPeriod[period.ID] = reader
-		imageWidth, imageHeight, err := WebMercatorImageDimensions(GridSpec{
-			Bounds: reader.Metadata().Bounds, Rows: reader.Metadata().Rows, Cols: reader.Metadata().Cols,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("derive image geometry for %q: %w", period.ID, err)
-		}
 		assets := make([]ImageAsset, 0, len(period.Images)+len(period.Lenses))
 		for _, asset := range period.Images {
 			assets = append(assets, asset)
@@ -268,8 +259,8 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			if err := validatePNG(path, asset); err != nil {
 				return nil, err
 			}
-			if asset.Width != imageWidth || asset.Height != imageHeight {
-				return nil, fmt.Errorf("image %q geometry does not match its grid", asset.URL)
+			if asset.Width != int(reader.Metadata().Geometry.Cols) || asset.Height != int(reader.Metadata().Geometry.Rows) {
+				return nil, fmt.Errorf("image %q geometry does not match its point asset", asset.URL)
 			}
 		}
 		for _, asset := range period.WindFrames {
@@ -284,63 +275,50 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			if metadata.SHA256 != strings.ToLower(asset.SHA256) {
 				return nil, fmt.Errorf("wind frame %q checksum does not match manifest", asset.URL)
 			}
-			if metadata.Grid.Bounds != reader.Metadata().Bounds || metadata.Grid.Rows != reader.Metadata().Rows || metadata.Grid.Cols != reader.Metadata().Cols {
-				return nil, fmt.Errorf("wind frame %q geometry does not match its forecast period", asset.URL)
+			if metadata.Grid.Bounds != manifest.Region.Bounds {
+				return nil, fmt.Errorf("wind frame %q bounds do not match its forecast period", asset.URL)
 			}
 			if uint64(asset.ClippedComponents) > uint64(metadata.Grid.Rows)*uint64(metadata.Grid.Cols)*2 {
 				return nil, fmt.Errorf("wind frame %q clipped-component count exceeds its grid", asset.URL)
 			}
 		}
 	}
-	var forecastWindowSpec GridSpec
+	var forecastWindowGeometry PointGeometry
 	coarsestGridFound := false
 	for _, day := range manifest.Forecast.Days {
 		if day.NativeResolutionKM != manifest.Forecast.Window.GridResolutionKM {
 			continue
 		}
-		metadata := catalog.byPeriod[day.ID].Metadata()
-		spec := GridSpec{Bounds: metadata.Bounds, Rows: metadata.Rows, Cols: metadata.Cols}
+		geometry := catalog.byPeriod[day.ID].Metadata().Geometry
 		if !coarsestGridFound {
-			forecastWindowSpec, coarsestGridFound = spec, true
-		} else if spec != forecastWindowSpec {
+			forecastWindowGeometry, coarsestGridFound = geometry, true
+		} else if geometry != forecastWindowGeometry {
 			return nil, errors.New("coarsest forecast days do not share one grid geometry")
 		}
 	}
 	if !coarsestGridFound {
 		return nil, errors.New("forecast window has no matching coarsest daily grid")
 	}
+	windowPath, err := releaseAsset(releaseDir, manifest.Forecast.Window.Point.URL)
+	if err != nil {
+		return nil, err
+	}
+	windowReader, exists := catalog.byPath[windowPath]
+	if !exists {
+		windowReader, err = OpenPointAsset(windowPath)
+		if err != nil {
+			return nil, fmt.Errorf("validate forecast window point asset %q: %w", manifest.Forecast.Window.Point.URL, err)
+		}
+		catalog.byPath[windowPath] = windowReader
+	}
+	if err := pointMetadataMatchesAsset(windowReader.Metadata(), manifest.Forecast.Window.Point, manifest.ReleaseID); err != nil {
+		return nil, fmt.Errorf("forecast window point asset: %w", err)
+	}
+	if windowReader.Metadata().Geometry != forecastWindowGeometry {
+		return nil, errors.New("forecast window point geometry does not match coarsest forecast days")
+	}
+	catalog.rangeReader = windowReader
 	for profile, asset := range manifest.Forecast.Window.Profiles {
-		gridPath, err := releaseAsset(releaseDir, asset.GridURL)
-		if err != nil {
-			return nil, err
-		}
-		reader, exists := catalog.rangeByPath[gridPath]
-		if !exists {
-			reader, err = OpenRangeGrid(gridPath)
-			if err != nil {
-				return nil, fmt.Errorf("validate forecast window grid %q: %w", asset.GridURL, err)
-			}
-			catalog.rangeByPath[gridPath] = reader
-		}
-		if reader.Metadata().SHA256 != strings.ToLower(asset.GridSHA256) {
-			return nil, fmt.Errorf("forecast window grid %q checksum does not match manifest", asset.GridURL)
-		}
-		if reader.Metadata().Bounds != manifest.Region.Bounds {
-			return nil, fmt.Errorf("forecast window grid %q bounds do not match manifest region", asset.GridURL)
-		}
-		if (GridSpec{Bounds: reader.Metadata().Bounds, Rows: reader.Metadata().Rows, Cols: reader.Metadata().Cols}) != forecastWindowSpec {
-			return nil, fmt.Errorf("forecast window grid %q geometry does not match coarsest forecast days", asset.GridURL)
-		}
-		if err := reader.ValidateDayCount(manifest.Forecast.Window.DayCount); err != nil {
-			return nil, fmt.Errorf("forecast window grid %q: %w", asset.GridURL, err)
-		}
-		catalog.rangeByProfile[profile] = reader
-		imageWidth, imageHeight, err := WebMercatorImageDimensions(GridSpec{
-			Bounds: reader.Metadata().Bounds, Rows: reader.Metadata().Rows, Cols: reader.Metadata().Cols,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("derive forecast window image geometry for %q: %w", profile, err)
-		}
 		path, err := releaseAsset(releaseDir, asset.Image.URL)
 		if err != nil {
 			return nil, err
@@ -355,12 +333,20 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 		if err := validatePNG(path, asset.Image); err != nil {
 			return nil, err
 		}
-		if asset.Image.Width != imageWidth || asset.Image.Height != imageHeight {
-			return nil, fmt.Errorf("forecast window image %q geometry does not match its grid", asset.Image.URL)
+		if asset.Image.Width != int(windowReader.Metadata().Geometry.Cols) || asset.Image.Height != int(windowReader.Metadata().Geometry.Rows) {
+			return nil, fmt.Errorf("forecast window image %q geometry does not match its point asset", asset.Image.URL)
 		}
+		_ = profile
 	}
 	success = true
 	return catalog, nil
+}
+
+func pointMetadataMatchesAsset(metadata PointMetadata, asset PointAsset, releaseID string) error {
+	if metadata.SHA256 != strings.ToLower(asset.SHA256) || metadata.PayloadSHA256 != strings.ToLower(asset.PayloadSHA256) || metadata.Bytes != asset.Bytes || metadata.HeaderBytes != asset.HeaderBytes || metadata.RecordBytes != asset.RecordBytes || metadata.Geometry != asset.Geometry || PointKindName(metadata.Kind) != asset.Kind {
+		return errors.New("file metadata does not match manifest")
+	}
+	return nil
 }
 
 func validatePNG(path string, asset ImageAsset) error {

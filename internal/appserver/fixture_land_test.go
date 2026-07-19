@@ -77,17 +77,17 @@ func TestFixtureReleaseHasInvalidOceanAndTransparentSea(t *testing.T) {
 	}
 
 	day := manifest.Forecast.Days[0]
-	grid, err := delivery.OpenGrid(filepath.Join(releaseRoot, filepath.FromSlash(day.GridURL)))
+	points, err := delivery.OpenPointAsset(filepath.Join(releaseRoot, filepath.FromSlash(day.Point.URL)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer grid.Close()
-	if _, valid, err := grid.RecordAt(-15, 45); err != nil || valid {
-		t.Fatalf("Atlantic grid record valid=%t err=%v; want invalid", valid, err)
+	defer points.Close()
+	if _, valid, err := points.DailyAt(-15, 45); err != nil || valid {
+		t.Fatalf("Atlantic point record valid=%t err=%v; want invalid", valid, err)
 	}
-	landRecord, valid, err := grid.RecordAt(4.9041, 52.3676)
+	landPoint, valid, err := points.DailyAt(4.9041, 52.3676)
 	if err != nil || !valid {
-		t.Fatalf("Amsterdam grid record valid=%t err=%v; want valid", valid, err)
+		t.Fatalf("Amsterdam point record valid=%t err=%v; want valid", valid, err)
 	}
 
 	asset := day.Images[delivery.ProfileNice]
@@ -119,7 +119,7 @@ func TestFixtureReleaseHasInvalidOceanAndTransparentSea(t *testing.T) {
 		}
 	}
 
-	landMetric, err := landRecord.WeatherMetrics(1)
+	landMetric, err := landPoint.Weather.WeatherMetrics(1)
 	if err != nil {
 		t.Fatal(err)
 	}

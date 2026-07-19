@@ -19,6 +19,25 @@ export type WindFrameAsset = {
   clippedComponents: number;
 };
 
+export type PointGeometry = {
+  bounds: { west: number; east: number; south: number; north: number };
+  quad: { west: number; east: number; north: number; south: number };
+  rows: number;
+  cols: number;
+};
+
+export type PointAsset = {
+  url: string;
+  sha256: string;
+  payloadSha256: string;
+  bytes: number;
+  kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month';
+  headerBytes: 128;
+  recordBytes: 30 | 44;
+  projection: 'web-mercator-image';
+  geometry: PointGeometry;
+};
+
 export type Period = {
   id: string;
   label: string;
@@ -31,7 +50,10 @@ export type Period = {
   lenses: Record<'comfort' | 'dry' | 'bright' | 'wind-nice' | 'wind-cycling', WeatherImage>;
   providerLabel: string;
   sourceRunAt: string;
+  sourceValidFrom: string;
+  sourceValidTo: string;
   temporalResolutionHours: number;
+  point: PointAsset;
   windFrames?: WindFrameAsset[];
 };
 
@@ -43,6 +65,7 @@ export type ForecastWindow = {
   endDate: string;
   dayCount: 14;
   resolutionKm: number;
+  point: PointAsset;
   profiles: Record<Profile, { image: WeatherImage }>;
 };
 
@@ -56,9 +79,9 @@ export type LegendCategory = {
 export type PaletteStop = { score: number; color: string };
 
 export type WeatherManifest = {
-  version: 5;
+  version: 6;
   releaseId: string;
-  productContract: 'nice-weather-v13';
+  productContract: 'nice-weather-v14';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];

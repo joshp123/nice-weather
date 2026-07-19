@@ -33,7 +33,7 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
-	if loaded.GridURL != period.GridURL || loaded.Images[delivery.ProfileNice].URL != period.Images[delivery.ProfileNice].URL {
+	if loaded.Point.URL != period.Point.URL || loaded.Images[delivery.ProfileNice].URL != period.Images[delivery.ProfileNice].URL {
 		t.Fatal("checkpoint asset identity drifted")
 	}
 
@@ -83,7 +83,7 @@ func TestClimateCheckpointRejectsPrePaletteContract(t *testing.T) {
 
 func TestClimateCheckpointQuarantinesUnsafePath(t *testing.T) {
 	cache := t.TempDir()
-	checkpoint := climateCheckpoint{Contract: climateScoreContract, Period: delivery.ClimatePeriod{Period: delivery.Period{ID: "month-01", Label: "January", GridURL: "../../escape"}, Month: 1}}
+	checkpoint := climateCheckpoint{Contract: climateScoreContract, Period: delivery.ClimatePeriod{Period: delivery.Period{ID: "month-01", Label: "January", Point: delivery.PointAsset{URL: "../../escape"}}, Month: 1}}
 	data, _ := json.Marshal(checkpoint)
 	path := filepath.Join(cache, "month-01.json")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -122,11 +122,11 @@ func TestClimateCheckpointRejectsTrailingJSONAndBoundsQuarantine(t *testing.T) {
 
 func TestRemoveClimateCheckpointAssetsReportsCleanupFailure(t *testing.T) {
 	cache := t.TempDir()
-	path := filepath.Join(cache, "grids", "climate", "blocked.nwg")
+	path := filepath.Join(cache, "points", "climate", "blocked.nwp")
 	if err := os.MkdirAll(filepath.Join(path, "child"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	period := delivery.Period{GridURL: "grids/climate/blocked.nwg"}
+	period := delivery.Period{Point: delivery.PointAsset{URL: "points/climate/blocked.nwp"}}
 	if err := removeClimateCheckpointAssets(cache, period); err == nil {
 		t.Fatal("non-empty obsolete asset directory cleanup failure was ignored")
 	}
