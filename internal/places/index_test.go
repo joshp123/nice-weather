@@ -3,6 +3,8 @@ package places
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -83,6 +85,9 @@ func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 	if metadata.ProductBounds != config.coverage || metadata.Normalization != normalization || metadata.MinimumQueryLength != 3 {
 		t.Fatalf("search contract mismatch: %+v", metadata)
 	}
+	if len(metadata.Shards) != first.ShardCount || metadata.Shards["cad"] != payloadSHA256(firstFiles["shards/cad.json"]) || metadata.Shards["mal"] != payloadSHA256(firstFiles["shards/mal.json"]) {
+		t.Fatalf("manifest does not bind every shard: %+v", metadata.Shards)
+	}
 
 	var cadiz shard
 	if err := json.Unmarshal(firstFiles["shards/cad.json"], &cadiz); err != nil {
@@ -96,6 +101,88 @@ func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 	}
 	if _, exists := firstFiles["shards/out.json"]; exists {
 		t.Fatal("out-of-coverage place was indexed")
+	}
+}
+
+func TestValidateOutputRejectsStructurallyValidAlteredShard(t *testing.T) {
+	t.Parallel()
+	source := makeSource(t, []sourcePlace{
+		{id: 1, name: "Málaga", ascii: "Malaga", latitude: "36.7", longitude: "-4.4", code: "PPL", population: "100"},
+	}, nil)
+	output := filepath.Join(t.TempDir(), "release")
+	config := fixtureConfig(source, output)
+	config.limits.required = nil
+	summary, err := build(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(output, "shards", "mal.json")
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var altered shard
+	if err := json.Unmarshal(payload, &altered); err != nil {
+		t.Fatal(err)
+	}
+	altered.Records[0].Population++
+	payload, err = json.Marshal(altered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateOutput(output, config, summary); err == nil || !strings.Contains(err.Error(), "checksum does not match manifest") {
+		t.Fatalf("altered shard validation error = %v", err)
+	}
+}
+
+func TestCurrentScaleGeneratedManifestFitsBrowserBound(t *testing.T) {
+	const currentShardCount = 6_643
+	places := make([]sourcePlace, 0, currentShardCount)
+	for index := range currentShardCount {
+		name := base36ShardName(index)
+		places = append(places, sourcePlace{
+			id: int64(index + 1), name: name, ascii: name,
+			latitude: "36.7", longitude: "-4.4", code: "PPL", population: "1",
+		})
+	}
+	source := makeSource(t, places, nil)
+	output := filepath.Join(t.TempDir(), "release")
+	config := fixtureConfig(source, output)
+	config.limits.maxPlaces = currentShardCount
+	config.limits.maxShards = currentShardCount
+	config.limits.required = nil
+	summary, err := build(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile(filepath.Join(output, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata manifest
+	if err := json.Unmarshal(payload, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if summary.ShardCount != currentShardCount || len(metadata.Shards) != currentShardCount {
+		t.Fatalf("full build contains %d summary shards and %d manifest digests, want %d", summary.ShardCount, len(metadata.Shards), currentShardCount)
+	}
+	if len(payload) > maximumManifestBytes {
+		t.Fatalf("full %d-shard manifest requires %d bytes, exceeding the %d-byte client bound", currentShardCount, len(payload), maximumManifestBytes)
+	}
+	t.Logf("full %d-shard manifest is %d bytes (%.1f%% of the 2 MiB client bound)", currentShardCount, len(payload), 100*float64(len(payload))/maximumManifestBytes)
+}
+
+func TestMarshalManifestRejectsBrowserOverflow(t *testing.T) {
+	t.Parallel()
+	_, err := marshalManifest(manifest{Admins: map[string]string{
+		"ES.overflow": strings.Repeat("x", maximumManifestBytes),
+	}})
+	if err == nil || !strings.Contains(err.Error(), "place manifest size") || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversize manifest error = %v", err)
 	}
 }
 
@@ -200,6 +287,20 @@ func alternateRow(id int64, language, name string, preferred, colloquial, histor
 
 func strconvFormat(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+func payloadSHA256(payload []byte) string {
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}
+
+func base36ShardName(value int) string {
+	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	return string([]byte{
+		alphabet[(value/(36*36))%36],
+		alphabet[(value/36)%36],
+		alphabet[value%36],
+	})
 }
 
 func writeZip(t *testing.T, path, member, payload string) {

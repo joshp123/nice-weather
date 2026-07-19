@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,10 +27,11 @@ import (
 )
 
 const (
-	schema             = "nice-places-v1"
-	normalization      = "nice-latin-fold-v1"
-	shardPrefixLength  = 3
-	minimumQueryLength = 3
+	schema               = "nice-places-v1"
+	normalization        = "nice-latin-fold-v1"
+	shardPrefixLength    = 3
+	minimumQueryLength   = 3
+	maximumManifestBytes = 2 * 1024 * 1024
 )
 
 var europeCountries = []string{
@@ -204,6 +207,7 @@ type manifest struct {
 	Record             []string          `json:"record"`
 	Countries          map[string]string `json:"countries"`
 	Admins             map[string]string `json:"admins"`
+	Shards             map[string]string `json:"shards"`
 	Summary            Summary           `json:"summary"`
 }
 
@@ -302,6 +306,7 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 	}
 	sort.Strings(shardNames)
 	summary := Summary{PlaceCount: len(places), SearchKeyCount: searchKeyCount, ShardCount: len(shards)}
+	shardDigests := make(map[string]string, len(shards))
 	for _, name := range shardNames {
 		records := shards[name]
 		sortRecords(records)
@@ -319,6 +324,8 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 		if err := os.WriteFile(filepath.Join(shardsDir, name+".json"), payload, 0o644); err != nil {
 			return Summary{}, err
 		}
+		digest := sha256.Sum256(payload)
+		shardDigests[name] = hex.EncodeToString(digest[:])
 		summary.UncompressedBytes += int64(len(payload))
 		summary.GzipBytes += compressedBytes
 		summary.LargestShardGzip = max(summary.LargestShardGzip, compressedBytes)
@@ -330,7 +337,7 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 			countryLabels[code] = countries[code].name
 		}
 	}
-	manifestPayload, err := json.Marshal(manifest{
+	manifestPayload, err := marshalManifest(manifest{
 		Schema: schema,
 		Source: sourceMetadata{
 			Name: "GeoNames", ExtractDate: config.sourceDate,
@@ -343,7 +350,7 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 		ShardCount: len(shards), ShardPrefixLength: shardPrefixLength,
 		MinimumQueryLength: minimumQueryLength, Normalization: normalization,
 		Record:    []string{"key", "name", "country", "admin1", "latE5", "lonE5", "population", "featureRank", "geonameId"},
-		Countries: countryLabels, Admins: admins, Summary: summary,
+		Countries: countryLabels, Admins: admins, Shards: shardDigests, Summary: summary,
 	})
 	if err != nil {
 		return Summary{}, err
@@ -359,6 +366,17 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 	}
 	complete = true
 	return summary, nil
+}
+
+func marshalManifest(value manifest) ([]byte, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) > maximumManifestBytes {
+		return nil, fmt.Errorf("place manifest size %d exceeds %d", len(payload), maximumManifestBytes)
+	}
+	return payload, nil
 }
 
 func validateConfig(config buildConfig) error {
@@ -671,7 +689,7 @@ func validateOutput(root string, config buildConfig, want Summary) error {
 	if err := json.Unmarshal(payload, &got); err != nil {
 		return err
 	}
-	if got.Schema != schema || got.Source.ExtractDate != config.sourceDate || got.Source.License != "CC BY 4.0" || !got.Source.Modified || got.ProductBounds != config.coverage || got.Summary != want {
+	if got.Schema != schema || got.Source.ExtractDate != config.sourceDate || got.Source.License != "CC BY 4.0" || !got.Source.Modified || got.ProductBounds != config.coverage || got.Summary != want || got.ShardCount != want.ShardCount || len(got.Shards) != want.ShardCount {
 		return errors.New("generated manifest failed contract validation")
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "shards"))
@@ -688,6 +706,18 @@ func validateOutput(root string, config buildConfig, want Summary) error {
 		data, err := os.ReadFile(filepath.Join(root, "shards", entry.Name()))
 		if err != nil {
 			return err
+		}
+		name := strings.TrimSuffix(entry.Name(), ".json")
+		wantDigest, ok := got.Shards[name]
+		if !ok || len(wantDigest) != sha256.Size*2 {
+			return fmt.Errorf("shard %q has no valid manifest digest", entry.Name())
+		}
+		if _, err := hex.DecodeString(wantDigest); err != nil {
+			return fmt.Errorf("shard %q has invalid manifest digest: %w", entry.Name(), err)
+		}
+		digest := sha256.Sum256(data)
+		if hex.EncodeToString(digest[:]) != wantDigest {
+			return fmt.Errorf("shard %q checksum does not match manifest", entry.Name())
 		}
 		var decoded shard
 		if err := json.Unmarshal(data, &decoded); err != nil || decoded.Version != 1 || len(decoded.Records) == 0 {
