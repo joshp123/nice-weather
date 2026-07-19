@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"nice-weather-finder/internal/appserver"
+	"nice-weather-finder/internal/places"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -44,6 +45,20 @@ func main() {
 			defer stop()
 			err = weatherupdate.Run(ctx, weatherupdate.Config{Out: *out, Cache: *cache, Smoke: *smoke, Refresh: *refresh})
 		}
+	case "places":
+		flags := flag.NewFlagSet("places", flag.ContinueOnError)
+		source := flags.String("source", "", "directory containing pinned GeoNames extracts")
+		out := flags.String("out", "", "immutable place-index release directory")
+		sourceDate := flags.String("source-date", "", "GeoNames extract date in YYYY-MM-DD")
+		if err = flags.Parse(os.Args[2:]); err == nil {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			var summary places.Summary
+			summary, err = places.BuildEurope(ctx, *source, *out, *sourceDate)
+			if err == nil {
+				fmt.Printf("places: %d places, %d keys, %d shards, %.1f MiB gzip\n", summary.PlaceCount, summary.SearchKeyCount, summary.ShardCount, float64(summary.GzipBytes)/(1024*1024))
+			}
+		}
 	case "help", "-h", "--help":
 		usage()
 		return
@@ -58,5 +73,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|serve> [options]")
+	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|serve|places> [options]")
 }
