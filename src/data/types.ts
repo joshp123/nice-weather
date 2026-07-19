@@ -67,6 +67,7 @@ export type ForecastWindow = {
   resolutionKm: number;
   point: PointAsset;
   profiles: Record<Profile, { image: WeatherImage }>;
+  lenses: Record<'comfort' | 'dry' | 'bright' | 'wind-nice' | 'wind-cycling', WeatherImage>;
 };
 
 export type LegendCategory = {
@@ -79,9 +80,9 @@ export type LegendCategory = {
 export type PaletteStop = { score: number; color: string };
 
 export type WeatherManifest = {
-  version: 6;
+  version: 7;
   releaseId: string;
-  productContract: 'nice-weather-v14';
+  productContract: 'nice-weather-v15';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];

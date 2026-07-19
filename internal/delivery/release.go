@@ -318,8 +318,15 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 		return nil, errors.New("forecast window point geometry does not match coarsest forecast days")
 	}
 	catalog.rangeReader = windowReader
-	for profile, asset := range manifest.Forecast.Window.Profiles {
-		path, err := releaseAsset(releaseDir, asset.Image.URL)
+	assets := make([]ImageAsset, 0, len(manifest.Forecast.Window.Profiles)+len(manifest.Forecast.Window.Lenses))
+	for _, profile := range manifest.Forecast.Window.Profiles {
+		assets = append(assets, profile.Image)
+	}
+	for _, lens := range manifest.Forecast.Window.Lenses {
+		assets = append(assets, lens)
+	}
+	for _, asset := range assets {
+		path, err := releaseAsset(releaseDir, asset.URL)
 		if err != nil {
 			return nil, err
 		}
@@ -328,15 +335,14 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			if err == nil {
 				err = errors.New("not a regular file")
 			}
-			return nil, fmt.Errorf("validate forecast window image %q: %w", asset.Image.URL, err)
+			return nil, fmt.Errorf("validate forecast window image %q: %w", asset.URL, err)
 		}
-		if err := validatePNG(path, asset.Image); err != nil {
+		if err := validatePNG(path, asset); err != nil {
 			return nil, err
 		}
-		if asset.Image.Width != int(windowReader.Metadata().Geometry.Cols) || asset.Image.Height != int(windowReader.Metadata().Geometry.Rows) {
-			return nil, fmt.Errorf("forecast window image %q geometry does not match its point asset", asset.Image.URL)
+		if asset.Width != int(windowReader.Metadata().Geometry.Cols) || asset.Height != int(windowReader.Metadata().Geometry.Rows) {
+			return nil, fmt.Errorf("forecast window image %q geometry does not match its point asset", asset.URL)
 		}
-		_ = profile
 	}
 	success = true
 	return catalog, nil

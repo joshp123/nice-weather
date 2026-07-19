@@ -33,7 +33,8 @@ export default function App() {
   const [viewport, setViewport] = useState<PlaceSearchViewport>({ latitude: 48.5, longitude: 9.5 });
   const [mapNotice, setMapNotice] = useState('');
   const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
-  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const [legendPanel, setLegendPanel] = useState<'lenses' | 'guide' | null>(null);
+  const [mapSelectionToken, setMapSelectionToken] = useState(0);
   const [windEnabled, setWindEnabled] = useState(false);
   const [windFrameSelection, setWindFrameSelection] = useState({ periodId: '', index: 0 });
   const [windState, setWindState] = useState<WindState>({ status: 'idle' });
@@ -126,7 +127,7 @@ export default function App() {
 
   const overlayUrl = useMemo(() => {
     if (!manifest) return undefined;
-    if (view === 'range') return imageAssetUrl(manifest.releaseId, manifest.forecast.window.profiles[profile].image);
+    if (view === 'range') return imageAssetUrl(manifest.releaseId, rangeLensAsset(manifest.forecast.window, profile, lens));
     if (!period) return undefined;
     return imageAssetUrl(manifest.releaseId, lensAsset(period, profile, lens));
   }, [lens, manifest, period, profile, view]);
@@ -135,14 +136,13 @@ export default function App() {
     if (next === 'climate' && !manifest?.climate) return;
     telemetry('view-changed', { view: next });
     setView(next);
-    setLayerMenuOpen(false);
+    setLegendPanel(null);
     if (next !== 'daily') setWindEnabled(false);
-    if (next === 'range') setLens('overall');
     setPeriodId('');
   };
 
   const selectPoint = (point: MapPoint, focus = true, focusDetails = false) => {
-    setLayerMenuOpen(false);
+    setLegendPanel(null);
     setSelectedPoint(point);
     setFocusPoint(focus ? { ...point, token: Date.now() } : undefined);
     setDetailsFocusIntent((current) => nextDetailsFocusIntent(current, focusDetails));
@@ -161,6 +161,7 @@ export default function App() {
           focusPoint={focusPoint}
           onSelect={(point, intent) => {
             pointFocusOrigin.current = intent?.focusDetails && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            setMapSelectionToken((value) => value + 1);
             selectPoint(point, false, shouldFocusDetails(intent?.focusDetails ? 'map-keyboard' : 'map-pointer'));
           }}
           onViewportChange={setViewport}
@@ -170,7 +171,7 @@ export default function App() {
             if (state.status === 'error' && state.reason === 'stale-release' && manifest) refreshStaleRelease(manifest.releaseId);
           }}
           onOverlayReady={(elapsedMs, renderer, assetUrl) => {
-            telemetry('overlay-ready', { elapsedMs, renderer, assetUrl, period: activePeriodId, profile, lens: view === 'range' ? 'overall' : lens });
+            telemetry('overlay-ready', { elapsedMs, renderer, assetUrl, period: activePeriodId, profile, lens });
             reportResourceSummary();
           }}
         />
@@ -178,14 +179,14 @@ export default function App() {
 
       <header className="masthead">
         <div className="wordmark" aria-label="Nice Weather"><SunMark /><span>Nice Weather</span></div>
-        <PlaceSearch viewport={viewport} manifest={manifest} profile={profile} view={view} onEngage={() => setLayerMenuOpen(false)} onFound={(point, origin) => {
+        <PlaceSearch viewport={viewport} manifest={manifest} profile={profile} view={view} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onFound={(point, origin) => {
           pointFocusOrigin.current = origin;
           selectPoint(point, true, shouldFocusDetails('search'));
         }} />
         {manifest?.dataStatus === 'sample' && <p className="sampleFlag" role="status"><strong>Sample</strong><span>Not a live forecast</span></p>}
       </header>
 
-      <button className="mapAction locationButton" type="button" onClick={() => locate((point) => selectPoint({ ...point, label: 'Current location' }), setMapNotice)} aria-label="Use my location">
+      <button className="mapAction locationButton" type="button" onClick={() => locate((point) => { setMapSelectionToken((value) => value + 1); selectPoint({ ...point, label: 'Current location' }); }, setMapNotice)} aria-label="Use my location">
         <LocationIcon />
       </button>
 
@@ -199,12 +200,12 @@ export default function App() {
           period={period}
           view={view}
           lens={lens}
-          open={layerMenuOpen}
+          panel={legendPanel}
           windEnabled={windEnabled}
           windFrameIndex={windFrameIndex}
           windStatus={windState.status}
-          onOpenChange={setLayerMenuOpen}
-          onChange={(next) => { setLens(next); setLayerMenuOpen(false); telemetry('lens-changed', { lens: next }); }}
+          onPanelChange={setLegendPanel}
+          onChange={(next) => { setLens(next); setLegendPanel(null); telemetry('lens-changed', { lens: next }); }}
           onWindEnabledChange={(enabled) => { setWindEnabled(enabled); telemetry('wind-direction-changed', { enabled }); }}
           onWindFrameChange={(index) => setWindFrameSelection({ periodId: period?.id ?? '', index })}
         />
@@ -218,7 +219,7 @@ export default function App() {
           lens={lens}
           focusIntent={detailsFocusIntent}
           onLensChange={(next) => { if (view !== 'range') setLens(next); }}
-          escapeEnabled={!layerMenuOpen}
+          escapeEnabled={legendPanel === null}
           onClose={() => {
             setSelectedPoint(undefined);
             setPointState({ status: 'idle' });
@@ -266,10 +267,12 @@ function ProfileControl({ value, onChange }: { value: Profile; onChange: (value:
 }
 
 function PeriodRail({ periods, selectedId, view, onChange }: { periods: Period[]; selectedId: string; view: View; onChange: (id: string) => void }) {
+  const rail = useRef<HTMLDivElement>(null);
+  useEffect(() => revealSelectedPeriod(rail.current, selectedId), [selectedId, view]);
   return (
-    <div className="periodRail" role="group" aria-label={view === 'daily' ? 'Forecast day' : 'Typical month'}>
+    <div ref={rail} className="periodRail" role="group" aria-label={view === 'daily' ? 'Forecast day' : 'Typical month'}>
       {periods.map((period, index) => (
-        <button key={period.id} type="button" aria-pressed={selectedId === period.id} onClick={() => onChange(period.id)}>
+        <button key={period.id} type="button" data-period-id={period.id} aria-pressed={selectedId === period.id} onClick={() => onChange(period.id)}>
           <span>{period.shortLabel}</span>{view === 'daily' && period.date && <small>{railMonthLabel(periods, index)}</small>}
         </button>
       ))}
@@ -277,7 +280,7 @@ function PeriodRail({ periods, selectedId, view, onChange }: { periods: Period[]
   );
 }
 
-const LENSES: Array<{ id: Lens; label: string }> = [
+export const LENSES: ReadonlyArray<{ id: Lens; label: string }> = [
   { id: 'overall', label: 'Overall' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Bright' }, { id: 'wind', label: 'Calm' },
 ];
 
@@ -286,35 +289,39 @@ type LayerLegendProps = {
   period?: Period;
   view: View;
   lens: Lens;
-  open: boolean;
+  panel: 'lenses' | 'guide' | null;
   windEnabled: boolean;
   windFrameIndex: number;
   windStatus: WindState['status'];
-  onOpenChange: (open: boolean) => void;
+  onPanelChange: (panel: 'lenses' | 'guide' | null) => void;
   onChange: (lens: Lens) => void;
   onWindEnabledChange: (enabled: boolean) => void;
   onWindFrameChange: (index: number) => void;
 };
 
-function LayerLegend({ manifest, period, view, lens, open, windEnabled, windFrameIndex, windStatus, onOpenChange, onChange, onWindEnabledChange, onWindFrameChange }: LayerLegendProps) {
+export function LayerLegend({ manifest, period, view, lens, panel, windEnabled, windFrameIndex, windStatus, onPanelChange, onChange, onWindEnabledChange, onWindFrameChange }: LayerLegendProps) {
   const trigger = useRef<HTMLButtonElement>(null);
-  useEscape(open, () => { onOpenChange(false); restoreFocus(trigger.current); });
-  const active = view === 'range' ? 'Overall' : LENSES.find((item) => item.id === lens)?.label ?? 'Overall';
+  const guideTrigger = useRef<HTMLButtonElement>(null);
+  useEscape(panel !== null, () => { const focus = panel === 'guide' ? guideTrigger.current : trigger.current; onPanelChange(null); restoreFocus(focus); });
+  const active = LENSES.find((item) => item.id === lens)?.label ?? 'Overall';
   const frames = view === 'daily' ? period?.windFrames ?? [] : [];
   return (
     <div className="legendControl">
-      <button ref={trigger} type="button" className="legendTrigger" aria-haspopup="dialog" aria-expanded={open} onClick={() => onOpenChange(!open)}>
-        <span className="legendTop"><strong>{active}</strong><span aria-hidden="true">⌄</span></span>
-        <span className="legendRamp" style={{ background: `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(',')})` }} />
-        <span className="legendEnds"><span>Awful</span><span>Excellent</span></span>
-      </button>
-      {open && (
-        <div className="legendPopover" role="dialog" aria-label={view === 'range' ? 'Score guide' : 'Map layer and score guide'}>
-          {view !== 'range' && <div className="layerMenu" role="radiogroup" aria-label="Map layer">
+      <div className="legendInstrument">
+        <button ref={trigger} type="button" className="legendTrigger" aria-haspopup="dialog" aria-expanded={panel === 'lenses'} aria-label={`Choose map lens. Active: ${active}`} onClick={() => onPanelChange(panel === 'lenses' ? null : 'lenses')}>
+          <span className="legendTop"><strong>{active}</strong><span aria-hidden="true">⌄</span></span>
+          <span className="legendRamp" style={{ background: `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(',')})` }} />
+          <span className="legendEnds"><span>Awful</span><span>Excellent</span></span>
+        </button>
+        <button ref={guideTrigger} type="button" className="scoreGuideTrigger" aria-haspopup="dialog" aria-expanded={panel === 'guide'} aria-label="Explain weather scores" onClick={() => onPanelChange(panel === 'guide' ? null : 'guide')}>Scores</button>
+      </div>
+      {panel && (
+        <div className="legendPopover" role="dialog" aria-label={panel === 'guide' ? 'Score guide' : 'Choose map lens'}>
+          {panel === 'lenses' && <div className="layerMenu" role="radiogroup" aria-label="Map lens">
             {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={lens === item.id} onClick={() => { onChange(item.id); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><b aria-hidden="true">{lens === item.id ? '✓' : ''}</b></button>)}
           </div>}
-          {view === 'daily' && <button type="button" className="windToggle" role="switch" aria-checked={windEnabled} onClick={() => onWindEnabledChange(!windEnabled)}><span>Wind direction</span><b aria-hidden="true">{windEnabled ? 'On' : 'Off'}</b></button>}
-          <ScoreGuide manifest={manifest} defaultOpen={view === 'range'} />
+          {panel === 'lenses' && view === 'daily' && <button type="button" className="windToggle" role="switch" aria-checked={windEnabled} onClick={() => onWindEnabledChange(!windEnabled)}><span>Wind direction</span><b aria-hidden="true">{windEnabled ? 'On' : 'Off'}</b></button>}
+          {panel === 'guide' && <ScoreGuide manifest={manifest} />}
         </div>
       )}
       {windEnabled && view === 'daily' && <WindTimeControl frames={frames} index={windFrameIndex} status={windStatus} onChange={onWindFrameChange} />}
@@ -333,22 +340,21 @@ function WindTimeControl({ frames, index, status, onChange }: { frames: NonNulla
   );
 }
 
-function ScoreGuide({ manifest, defaultOpen }: { manifest: WeatherManifest; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
+function ScoreGuide({ manifest }: { manifest: WeatherManifest }) {
   return (
-    <details className="scoreGuide" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>How scores work</summary>
+    <section className="scoreGuide">
+      <h2>How scores work</h2>
       <div className="scoreGuideBody">
         <p>Scores combine Comfort, Dry, Bright and Calm. Higher is better.</p>
         <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
         <p><strong>Nice</strong> favours warm, bright, dry and calm weather. <strong>Cycling</strong> is stricter about rain, wind and gusts.</p>
         <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
       </div>
-    </details>
+    </section>
   );
 }
 
-function PlaceSearch({ viewport, manifest, profile, view, onEngage, onFound }: { viewport: PlaceSearchViewport; manifest?: WeatherManifest; profile: Profile; view: View; onEngage: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
+function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, onFound }: { viewport: PlaceSearchViewport; manifest?: WeatherManifest; profile: Profile; view: View; clearToken: number; onEngage: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
   const search = useMemo(() => new EuropePlaceSearch(), []);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
@@ -370,6 +376,14 @@ function PlaceSearch({ viewport, manifest, profile, view, onEngage, onFound }: {
     search.clear();
     window.clearTimeout(blurTimer.current);
   }, [search]);
+  useEffect(() => {
+    clearSearchAfterMapSelection(clearToken, () => {
+      setQuery('');
+      setResults([]);
+      setStatus('');
+      setFocused(false);
+    });
+  }, [clearToken]);
   useEffect(() => {
     const request = ++requestSequence.current;
     const coordinates = parseCoordinates(query);
@@ -507,7 +521,7 @@ function PointPanel({ state, point, legend, lens, focusIntent, onLensChange, esc
 
 function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint }) {
   const eyebrow = data.kind === 'range'
-    ? `${shortRange(data.window.startDate, data.window.endDate)} · ${data.window.dayCount} days`
+    ? `${shortRange(data.window.startDate, data.window.endDate)} · ${dayCountLabel(data.window.dayCount)}`
     : data.source.basis === 'climate' ? `${data.periodLabel} · monthly average` : data.periodLabel;
   return <PointHeading point={point} eyebrow={eyebrow} score={data.score} category={data.category} />;
 }
@@ -519,7 +533,7 @@ function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'r
       <dl className="rangeFacts">
         <div><dd>{data.window.niceDays}</dd><dt>Nice days</dt></div>
         <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
-        <div><dd>{data.window.longestPoorRun}<small> days</small></dd><dt>Longest poor run</dt></div>
+        <div><dd>{data.window.longestPoorRun}<small> {data.window.longestPoorRun === 1 ? 'day' : 'days'}</small></dd><dt>Longest poor run</dt></div>
       </dl>
       <ForecastFingerprint days={data.days} legend={legend} />
       <ComponentRows data={data} legend={legend} />
@@ -529,13 +543,14 @@ function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'r
 }
 
 function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; legend: WeatherManifest['legend']; lens: Lens; onLensChange: (lens: Lens) => void }) {
+  const rain = rainDisplay(data);
   return (
     <>
       <p className="pointSummary">{data.summary}</p>
-      {data.source.basis === 'climate' && <p className="climateNote">Monthly average from {data.source.referencePeriod}; not the chance of a nice day.</p>}
+      {data.source.basis === 'climate' && <p className="climateNote">Monthly average from {data.source.referencePeriod}; not the chance of a nice day. Rain is the average per day.</p>}
       <dl className="weatherFacts">
         <div className="comfortFact"><dt>Temperature</dt><dd>{format(data.metrics.minTempC, 0)}–{format(data.metrics.maxTempC, 0)}°{comfortContext(data)}</dd></div>
-        <div><dt>Rain</dt><dd>{format(data.metrics.rainMm, 1)} mm</dd></div>
+        <div><dt>{rain.label}</dt><dd>{rain.value}</dd></div>
         <div><dt>{data.metrics.cloudPct !== undefined ? 'Cloud' : 'Sun energy'}</dt><dd>{data.metrics.cloudPct !== undefined ? `${format(data.metrics.cloudPct, 0)}%` : data.metrics.solarEnergyMJm2 !== undefined ? `${format(data.metrics.solarEnergyMJm2, 1)} MJ/m²` : '—'}</dd></div>
         <div><dt>Wind</dt><dd>{format(data.metrics.windKmh, 0)} km/h</dd></div>
       </dl>
@@ -599,6 +614,12 @@ function lensAsset(period: Period, profile: Profile, lens: Lens) {
   return period.lenses[lens];
 }
 
+export function rangeLensAsset(window: WeatherManifest['forecast']['window'], profile: Profile, lens: Lens) {
+  if (lens === 'overall') return window.profiles[profile].image;
+  if (lens === 'wind') return window.lenses[`wind-${profile}`];
+  return window.lenses[lens];
+}
+
 function periodStatus(manifest: WeatherManifest, view: View, period?: Period): string {
   if (view === 'climate') return `Monthly average · ${manifest.climate?.period ?? ''}`;
   const status = forecastRunStatus(view === 'daily' && period ? period.sourceRunAt : manifest.forecast.updatedAt, manifest.forecast.staleAfterHours);
@@ -645,6 +666,19 @@ function railMonthLabel(periods: Period[], index: number): string {
   if (!current) return '\u00a0';
   const month = monthLabel(current);
   return index === 0 || !previous || monthLabel(previous) !== month ? month : '\u00a0';
+}
+export function revealSelectedPeriod(container: Pick<HTMLElement, 'querySelectorAll'> | null, selectedId: string): void {
+  if (!container) return;
+  const selected = Array.from(container.querySelectorAll<HTMLElement>('[data-period-id]')).find((item) => item.dataset.periodId === selectedId);
+  const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest', inline: 'center' });
+}
+export function dayCountLabel(count: number): string { return `${count} ${count === 1 ? 'day' : 'days'}`; }
+export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
+export function rainDisplay(data: DailyPoint): { label: string; value: string } {
+  return data.source.basis === 'climate'
+    ? { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` }
+    : { label: 'Rain', value: `${format(data.metrics.rainMm, 1)} mm` };
 }
 function timeLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' }).format(new Date(value)) + ' UTC'; }
 function defaultWindFrameIndex(frames: Period['windFrames']): number {

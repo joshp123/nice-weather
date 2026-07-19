@@ -51,6 +51,7 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"product contract v10 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v10" },
 		"product contract v11 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v11" },
 		"product contract v12 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v12" },
+		"product contract v14 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v14" },
 		"data status":                   func(m *Manifest) { m.DataStatus = "preview" },
 		"timestamp":                     func(m *Manifest) { m.GeneratedAt = "today" },
 		"profile":                       func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
@@ -93,11 +94,21 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"window date":             func(m *Manifest) { m.Forecast.Window.EndDate = "2026-07-19" },
 		"window resolution":       func(m *Manifest) { m.Forecast.Window.GridResolutionKM = 28 },
 		"window profile":          func(m *Manifest) { delete(m.Forecast.Window.Profiles, ProfileCycling) },
+		"window missing lens":     func(m *Manifest) { delete(m.Forecast.Window.Lenses, LensComfort) },
+		"window unexpected lens":  func(m *Manifest) { m.Forecast.Window.Lenses["humidity"] = m.Forecast.Window.Lenses[LensComfort] },
 		"window point checksum":   func(m *Manifest) { m.Forecast.Window.Point.SHA256 = "bad" },
 		"window image geometry": func(m *Manifest) {
 			asset := m.Forecast.Window.Profiles[ProfileNice]
 			asset.Image.Height = 0
 			m.Forecast.Window.Profiles[ProfileNice] = asset
+		},
+		"window lens geometry": func(m *Manifest) {
+			asset := m.Forecast.Window.Lenses[LensComfort]
+			asset.Height = 0
+			m.Forecast.Window.Lenses[LensComfort] = asset
+		},
+		"window duplicate image path": func(m *Manifest) {
+			m.Forecast.Window.Lenses[LensComfort] = m.Forecast.Window.Profiles[ProfileNice].Image
 		},
 		"duplicate period": func(m *Manifest) { m.Climate.Months[0].ID = m.Forecast.Days[0].ID },
 		"duplicate date": func(m *Manifest) {
@@ -247,6 +258,13 @@ func validManifest(checksum string) Manifest {
 				Profiles: map[string]ForecastRangeAsset{
 					ProfileNice:    {Image: ImageAsset{URL: "images/range-nice.png", SHA256: strings.Repeat("4", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
 					ProfileCycling: {Image: ImageAsset{URL: "images/range-cycling.png", SHA256: strings.Repeat("6", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
+				},
+				Lenses: map[string]ImageAsset{
+					LensComfort:    {URL: "images/range-comfort.png", SHA256: strings.Repeat("a", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+					LensDry:        {URL: "images/range-dry.png", SHA256: strings.Repeat("b", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+					LensBright:     {URL: "images/range-bright.png", SHA256: strings.Repeat("c", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+					"wind-nice":    {URL: "images/range-wind-nice.png", SHA256: strings.Repeat("d", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
+					"wind-cycling": {URL: "images/range-wind-cycling.png", SHA256: strings.Repeat("e", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
 				},
 			},
 			Days: days,

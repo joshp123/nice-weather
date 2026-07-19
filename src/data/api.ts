@@ -3,8 +3,8 @@ import type {
   PointWeather, WeatherImage, WeatherManifest,
 } from './types';
 
-const MANIFEST_VERSION = 6;
-const PRODUCT_CONTRACT = 'nice-weather-v14';
+const MANIFEST_VERSION = 7;
+const PRODUCT_CONTRACT = 'nice-weather-v15';
 const POINT_HEADER_BYTES = 128;
 const MAX_MERCATOR_LATITUDE = 85.0511287798066;
 const MAPLIBRE_TILE_EXTENT = 8192;
@@ -97,12 +97,12 @@ function parseManifest(value: unknown): WeatherManifest {
   }
 	const manifestBounds = { west: number(bounds.west, 'west'), east: number(bounds.east, 'east'), south: number(bounds.south, 'south'), north: number(bounds.north, 'north') };
 	for (const period of [...days, ...(climate?.months ?? [])]) validatePointImageParity(period.point, [...Object.values(period.images), ...Object.values(period.lenses)], manifestBounds, `${period.id} assets`);
-	validatePointImageParity(window.point, Object.values(window.profiles).map((profile) => profile.image), manifestBounds, 'forecast window assets');
+	validatePointImageParity(window.point, [...Object.values(window.profiles).map((profile) => profile.image), ...Object.values(window.lenses)], manifestBounds, 'forecast window assets');
 	const coarsest = days.filter((day) => day.resolutionKm === window.resolutionKm);
 	if (coarsest.length === 0 || coarsest.some((day) => !samePointGeometry(day.point, window.point))) throw new Error('Forecast window point geometry does not match its coarsest days.');
 
   return {
-    version: 6,
+    version: 7,
     releaseId: releaseId(data.releaseId, 'releaseId'),
     productContract: PRODUCT_CONTRACT,
     dataStatus: data.dataStatus,
@@ -121,13 +121,24 @@ function parseManifest(value: unknown): WeatherManifest {
 }
 
 function forecastWindow(value: unknown, days: Period[]): WeatherManifest['forecast']['window'] {
-	const row = exactObject(value, ['id', 'label', 'startDate', 'endDate', 'dayCount', 'gridResolutionKm', 'point', 'profiles'], 'forecast window');
+  const row = exactObject(value, ['id', 'label', 'startDate', 'endDate', 'dayCount', 'gridResolutionKm', 'point', 'profiles', 'lenses'], 'forecast window');
   if (row.id !== 'next-14-days' || row.dayCount !== 14) throw new Error('Invalid forecast window.');
-	const profiles = exactObject(row.profiles, ['nice', 'cycling'], 'forecast window profiles');
-	const profile = (value: unknown, label: string) => {
-		const asset = exactObject(value, ['image'], label);
-		return { image: weatherImage(asset.image, `${label} image`) };
+  const profiles = exactObject(row.profiles, ['nice', 'cycling'], 'forecast window profiles');
+  const lenses = exactObject(row.lenses, ['comfort', 'dry', 'bright', 'wind-nice', 'wind-cycling'], 'forecast window lenses');
+  const profile = (value: unknown, label: string) => {
+    const asset = exactObject(value, ['image'], label);
+    return { image: weatherImage(asset.image, `${label} image`) };
   };
+  const parsedProfiles = { nice: profile(profiles.nice, 'nice window'), cycling: profile(profiles.cycling, 'cycling window') };
+  const parsedLenses = {
+    comfort: weatherImage(lenses.comfort, 'window comfort image'),
+    dry: weatherImage(lenses.dry, 'window dry image'),
+    bright: weatherImage(lenses.bright, 'window bright image'),
+    'wind-nice': weatherImage(lenses['wind-nice'], 'window nice calm image'),
+    'wind-cycling': weatherImage(lenses['wind-cycling'], 'window cycling calm image'),
+  };
+  const imageURLs = [...Object.values(parsedProfiles).map((item) => item.image.url), ...Object.values(parsedLenses).map((item) => item.url)];
+  if (new Set(imageURLs).size !== imageURLs.length) throw new Error('Forecast window image paths must be unique.');
   const startDate = date(row.startDate, 'window startDate');
   const endDate = date(row.endDate, 'window endDate');
   if (startDate !== days[0].date || endDate !== days[days.length - 1].date) throw new Error('Forecast window dates do not match its days.');
@@ -138,9 +149,10 @@ function forecastWindow(value: unknown, days: Period[]): WeatherManifest['foreca
     startDate,
     endDate,
     dayCount: 14,
-		resolutionKm: positiveNumber(row.gridResolutionKm, 'window resolution'),
-		point: pointAsset(row.point, 'forecast-window', 'forecast window point'),
-    profiles: { nice: profile(profiles.nice, 'nice window'), cycling: profile(profiles.cycling, 'cycling window') },
+    resolutionKm: positiveNumber(row.gridResolutionKm, 'window resolution'),
+    point: pointAsset(row.point, 'forecast-window', 'forecast window point'),
+    profiles: parsedProfiles,
+    lenses: parsedLenses,
   };
 }
 

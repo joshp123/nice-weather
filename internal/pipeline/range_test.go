@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bytes"
+	"image/color"
 	"image/png"
 	"testing"
 
@@ -226,6 +227,57 @@ func TestRangeOverlayRejectsUnvalidatedRecords(t *testing.T) {
 	bad.Valid = false
 	if err := RenderWebMercatorRangeRecords(&bytes.Buffer{}, spec, []delivery.RangeRecord{bad}, delivery.CanonicalPalette()); err == nil {
 		t.Fatal("range renderer accepted data hidden behind an invalid flag")
+	}
+}
+
+func TestForecastWindowLensPixelsUseStoredRangeComponents(t *testing.T) {
+	geometry, err := delivery.NewPointGeometry(delivery.GridSpec{
+		Bounds: delivery.GridBounds{West: 0, East: 1, South: 0, North: 1}, Rows: 1, Cols: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := delivery.RangePointRecord{
+		Nice:    delivery.RangeRecord{Score: 11, Thermal: 22, Dryness: 33, Sun: 44, Wind: 55, Valid: true},
+		Cycling: delivery.RangeRecord{Score: 66, Thermal: 22, Dryness: 33, Sun: 44, Wind: 77, Valid: true},
+	}
+	palette, err := scorePalette(delivery.CanonicalPalette())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		profile weather.Profile
+		lens    weather.Lens
+		want    uint8
+	}{
+		{"nice overall", weather.ProfileNice, weather.LensOverall, 11},
+		{"cycling overall", weather.ProfileCycling, weather.LensOverall, 66},
+		{"comfort", weather.ProfileNice, weather.LensComfort, 22},
+		{"dry", weather.ProfileNice, weather.LensDry, 33},
+		{"bright", weather.ProfileNice, weather.LensBright, 44},
+		{"nice calm", weather.ProfileNice, weather.LensCalm, 55},
+		{"cycling calm", weather.ProfileCycling, weather.LensCalm, 77},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var encoded bytes.Buffer
+			if err := RenderPointRangeLensRecords(&encoded, geometry, []delivery.RangePointRecord{record}, test.profile, test.lens, delivery.CanonicalPalette()); err != nil {
+				t.Fatal(err)
+			}
+			imageData, err := png.Decode(bytes.NewReader(encoded.Bytes()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := color.NRGBAModel.Convert(imageData.At(0, 0)); got != palette[test.want] {
+				t.Fatalf("pixel = %v; want stored value %d colour %v", got, test.want, palette[test.want])
+			}
+		})
+	}
+	if err := RenderPointRangeLensRecords(&bytes.Buffer{}, geometry, []delivery.RangePointRecord{record}, weather.Profile("commute"), weather.LensOverall, delivery.CanonicalPalette()); err == nil {
+		t.Fatal("unknown forecast-window profile was accepted")
+	}
+	if err := RenderPointRangeLensRecords(&bytes.Buffer{}, geometry, []delivery.RangePointRecord{record}, weather.ProfileNice, weather.Lens("humidity"), delivery.CanonicalPalette()); err == nil {
+		t.Fatal("unknown forecast-window lens was accepted")
 	}
 }
 

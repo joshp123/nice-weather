@@ -230,9 +230,15 @@ func RenderPointDailyRecords(w io.Writer, geometry delivery.PointGeometry, recor
 	return encoder.Encode(w, imageData)
 }
 
-func RenderPointRangeRecords(w io.Writer, geometry delivery.PointGeometry, records []delivery.RangePointRecord, profile weather.Profile, paletteStops []delivery.PaletteStop) error {
+// RenderPointRangeLensRecords renders an already-aggregated forecast-window
+// judgement. Every value comes from the same RangePointRecord returned for a
+// selected texel; this function never re-scores or re-aggregates weather.
+func RenderPointRangeLensRecords(w io.Writer, geometry delivery.PointGeometry, records []delivery.RangePointRecord, profile weather.Profile, lens weather.Lens, paletteStops []delivery.PaletteStop) error {
 	if len(records) != int(geometry.Rows)*int(geometry.Cols) {
 		return fmt.Errorf("forecast-window point overlay geometry does not match records")
+	}
+	if profile != weather.ProfileNice && profile != weather.ProfileCycling {
+		return fmt.Errorf("unsupported forecast-window profile %q", profile)
 	}
 	palette, err := scorePalette(paletteStops)
 	if err != nil {
@@ -243,9 +249,24 @@ func RenderPointRangeRecords(w io.Writer, geometry delivery.PointGeometry, recor
 		if !record.Nice.Valid {
 			continue
 		}
-		score := record.Nice.Score
+		profileRecord := record.Nice
 		if profile == weather.ProfileCycling {
-			score = record.Cycling.Score
+			profileRecord = record.Cycling
+		}
+		var score uint8
+		switch lens {
+		case weather.LensOverall:
+			score = profileRecord.Score
+		case weather.LensComfort:
+			score = profileRecord.Thermal
+		case weather.LensDry:
+			score = profileRecord.Dryness
+		case weather.LensBright:
+			score = profileRecord.Sun
+		case weather.LensCalm:
+			score = profileRecord.Wind
+		default:
+			return fmt.Errorf("unsupported forecast-window lens %q", lens)
 		}
 		imageData.SetNRGBA(index%int(geometry.Cols), index/int(geometry.Cols), palette[score])
 	}

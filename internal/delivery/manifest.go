@@ -13,12 +13,12 @@ import (
 	"time"
 )
 
-const ManifestVersion = 6
+const ManifestVersion = 7
 
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v14"
+const ProductContract = "nice-weather-v15"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -104,6 +104,7 @@ type ForecastWindow struct {
 	GridResolutionKM float64                       `json:"gridResolutionKm"`
 	Point            PointAsset                    `json:"point"`
 	Profiles         map[string]ForecastRangeAsset `json:"profiles"`
+	Lenses           map[string]ImageAsset         `json:"lenses"`
 }
 
 type ForecastRangeAsset struct {
@@ -340,7 +341,7 @@ func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profil
 	if len(window.Profiles) != len(profiles) {
 		return errors.New("must contain one range grid and image per profile")
 	}
-	paths := make(map[string]string, len(profiles))
+	paths := make(map[string]string, len(profiles)+len(RequiredLensAssets()))
 	for profile := range profiles {
 		asset, ok := window.Profiles[profile]
 		if !ok {
@@ -356,6 +357,26 @@ func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profil
 			return fmt.Errorf("profile %q image path duplicates %s", profile, owner)
 		}
 		paths[asset.Image.URL] = profile + " image"
+	}
+	requiredLenses := RequiredLensAssets()
+	if len(window.Lenses) != len(requiredLenses) {
+		return errors.New("must contain every component lens image")
+	}
+	for _, lens := range requiredLenses {
+		asset, exists := window.Lenses[lens]
+		if !exists {
+			return fmt.Errorf("missing component lens %q", lens)
+		}
+		if err := validateImageAsset(asset); err != nil {
+			return fmt.Errorf("component lens %q: %w", lens, err)
+		}
+		if asset.Width != int(window.Point.Geometry.Cols) || asset.Height != int(window.Point.Geometry.Rows) {
+			return fmt.Errorf("component lens %q geometry does not match point asset", lens)
+		}
+		if owner, exists := paths[asset.URL]; exists {
+			return fmt.Errorf("component lens %q image path duplicates %s", lens, owner)
+		}
+		paths[asset.URL] = lens + " lens"
 	}
 	return nil
 }

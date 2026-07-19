@@ -142,6 +142,9 @@ func TestValidateReleaseRejectsForecastWindowCorruptionAndWrongDayCount(t *testi
 		asset.Image = writeTestPNGSize(t, filepath.Join(release, "images", "false-geometry-"+profile+".png"), int(falseGeometry.Cols), int(falseGeometry.Rows))
 		manifest.Forecast.Window.Profiles[profile] = asset
 	}
+	for lens := range manifest.Forecast.Window.Lenses {
+		manifest.Forecast.Window.Lenses[lens] = writeTestPNGSize(t, filepath.Join(release, "images", "false-geometry-range-"+lens+".png"), int(falseGeometry.Cols), int(falseGeometry.Rows))
+	}
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +185,26 @@ func TestValidateReleaseChecksPNGChecksumAndDimensions(t *testing.T) {
 	}
 	if _, err := ValidateRelease(release); err == nil {
 		t.Fatal("wrong PNG checksum was accepted")
+	}
+
+	release = makeRelease(t, root, "003", 210)
+	manifest, err = ValidateRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imagePath = filepath.Join(release, filepath.FromSlash(manifest.Forecast.Window.Lenses[LensComfort].URL))
+	file, err = os.OpenFile(imagePath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte{0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateRelease(release); err == nil {
+		t.Fatal("wrong forecast-window lens checksum was accepted")
 	}
 }
 
@@ -537,6 +560,7 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 		}
 	}
 	manifest.Forecast.Window.Profiles = make(map[string]ForecastRangeAsset, 2)
+	manifest.Forecast.Window.Lenses = make(map[string]ImageAsset, len(RequiredLensAssets()))
 	rangeRecord := testRangePointRecord(70)
 	rangeRecords := make([]RangePointRecord, int(dailyGeometry.Rows)*int(dailyGeometry.Cols))
 	for index := range rangeRecords {
@@ -557,6 +581,10 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 		manifest.Forecast.Window.Profiles[profile] = ForecastRangeAsset{
 			Image: writeTestPNGSize(t, imagePath, int(dailyGeometry.Cols), int(dailyGeometry.Rows)),
 		}
+	}
+	for _, lens := range RequiredLensAssets() {
+		imagePath := filepath.Join(release, "images", "range-"+lens+".png")
+		manifest.Forecast.Window.Lenses[lens] = writeTestPNGSize(t, imagePath, int(dailyGeometry.Cols), int(dailyGeometry.Rows))
 	}
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)

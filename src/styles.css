@@ -84,7 +84,9 @@ button:disabled { cursor: default; }
 
 .legendControl { position: absolute; z-index: 10; left: 16px; bottom: 112px; }
 .hasRail .legendControl { bottom: 164px; }
-.legendTrigger { width: 194px; padding: 9px 10px 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 253, 247, .96); box-shadow: 0 3px 12px rgba(25, 34, 42, .12); text-align: left; cursor: pointer; }
+.legendInstrument { display: grid; grid-template-columns: minmax(0, 1fr) 48px; gap: 5px; width: 218px; }
+.legendTrigger { min-width: 0; padding: 9px 10px 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 253, 247, .96); box-shadow: 0 3px 12px rgba(25, 34, 42, .12); text-align: left; cursor: pointer; }
+.scoreGuideTrigger { align-self: stretch; padding: 0 5px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 253, 247, .96); box-shadow: 0 3px 12px rgba(25, 34, 42, .12); color: #535d63; font: 700 9px/1 "Avenir Next", Avenir, sans-serif; cursor: pointer; }
 .legendTop { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .legendTop strong { font-size: 12px; letter-spacing: .02em; }
 .legendTop > span { color: var(--muted); }
@@ -92,10 +94,10 @@ button:disabled { cursor: default; }
 .legendEnds { display: flex; justify-content: space-between; margin-top: 4px; color: #626a70; font-size: 9px; letter-spacing: .02em; }
 .legendPopover { position: absolute; left: 0; bottom: calc(100% + 6px); width: 294px; max-height: calc(100dvh - 238px); overflow-x: hidden; overflow-y: auto; border: 1px solid var(--line); border-radius: 7px; background: var(--paper-strong); box-shadow: var(--shadow); }
 .hasRail .legendPopover { max-height: calc(100dvh - 310px); }
-.layerMenu { padding: 4px; border-bottom: 1px solid var(--line); }
-.layerMenu button { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 40px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; font-size: 13px; cursor: pointer; }
+.layerMenu { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 4px; border-bottom: 1px solid var(--line); }
+.layerMenu button { display: grid; place-items: center; min-width: 0; min-height: 44px; padding: 3px 2px; border: 0; border-radius: 4px; background: transparent; font-size: 10px; cursor: pointer; }
 .layerMenu button:hover, .layerMenu button[aria-checked="true"] { background: #eee8dc; }
-.layerMenu b { color: var(--accent); }
+.layerMenu b { min-height: 11px; color: var(--accent); font-size: 10px; }
 .windToggle { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 42px; padding: 0 13px; border: 0; border-bottom: 1px solid var(--line); background: transparent; font-size: 13px; cursor: pointer; }
 .windToggle:hover { background: #eee8dc; }
 .windToggle b { color: var(--muted); font-size: 10px; text-transform: uppercase; }
@@ -107,8 +109,7 @@ button:disabled { cursor: default; }
 .windTime span { overflow: hidden; color: #4f585e; font-size: 10px; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .windTime i { margin-left: 3px; font-style: normal; }
 .scoreGuide { margin: 0; }
-.scoreGuide summary { display: flex; align-items: center; min-height: 40px; padding: 0 13px; color: #525b62; font-size: 12px; font-weight: 700; cursor: pointer; }
-.scoreGuide[open] summary { border-bottom: 1px solid var(--line); }
+.scoreGuide h2 { margin: 0; padding: 12px 14px 4px; color: #343b40; font-size: 13px; }
 .scoreGuideBody { padding: 6px 14px 14px; }
 .scoreGuide p { margin: 7px 0 0; color: #555e64; font-size: 11px; line-height: 1.42; }
 .scoreGuide dl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 10px 0; }
@@ -141,7 +142,7 @@ button:disabled { cursor: default; }
 .closeButton { position: absolute; z-index: 2; top: -10px; right: -10px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #606970; font-size: 24px; line-height: 1; cursor: pointer; }
 .pointHeading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px; padding-right: 24px; }
 .pointHeading p { margin: 0 0 3px; color: #6e767a; font-size: 10px; font-weight: 700; letter-spacing: .075em; text-transform: uppercase; }
-.pointHeading h2 { margin: 0; font: 600 24px/1.08 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.025em; }
+.pointHeading h2 { margin: 0; overflow-wrap: anywhere; font: 600 24px/1.08 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.025em; }
 .score { min-width: 68px; text-align: right; }
 .score strong { display: block; font: 600 40px/.9 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.05em; }
 .score span { display: block; margin-top: 5px; color: #5f676d; font-size: 11px; font-weight: 700; }
@@ -163,12 +164,13 @@ button:disabled { cursor: default; }
 .forecastFingerprint time, .forecastFingerprint strong { display: block; }
 .forecastFingerprint time { overflow: hidden; color: #697178; font-size: 8px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .forecastFingerprint strong { margin-top: 2px; font: 600 17px/1 "Iowan Old Style", Baskerville, Georgia, serif; }
-.weatherFacts { display: grid; grid-template-columns: 1.55fr repeat(3, .82fr); gap: 0; margin: 14px 0; padding: 10px 0; border-block: 1px solid var(--line); }
-.weatherFacts div { min-width: 0; padding: 0 7px; }
-.weatherFacts div + div { border-left: 1px solid var(--line); }
-.weatherFacts dt { overflow: hidden; color: #737a7e; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.weatherFacts dd { overflow: hidden; margin: 4px 0 0; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.weatherFacts dd small { display: block; overflow: hidden; margin-top: 2px; color: #737a7e; font-size: 8px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.weatherFacts { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0; margin: 14px 0; padding: 4px 0; border-block: 1px solid var(--line); }
+.weatherFacts div { min-width: 0; padding: 7px 9px; }
+.weatherFacts div:nth-child(even) { border-left: 1px solid var(--line); }
+.weatherFacts div:nth-child(n+3) { border-top: 1px solid rgba(32, 36, 45, .09); }
+.weatherFacts dt { color: #737a7e; font-size: 9px; line-height: 1.25; }
+.weatherFacts dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 700; line-height: 1.25; }
+.weatherFacts dd small { display: block; margin-top: 2px; overflow-wrap: anywhere; color: #737a7e; font-size: 8px; font-weight: 500; line-height: 1.3; }
 
 .componentRows { display: grid; gap: 1px; margin-top: 10px; border-block: 1px solid var(--line); }
 .componentRows > button, .componentRows > div { display: grid; grid-template-columns: 92px minmax(40px, 1fr) 30px; align-items: center; gap: 9px; min-height: 45px; padding: 4px 2px; border: 0; border-bottom: 1px solid rgba(32, 36, 45, .09); background: transparent; text-align: left; }
@@ -243,7 +245,8 @@ button:disabled { cursor: default; }
 
   .legendControl { left: 9px; bottom: 88px; }
   .hasRail .legendControl { bottom: 141px; }
-  .legendTrigger { width: 154px; padding: 7px 8px 6px; }
+  .legendInstrument { width: 190px; grid-template-columns: minmax(0, 1fr) 46px; }
+  .legendTrigger { padding: 7px 8px 6px; }
   .windTime { width: 154px; }
   .legendTop { margin-bottom: 4px; }
   .legendRamp { height: 6px; }
@@ -281,7 +284,12 @@ button:disabled { cursor: default; }
   .profileControl button { padding-inline: 7px; }
   .legendEnds { font-size: 8px; }
   .pointHeading { gap: 8px; }
-  .weatherFacts div { padding-inline: 5px; }
+  .searchPopover li button { align-items: flex-start; }
+  .searchPopover li button > strong, .searchPopover li button > span { overflow: visible; text-overflow: clip; white-space: normal; }
+  .searchPopover li button > strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .searchPopover .bestPlace strong, .searchPopover .bestPlace small { overflow: visible; text-overflow: clip; white-space: normal; }
+  .searchPopover .bestPlace strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .weatherFacts div { padding-inline: 7px; }
   .weatherFacts dd { font-size: 11px; }
 }
 

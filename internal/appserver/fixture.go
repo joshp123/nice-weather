@@ -241,6 +241,7 @@ func writeFixtureForecastWindow(releaseDir string, spec delivery.GridSpec, days 
 		ID: "next-14-days", Label: "Next 14 days", StartDate: fixtureTime.Format("2006-01-02"),
 		EndDate: fixtureTime.AddDate(0, 0, len(days)-1).Format("2006-01-02"), DayCount: len(days),
 		GridResolutionKM: 28, Profiles: make(map[string]delivery.ForecastRangeAsset, 2),
+		Lenses: make(map[string]delivery.ImageAsset, len(delivery.RequiredLensAssets())),
 	}
 	ranges := make(map[string][]delivery.RangeRecord, 2)
 	for _, item := range []struct {
@@ -271,16 +272,33 @@ func writeFixtureForecastWindow(releaseDir string, spec delivery.GridSpec, days 
 		id      string
 		profile weather.Profile
 	}{{delivery.ProfileNice, weather.ProfileNice}, {delivery.ProfileCycling, weather.ProfileCycling}} {
-		image, err := writeRangeOverlay(releaseDir, window.ID, item.id, pointGeometry, pointRecords, item.profile)
+		image, err := writeRangeOverlay(releaseDir, window.ID, item.id, pointGeometry, pointRecords, item.profile, weather.LensOverall)
 		if err != nil {
 			return delivery.ForecastWindow{}, err
 		}
 		window.Profiles[item.id] = delivery.ForecastRangeAsset{Image: image}
 	}
+	for _, item := range []struct {
+		id      string
+		profile weather.Profile
+		lens    weather.Lens
+	}{
+		{delivery.LensComfort, weather.ProfileNice, weather.LensComfort},
+		{delivery.LensDry, weather.ProfileNice, weather.LensDry},
+		{delivery.LensBright, weather.ProfileNice, weather.LensBright},
+		{"wind-" + delivery.ProfileNice, weather.ProfileNice, weather.LensCalm},
+		{"wind-" + delivery.ProfileCycling, weather.ProfileCycling, weather.LensCalm},
+	} {
+		image, err := writeRangeOverlay(releaseDir, window.ID, item.id, pointGeometry, pointRecords, item.profile, item.lens)
+		if err != nil {
+			return delivery.ForecastWindow{}, err
+		}
+		window.Lenses[item.id] = image
+	}
 	return window, nil
 }
 
-func writeRangeOverlay(releaseDir, windowID, profile string, geometry delivery.PointGeometry, records []delivery.RangePointRecord, weatherProfile weather.Profile) (delivery.ImageAsset, error) {
+func writeRangeOverlay(releaseDir, windowID, assetID string, geometry delivery.PointGeometry, records []delivery.RangePointRecord, weatherProfile weather.Profile, lens weather.Lens) (delivery.ImageAsset, error) {
 	directory := filepath.Join(releaseDir, "images", "forecast-window")
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return delivery.ImageAsset{}, err
@@ -298,14 +316,14 @@ func writeRangeOverlay(releaseDir, windowID, profile string, geometry delivery.P
 		}
 	}()
 	digest := sha256.New()
-	if err := pipeline.RenderPointRangeRecords(io.MultiWriter(file, digest), geometry, records, weatherProfile, fixturePalette); err != nil {
+	if err := pipeline.RenderPointRangeLensRecords(io.MultiWriter(file, digest), geometry, records, weatherProfile, lens, fixturePalette); err != nil {
 		return delivery.ImageAsset{}, err
 	}
 	if err := file.Close(); err != nil {
 		return delivery.ImageAsset{}, err
 	}
 	checksum := hex.EncodeToString(digest.Sum(nil))
-	filename := fmt.Sprintf("%s-%s-%s.png", windowID, profile, checksum)
+	filename := fmt.Sprintf("%s-%s-%s.png", windowID, assetID, checksum)
 	if err := os.Rename(temporary, filepath.Join(directory, filename)); err != nil {
 		return delivery.ImageAsset{}, err
 	}

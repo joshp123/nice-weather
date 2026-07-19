@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bytes"
 	"compress/gzip"
 	"io"
 	"os"
@@ -401,6 +402,69 @@ func TestForecastWindowUsesThePublishedDailyQuantizationAtScoreThresholds(t *tes
 	record := pointRecord.Nice
 	if int(record.Score) != weather.Score(quantized, weather.ProfileNice).Score || int(record.Score) == raw.Score {
 		t.Fatalf("range score %d did not use published daily score %d (raw was %d)", record.Score, weather.Score(quantized, weather.ProfileNice).Score, raw.Score)
+	}
+}
+
+func TestForecastWindowImagesMatchThePublishedPointRecord(t *testing.T) {
+	root := t.TempDir()
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	writer, err := newReleaseWriter(root, "window-image-parity", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	metric := weather.DailyMetrics{
+		ComfortableTempC: 24, MinTempC: 19, MaxTempC: 29, RainMM: 1.2,
+		WetTimeFraction:   weather.OptionalFloat{Value: 0.2, Available: true},
+		CloudCoverPercent: weather.OptionalFloat{Value: 35, Available: true},
+		WindSpeedKPH:      18, GustKPH: weather.OptionalFloat{Value: 30, Available: true},
+		DewPointC: weather.OptionalFloat{Value: 15, Available: true}, NativeResolutionKM: 28, Valid: true,
+	}
+	days := make([][]weather.DailyMetrics, delivery.ForecastPointDayCount)
+	for index := range days {
+		days[index] = []weather.DailyMetrics{metric}
+	}
+	window, err := writer.writeForecastWindow("next-14-days", "Next 14 days", date, date.AddDate(0, 0, 13), spec, days, 28)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := delivery.OpenPointAsset(filepath.Join(writer.dir, filepath.FromSlash(window.Point.URL)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	record, valid, err := reader.RangeAt(10, 50)
+	if err != nil || !valid {
+		t.Fatalf("published range point valid=%t err=%v", valid, err)
+	}
+	tests := []struct {
+		name    string
+		asset   delivery.ImageAsset
+		profile weather.Profile
+		lens    weather.Lens
+	}{
+		{"nice overall", window.Profiles[delivery.ProfileNice].Image, weather.ProfileNice, weather.LensOverall},
+		{"cycling overall", window.Profiles[delivery.ProfileCycling].Image, weather.ProfileCycling, weather.LensOverall},
+		{"comfort", window.Lenses[delivery.LensComfort], weather.ProfileNice, weather.LensComfort},
+		{"dry", window.Lenses[delivery.LensDry], weather.ProfileNice, weather.LensDry},
+		{"bright", window.Lenses[delivery.LensBright], weather.ProfileNice, weather.LensBright},
+		{"nice calm", window.Lenses["wind-"+delivery.ProfileNice], weather.ProfileNice, weather.LensCalm},
+		{"cycling calm", window.Lenses["wind-"+delivery.ProfileCycling], weather.ProfileCycling, weather.LensCalm},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var expected bytes.Buffer
+			if err := pipeline.RenderPointRangeLensRecords(&expected, reader.Metadata().Geometry, []delivery.RangePointRecord{record}, test.profile, test.lens, writer.manifest.Palette); err != nil {
+				t.Fatal(err)
+			}
+			actual, err := os.ReadFile(filepath.Join(writer.dir, filepath.FromSlash(test.asset.URL)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(actual, expected.Bytes()) {
+				t.Fatal("published image does not match its point-record lens")
+			}
+		})
 	}
 }
 

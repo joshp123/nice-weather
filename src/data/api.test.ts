@@ -5,11 +5,12 @@ import pointVector from './testdata/point-asset-vector.json';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('weather delivery client', () => {
-  it('parses manifest v6 with the canonical 14-day window', async () => {
+  it('parses manifest v7 with the canonical 14-day window lenses', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v14');
+    expect(manifest.productContract).toBe('nice-weather-v15');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
+    expect(Object.keys(manifest.forecast.window.lenses)).toEqual(['comfort', 'dry', 'bright', 'wind-nice', 'wind-cycling']);
     expect(manifest.forecast.days).toHaveLength(14);
     expect(manifest.climate?.months).toHaveLength(12);
   });
@@ -59,6 +60,7 @@ describe('weather delivery client', () => {
   it('rejects manifest point geometry that differs from its images or region', async () => {
     for (const mutate of [
       (fixture: any) => { fixture.forecast.days[0].images.nice.width = 2; },
+      (fixture: any) => { fixture.forecast.window.lenses.comfort.width = 2; },
       (fixture: any) => { fixture.forecast.days[0].point.geometry.bounds.west = -24; },
       (fixture: any) => { fixture.forecast.window.point.geometry.quad.west = 0.1; },
       (fixture: any) => {
@@ -72,6 +74,14 @@ describe('weather delivery client', () => {
       await expect(loadManifest()).rejects.toThrow('forecast could not be read');
       vi.restoreAllMocks();
     }
+  });
+
+  it('rejects forecast-window lenses that alias another map field', async () => {
+    const fixture = manifestFixture();
+    fixture.forecast.window.lenses.comfort = fixture.forecast.window.profiles.nice.image;
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+    await expect(loadManifest()).rejects.toThrow('forecast could not be read');
   });
 
   it('rejects duplicate or gapped forecast dates', async () => {
@@ -237,7 +247,7 @@ function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
     return period(date, { date, kind: index < 5 ? 'detailed' : 'outlook', windFrames });
   });
   return {
-    version: 6, releaseId, productContract: 'nice-weather-v14', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 7, releaseId, productContract: 'nice-weather-v15', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: POINT_LEGEND,
@@ -247,7 +257,7 @@ function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
       window: { id: 'next-14-days', label: 'Next 14 days', startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, gridResolutionKm: 28, point: pointAsset('window', 'forecast-window'), profiles: {
         nice: { image: image('window-nice') },
         cycling: { image: image('window-cycling') },
-      } },
+      }, lenses: { comfort: image('window-comfort'), dry: image('window-dry'), bright: image('window-bright'), 'wind-nice': image('window-wind-nice'), 'wind-cycling': image('window-wind-cycling') } },
       days,
     },
     climate: { label: 'Typical year', referencePeriod: '1981–2010', months: Array.from({ length: 12 }, (_, index) => period(`month-${index + 1}`, { label: new Date(2026, index, 1).toLocaleString('en-GB', { month: 'long' }), month: index + 1, point: pointAsset(`month-${index + 1}`, 'legacy-climate-month') })) },
