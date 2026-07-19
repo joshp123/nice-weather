@@ -88,7 +88,7 @@ Required observable checks:
 
 - CLI source smoke: run `go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts --smoke`; inspect provider grids, CHELSA metadata and transformed ranges.
 - CLI real build: run `go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts`; inspect all 14 days, 12 months, sources, resolutions, grids and images.
-- Static server: run `go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5173`; fetch expected URLs and prove a same-process release swap.
+- Static server: run `go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5198`; fetch expected URLs and prove a same-process release swap.
 - Frontend: open in browser, switch controls, verify map layer changes, inspect screenshots.
 - Images: sample PNGs and verify non-empty pixels, colours from the canonical continuous palette, exact point/lens parity, and alpha outside land.
 - Scores: run deterministic scoring cases and compare expected numeric/category outputs.

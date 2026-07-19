@@ -31,7 +31,7 @@ func main() {
 		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 		web := flags.String("web", "./dist", "frontend build directory")
 		artifacts := flags.String("artifacts", "./artifacts", "artifact directory")
-		listen := flags.String("listen", "127.0.0.1:5173", "listen address")
+		listen := flags.String("listen", "127.0.0.1:5198", "listen address")
 		if err = flags.Parse(os.Args[2:]); err == nil {
 			err = appserver.Serve(appserver.Config{WebRoot: *web, ArtifactRoot: *artifacts, Listen: *listen})
 		}

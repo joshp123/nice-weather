@@ -29,14 +29,14 @@ go run ./cmd/niceweather fixture --out ./artifacts
 go run ./cmd/niceweather serve \
   --web ./dist \
   --artifacts ./artifacts \
-  --listen 127.0.0.1:5173
+  --listen 127.0.0.1:5198
 ```
 
-Open <http://127.0.0.1:5173/>. Useful checks are:
+Open <http://127.0.0.1:5198/>. Useful checks are:
 
-- <http://127.0.0.1:5173/manifest.json>
-- <http://127.0.0.1:5173/places/current.json>
-- `http://127.0.0.1:5173/api/point?release=<release-id>&period=<period-id>&profile=nice&lat=52.37&lon=4.90`
+- <http://127.0.0.1:5198/manifest.json>
+- <http://127.0.0.1:5198/places/current.json>
+- `http://127.0.0.1:5198/api/point?release=<release-id>&period=<period-id>&profile=nice&lat=52.37&lon=4.90`
 
 The fixture is deterministic sample data. It exercises all 14 forecast days, all 12 climate months, both profiles and a seven-place search index through the production artifact schemas. The manifest sets `dataStatus` to `sample`, so the interface cannot mistake it for current weather; a production update sets it to `live`.
 

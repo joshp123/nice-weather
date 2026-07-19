@@ -130,10 +130,10 @@ go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts
 go run ./cmd/niceweather places --source ./.cache/geonames/2026-07-18 --source-date 2026-07-18 --out ./artifacts
 
 # Serve the built frontend and current weather release
-go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5173
+go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5198
 ```
 
-Local product URL: <http://127.0.0.1:5173/>
+Local product URL: <http://127.0.0.1:5198/>
 
 ## Verification order
 

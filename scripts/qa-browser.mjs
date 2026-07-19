@@ -3,7 +3,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 
-const baseURL = process.argv[2] ?? 'http://127.0.0.1:5173/';
+const baseURL = process.argv[2] ?? 'http://127.0.0.1:5198/';
 const screenshotDir = path.resolve('output/screenshots');
 await mkdir(screenshotDir, { recursive: true });
 
