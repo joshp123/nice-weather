@@ -146,17 +146,16 @@ func sunScore(m DailyMetrics) int {
 
 func thermalScore(m DailyMetrics) int {
 	base := piecewise(m.ComfortableTempC, thermalCurve)
-	// Warm-air moisture is best described by dew point: 30°C with a low dew
-	// point can feel excellent while the same temperature with a 24°C dew
-	// point is oppressive. Relative humidity is used only when dew point is not
-	// available because it changes meaning with temperature.
+	// Warm-air moisture is best described by dew point. Josh's product preference
+	// is deliberately heat-tolerant: a dry, sunny 30°C day remains excellent at
+	// a 24°C dew point. Comfort falls sharply only as the air approaches genuine
+	// saturation. Relative humidity is a fallback because its meaning changes
+	// with temperature.
 	heat := 100.0
-	if m.ComfortableTempC >= 18 {
-		if m.DewPointC.Available {
-			heat = piecewise(m.DewPointC.Value, dewPointCurve)
-		} else {
-			heat = piecewise(m.RelativeHumidityPercent.Value, hotHumidityCurve)
-		}
+	if m.DewPointC.Available {
+		heat = piecewise(m.DewPointC.Value, dewPointCurve)
+	} else if m.RelativeHumidityPercent.Available {
+		heat = piecewise(dewPointFromRelativeHumidity(m.ComfortableTempC, m.RelativeHumidityPercent.Value), dewPointCurve)
 	}
 
 	// Cold damp misery is a compound condition, not "humidity" by itself.
@@ -216,13 +215,24 @@ var (
 	wetTimeCurve     = []point{{0, 100}, {.1, 92}, {.25, 70}, {.5, 30}, {.8, 0}}
 	solarCurve       = []point{{0, 0}, {4, 20}, {8, 45}, {12, 70}, {18, 100}}
 	cloudCurve       = []point{{0, 100}, {25, 90}, {50, 60}, {75, 25}, {100, 0}}
-	dewPointCurve    = []point{{8, 100}, {12, 100}, {16, 84}, {18, 64}, {21, 30}, {24, 0}}
-	hotHumidityCurve = []point{{40, 100}, {60, 90}, {75, 65}, {90, 30}, {100, 0}}
+	dewPointCurve    = []point{{8, 100}, {16, 100}, {20, 100}, {24, 100}, {26, 78}, {28, 35}, {30, 0}}
 	niceWindCurve    = []point{{0, 100}, {12, 100}, {20, 82}, {30, 48}, {45, 0}}
 	niceGustCurve    = []point{{0, 100}, {20, 100}, {35, 75}, {50, 35}, {65, 0}}
 	cyclingWindCurve = []point{{0, 100}, {14, 100}, {20, 78}, {28, 38}, {35, 10}, {42, 0}}
 	cyclingGustCurve = []point{{0, 100}, {20, 100}, {30, 70}, {40, 30}, {50, 0}}
 )
+
+// dewPointFromRelativeHumidity normalises fallback moisture evidence into the
+// same physical quantity and policy used when a provider supplies dew point.
+// Magnus constants are appropriate for ordinary near-surface temperatures.
+func dewPointFromRelativeHumidity(temperatureC, relativeHumidityPercent float64) float64 {
+	if relativeHumidityPercent <= 0 {
+		return -100
+	}
+	const a, b = 17.625, 243.04
+	gamma := math.Log(relativeHumidityPercent/100) + a*temperatureC/(b+temperatureC)
+	return b * gamma / (a - gamma)
+}
 
 func piecewise(value float64, points []point) float64 {
 	if value <= points[0].input {

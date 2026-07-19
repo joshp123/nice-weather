@@ -64,10 +64,35 @@ func TestThermalComfortDistinguishesHeatAndColdMoisture(t *testing.T) {
 	hotDry := idealDay()
 	hotDry.ComfortableTempC, hotDry.MaxTempC = 30, 34
 	hotDry.DewPointC, hotDry.RelativeHumidityPercent = known(5), known(20)
-	hotHumid := hotDry
-	hotHumid.DewPointC, hotHumid.RelativeHumidityPercent = known(25), known(95)
-	if dry, humid := Score(hotDry, ProfileNice), Score(hotHumid, ProfileNice); dry.Components.Thermal < 85 || humid.Components.Thermal != 0 || humid.Score > 39 || dry.Score <= humid.Score {
-		t.Fatalf("hot dry = %+v, hot humid = %+v", dry, humid)
+	hotSummer := hotDry
+	hotSummer.DewPointC, hotSummer.RelativeHumidityPercent = known(24), known(70)
+	saturated := hotDry
+	saturated.DewPointC, saturated.RelativeHumidityPercent = known(30), known(100)
+	hotSummerFallback := hotSummer
+	hotSummerFallback.DewPointC = OptionalFloat{}
+	hotSummerFallback.RelativeHumidityPercent = known(relativeHumidityFromDewPoint(30, 24))
+	saturatedFallback := saturated
+	saturatedFallback.DewPointC = OptionalFloat{}
+	if dry, summer, summerFallback, extreme, extremeFallback := Score(hotDry, ProfileNice), Score(hotSummer, ProfileNice), Score(hotSummerFallback, ProfileNice), Score(saturated, ProfileNice), Score(saturatedFallback, ProfileNice); dry.Components.Thermal < 85 || summer.Components.Thermal < 85 || summer.Rating != "Excellent" || summerFallback.Rating != "Excellent" || extreme.Components.Thermal != 0 || extreme.Rating != "Awful" || extremeFallback.Rating != "Awful" || dry.Score < summer.Score || summer.Score <= extreme.Score {
+		t.Fatalf("hot dry = %+v, hot summer = %+v, RH fallback = %+v, saturated heat = %+v, saturated fallback = %+v", dry, summer, summerFallback, extreme, extremeFallback)
+	}
+
+	for _, dewPoint := range []float64{5, 24, 26, 28, 30} {
+		withDewPoint := hotDry
+		withDewPoint.DewPointC = known(dewPoint)
+		withDewPoint.RelativeHumidityPercent = known(relativeHumidityFromDewPoint(30, dewPoint))
+		withHumidity := withDewPoint
+		withHumidity.DewPointC = OptionalFloat{}
+		direct, fallback := Score(withDewPoint, ProfileNice), Score(withHumidity, ProfileNice)
+		if direct != fallback {
+			t.Fatalf("30°C / %.0f°C dew point = %+v, equivalent RH fallback = %+v", dewPoint, direct, fallback)
+		}
+	}
+	lowHumidity := hotDry
+	lowHumidity.DewPointC = OptionalFloat{}
+	lowHumidity.RelativeHumidityPercent = known(20)
+	if got := Score(lowHumidity, ProfileNice); got.Rating != "Excellent" {
+		t.Fatalf("30°C / 20%% RH fallback = %+v; want Excellent", got)
 	}
 
 	coldDry := idealDay()
@@ -82,6 +107,11 @@ func TestThermalComfortDistinguishesHeatAndColdMoisture(t *testing.T) {
 	if dry, damp := Score(coldDry, ProfileNice), Score(coldDamp, ProfileNice); dry.Components.Thermal < 25 || damp.Components.Thermal > 15 || damp.Rating != "Awful" || dry.Rating != "Poor" {
 		t.Fatalf("cold dry = %+v, cold damp = %+v", dry, damp)
 	}
+}
+
+func relativeHumidityFromDewPoint(temperatureC, dewPointC float64) float64 {
+	const a, b = 17.625, 243.04
+	return 100 * math.Exp(a*dewPointC/(b+dewPointC)-a*temperatureC/(b+temperatureC))
 }
 
 func TestAwfulRequiresMoreThanColdAlone(t *testing.T) {
