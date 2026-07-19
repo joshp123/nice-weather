@@ -75,16 +75,24 @@ button:disabled { cursor: default; }
 .legendControl { position: absolute; z-index: 10; left: 16px; bottom: 112px; }
 .hasRail .legendControl { bottom: 164px; }
 .legendTrigger { width: 194px; padding: 9px 10px 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 253, 247, .96); box-shadow: 0 3px 12px rgba(25, 34, 42, .12); text-align: left; cursor: pointer; }
-.legendTrigger:disabled { opacity: 1; }
 .legendTop { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .legendTop strong { font-size: 12px; letter-spacing: .02em; }
 .legendTop > span { color: var(--muted); }
 .legendRamp { display: block; height: 8px; border: 1px solid rgba(32, 36, 45, .18); }
 .legendEnds { display: flex; justify-content: space-between; margin-top: 4px; color: #626a70; font-size: 9px; letter-spacing: .02em; }
-.layerMenu { position: absolute; left: 0; bottom: calc(100% + 6px); width: 194px; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper-strong); box-shadow: var(--shadow); }
+.legendPopover { position: absolute; left: 0; bottom: calc(100% + 6px); width: 294px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--paper-strong); box-shadow: var(--shadow); }
+.layerMenu { padding: 4px; border-bottom: 1px solid var(--line); }
 .layerMenu button { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 40px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; font-size: 13px; cursor: pointer; }
 .layerMenu button:hover, .layerMenu button[aria-checked="true"] { background: #eee8dc; }
 .layerMenu b { color: var(--accent); }
+.scoreGuide { padding: 13px 14px 14px; }
+.scoreGuide h2 { margin: 0; font: 600 18px/1.1 "Iowan Old Style", Baskerville, Georgia, serif; }
+.scoreGuide p { margin: 7px 0 0; color: #555e64; font-size: 11px; line-height: 1.42; }
+.scoreGuide dl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 10px 0; }
+.scoreGuide dl div { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.scoreGuide dt { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; font-weight: 700; }
+.scoreGuide dt i { flex: 0 0 auto; width: 9px; height: 9px; border: 1px solid rgba(32, 36, 45, .2); }
+.scoreGuide dd { margin: 0; color: #697178; font-size: 9px; font-variant-numeric: tabular-nums; }
 
 .cockpit { position: absolute; z-index: 9; right: 50%; bottom: 14px; width: min(900px, calc(100% - 440px)); min-width: 620px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: rgba(251, 247, 237, .97); box-shadow: var(--shadow); transform: translateX(50%); }
 .cockpitMain { display: grid; grid-template-columns: max-content minmax(140px, 1fr) max-content; align-items: center; gap: 12px; }
@@ -114,6 +122,7 @@ button:disabled { cursor: default; }
 .score strong { display: block; font: 600 40px/.9 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.05em; }
 .score span { display: block; margin-top: 5px; color: #5f676d; font-size: 11px; font-weight: 700; }
 .pointSummary { margin: 13px 0 0; color: #495159; font-size: 13px; line-height: 1.45; }
+.phonePointSummary { display: none; }
 .climateNote { margin: 10px 0 0; padding-left: 9px; border-left: 2px solid #bf7c59; color: #6e584b; font-size: 11px; line-height: 1.4; }
 
 .rangeFacts { display: grid; grid-template-columns: repeat(3, 1fr); margin: 16px 0 14px; padding: 11px 0; border-block: 1px solid var(--line); }
@@ -206,16 +215,21 @@ button:disabled { cursor: default; }
   .legendTrigger { width: 154px; padding: 7px 8px 6px; }
   .legendTop { margin-bottom: 4px; }
   .legendRamp { height: 6px; }
-  .layerMenu { width: 154px; }
+  .legendPopover { width: min(294px, calc(100vw - 18px)); }
   .hasPoint .legendControl { display: none; }
 
-  .pointPanel { top: auto; right: 8px; bottom: 70px; left: 8px; width: auto; max-height: 31dvh; padding: 15px 15px 12px; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
-  .hasRail .pointPanel { bottom: 127px; max-height: 28dvh; }
-  .pointPanel.expanded { max-height: 68dvh; }
-  .hasRail .pointPanel.expanded { max-height: 62dvh; }
+  .pointPanel { top: auto; right: 8px; bottom: 70px; left: 8px; width: auto; max-height: 27dvh; padding: 15px 15px 12px; overflow: hidden; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
+  .hasRail .pointPanel { bottom: 127px; max-height: 26dvh; }
+  .pointPanel.expanded { max-height: 58dvh; overflow: auto; }
+  .hasRail .pointPanel.expanded { max-height: 54dvh; }
+  .pointPanel:not(.expanded) .rangeFacts,
+  .pointPanel:not(.expanded) .weatherFacts,
   .pointPanel:not(.expanded) .componentRows,
   .pointPanel:not(.expanded) .sourceDetails,
-  .pointPanel:not(.expanded) .sourceLine { display: none; }
+  .pointPanel:not(.expanded) .sourceLine,
+  .pointPanel:not(.expanded) .climateNote { display: none; }
+  .phonePointSummary { display: block; margin: 10px 28px 0 0; color: #555e64; font-size: 11px; line-height: 1.35; }
+  .pointPanel.expanded .phonePointSummary { display: none; }
   .sheetHandle { display: block; width: 34px; height: 4px; margin: -8px auto 9px; border-radius: 2px; background: #c1bbb1; }
   .sheetExpand { display: block; width: 100%; min-height: 40px; margin-top: 9px; border: 0; border-top: 1px solid var(--line); background: transparent; color: #3f5f6d; font-size: 11px; font-weight: 700; cursor: pointer; }
   .pointHeading h2 { font-size: 22px; }

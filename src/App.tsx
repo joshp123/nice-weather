@@ -4,6 +4,7 @@ import { forecastRunStatus, freshnessLabel, imageAssetUrl, loadManifest, loadPoi
 import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
 import type { MapPoint, OverlayState } from './map/WeatherMap';
+import { forecastDetailNote, ratingBandLabel } from './scoreGuide';
 import { reportResourceSummary, telemetry } from './telemetry';
 import './styles.css';
 
@@ -241,17 +242,32 @@ function LayerLegend({ manifest, view, lens, open, onOpenChange, onChange }: { m
   const active = view === 'range' ? 'Overall' : LENSES.find((item) => item.id === lens)?.label ?? 'Overall';
   return (
     <div className="legendControl">
-      <button ref={trigger} type="button" className="legendTrigger" disabled={view === 'range'} aria-haspopup={view === 'range' ? undefined : 'true'} aria-expanded={view === 'range' ? undefined : open} onClick={() => onOpenChange(!open)}>
-        <span className="legendTop"><strong>{active}</strong>{view !== 'range' && <span aria-hidden="true">⌄</span>}</span>
+      <button ref={trigger} type="button" className="legendTrigger" aria-haspopup="dialog" aria-expanded={open} onClick={() => onOpenChange(!open)}>
+        <span className="legendTop"><strong>{active}</strong><span aria-hidden="true">⌄</span></span>
         <span className="legendRamp" style={{ background: `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(',')})` }} />
         <span className="legendEnds"><span>Awful</span><span>Excellent</span></span>
       </button>
-      {open && view !== 'range' && (
-        <div className="layerMenu" role="radiogroup" aria-label="Map layer">
-          {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={lens === item.id} onClick={() => { onChange(item.id); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><b aria-hidden="true">{lens === item.id ? '✓' : ''}</b></button>)}
+      {open && (
+        <div className="legendPopover" role="dialog" aria-label={view === 'range' ? 'Score guide' : 'Map layer and score guide'}>
+          {view !== 'range' && <div className="layerMenu" role="radiogroup" aria-label="Map layer">
+            {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={lens === item.id} onClick={() => { onChange(item.id); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><b aria-hidden="true">{lens === item.id ? '✓' : ''}</b></button>)}
+          </div>}
+          <ScoreGuide manifest={manifest} />
         </div>
       )}
     </div>
+  );
+}
+
+function ScoreGuide({ manifest }: { manifest: WeatherManifest }) {
+  return (
+    <section className="scoreGuide" aria-label="How scores work">
+      <h2>How scores work</h2>
+      <p>Scores combine Comfort, Dry, Bright and Wind. Higher is better.</p>
+      <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
+      <p><strong>Nice</strong> favours warm, bright, dry and calm weather. <strong>Cycling</strong> is stricter about rain, wind and gusts.</p>
+      <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
+    </section>
   );
 }
 
@@ -355,6 +371,7 @@ function RangeDetails({ data, point }: { data: Extract<PointWeather, { kind: 'ra
   return (
     <>
       <PointHeading point={point} eyebrow={`${shortRange(data.window.startDate, data.window.endDate)} · ${data.window.dayCount} days`} score={data.score} category={data.category} />
+      <p className="phonePointSummary">{data.window.niceDays} nice {data.window.niceDays === 1 ? 'day' : 'days'} · {data.window.awfulDays} awful · longest poor spell {data.window.longestPoorRun} {data.window.longestPoorRun === 1 ? 'day' : 'days'}</p>
       <dl className="rangeFacts">
         <div><dd>{data.window.niceDays}</dd><dt>Nice days</dt></div>
         <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
@@ -369,7 +386,7 @@ function RangeDetails({ data, point }: { data: Extract<PointWeather, { kind: 'ra
 function DailyDetails({ data, point, lens, onLensChange }: { data: DailyPoint; point: MapPoint; lens: Lens; onLensChange: (lens: Lens) => void }) {
   return (
     <>
-      <PointHeading point={point} eyebrow={data.periodLabel} score={data.score} category={data.category} />
+      <PointHeading point={point} eyebrow={data.source.basis === 'climate' ? `${data.periodLabel} · monthly average` : data.periodLabel} score={data.score} category={data.category} />
       <p className="pointSummary">{data.summary}</p>
       {data.source.basis === 'climate' && <p className="climateNote">Monthly average from {data.source.referencePeriod}; not the chance of a nice day.</p>}
       <dl className="weatherFacts">
