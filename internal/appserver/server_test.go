@@ -533,6 +533,38 @@ func TestCompressionCachingAndSPA(t *testing.T) {
 	}
 }
 
+func TestBestWeatherArtifactsAreStaticReleaseBoundFiles(t *testing.T) {
+	app := newTestApplication(t)
+	pointerResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(pointerResponse, httptest.NewRequest(http.MethodGet, "/best-weather/current.json", nil))
+	if pointerResponse.Code != http.StatusOK || pointerResponse.Header().Get("Cache-Control") != "no-cache" || pointerResponse.Header().Get("ETag") == "" {
+		t.Fatalf("best-weather pointer: %d %+v %s", pointerResponse.Code, pointerResponse.Header(), pointerResponse.Body.String())
+	}
+	var pointer struct {
+		WeatherRelease string `json:"weatherReleaseId"`
+		PlaceRelease   string `json:"placeReleaseId"`
+		URL            string `json:"url"`
+		SHA256         string `json:"sha256"`
+	}
+	if err := json.Unmarshal(pointerResponse.Body.Bytes(), &pointer); err != nil {
+		t.Fatal(err)
+	}
+	if pointer.WeatherRelease != app.manifest.ReleaseID || pointer.PlaceRelease != places.SampleReleaseID || !strings.HasPrefix(pointer.URL, "/best-weather/releases/") {
+		t.Fatalf("best-weather pointer = %+v", pointer)
+	}
+	artifactResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(artifactResponse, httptest.NewRequest(http.MethodGet, pointer.URL, nil))
+	digest := sha256.Sum256(artifactResponse.Body.Bytes())
+	if artifactResponse.Code != http.StatusOK || artifactResponse.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || hex.EncodeToString(digest[:]) != pointer.SHA256 || !strings.Contains(artifactResponse.Body.String(), `"weatherReleaseId":"`+app.manifest.ReleaseID+`"`) {
+		t.Fatalf("best-weather artifact: %d %+v %s", artifactResponse.Code, artifactResponse.Header(), artifactResponse.Body.String())
+	}
+	unsafe := httptest.NewRecorder()
+	app.handler.ServeHTTP(unsafe, httptest.NewRequest(http.MethodGet, "/best-weather/releases/../current.json", nil))
+	if unsafe.Code != http.StatusBadRequest {
+		t.Fatalf("unsafe best-weather path returned %d", unsafe.Code)
+	}
+}
+
 func TestPlaceIndexFilesUsePointerAndImmutableHTTPContract(t *testing.T) {
 	app := newTestApplication(t)
 	pointerResponse := httptest.NewRecorder()

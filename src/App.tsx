@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
 import { forecastRunStatus, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
+import { loadBestWeather, type BestWeatherPlace } from './data/bestWeather';
 import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
 import { StaleWindReleaseError, WindFrameLoader, type WindGrid } from './data/wind';
@@ -141,6 +142,7 @@ export default function App() {
   };
 
   const selectPoint = (point: MapPoint, focus = true, focusDetails = false) => {
+    setLayerMenuOpen(false);
     setSelectedPoint(point);
     setFocusPoint(focus ? { ...point, token: Date.now() } : undefined);
     setDetailsFocusIntent((current) => nextDetailsFocusIntent(current, focusDetails));
@@ -176,7 +178,7 @@ export default function App() {
 
       <header className="masthead">
         <div className="wordmark" aria-label="Nice Weather"><SunMark /><span>Nice Weather</span></div>
-        <PlaceSearch viewport={viewport} onFound={(point, origin) => {
+        <PlaceSearch viewport={viewport} manifest={manifest} profile={profile} view={view} onEngage={() => setLayerMenuOpen(false)} onFound={(point, origin) => {
           pointFocusOrigin.current = origin;
           selectPoint(point, true, shouldFocusDetails('search'));
         }} />
@@ -266,9 +268,9 @@ function ProfileControl({ value, onChange }: { value: Profile; onChange: (value:
 function PeriodRail({ periods, selectedId, view, onChange }: { periods: Period[]; selectedId: string; view: View; onChange: (id: string) => void }) {
   return (
     <div className="periodRail" role="group" aria-label={view === 'daily' ? 'Forecast day' : 'Typical month'}>
-      {periods.map((period) => (
+      {periods.map((period, index) => (
         <button key={period.id} type="button" aria-pressed={selectedId === period.id} onClick={() => onChange(period.id)}>
-          <span>{period.shortLabel}</span>{view === 'daily' && period.date && <small>{dateLabel(period.date)}</small>}
+          <span>{period.shortLabel}</span>{view === 'daily' && period.date && <small>{railMonthLabel(periods, index)}</small>}
         </button>
       ))}
     </div>
@@ -346,7 +348,7 @@ function ScoreGuide({ manifest, defaultOpen }: { manifest: WeatherManifest; defa
   );
 }
 
-function PlaceSearch({ viewport, onFound }: { viewport: PlaceSearchViewport; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
+function PlaceSearch({ viewport, manifest, profile, view, onEngage, onFound }: { viewport: PlaceSearchViewport; manifest?: WeatherManifest; profile: Profile; view: View; onEngage: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
   const search = useMemo(() => new EuropePlaceSearch(), []);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
@@ -354,10 +356,15 @@ function PlaceSearch({ viewport, onFound }: { viewport: PlaceSearchViewport; onF
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
   const [status, setStatus] = useState('');
   const [focused, setFocused] = useState(false);
+  const [bestWeather, setBestWeather] = useState<BestWeatherPlace[]>([]);
+  const [bestStatus, setBestStatus] = useState('');
+  const [bestDismissed, setBestDismissed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
   const blurTimer = useRef<number | undefined>(undefined);
-  const open = focused && (results.length > 0 || Boolean(status));
+  const restoringFocusAfterDismiss = useRef(false);
+  const showBest = focused && !bestDismissed && view === 'range' && query.trim() === '';
+  const open = focused && (showBest || results.length > 0 || Boolean(status));
 
   useEffect(() => () => {
     search.clear();
@@ -380,6 +387,21 @@ function PlaceSearch({ viewport, onFound }: { viewport: PlaceSearchViewport; onF
     return () => window.clearTimeout(timer);
   }, [query, search]);
 
+  useEffect(() => {
+    if (!showBest || !manifest) return;
+    const controller = new AbortController();
+    setBestWeather([]);
+    setBestStatus('Finding the best weather…');
+    loadBestWeather(manifest.releaseId, profile, controller.signal)
+      .then((value) => { setBestWeather(value.results); setBestStatus(''); telemetry('best-weather-ready', { profile, count: value.results.length }); })
+      .catch((error: Error) => {
+        if (controller.signal.aborted) return;
+        telemetry('best-weather-error', { profile, message: error.message });
+        setBestWeather([]); setBestStatus('Best weather is unavailable');
+      });
+    return () => controller.abort();
+  }, [manifest, profile, showBest]);
+
   const choose = (result: PlaceSearchResult) => {
     const label = [result.name, result.admin1, result.country].filter((item, index, all) => item && all.indexOf(item) === index).join(', ');
     setQuery(result.name);
@@ -389,6 +411,15 @@ function PlaceSearch({ viewport, onFound }: { viewport: PlaceSearchViewport; onF
     input.current?.blur();
     onFound({ lat: result.latitude, lon: result.longitude, label }, input.current);
     telemetry('search-selected', { geonameId: result.geonameId, country: result.countryCode });
+  };
+
+  const chooseBest = (result: BestWeatherPlace) => {
+    const label = [result.name, result.admin1, result.country].filter((item, index, all) => item && all.indexOf(item) === index).join(', ');
+    setQuery(result.name);
+    setFocused(false);
+    input.current?.blur();
+    onFound({ lat: result.latitude, lon: result.longitude, label }, input.current);
+    telemetry('best-weather-selected', { geonameId: result.geonameId, country: result.countryCode, profile, score: result.score });
   };
 
   const submit = (event: React.FormEvent) => {
@@ -404,16 +435,43 @@ function PlaceSearch({ viewport, onFound }: { viewport: PlaceSearchViewport; onF
   return (
     <form className="placeSearch" role="search" onSubmit={submit} onKeyDown={(event) => {
       if (event.key !== 'Escape' || !open) return;
-      event.preventDefault(); event.stopPropagation(); setResults([]); setStatus(''); input.current?.focus();
+      event.preventDefault();
+      event.stopPropagation();
+      setResults([]);
+      setStatus('');
+      if (showBest) {
+        setBestDismissed(true);
+        restoringFocusAfterDismiss.current = document.activeElement !== input.current;
+      }
+      input.current?.focus();
     }}>
       <SearchIcon />
       <label className="srOnly" htmlFor="place-search">Find a place in Europe</label>
-      <input id="place-search" ref={input} value={query} placeholder="Find a place" autoComplete="off" onFocus={() => { window.clearTimeout(blurTimer.current); blurTimer.current = undefined; setFocused(true); }} onBlur={() => { window.clearTimeout(blurTimer.current); blurTimer.current = window.setTimeout(() => { blurTimer.current = undefined; setFocused(false); }, 120); }} onChange={(event) => setQuery(event.target.value)} aria-expanded={open} aria-controls="place-results" />
-      {query && <button className="clearSearch" type="button" aria-label="Clear search" onClick={() => { setQuery(''); setResults([]); setStatus(''); input.current?.focus(); }}>×</button>}
+      <input id="place-search" ref={input} value={query} placeholder="Find a place" autoComplete="off" onFocus={() => {
+        onEngage();
+        window.clearTimeout(blurTimer.current);
+        blurTimer.current = undefined;
+        if (restoringFocusAfterDismiss.current) restoringFocusAfterDismiss.current = false;
+        else setBestDismissed(false);
+        setFocused(true);
+      }} onBlur={() => {
+        window.clearTimeout(blurTimer.current);
+        blurTimer.current = window.setTimeout(() => {
+          blurTimer.current = undefined;
+          setFocused(false);
+        }, 120);
+      }} onChange={(event) => {
+        setBestDismissed(false);
+        setQuery(event.target.value);
+      }} aria-expanded={open} aria-controls="place-results" />
+      {query && <button className="clearSearch" type="button" aria-label="Clear search" onClick={() => { setBestDismissed(false); setQuery(''); setResults([]); setStatus(''); input.current?.focus(); }}>×</button>}
       {open && (
         <div id="place-results" className="searchPopover">
-          {results.length > 0 ? <ul aria-label="Places">{results.map((result) => <li key={result.geonameId}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(result)}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(', ')}</span></button></li>)}</ul> : <p role="status">{status}</p>}
-          {search.attribution && <small>Place names: <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a></small>}
+          {showBest ? <>
+            <div className="bestWeatherHeading"><strong>Best weather</strong><span>Next 14 days</span></div>
+            {bestWeather.length > 0 ? <ul aria-label="Best weather over the next 14 days">{bestWeather.map((result) => <li key={result.geonameId}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseBest(result)}><span className="bestPlace"><strong>{result.name}</strong><small>{[result.admin1, result.country].filter(Boolean).join(', ')}</small></span><span className="bestScore"><strong>{result.score}</strong><small>{result.niceDays} nice {result.niceDays === 1 ? 'day' : 'days'}</small></span></button></li>)}</ul> : <p role="status">{bestStatus}</p>}
+          </> : results.length > 0 ? <ul aria-label="Places">{results.map((result) => <li key={result.geonameId}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(result)}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(', ')}</span></button></li>)}</ul> : <p role="status">{status}</p>}
+          {(showBest || search.attribution) && <small>Place names: <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a></small>}
         </div>
       )}
     </form>
@@ -580,6 +638,14 @@ function locate(success: (point: MapPoint) => void, error: (message: string) => 
 
 function shortRange(start: string, end: string): string { return `${dateLabel(start)}–${dateLabel(end)}`; }
 function dateLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)); }
+function monthLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)); }
+function railMonthLabel(periods: Period[], index: number): string {
+  const current = periods[index]?.date;
+  const previous = periods[index - 1]?.date;
+  if (!current) return '\u00a0';
+  const month = monthLabel(current);
+  return index === 0 || !previous || monthLabel(previous) !== month ? month : '\u00a0';
+}
 function timeLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' }).format(new Date(value)) + ' UTC'; }
 function defaultWindFrameIndex(frames: Period['windFrames']): number {
   if (!frames?.length) return 0;

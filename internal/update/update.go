@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
@@ -96,8 +97,9 @@ func Run(ctx context.Context, config Config) error {
 		return smokeSources(ctx, stage, httpClient, aifsClient, land, dwdRun, aifsRun)
 	}
 	if !config.Refresh && currentUsesRuns(config.Out, dwdRun.StartedAt, aifsRun.Time) {
-		fmt.Printf("current release already uses ICON-EU %s and AIFS %s; nothing to update\n", dwdRun.ID(), aifsRun.Time.Format(time.RFC3339))
-		return nil
+		fmt.Printf("current release already uses ICON-EU %s and AIFS %s; refreshing best-weather companion\n", dwdRun.ID(), aifsRun.Time.Format(time.RFC3339))
+		_, err := finishCurrentProduct(ctx, config.Out, nil)
+		return err
 	}
 	if _, err := land.Prepare(ctx); err != nil {
 		return fmt.Errorf("prepare Natural Earth land authority: %w", err)
@@ -302,7 +304,7 @@ func Run(ctx context.Context, config Config) error {
 	}
 	writer.manifest.Forecast.Window = window
 	fmt.Printf("forecast window ready (%d days, %.0f km)\n", window.DayCount, window.GridResolutionKM)
-	if err := writer.finish(config.Out); err != nil {
+	if _, err := finishCurrentProduct(ctx, config.Out, func() error { return writer.finish(config.Out) }); err != nil {
 		return err
 	}
 	files, bytes, err := treeStats(writer.dir)
@@ -311,6 +313,32 @@ func Run(ctx context.Context, config Config) error {
 	}
 	fmt.Printf("published %s: %d files, %.1f MiB, wall %s\n", name, files, float64(bytes)/(1<<20), time.Since(started).Round(time.Second))
 	return nil
+}
+
+var buildBestWeatherCurrent = destinations.BuildCurrent
+
+// finishCurrentProduct owns the publication seam between a weather release and
+// its static best-weather companion. A nil weather publication means the
+// provider runs are unchanged, but the companion is still rebuilt. Companion
+// failure never mutates its old pointer; if weather was just published the
+// error says exactly which half completed.
+func finishCurrentProduct(ctx context.Context, root string, publishWeather func() error) (destinations.BuildSummary, error) {
+	published := false
+	if publishWeather != nil {
+		if err := publishWeather(); err != nil {
+			return destinations.BuildSummary{}, err
+		}
+		published = true
+	}
+	bestWeather, err := buildBestWeatherCurrent(ctx, root)
+	if err != nil {
+		if published {
+			return destinations.BuildSummary{}, fmt.Errorf("weather release published, but best-weather artifact failed: %w", err)
+		}
+		return destinations.BuildSummary{}, fmt.Errorf("best-weather artifact refresh failed: %w", err)
+	}
+	fmt.Printf("best weather ready: %d places -> %d bytes in %s\n", bestWeather.ScannedPlaces, bestWeather.Bytes, bestWeather.Elapsed.Round(time.Millisecond))
+	return bestWeather, nil
 }
 
 // DWD's regular ICON-EU element packages have this fixed documented domain:

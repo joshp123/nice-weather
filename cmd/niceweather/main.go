@@ -8,8 +8,10 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"nice-weather-finder/internal/appserver"
+	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/places"
 	weatherupdate "nice-weather-finder/internal/update"
 )
@@ -62,6 +64,25 @@ func main() {
 			summary, err = places.BuildAndPublishEurope(ctx, *source, *out, *sourceDate, *releaseID)
 			if err == nil {
 				fmt.Printf("places: %d places, %d keys, %d shards, %.1f MiB gzip\n", summary.PlaceCount, summary.SearchKeyCount, summary.ShardCount, float64(summary.GzipBytes)/(1024*1024))
+				var best destinations.BuildSummary
+				best, err = destinations.BuildCurrent(ctx, *out)
+				if err != nil {
+					err = fmt.Errorf("place index published, but best-weather artifact failed: %w", err)
+				} else {
+					fmt.Printf("best weather: %d places -> %d bytes in %s\n", best.ScannedPlaces, best.Bytes, best.Elapsed.Round(time.Millisecond))
+				}
+			}
+		}
+	case "best-weather":
+		flags := flag.NewFlagSet("best-weather", flag.ContinueOnError)
+		out := flags.String("out", "./artifacts", "artifact directory")
+		if err = flags.Parse(os.Args[2:]); err == nil {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			var summary destinations.BuildSummary
+			summary, err = destinations.BuildCurrent(ctx, *out)
+			if err == nil {
+				fmt.Printf("best weather: %d places -> %d bytes in %s\n", summary.ScannedPlaces, summary.Bytes, summary.Elapsed.Round(time.Millisecond))
 			}
 		}
 	case "help", "-h", "--help":
@@ -78,5 +99,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|serve|places> [options]")
+	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|serve|places|best-weather> [options]")
 }

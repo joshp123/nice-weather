@@ -516,7 +516,7 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 		requestPath = "index.html"
 	}
 	root, cache := app.webRoot, "no-cache"
-	if assetPath, immutable, matched, err := placeAssetPath(requestPath); matched {
+	if assetPath, immutable, matched, err := staticArtifactPath(requestPath); matched {
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_path", "The requested path is invalid.")
 			return
@@ -525,7 +525,7 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 		if immutable {
 			cache = "public, max-age=31536000, immutable"
 		}
-		app.servePlaceFile(w, r, assetPath, cache)
+		app.serveStaticArtifact(w, r, assetPath, cache)
 		return
 	} else if releaseID, assetPath, matched, err := releaseAssetPath(requestPath); matched {
 		if err != nil {
@@ -602,7 +602,7 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
 }
 
-func (app *application) servePlaceFile(w http.ResponseWriter, r *http.Request, requestPath, cache string) {
+func (app *application) serveStaticArtifact(w http.ResponseWriter, r *http.Request, requestPath, cache string) {
 	file, err := app.artifactFS.Open(requestPath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
@@ -621,7 +621,7 @@ func (app *application) servePlaceFile(w http.ResponseWriter, r *http.Request, r
 	w.Header().Set("Cache-Control", cache)
 	w.Header().Set("Content-Type", contentType)
 	modTime := info.ModTime()
-	if requestPath == "places/current.json" {
+	if requestPath == "places/current.json" || requestPath == "best-weather/current.json" {
 		payload, err := io.ReadAll(io.LimitReader(file, 1025))
 		if err != nil || len(payload) > 1024 {
 			writeError(w, http.StatusInternalServerError, "read_failed", "The place index pointer could not be read.")
@@ -673,7 +673,17 @@ func releaseAssetPath(requestPath string) (releaseID, assetPath string, matched 
 	return parts[0], parts[1], true, nil
 }
 
-func placeAssetPath(requestPath string) (assetPath string, immutable, matched bool, err error) {
+func staticArtifactPath(requestPath string) (assetPath string, immutable, matched bool, err error) {
+	if requestPath == "best-weather/current.json" {
+		return requestPath, false, true, nil
+	}
+	if strings.HasPrefix(requestPath, "best-weather/") {
+		parts := strings.Split(requestPath, "/")
+		if len(parts) == 3 && parts[0] == "best-weather" && parts[1] == "releases" && strings.HasSuffix(parts[2], ".json") && validReleaseID(strings.TrimSuffix(parts[2], ".json")) {
+			return requestPath, true, true, nil
+		}
+		return "", false, true, errors.New("unsafe best-weather asset path")
+	}
 	if requestPath == "places/current.json" {
 		return requestPath, false, true, nil
 	}

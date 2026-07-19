@@ -53,8 +53,8 @@ button:disabled { cursor: default; }
 .placeSearch input { width: 100%; min-width: 0; height: 100%; padding: 0 42px 0 10px; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 15px; }
 .placeSearch input::placeholder { color: #717a7f; opacity: 1; }
 .clearSearch { position: absolute; right: 5px; width: 36px; height: 36px; border: 0; background: transparent; color: #687279; font-size: 22px; cursor: pointer; }
-.searchPopover { position: absolute; top: calc(100% + 6px); left: 0; right: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-strong); box-shadow: var(--shadow); }
-.searchPopover ul { max-height: 310px; margin: 0; padding: 5px; overflow-y: auto; list-style: none; }
+.searchPopover { position: absolute; top: calc(100% + 6px); left: 0; right: 0; display: flex; max-height: calc(100dvh - 78px); overflow: hidden; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-strong); box-shadow: var(--shadow); }
+.searchPopover ul { min-height: 0; max-height: 380px; margin: 0; padding: 5px; overflow-y: auto; list-style: none; }
 .searchPopover li + li { border-top: 1px solid rgba(32, 36, 45, .1); }
 .searchPopover li button { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; width: 100%; min-height: 44px; padding: 9px 10px; border: 0; border-radius: 5px; background: transparent; text-align: left; cursor: pointer; }
 .searchPopover li button:hover, .searchPopover li button:focus-visible { background: #f0eadf; }
@@ -63,6 +63,16 @@ button:disabled { cursor: default; }
 .searchPopover p { margin: 0; padding: 14px; color: var(--muted); font-size: 13px; }
 .searchPopover > small { display: block; padding: 6px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; }
 .searchPopover > small a { color: inherit; text-underline-offset: 2px; }
+.bestWeatherHeading { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
+.bestWeatherHeading strong { font: 600 17px/1 "Iowan Old Style", Baskerville, Georgia, serif; }
+.bestWeatherHeading span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.searchPopover .bestPlace, .searchPopover .bestScore { display: block; min-width: 0; }
+.searchPopover .bestPlace { flex: 1 1 auto; }
+.searchPopover .bestPlace strong, .searchPopover .bestPlace small, .searchPopover .bestScore strong, .searchPopover .bestScore small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.searchPopover .bestPlace small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.searchPopover .bestScore { flex: 0 0 58px; text-align: right; }
+.searchPopover .bestScore strong { font: 600 20px/1 "Iowan Old Style", Baskerville, Georgia, serif; }
+.searchPopover .bestScore small { margin-top: 2px; color: var(--muted); font-size: 8px; }
 
 .sampleFlag { display: flex; align-items: baseline; gap: 7px; min-height: 38px; margin: 4px 0 0; padding: 8px 10px; border: 1px solid rgba(136, 72, 44, .28); border-radius: 6px; background: rgba(255, 244, 223, .96); color: #74412d; font-size: 11px; white-space: nowrap; }
 .sampleFlag strong { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
@@ -80,7 +90,8 @@ button:disabled { cursor: default; }
 .legendTop > span { color: var(--muted); }
 .legendRamp { display: block; height: 8px; border: 1px solid rgba(32, 36, 45, .18); }
 .legendEnds { display: flex; justify-content: space-between; margin-top: 4px; color: #626a70; font-size: 9px; letter-spacing: .02em; }
-.legendPopover { position: absolute; left: 0; bottom: calc(100% + 6px); width: 294px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--paper-strong); box-shadow: var(--shadow); }
+.legendPopover { position: absolute; left: 0; bottom: calc(100% + 6px); width: 294px; max-height: calc(100dvh - 238px); overflow-x: hidden; overflow-y: auto; border: 1px solid var(--line); border-radius: 7px; background: var(--paper-strong); box-shadow: var(--shadow); }
+.hasRail .legendPopover { max-height: calc(100dvh - 310px); }
 .layerMenu { padding: 4px; border-bottom: 1px solid var(--line); }
 .layerMenu button { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 40px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; font-size: 13px; cursor: pointer; }
 .layerMenu button:hover, .layerMenu button[aria-checked="true"] { background: #eee8dc; }
@@ -199,7 +210,7 @@ button:disabled { cursor: default; }
 @media (max-width: 1100px) {
   .cockpit { width: min(780px, calc(100% - 40px)); min-width: 0; }
   .pointPanel { right: 16px; }
-  .periodStatus { display: none; }
+  .periodStatus { display: block; grid-column: 1 / -1; grid-row: 2; font-size: 10px; }
   .cockpitMain { grid-template-columns: 1fr max-content; }
 }
 
@@ -226,12 +237,12 @@ button:disabled { cursor: default; }
   .wideLabel { display: none; }
   .shortLabel { display: inline; }
   .profileControl button { padding-inline: 9px; }
-  .periodStatus { display: none; }
+  .periodStatus { display: block; }
   .periodRail { margin-top: 5px; padding-top: 5px; }
   .periodRail button { flex-basis: 50px; min-height: 42px; }
 
-  .legendControl { left: 9px; bottom: 72px; }
-  .hasRail .legendControl { bottom: 125px; }
+  .legendControl { left: 9px; bottom: 88px; }
+  .hasRail .legendControl { bottom: 141px; }
   .legendTrigger { width: 154px; padding: 7px 8px 6px; }
   .windTime { width: 154px; }
   .legendTop { margin-bottom: 4px; }
@@ -239,8 +250,8 @@ button:disabled { cursor: default; }
   .legendPopover { width: min(294px, calc(100vw - 18px)); }
   .hasPoint .legendControl { display: none; }
 
-  .pointPanel { top: auto; right: 8px; bottom: 70px; left: 8px; width: auto; max-height: 27dvh; padding: 15px 15px 12px; overflow: hidden; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
-  .hasRail .pointPanel { bottom: 127px; max-height: 26dvh; }
+  .pointPanel { top: auto; right: 8px; bottom: 86px; left: 8px; width: auto; max-height: 27dvh; padding: 15px 15px 12px; overflow: hidden; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
+  .hasRail .pointPanel { bottom: 143px; max-height: 26dvh; }
   .pointPanel.expanded { display: flex; max-height: 58dvh; overflow: hidden; flex-direction: column; }
   .hasRail .pointPanel.expanded { max-height: 54dvh; }
   .pointPanel.expanded .pointPanelHeader { flex: 0 0 auto; }

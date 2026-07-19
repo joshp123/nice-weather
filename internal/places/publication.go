@@ -48,6 +48,21 @@ type placeIdentity struct {
 	FeatureRank uint8
 }
 
+// Candidate is one unique GeoNames settlement from a validated place release.
+// Labels are resolved here so consumers do not need to understand the search
+// manifest or its country/admin code tables.
+type Candidate struct {
+	GeoNameID   int64
+	Name        string
+	Country     string
+	Admin1      string
+	CountryCode string
+	Latitude    float64
+	Longitude   float64
+	Population  int64
+	FeatureRank uint8
+}
+
 // BuildAndPublishEurope builds a complete release and installs it below
 // <artifactRoot>/places. The pointer changes only after the installed release
 // has passed the same validation used for an independently built release.
@@ -128,10 +143,24 @@ func ValidateRelease(root string) (Summary, error) {
 		return Summary{}, err
 	}
 	defer rootFS.Close()
-	return validateReleaseRoot(rootFS)
+	return validateReleaseRoot(rootFS, nil)
 }
 
-func validateReleaseRoot(rootFS *os.Root) (Summary, error) {
+// WalkCurrent validates the complete current place release and visits each
+// unique settlement exactly once. A visitor result must not be used unless the
+// function returns nil: later integrity checks may still reject the release.
+func WalkCurrent(artifactRoot string, visit func(Candidate) error) (Pointer, error) {
+	if visit == nil {
+		return Pointer{}, errors.New("place candidate visitor is required")
+	}
+	placeRoot, err := existingPublicationRoot(artifactRoot)
+	if err != nil {
+		return Pointer{}, err
+	}
+	return validateCurrentWithVisitor(placeRoot, visit)
+}
+
+func validateReleaseRoot(rootFS *os.Root, visit func(Candidate) error) (Summary, error) {
 	entries, err := fs.ReadDir(rootFS.FS(), ".")
 	if err != nil {
 		return Summary{}, err
@@ -216,10 +245,25 @@ func validateReleaseRoot(rootFS *os.Root) (Summary, error) {
 				LatitudeE5: item.LatitudeE5, LongitudeE5: item.LongitudeE5,
 				Population: item.Population, FeatureRank: item.FeatureRank,
 			}
-			if previous, exists := uniquePlaces[item.GeoNameID]; exists && previous != identityFields {
+			previous, exists := uniquePlaces[item.GeoNameID]
+			if exists && previous != identityFields {
 				return Summary{}, fmt.Errorf("GeoNames ID %d has inconsistent identity across search keys", item.GeoNameID)
 			}
 			uniquePlaces[item.GeoNameID] = identityFields
+			if !exists && visit != nil {
+				admin := ""
+				if item.Admin1 != "" {
+					admin = got.Admins[item.Country+"."+item.Admin1]
+				}
+				if err := visit(Candidate{
+					GeoNameID: item.GeoNameID, Name: item.Name,
+					Country: got.Countries[item.Country], Admin1: admin, CountryCode: item.Country,
+					Latitude: float64(item.LatitudeE5) / 100_000, Longitude: float64(item.LongitudeE5) / 100_000,
+					Population: item.Population, FeatureRank: item.FeatureRank,
+				}); err != nil {
+					return Summary{}, fmt.Errorf("visit place %d: %w", item.GeoNameID, err)
+				}
+			}
 		}
 		compressed, err := gzipSize(payload)
 		if err != nil {
@@ -320,7 +364,7 @@ func validatedManifestDigestRoot(rootFS *os.Root) (string, error) {
 		return "", err
 	}
 	digest := sha256.Sum256(before)
-	if _, err := validateReleaseRoot(rootFS); err != nil {
+	if _, err := validateReleaseRoot(rootFS, nil); err != nil {
 		return "", err
 	}
 	after, err := readRootRegularBounded(rootFS, "manifest.json", maximumManifestBytes)
@@ -349,6 +393,10 @@ func validateExistingPointer(placeRoot string) error {
 }
 
 func validateCurrent(placeRoot string) (Pointer, error) {
+	return validateCurrentWithVisitor(placeRoot, nil)
+}
+
+func validateCurrentWithVisitor(placeRoot string, visit func(Candidate) error) (Pointer, error) {
 	payload, err := readRegularBounded(filepath.Join(placeRoot, "current.json"), maximumPointerBytes)
 	if err != nil {
 		return Pointer{}, fmt.Errorf("read place pointer: %w", err)
@@ -361,10 +409,27 @@ func validateCurrent(placeRoot string) (Pointer, error) {
 		return Pointer{}, errors.New("place pointer is invalid")
 	}
 	releaseRoot := filepath.Join(placeRoot, "releases", pointer.ReleaseID)
-	manifestDigest, err := validatedManifestDigest(releaseRoot)
+	rootFS, err := openCheckedRoot(releaseRoot)
 	if err != nil {
 		return Pointer{}, fmt.Errorf("validate current place release: %w", err)
 	}
+	defer rootFS.Close()
+	before, err := readRootRegularBounded(rootFS, "manifest.json", maximumManifestBytes)
+	if err != nil {
+		return Pointer{}, fmt.Errorf("validate current place release: %w", err)
+	}
+	manifestHash := sha256.Sum256(before)
+	if _, err := validateReleaseRoot(rootFS, visit); err != nil {
+		return Pointer{}, fmt.Errorf("validate current place release: %w", err)
+	}
+	after, err := readRootRegularBounded(rootFS, "manifest.json", maximumManifestBytes)
+	if err != nil {
+		return Pointer{}, fmt.Errorf("validate current place release: %w", err)
+	}
+	if sha256.Sum256(after) != manifestHash {
+		return Pointer{}, errors.New("place manifest changed during validation")
+	}
+	manifestDigest := hex.EncodeToString(manifestHash[:])
 	want := Pointer{ReleaseID: pointer.ReleaseID, ManifestSHA256: manifestDigest}
 	if pointer != want {
 		return Pointer{}, errors.New("place pointer manifest checksum does not match release")

@@ -276,6 +276,32 @@ func TestSampleReleaseUsesProductionSchemaAndNamedFixturePlaces(t *testing.T) {
 	}
 }
 
+func TestWalkCurrentVisitsEachValidatedPlaceOnce(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "artifacts")
+	pointer, err := PublishSample(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[int64]Candidate)
+	gotPointer, err := WalkCurrent(root, func(item Candidate) error {
+		if _, exists := seen[item.GeoNameID]; exists {
+			t.Fatalf("place %d was visited twice", item.GeoNameID)
+		}
+		seen[item.GeoNameID] = item
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPointer != pointer || len(seen) != 7 {
+		t.Fatalf("walk pointer=%+v places=%d", gotPointer, len(seen))
+	}
+	malaga := seen[2_514_256]
+	if malaga.Name != "Málaga" || malaga.Admin1 != "Andalusia" || malaga.Country != "Spain" || malaga.Latitude != 36.72016 || malaga.Longitude != -4.42034 {
+		t.Fatalf("Málaga candidate = %+v", malaga)
+	}
+}
+
 func TestValidateReleaseRejectsAliasWithConflictingPlaceIdentity(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "release")
 	if err := writeSampleRelease(root); err != nil {

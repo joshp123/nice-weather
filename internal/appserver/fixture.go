@@ -1,6 +1,7 @@
 package appserver
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/weather"
@@ -31,6 +33,9 @@ func GenerateFixture(root string) error {
 	}
 	if _, err := places.PublishSample(root); err != nil {
 		return fmt.Errorf("publish sample place index: %w", err)
+	}
+	if _, err := destinations.BuildCurrent(context.Background(), root); err != nil {
+		return fmt.Errorf("build sample best weather: %w", err)
 	}
 	return nil
 }
