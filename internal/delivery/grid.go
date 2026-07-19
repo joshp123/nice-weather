@@ -1,15 +1,11 @@
 package delivery
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
-	"path/filepath"
 
 	"nice-weather-finder/internal/weather"
 )
@@ -33,6 +29,8 @@ const (
 const recordKnownFlags = recordValid | recordHasDewPoint | recordHasGust | recordHasSolar | recordHasCloud | recordHasHumidity | recordHasWetTime
 
 var gridMagic = [8]byte{'N', 'W', 'F', 'G', 'R', 'I', 'D', 0}
+
+var dailyGridLayout = binaryGridLayout{name: "grid", magic: gridMagic, version: GridVersion, recordSize: gridRecordSize}
 
 // GridBounds are the outer edges of a regular EPSG:4326 grid. Rows are stored
 // north to south and columns west to east.
@@ -90,78 +88,25 @@ type GridReader struct {
 }
 
 func WriteGrid(path string, spec GridSpec, records []DailyRecord) (GridMetadata, error) {
-	if err := validateGridSpec(spec); err != nil {
-		return GridMetadata{}, err
-	}
-	count := uint64(spec.Rows) * uint64(spec.Cols)
-	if uint64(len(records)) != count {
-		return GridMetadata{}, fmt.Errorf("grid has %d records; want %d", len(records), count)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return GridMetadata{}, err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".grid-*.tmp")
-	if err != nil {
-		return GridMetadata{}, err
-	}
-	tmpPath := tmp.Name()
-	committed := false
-	defer func() {
-		_ = tmp.Close()
-		if !committed {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := tmp.Write(make([]byte, gridHeaderSize)); err != nil {
-		return GridMetadata{}, err
-	}
-	header := encodeHeader(spec, nil)
-	digest := sha256.New()
-	_, _ = digest.Write(header[:64])
-	payload := io.MultiWriter(tmp, digest)
-	var encoded [gridRecordSize]byte
-	for _, record := range records {
+	return writeBinaryGrid(path, spec, len(records), dailyGridLayout, func(dst []byte, index uint64) error {
+		record := records[index]
 		if err := validateRecord(record); err != nil {
-			return GridMetadata{}, err
+			return err
 		}
-		encodeRecord(encoded[:], record)
-		if _, err := payload.Write(encoded[:]); err != nil {
-			return GridMetadata{}, err
-		}
-	}
-	checksum := digest.Sum(nil)
-	header = encodeHeader(spec, checksum)
-	if _, err := tmp.WriteAt(header, 0); err != nil {
-		return GridMetadata{}, err
-	}
-	if err := tmp.Sync(); err != nil {
-		return GridMetadata{}, err
-	}
-	if err := tmp.Close(); err != nil {
-		return GridMetadata{}, err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return GridMetadata{}, err
-	}
-	if err := syncDirectory(filepath.Dir(path)); err != nil {
-		return GridMetadata{}, err
-	}
-	committed = true
-	return metadata(spec, checksum), nil
+		encodeRecord(dst, record)
+		return nil
+	})
 }
 
 func OpenGrid(path string) (*GridReader, error) {
-	file, err := os.Open(path)
+	file, meta, mapper, err := openBinaryGrid(path, dailyGridLayout, func(src []byte) error {
+		_, err := decodeRecord(src)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	reader := &GridReader{file: file}
-	if err := reader.readAndValidate(); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	return reader, nil
+	return &GridReader{file: file, meta: meta, mapper: mapper}, nil
 }
 
 func ValidateGrid(path string) (GridMetadata, error) {
@@ -220,52 +165,15 @@ func (reader *GridReader) record(row, col uint32) (DailyRecord, error) {
 	return record, nil
 }
 
-func (reader *GridReader) readAndValidate() error {
-	var header [gridHeaderSize]byte
-	if _, err := io.ReadFull(reader.file, header[:]); err != nil {
-		return fmt.Errorf("read grid header: %w", err)
-	}
-	meta, err := decodeHeader(header[:])
-	if err != nil {
-		return err
-	}
-	info, err := reader.file.Stat()
-	if err != nil {
-		return err
-	}
-	wantSize := int64(gridHeaderSize) + int64(uint64(meta.Rows)*uint64(meta.Cols)*uint64(meta.RecordSize))
-	if info.Size() != wantSize {
-		return fmt.Errorf("grid file size is %d; want %d", info.Size(), wantSize)
-	}
-	digest := sha256.New()
-	_, _ = digest.Write(header[:64])
-	if _, err := reader.file.Seek(gridHeaderSize, io.SeekStart); err != nil {
-		return err
-	}
-	var encoded [gridRecordSize]byte
-	for index := uint64(0); index < uint64(meta.Rows)*uint64(meta.Cols); index++ {
-		if _, err := io.ReadFull(reader.file, encoded[:]); err != nil {
-			return err
-		}
-		_, _ = digest.Write(encoded[:])
-		if _, err := decodeRecord(encoded[:]); err != nil {
-			return fmt.Errorf("grid record %d: %w", index, err)
-		}
-	}
-	if hex.EncodeToString(digest.Sum(nil)) != meta.SHA256 {
-		return errors.New("grid checksum mismatch")
-	}
-	mapper, err := NewWebMercatorMapper(GridSpec{Bounds: meta.Bounds, Rows: meta.Rows, Cols: meta.Cols})
-	if err != nil {
-		return err
-	}
-	reader.meta = meta
-	reader.mapper = mapper
-	return nil
+func validateGridSpec(spec GridSpec) error {
+	return validateGridSpecForRecordSize(spec, gridRecordSize)
 }
 
-func validateGridSpec(spec GridSpec) error {
+func validateGridSpecForRecordSize(spec GridSpec, recordSize uint16) error {
 	b := spec.Bounds
+	if recordSize == 0 {
+		return errors.New("grid record size must be positive")
+	}
 	if spec.Rows == 0 || spec.Cols == 0 {
 		return errors.New("grid rows and columns must be positive")
 	}
@@ -276,7 +184,7 @@ func validateGridSpec(spec GridSpec) error {
 		return errors.New("grid bounds exceed EPSG:4326")
 	}
 	count := uint64(spec.Rows) * uint64(spec.Cols)
-	if count > uint64(math.MaxInt64-gridHeaderSize)/gridRecordSize {
+	if count > uint64(math.MaxInt64-gridHeaderSize)/uint64(recordSize) {
 		return errors.New("grid is too large")
 	}
 	return nil
@@ -448,68 +356,6 @@ func quantizeUint16(value, scale float64, name string) (uint16, error) {
 	}
 	return uint16(quantized), nil
 }
-
-func encodeHeader(spec GridSpec, checksum []byte) []byte {
-	header := make([]byte, gridHeaderSize)
-	copy(header[0:8], gridMagic[:])
-	binary.LittleEndian.PutUint16(header[8:10], GridVersion)
-	binary.LittleEndian.PutUint16(header[10:12], gridHeaderSize)
-	binary.LittleEndian.PutUint16(header[12:14], gridRecordSize)
-	binary.LittleEndian.PutUint32(header[16:20], spec.Rows)
-	binary.LittleEndian.PutUint32(header[20:24], spec.Cols)
-	putFloat64(header[24:32], spec.Bounds.West)
-	putFloat64(header[32:40], spec.Bounds.East)
-	putFloat64(header[40:48], spec.Bounds.South)
-	putFloat64(header[48:56], spec.Bounds.North)
-	copy(header[64:96], checksum)
-	return header
-}
-
-func decodeHeader(header []byte) (GridMetadata, error) {
-	if len(header) != gridHeaderSize || string(header[:8]) != string(gridMagic[:]) {
-		return GridMetadata{}, errors.New("invalid grid magic")
-	}
-	if !allZero(header[14:16]) || !allZero(header[56:64]) || !allZero(header[96:128]) {
-		return GridMetadata{}, errors.New("grid header reserved bytes are not zero")
-	}
-	version := binary.LittleEndian.Uint16(header[8:10])
-	if version != GridVersion {
-		return GridMetadata{}, fmt.Errorf("unsupported grid version %d", version)
-	}
-	if binary.LittleEndian.Uint16(header[10:12]) != gridHeaderSize || binary.LittleEndian.Uint16(header[12:14]) != gridRecordSize {
-		return GridMetadata{}, errors.New("unsupported grid layout")
-	}
-	spec := GridSpec{
-		Rows: binary.LittleEndian.Uint32(header[16:20]),
-		Cols: binary.LittleEndian.Uint32(header[20:24]),
-		Bounds: GridBounds{
-			West: getFloat64(header[24:32]), East: getFloat64(header[32:40]),
-			South: getFloat64(header[40:48]), North: getFloat64(header[48:56]),
-		},
-	}
-	if err := validateGridSpec(spec); err != nil {
-		return GridMetadata{}, err
-	}
-	return metadata(spec, header[64:96]), nil
-}
-
-func allZero(values []byte) bool {
-	for _, value := range values {
-		if value != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func metadata(spec GridSpec, checksum []byte) GridMetadata {
-	return GridMetadata{Version: GridVersion, Bounds: spec.Bounds, Rows: spec.Rows, Cols: spec.Cols, RecordSize: gridRecordSize, SHA256: hex.EncodeToString(checksum)}
-}
-
-func putFloat64(dst []byte, value float64) {
-	binary.LittleEndian.PutUint64(dst, math.Float64bits(value))
-}
-func getFloat64(src []byte) float64 { return math.Float64frombits(binary.LittleEndian.Uint64(src)) }
 
 func encodeRecord(dst []byte, record DailyRecord) {
 	for index := range dst {
