@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -11,9 +12,10 @@ import (
 	"path/filepath"
 )
 
-// binaryGridLayout identifies one immutable grid format. Daily weather and
-// forecast-range grids share the same checked container while retaining
-// distinct magic, versions and record codecs.
+const gridHeaderSize = 128
+
+// binaryGridLayout identifies the checked container used by immutable wind
+// grids. Daily and range judgements use the NWFPOINT format instead.
 type binaryGridLayout struct {
 	name       string
 	magic      [8]byte
@@ -25,7 +27,7 @@ type binaryGridEncoder func(dst []byte, index uint64) error
 type binaryGridValidator func(src []byte) error
 
 func writeBinaryGrid(path string, spec GridSpec, count int, layout binaryGridLayout, encode binaryGridEncoder) (GridMetadata, error) {
-	if err := validateGridSpecForRecordSize(spec, layout.recordSize); err != nil {
+	if err := validateBinaryGridSpec(spec, layout.recordSize); err != nil {
 		return GridMetadata{}, err
 	}
 	wantCount := uint64(spec.Rows) * uint64(spec.Cols)
@@ -184,10 +186,24 @@ func decodeBinaryGridHeader(layout binaryGridLayout, header []byte) (GridMetadat
 			South: getFloat64(header[40:48]), North: getFloat64(header[48:56]),
 		},
 	}
-	if err := validateGridSpecForRecordSize(spec, layout.recordSize); err != nil {
+	if err := validateBinaryGridSpec(spec, layout.recordSize); err != nil {
 		return GridMetadata{}, err
 	}
 	return binaryGridMetadata(layout, spec, header[64:96]), nil
+}
+
+func validateBinaryGridSpec(spec GridSpec, recordSize uint16) error {
+	if recordSize == 0 {
+		return errors.New("grid record size must be positive")
+	}
+	if err := validateGridSpec(spec); err != nil {
+		return err
+	}
+	count := uint64(spec.Rows) * uint64(spec.Cols)
+	if count > uint64(math.MaxInt64-gridHeaderSize)/uint64(recordSize) {
+		return errors.New("grid is too large")
+	}
+	return nil
 }
 
 func binaryGridMetadata(layout binaryGridLayout, spec GridSpec, checksum []byte) GridMetadata {

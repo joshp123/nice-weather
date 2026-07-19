@@ -5,16 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 
 	"nice-weather-finder/internal/weather"
 )
 
-const (
-	GridVersion    = 2
-	gridHeaderSize = 128
-	gridRecordSize = 22
-)
+const dailyWeatherRecordBytes = 22
 
 const (
 	recordValid = 1 << iota
@@ -27,10 +22,6 @@ const (
 )
 
 const recordKnownFlags = recordValid | recordHasDewPoint | recordHasGust | recordHasSolar | recordHasCloud | recordHasHumidity | recordHasWetTime
-
-var gridMagic = [8]byte{'N', 'W', 'F', 'G', 'R', 'I', 'D', 0}
-
-var dailyGridLayout = binaryGridLayout{name: "grid", magic: gridMagic, version: GridVersion, recordSize: gridRecordSize}
 
 // GridBounds are the outer edges of a regular EPSG:4326 grid. Rows are stored
 // north to south and columns west to east.
@@ -81,105 +72,8 @@ type GridMetadata struct {
 	SHA256     string
 }
 
-type GridReader struct {
-	file   *os.File
-	meta   GridMetadata
-	mapper *WebMercatorMapper
-}
-
-func WriteGrid(path string, spec GridSpec, records []DailyRecord) (GridMetadata, error) {
-	return writeBinaryGrid(path, spec, len(records), dailyGridLayout, func(dst []byte, index uint64) error {
-		record := records[index]
-		if err := validateRecord(record); err != nil {
-			return err
-		}
-		encodeRecord(dst, record)
-		return nil
-	})
-}
-
-func OpenGrid(path string) (*GridReader, error) {
-	file, meta, mapper, err := openBinaryGrid(path, dailyGridLayout, func(src []byte) error {
-		_, err := decodeRecord(src)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &GridReader{file: file, meta: meta, mapper: mapper}, nil
-}
-
-func ValidateGrid(path string) (GridMetadata, error) {
-	reader, err := OpenGrid(path)
-	if err != nil {
-		return GridMetadata{}, err
-	}
-	defer reader.Close()
-	return reader.Metadata(), nil
-}
-
-func (reader *GridReader) Close() error { return reader.file.Close() }
-
-func (reader *GridReader) Metadata() GridMetadata { return reader.meta }
-
-// RecordAt returns the record used by the score-overlay pixel displayed at the
-// coordinate. Points outside MapLibre's rounded image quad are rejected; the
-// quad may extend a fraction beyond the source grid's declared bounds.
-func (reader *GridReader) RecordAt(lon, lat float64) (DailyRecord, bool, error) {
-	pixelRow, pixelCol, ok := reader.mapper.Pixel(lon, lat)
-	if !ok {
-		return DailyRecord{}, false, nil
-	}
-	var readErr error
-	row, col, ok := reader.mapper.Select(pixelRow, pixelCol, func(row, col uint32) bool {
-		record, err := reader.record(row, col)
-		if err != nil {
-			readErr = err
-			return false
-		}
-		return record.Valid
-	})
-	if readErr != nil {
-		return DailyRecord{}, false, readErr
-	}
-	if !ok {
-		return DailyRecord{}, false, nil
-	}
-	record, err := reader.record(row, col)
-	if err != nil {
-		return DailyRecord{}, false, err
-	}
-	return record, record.Valid, nil
-}
-
-func (reader *GridReader) record(row, col uint32) (DailyRecord, error) {
-	offset := int64(gridHeaderSize) + int64((uint64(row)*uint64(reader.meta.Cols)+uint64(col))*gridRecordSize)
-	var encoded [gridRecordSize]byte
-	if _, err := reader.file.ReadAt(encoded[:], offset); err != nil {
-		return DailyRecord{}, err
-	}
-	record, err := decodeRecord(encoded[:])
-	if err != nil {
-		return DailyRecord{}, err
-	}
-	return record, nil
-}
-
 func validateGridSpec(spec GridSpec) error {
-	return validateGridSpecForRecordSize(spec, gridRecordSize)
-}
-
-// ValidateGridSpec checks the shared regular-grid geometry without coupling a
-// caller to either daily or range record bytes.
-func ValidateGridSpec(spec GridSpec) error {
-	return validateGridSpec(spec)
-}
-
-func validateGridSpecForRecordSize(spec GridSpec, recordSize uint16) error {
 	b := spec.Bounds
-	if recordSize == 0 {
-		return errors.New("grid record size must be positive")
-	}
 	if spec.Rows == 0 || spec.Cols == 0 {
 		return errors.New("grid rows and columns must be positive")
 	}
@@ -189,12 +83,12 @@ func validateGridSpecForRecordSize(spec GridSpec, recordSize uint16) error {
 	if b.West < -180 || b.East > 180 || b.South < -90 || b.North > 90 {
 		return errors.New("grid bounds exceed EPSG:4326")
 	}
-	count := uint64(spec.Rows) * uint64(spec.Cols)
-	if count > uint64(math.MaxInt64-gridHeaderSize)/uint64(recordSize) {
-		return errors.New("grid is too large")
-	}
 	return nil
 }
+
+// ValidateGridSpec checks shared regular-grid geometry without coupling it to
+// any delivery container or record layout.
+func ValidateGridSpec(spec GridSpec) error { return validateGridSpec(spec) }
 
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
 
@@ -385,7 +279,7 @@ func encodeRecord(dst []byte, record DailyRecord) {
 }
 
 func decodeRecord(src []byte) (DailyRecord, error) {
-	if len(src) != gridRecordSize {
+	if len(src) != dailyWeatherRecordBytes {
 		return DailyRecord{}, errors.New("invalid record size")
 	}
 	flags := src[20]

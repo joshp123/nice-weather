@@ -174,7 +174,7 @@ func NewPointGeometry(source GridSpec) (PointGeometry, error) {
 }
 
 func validatePointGeometry(geometry PointGeometry) error {
-	if err := validateGridSpecForRecordSize(GridSpec{Bounds: geometry.Bounds, Rows: geometry.Rows, Cols: geometry.Cols}, 1); err != nil {
+	if err := validateGridSpec(GridSpec{Bounds: geometry.Bounds, Rows: geometry.Rows, Cols: geometry.Cols}); err != nil {
 		return err
 	}
 	quad := geometry.Quad
@@ -800,7 +800,7 @@ func encodeDailyPointRecord(dst []byte, record DailyPointRecord) {
 	if !record.Weather.Valid {
 		return
 	}
-	encodeRecord(dst[:gridRecordSize], record.Weather)
+	encodeRecord(dst[:dailyWeatherRecordBytes], record.Weather)
 	dst[22], dst[23], dst[24] = record.Thermal, record.Dryness, record.Sun
 	dst[25], dst[26] = record.NiceScore, record.NiceWind
 	dst[27], dst[28] = record.CyclingScore, record.CyclingWind
@@ -811,7 +811,7 @@ func decodeDailyPointRecord(src []byte) (DailyPointRecord, error) {
 	if len(src) != DailyPointRecordBytes {
 		return DailyPointRecord{}, errors.New("invalid daily point record size")
 	}
-	weatherRecord, err := decodeRecord(src[:gridRecordSize])
+	weatherRecord, err := decodeRecord(src[:dailyWeatherRecordBytes])
 	if err != nil {
 		return DailyPointRecord{}, err
 	}

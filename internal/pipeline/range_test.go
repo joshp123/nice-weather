@@ -122,20 +122,28 @@ func TestMalagaCoastalPatternPublishesPointAndMapCell(t *testing.T) {
 	for day := range days {
 		days[day] = sampled
 	}
-	records, err := ForecastRangeRecords(targetSpec, days, weather.ProfileNice)
+	nice, err := ForecastRangeRecords(targetSpec, days, weather.ProfileNice)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := t.TempDir() + "/range.nwr"
-	if _, err := delivery.WriteRangeGrid(path, targetSpec, records); err != nil {
-		t.Fatal(err)
-	}
-	grid, err := delivery.OpenRangeGrid(path)
+	cycling, err := ForecastRangeRecords(targetSpec, days, weather.ProfileCycling)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer grid.Close()
-	if _, valid, err := grid.RecordAt(lon, lat); err != nil || !valid {
+	geometry, pointRecords, err := delivery.RangePointRecords(targetSpec, nice, cycling, days)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := t.TempDir() + "/range.nwp"
+	if _, err := delivery.WriteRangePointAsset(path, "test-release", geometry, pointRecords); err != nil {
+		t.Fatal(err)
+	}
+	points, err := delivery.OpenPointAsset(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer points.Close()
+	if _, valid, err := points.RangeAt(lon, lat); err != nil || !valid {
 		t.Fatalf("Málaga lookup valid=%v err=%v", valid, err)
 	}
 }
@@ -173,7 +181,7 @@ func TestForecastRangeRecordsRequireEveryDayAndKeepProfilesSeparate(t *testing.T
 	}
 }
 
-func TestRangeOverlayPixelsComeFromRangeGridScores(t *testing.T) {
+func TestRangeOverlayPixelsComeFromRangeRecordScores(t *testing.T) {
 	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 50, North: 52}, Rows: 2, Cols: 2}
 	records := []delivery.RangeRecord{
 		rangeDeliveryRecord(20), rangeDeliveryRecord(45), {}, rangeDeliveryRecord(88),

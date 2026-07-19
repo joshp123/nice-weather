@@ -1137,19 +1137,24 @@ func TestPointLookupMatchesRenderedPixelAtCoastalCoordinates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			gridPath := filepath.Join(t.TempDir(), "period.nwg")
-			if _, err := delivery.WriteGrid(gridPath, test.spec, records); err != nil {
-				t.Fatal(err)
-			}
-			grid, err := delivery.OpenGrid(gridPath)
+			geometry, pointRecords, err := delivery.DailyPointRecords(test.spec, records)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer grid.Close()
-			got, valid, err := grid.RecordAt(test.lon, test.lat)
-			if err != nil || !valid || got != records[int(row)*int(test.spec.Cols)+int(col)] {
-				t.Fatalf("point lookup record mismatch: valid=%v err=%v got=%+v", valid, err, got)
+			pointPath := filepath.Join(t.TempDir(), "period.nwp")
+			if _, err := delivery.WriteDailyPointAsset(pointPath, "test-release", delivery.PointKindForecastDay, geometry, pointRecords); err != nil {
+				t.Fatal(err)
 			}
+			points, err := delivery.OpenPointAsset(pointPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer points.Close()
+			point, valid, err := points.DailyAt(test.lon, test.lat)
+			if err != nil || !valid || point.Weather != records[int(row)*int(test.spec.Cols)+int(col)] {
+				t.Fatalf("point lookup record mismatch: valid=%v err=%v got=%+v", valid, err, point.Weather)
+			}
+			got := point.Weather
 			pixelRow, pixelCol, ok := delivery.WebMercatorPixel(test.spec, test.lon, test.lat)
 			if !ok {
 				t.Fatal("coordinate did not map to an overlay pixel")
