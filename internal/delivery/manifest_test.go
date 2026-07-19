@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,16 +30,15 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"product contract invalid": func(m *Manifest) {
 			m.ProductContract = "Nice Weather"
 		},
-		"product contract mismatch": func(m *Manifest) {
-			m.ProductContract = "nice-weather-v7"
-		},
-		"data status":   func(m *Manifest) { m.DataStatus = "preview" },
-		"timestamp":     func(m *Manifest) { m.GeneratedAt = "today" },
-		"profile":       func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
-		"legend gap":    func(m *Manifest) { m.Legend[2].Min++ },
-		"legend color":  func(m *Manifest) { m.Legend[0].Color = "orange" },
-		"palette order": func(m *Manifest) { m.Palette[1].Score = 0 },
-		"source time":   func(m *Manifest) { m.Forecast.Days[0].Source.ValidTo = "2026-07-18T07:00:00Z" },
+		"product contract v8 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v8" },
+		"product contract v9 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v9" },
+		"data status":                  func(m *Manifest) { m.DataStatus = "preview" },
+		"timestamp":                    func(m *Manifest) { m.GeneratedAt = "today" },
+		"profile":                      func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
+		"legend gap":                   func(m *Manifest) { m.Legend[2].Min++ },
+		"legend color":                 func(m *Manifest) { m.Legend[0].Color = "orange" },
+		"palette order":                func(m *Manifest) { m.Palette[1].Score = 0 },
+		"source time":                  func(m *Manifest) { m.Forecast.Days[0].Source.ValidTo = "2026-07-18T07:00:00Z" },
 		"image checksum": func(m *Manifest) {
 			asset := m.Forecast.Days[0].Images["nice"]
 			asset.SHA256 = "bad"
@@ -107,6 +107,31 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 	valid = append(valid, []byte(` {}`)...)
 	if _, err := ParseManifest(valid); err == nil {
 		t.Fatal("trailing JSON was accepted")
+	}
+}
+
+func TestCanonicalScoreColoursAreFixed(t *testing.T) {
+	wantLegend := []LegendCategory{
+		{Label: "Awful", Color: "#34364F", Min: 0, Max: 24},
+		{Label: "Poor", Color: "#555977", Min: 25, Max: 39},
+		{Label: "Mixed", Color: "#7D7E94", Min: 40, Max: 54},
+		{Label: "Good", Color: "#B9ACA4", Min: 55, Max: 69},
+		{Label: "Very good", Color: "#E3B37F", Min: 70, Max: 84},
+		{Label: "Excellent", Color: "#F27643", Min: 85, Max: 100},
+	}
+	if got := CanonicalLegend(); !reflect.DeepEqual(got, wantLegend) {
+		t.Fatalf("canonical legend = %+v; want %+v", got, wantLegend)
+	}
+	wantPalette := []PaletteStop{
+		{Score: 0, Color: "#34364F"}, {Score: 24, Color: "#4E526E"},
+		{Score: 25, Color: "#555977"}, {Score: 39, Color: "#696B86"},
+		{Score: 40, Color: "#7D7E94"}, {Score: 54, Color: "#98939D"},
+		{Score: 55, Color: "#A69DA0"}, {Score: 69, Color: "#CBB198"},
+		{Score: 70, Color: "#D1B49A"}, {Score: 84, Color: "#E3B37F"},
+		{Score: 85, Color: "#E7AA75"}, {Score: 100, Color: "#F27643"},
+	}
+	if got := CanonicalPalette(); !reflect.DeepEqual(got, wantPalette) {
+		t.Fatalf("canonical palette = %+v; want %+v", got, wantPalette)
 	}
 }
 

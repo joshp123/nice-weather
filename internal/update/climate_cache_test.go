@@ -38,7 +38,7 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	}
 
 	data, err := json.Marshal(climateCheckpoint{
-		Contract: "nice-weather-v6|chelsa-2.1-1981-2010-0p1|validated-finite|overlap-renderer-v2",
+		Contract: "nice-weather-v9|chelsa-2.1-1981-2010-0p1|validated-finite|overlap-renderer-v2",
 		Period:   checkpoint,
 	})
 	if err != nil {
@@ -58,6 +58,26 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	}
 	if _, err := os.Stat(checkpointPath + ".invalid"); err != nil {
 		t.Fatalf("obsolete checkpoint was not quarantined: %v", err)
+	}
+}
+
+func TestClimateCheckpointRejectsPrePaletteContract(t *testing.T) {
+	cache := t.TempDir()
+	data, err := json.Marshal(climateCheckpoint{
+		Contract: "nice-weather-v8|chelsa-2.1-1981-2010-0p1|validated-finite|overlap-renderer-v2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpointPath := filepath.Join(cache, "month-01.json")
+	if err := os.WriteFile(checkpointPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := loadClimateCheckpoint(cache, t.TempDir(), 1); err != nil || ok {
+		t.Fatalf("obsolete v8 checkpoint: ok=%v err=%v", ok, err)
+	}
+	if _, err := os.Stat(checkpointPath + ".invalid"); err != nil {
+		t.Fatalf("obsolete v8 checkpoint was not quarantined: %v", err)
 	}
 }
 

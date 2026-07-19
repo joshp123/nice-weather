@@ -18,7 +18,7 @@ const ManifestVersion = 5
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v8"
+const ProductContract = "nice-weather-v10"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -530,23 +530,23 @@ func ValidateProductionManifest(manifest Manifest) error {
 
 func CanonicalLegend() []LegendCategory {
 	return []LegendCategory{
-		{Label: "Awful", Color: "#3F505A", Min: 0, Max: 24},
-		{Label: "Poor", Color: "#73858D", Min: 25, Max: 39},
-		{Label: "Mixed", Color: "#A5B2AA", Min: 40, Max: 54},
-		{Label: "Good", Color: "#68AE8A", Min: 55, Max: 69},
-		{Label: "Very good", Color: "#D7BD62", Min: 70, Max: 84},
-		{Label: "Excellent", Color: "#E5A073", Min: 85, Max: 100},
+		{Label: "Awful", Color: "#34364F", Min: 0, Max: 24},
+		{Label: "Poor", Color: "#555977", Min: 25, Max: 39},
+		{Label: "Mixed", Color: "#7D7E94", Min: 40, Max: 54},
+		{Label: "Good", Color: "#B9ACA4", Min: 55, Max: 69},
+		{Label: "Very good", Color: "#E3B37F", Min: 70, Max: 84},
+		{Label: "Excellent", Color: "#F27643", Min: 85, Max: 100},
 	}
 }
 
 func CanonicalPalette() []PaletteStop {
 	return []PaletteStop{
-		{Score: 0, Color: "#314047"}, {Score: 24, Color: "#52636B"},
-		{Score: 25, Color: "#73858D"}, {Score: 39, Color: "#87969B"},
-		{Score: 40, Color: "#9CAAA3"}, {Score: 54, Color: "#B5BDB3"},
-		{Score: 55, Color: "#5B9B7A"}, {Score: 69, Color: "#78BA95"},
-		{Score: 70, Color: "#C7AD55"}, {Score: 84, Color: "#E0C873"},
-		{Score: 85, Color: "#DE956A"}, {Score: 100, Color: "#F0B085"},
+		{Score: 0, Color: "#34364F"}, {Score: 24, Color: "#4E526E"},
+		{Score: 25, Color: "#555977"}, {Score: 39, Color: "#696B86"},
+		{Score: 40, Color: "#7D7E94"}, {Score: 54, Color: "#98939D"},
+		{Score: 55, Color: "#A69DA0"}, {Score: 69, Color: "#CBB198"},
+		{Score: 70, Color: "#D1B49A"}, {Score: 84, Color: "#E3B37F"},
+		{Score: 85, Color: "#E7AA75"}, {Score: 100, Color: "#F27643"},
 	}
 }
 

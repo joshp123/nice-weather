@@ -217,14 +217,79 @@ func scorePalette(stops []delivery.PaletteStop) ([101]color.NRGBA, error) {
 				break
 			}
 		}
-		position := 0.0
-		if right.score > left.score {
-			position = float64(score-left.score) / float64(right.score-left.score)
+		switch score {
+		case left.score:
+			palette[score] = left.color
+		case right.score:
+			palette[score] = right.color
+		default:
+			position := float64(score-left.score) / float64(right.score-left.score)
+			palette[score] = interpolateOKLab(left.color, right.color, position)
 		}
-		blend := func(a, b uint8) uint8 { return uint8(math.Round(float64(a) + position*(float64(b)-float64(a)))) }
-		palette[score] = color.NRGBA{R: blend(left.color.R, right.color.R), G: blend(left.color.G, right.color.G), B: blend(left.color.B, right.color.B), A: 200}
 	}
 	return palette, nil
+}
+
+type okLab struct {
+	l float64
+	a float64
+	b float64
+}
+
+// interpolateOKLab blends perceived lightness and chroma instead of encoded
+// sRGB channels. This keeps the low-chroma stone transition visually ordered.
+func interpolateOKLab(left, right color.NRGBA, position float64) color.NRGBA {
+	leftLab, rightLab := colorToOKLab(left), colorToOKLab(right)
+	interpolate := func(a, b float64) float64 { return a + position*(b-a) }
+	return okLabToColor(okLab{
+		l: interpolate(leftLab.l, rightLab.l),
+		a: interpolate(leftLab.a, rightLab.a),
+		b: interpolate(leftLab.b, rightLab.b),
+	})
+}
+
+func colorToOKLab(value color.NRGBA) okLab {
+	r := srgbToLinear(float64(value.R) / 255)
+	g := srgbToLinear(float64(value.G) / 255)
+	b := srgbToLinear(float64(value.B) / 255)
+
+	l := math.Cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b)
+	m := math.Cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b)
+	s := math.Cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b)
+	return okLab{
+		l: 0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+		a: 1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+		b: 0.0259040371*l + 0.7827717662*m - 0.8086757660*s,
+	}
+}
+
+func okLabToColor(value okLab) color.NRGBA {
+	l := value.l + 0.3963377774*value.a + 0.2158037573*value.b
+	m := value.l - 0.1055613458*value.a - 0.0638541728*value.b
+	s := value.l - 0.0894841775*value.a - 1.2914855480*value.b
+	l, m, s = l*l*l, m*m*m, s*s*s
+
+	r := linearToSRGB(4.0767416621*l - 3.3077115913*m + 0.2309699292*s)
+	g := linearToSRGB(-1.2684380046*l + 2.6097574011*m - 0.3413193965*s)
+	b := linearToSRGB(-0.0041960863*l - 0.7034186147*m + 1.7076147010*s)
+	channel := func(component float64) uint8 {
+		return uint8(math.Round(255 * math.Max(0, math.Min(1, component))))
+	}
+	return color.NRGBA{R: channel(r), G: channel(g), B: channel(b), A: 255}
+}
+
+func srgbToLinear(value float64) float64 {
+	if value <= 0.04045 {
+		return value / 12.92
+	}
+	return math.Pow((value+0.055)/1.055, 2.4)
+}
+
+func linearToSRGB(value float64) float64 {
+	if value <= 0.0031308 {
+		return 12.92 * value
+	}
+	return 1.055*math.Pow(value, 1/2.4) - 0.055
 }
 
 func parseHexColor(value string) (color.NRGBA, error) {
@@ -235,5 +300,5 @@ func parseHexColor(value string) (color.NRGBA, error) {
 	if err != nil {
 		return color.NRGBA{}, fmt.Errorf("color %q is not #RRGGBB", value)
 	}
-	return color.NRGBA{R: uint8(parsed >> 16), G: uint8(parsed >> 8), B: uint8(parsed), A: 200}, nil
+	return color.NRGBA{R: uint8(parsed >> 16), G: uint8(parsed >> 8), B: uint8(parsed), A: 255}, nil
 }
