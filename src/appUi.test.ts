@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { clearSearchAfterMapSelection, dayCountLabel, LayerLegend, LENSES, rainDisplay, rangeLensAsset, revealSelectedPeriod } from './App';
+import { clearSearchAfterMapSelection, dayCountLabel, LayerLegend, LENSES, PointLensControl, rainDisplay, rangeLensAsset, revealSelectedPeriod, temperatureRange } from './App';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
 
 describe('map controls', () => {
@@ -49,6 +49,14 @@ describe('map controls', () => {
     expect(rangeLensAsset(window, 'cycling', 'wind').url).toBe('cycling-calm');
   });
 
+  it('keeps all five map lenses available in the compact phone place sheet', () => {
+    const markup = renderToStaticMarkup(createElement(PointLensControl, { value: 'dry', onChange: vi.fn() }));
+    expect(markup).toContain('class="phoneLensControl"');
+    expect(markup.match(/role="radio"/g)).toHaveLength(5);
+    expect(markup).toContain('>Overall<');
+    expect(markup).toContain('aria-checked="true">Dry<');
+  });
+
   it('brings a newly selected day or month back into the visible rail', () => {
     const scrollIntoView = vi.fn();
     const container = {
@@ -78,6 +86,11 @@ describe('clear weather copy', () => {
     expect(dayCountLabel(14)).toBe('14 days');
   });
 
+  it('shows equal rounded minimum and maximum temperatures once', () => {
+    expect(temperatureRange(27.6, 28.4)).toBe('28°');
+    expect(temperatureRange(27.4, 28.4)).toBe('27–28°');
+  });
+
   it('clears a stale place query only after an external map selection', () => {
     const clear = vi.fn();
     clearSearchAfterMapSelection(0, clear);
@@ -93,5 +106,6 @@ describe('phone readability', () => {
     expect(css).toContain('.pointHeading h2 { margin: 0; overflow-wrap: anywhere;');
     expect(css).toContain('.weatherFacts dd { margin: 4px 0 0; overflow-wrap: anywhere;');
     expect(css).toContain('.searchPopover .bestPlace strong, .searchPopover .bestPlace small { overflow: visible; text-overflow: clip; white-space: normal; }');
+    expect(css).toContain('.phoneLensControl { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));');
   });
 });

@@ -218,7 +218,7 @@ export default function App() {
           legend={manifest?.legend ?? []}
           lens={lens}
           focusIntent={detailsFocusIntent}
-          onLensChange={(next) => { if (view !== 'range') setLens(next); }}
+          onLensChange={(next) => { setLens(next); telemetry('lens-changed', { lens: next, source: 'place-sheet' }); }}
           escapeEnabled={legendPanel === null}
           onClose={() => {
             setSelectedPoint(undefined);
@@ -505,6 +505,7 @@ function PointPanel({ state, point, legend, lens, focusIntent, onLensChange, esc
         <div className="sheetHandle" aria-hidden="true" />
         <button ref={close} className="closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
         {state.status === 'ready' && state.data && <PointHeadingFor data={state.data} point={point} />}
+        {state.status === 'ready' && <PointLensControl value={lens} onChange={onLensChange} />}
       </div>
       <div className="pointPanelBody">
         {state.status === 'loading' && <PointSkeleton label={point.label} />}
@@ -549,7 +550,7 @@ function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; 
       <p className="pointSummary">{data.summary}</p>
       {data.source.basis === 'climate' && <p className="climateNote">Monthly average from {data.source.referencePeriod}; not the chance of a nice day. Rain is the average per day.</p>}
       <dl className="weatherFacts">
-        <div className="comfortFact"><dt>Temperature</dt><dd>{format(data.metrics.minTempC, 0)}–{format(data.metrics.maxTempC, 0)}°{comfortContext(data)}</dd></div>
+        <div className="comfortFact"><dt>Temperature</dt><dd>{temperatureRange(data.metrics.minTempC, data.metrics.maxTempC)}{comfortContext(data)}</dd></div>
         <div><dt>{rain.label}</dt><dd>{rain.value}</dd></div>
         <div><dt>{data.metrics.cloudPct !== undefined ? 'Cloud' : 'Sun energy'}</dt><dd>{data.metrics.cloudPct !== undefined ? `${format(data.metrics.cloudPct, 0)}%` : data.metrics.solarEnergyMJm2 !== undefined ? `${format(data.metrics.solarEnergyMJm2, 1)} MJ/m²` : '—'}</dd></div>
         <div><dt>Wind</dt><dd>{format(data.metrics.windKmh, 0)} km/h</dd></div>
@@ -571,6 +572,12 @@ function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; 
 
 function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; eyebrow: string; score: number; category: string }) {
   return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{Math.round(score)}</strong><span>{category}</span></div></div>;
+}
+
+export function PointLensControl({ value, onChange }: { value: Lens; onChange: (lens: Lens) => void }) {
+  return <div className="phoneLensControl" role="radiogroup" aria-label="Map lens">
+    {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={value === item.id} onClick={() => onChange(item.id)}>{item.label}</button>)}
+  </div>;
 }
 
 function ComponentRows({ data, legend, active, onChange }: { data: PointWeather; legend: WeatherManifest['legend']; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
@@ -674,6 +681,11 @@ export function revealSelectedPeriod(container: Pick<HTMLElement, 'querySelector
   selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest', inline: 'center' });
 }
 export function dayCountLabel(count: number): string { return `${count} ${count === 1 ? 'day' : 'days'}`; }
+export function temperatureRange(minimum: number, maximum: number): string {
+  const low = format(minimum, 0);
+  const high = format(maximum, 0);
+  return low === high ? `${low}°` : `${low}–${high}°`;
+}
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
   return data.source.basis === 'climate'

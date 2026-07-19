@@ -143,6 +143,7 @@ button:disabled { cursor: default; }
 .pointHeading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px; padding-right: 24px; }
 .pointHeading p { margin: 0 0 3px; color: #6e767a; font-size: 10px; font-weight: 700; letter-spacing: .075em; text-transform: uppercase; }
 .pointHeading h2 { margin: 0; overflow-wrap: anywhere; font: 600 24px/1.08 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.025em; }
+.phoneLensControl { display: none; }
 .score { min-width: 68px; text-align: right; }
 .score strong { display: block; font: 600 40px/.9 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.05em; }
 .score span { display: block; margin-top: 5px; color: #5f676d; font-size: 11px; font-weight: 700; }
@@ -253,8 +254,8 @@ button:disabled { cursor: default; }
   .legendPopover { width: min(294px, calc(100vw - 18px)); }
   .hasPoint .legendControl { display: none; }
 
-  .pointPanel { top: auto; right: 8px; bottom: 86px; left: 8px; width: auto; max-height: 27dvh; padding: 15px 15px 12px; overflow: hidden; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
-  .hasRail .pointPanel { bottom: 143px; max-height: 26dvh; }
+  .pointPanel { top: auto; right: 8px; bottom: 86px; left: 8px; width: auto; max-height: 35dvh; padding: 15px 15px 12px; overflow: hidden; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
+  .hasRail .pointPanel { bottom: 143px; max-height: 34dvh; }
   .pointPanel.expanded { display: flex; max-height: 58dvh; overflow: hidden; flex-direction: column; }
   .hasRail .pointPanel.expanded { max-height: 54dvh; }
   .pointPanel.expanded .pointPanelHeader { flex: 0 0 auto; }
@@ -272,6 +273,9 @@ button:disabled { cursor: default; }
   .closeButton { top: -7px; right: -7px; }
   .sheetExpand { display: block; width: 100%; min-height: 40px; margin-top: 9px; border: 0; border-top: 1px solid var(--line); background: transparent; color: #3f5f6d; font-size: 11px; font-weight: 700; cursor: pointer; }
   .pointHeading h2 { font-size: 22px; }
+  .phoneLensControl { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; margin-top: 10px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: #e9e4da; }
+  .phoneLensControl button { min-width: 0; min-height: 44px; padding: 0 2px; border: 0; border-radius: 4px; background: transparent; color: #5d656c; font-size: 9px; font-weight: 700; cursor: pointer; }
+  .phoneLensControl button[aria-checked="true"] { background: var(--paper-strong); color: var(--ink); box-shadow: 0 1px 3px rgba(25, 34, 42, .14); }
   .score strong { font-size: 36px; }
   .rangeFacts { margin: 13px 0 11px; }
   .componentRows > button, .componentRows > div { min-height: 42px; }
