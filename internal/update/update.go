@@ -259,7 +259,7 @@ func Run(ctx context.Context, config Config) error {
 		if err != nil {
 			return err
 		}
-		rangeMetrics, err := pipeline.SampleMetricsAtCellCenters(aggregatedSpec, quantized, rangeTargetSpec)
+		rangeMetrics, err := pipeline.SampleMetricsAtRepresentativeCells(aggregatedSpec, quantized, rangeTargetSpec)
 		if err != nil {
 			return fmt.Errorf("sample %s onto 14-day grid: %w", day.Date.Format("2006-01-02"), err)
 		}
@@ -267,7 +267,7 @@ func Run(ctx context.Context, config Config) error {
 		writer.manifest.Forecast.Days = append(writer.manifest.Forecast.Days, delivery.ForecastPeriod{Period: period, Date: id, Kind: kind})
 		fmt.Printf("forecast %s ready (%s, %.0f km)\n", id, kind, resolution)
 	}
-	detailedTargetSupport, err := pipeline.SampleMaskAtCellCenters(detailedRangeSupport, rangeTargetSpec)
+	detailedTargetSupport, err := pipeline.SampleMaskAtRepresentativeCells(detailedRangeSupport, rangeTargetSpec)
 	if err != nil {
 		return fmt.Errorf("sample detailed forecast support onto 14-day grid: %w", err)
 	}

@@ -7,7 +7,7 @@ describe('weather delivery client', () => {
   it('parses manifest v5 with the canonical 14-day window', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v10');
+    expect(manifest.productContract).toBe('nice-weather-v11');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
     expect(manifest.forecast.days).toHaveLength(14);
     expect(manifest.climate?.months).toHaveLength(12);
@@ -172,7 +172,7 @@ function manifestFixture(): Record<string, any> {
     return period(date, { date, kind: index < 5 ? 'detailed' : 'outlook' });
   });
   return {
-    version: 5, releaseId: 'release-20260718', productContract: 'nice-weather-v10', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 5, releaseId: 'release-20260718', productContract: 'nice-weather-v11', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: [

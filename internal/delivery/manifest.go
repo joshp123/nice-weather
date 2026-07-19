@@ -18,7 +18,7 @@ const ManifestVersion = 5
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v10"
+const ProductContract = "nice-weather-v11"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -92,8 +92,9 @@ type ForecastCatalog struct {
 }
 
 // ForecastWindow is the canonical judgement across every promised forecast
-// day. Its grid uses the coarsest forecast grid; detailed days are deliberately
-// sampled down to these cell centres and the outlook is never upsampled.
+// day. Its grid uses the coarsest forecast grid. Detailed days preserve the
+// centre-containing finer cell when valid, otherwise the nearest valid finer
+// cell owned by the same coarse cell; the outlook is never upsampled.
 type ForecastWindow struct {
 	ID               string                        `json:"id"`
 	Label            string                        `json:"label"`

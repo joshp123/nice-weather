@@ -8,15 +8,19 @@ import (
 	"nice-weather-finder/internal/weather"
 )
 
-// SampleMetricsAtCellCenters deliberately reduces a finer regular grid onto a
-// coarser forecast grid. Each target cell receives the source cell containing
-// its centre; unavailable source cells remain unavailable. It never fills
-// holes or samples a coarse source onto a finer target.
-func SampleMetricsAtCellCenters(sourceSpec delivery.GridSpec, source []weather.DailyMetrics, targetSpec delivery.GridSpec) ([]weather.DailyMetrics, error) {
+// SampleMetricsAtRepresentativeCells deliberately reduces a finer regular grid
+// onto a coarser forecast grid. Each target cell receives the closest valid
+// source-cell centre contained by that target cell. This keeps narrow coasts
+// and islands whose target centre is water without reaching into a neighbouring
+// target cell. It never fills a source hole or samples coarse data onto a finer
+// grid.
+func SampleMetricsAtRepresentativeCells(sourceSpec delivery.GridSpec, source []weather.DailyMetrics, targetSpec delivery.GridSpec) ([]weather.DailyMetrics, error) {
 	if len(source) != int(sourceSpec.Rows)*int(sourceSpec.Cols) {
 		return nil, fmt.Errorf("source metrics do not match source grid")
 	}
-	indices, err := cellCenterSourceIndices(sourceSpec, targetSpec)
+	indices, err := representativeSourceIndices(sourceSpec, targetSpec, func(index int) bool {
+		return source[index].Valid
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -29,10 +33,11 @@ func SampleMetricsAtCellCenters(sourceSpec delivery.GridSpec, source []weather.D
 	return result, nil
 }
 
-// SampleMaskAtCellCenters projects provider support through the exact same
-// cell-centre mapping used for detailed weather. A coarse coastal cell is
-// expected only when its centre lands on a supported fine-grid cell.
-func SampleMaskAtCellCenters(source FloatGrid, targetSpec delivery.GridSpec) (FloatGrid, error) {
+// SampleMaskAtRepresentativeCells projects provider support through the exact
+// same contained-cell rule used for detailed weather. A coarse coastal cell is
+// expected when at least one supported fine-grid centre lies within it; support
+// never leaks across a target-cell boundary.
+func SampleMaskAtRepresentativeCells(source FloatGrid, targetSpec delivery.GridSpec) (FloatGrid, error) {
 	if err := source.Validate(); err != nil {
 		return FloatGrid{}, fmt.Errorf("source mask: %w", err)
 	}
@@ -41,7 +46,9 @@ func SampleMaskAtCellCenters(source FloatGrid, targetSpec delivery.GridSpec) (Fl
 			return FloatGrid{}, fmt.Errorf("source mask cell %d is not binary", index)
 		}
 	}
-	indices, err := cellCenterSourceIndices(source.Spec, targetSpec)
+	indices, err := representativeSourceIndices(source.Spec, targetSpec, func(index int) bool {
+		return source.Values[index] == 1
+	})
 	if err != nil {
 		return FloatGrid{}, err
 	}
@@ -54,7 +61,7 @@ func SampleMaskAtCellCenters(source FloatGrid, targetSpec delivery.GridSpec) (Fl
 	return result, nil
 }
 
-func cellCenterSourceIndices(sourceSpec, targetSpec delivery.GridSpec) ([]int, error) {
+func representativeSourceIndices(sourceSpec, targetSpec delivery.GridSpec, usable func(index int) bool) ([]int, error) {
 	if err := delivery.ValidateGridSpec(sourceSpec); err != nil {
 		return nil, fmt.Errorf("source grid: %w", err)
 	}
@@ -68,24 +75,66 @@ func cellCenterSourceIndices(sourceSpec, targetSpec delivery.GridSpec) ([]int, e
 	if targetCellWidth+1e-12 < sourceCellWidth || targetCellHeight+1e-12 < sourceCellHeight {
 		return nil, fmt.Errorf("target grid must not be finer than source grid")
 	}
+	if usable == nil {
+		return nil, fmt.Errorf("source-cell availability is required")
+	}
 
 	result := make([]int, int(targetSpec.Rows)*int(targetSpec.Cols))
 	for index := range result {
 		result[index] = -1
 	}
 	for row := uint32(0); row < targetSpec.Rows; row++ {
-		lat := targetSpec.Bounds.North - (float64(row)+0.5)*targetCellHeight
-		sourceRow := int(math.Floor((sourceSpec.Bounds.North - lat) / sourceCellHeight))
-		if sourceRow < 0 || sourceRow >= int(sourceSpec.Rows) {
-			continue
-		}
+		targetNorth := targetSpec.Bounds.North - float64(row)*targetCellHeight
+		targetSouth := targetNorth - targetCellHeight
+		centreLat := (targetNorth + targetSouth) / 2
+		firstSourceRow := int(math.Ceil((sourceSpec.Bounds.North-targetNorth)/sourceCellHeight - .5))
+		lastSourceRow := int(math.Floor((sourceSpec.Bounds.North-targetSouth)/sourceCellHeight - .5))
+		firstSourceRow = max(0, firstSourceRow)
+		lastSourceRow = min(int(sourceSpec.Rows)-1, lastSourceRow)
 		for col := uint32(0); col < targetSpec.Cols; col++ {
-			lon := targetSpec.Bounds.West + (float64(col)+0.5)*targetCellWidth
-			sourceCol := int(math.Floor((lon - sourceSpec.Bounds.West) / sourceCellWidth))
-			if sourceCol < 0 || sourceCol >= int(sourceSpec.Cols) {
-				continue
+			targetWest := targetSpec.Bounds.West + float64(col)*targetCellWidth
+			targetEast := targetWest + targetCellWidth
+			centreLon := (targetWest + targetEast) / 2
+			firstSourceCol := int(math.Ceil((targetWest-sourceSpec.Bounds.West)/sourceCellWidth - .5))
+			lastSourceCol := int(math.Floor((targetEast-sourceSpec.Bounds.West)/sourceCellWidth - .5))
+			firstSourceCol = max(0, firstSourceCol)
+			lastSourceCol = min(int(sourceSpec.Cols)-1, lastSourceCol)
+			preferredRow := int(math.Floor((sourceSpec.Bounds.North - centreLat) / sourceCellHeight))
+			preferredCol := int(math.Floor((centreLon - sourceSpec.Bounds.West) / sourceCellWidth))
+			preferredIndex := preferredRow*int(sourceSpec.Cols) + preferredCol
+			if preferredRow >= 0 && preferredRow < int(sourceSpec.Rows) && preferredCol >= 0 && preferredCol < int(sourceSpec.Cols) {
+				preferredLat := sourceSpec.Bounds.North - (float64(preferredRow)+.5)*sourceCellHeight
+				preferredLon := sourceSpec.Bounds.West + (float64(preferredCol)+.5)*sourceCellWidth
+				ownerRow := int(math.Floor((targetSpec.Bounds.North - preferredLat) / targetCellHeight))
+				ownerCol := int(math.Floor((preferredLon - targetSpec.Bounds.West) / targetCellWidth))
+				if ownerRow == int(row) && ownerCol == int(col) && usable(preferredIndex) {
+					result[int(row)*int(targetSpec.Cols)+int(col)] = preferredIndex
+					continue
+				}
 			}
-			result[int(row)*int(targetSpec.Cols)+int(col)] = sourceRow*int(sourceSpec.Cols) + sourceCol
+			bestIndex, bestDistance := -1, math.Inf(1)
+			for sourceRow := firstSourceRow; sourceRow <= lastSourceRow; sourceRow++ {
+				sourceLat := sourceSpec.Bounds.North - (float64(sourceRow)+.5)*sourceCellHeight
+				for sourceCol := firstSourceCol; sourceCol <= lastSourceCol; sourceCol++ {
+					sourceLon := sourceSpec.Bounds.West + (float64(sourceCol)+.5)*sourceCellWidth
+					ownerRow := int(math.Floor((targetSpec.Bounds.North - sourceLat) / targetCellHeight))
+					ownerCol := int(math.Floor((sourceLon - targetSpec.Bounds.West) / targetCellWidth))
+					if ownerRow != int(row) || ownerCol != int(col) {
+						continue
+					}
+					index := sourceRow*int(sourceSpec.Cols) + sourceCol
+					if !usable(index) {
+						continue
+					}
+					dx := (sourceLon - centreLon) / targetCellWidth
+					dy := (sourceLat - centreLat) / targetCellHeight
+					distance := dx*dx + dy*dy
+					if distance < bestDistance {
+						bestIndex, bestDistance = index, distance
+					}
+				}
+			}
+			result[int(row)*int(targetSpec.Cols)+int(col)] = bestIndex
 		}
 	}
 	return result, nil

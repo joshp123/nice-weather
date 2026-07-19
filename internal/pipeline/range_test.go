@@ -9,7 +9,7 @@ import (
 	"nice-weather-finder/internal/weather"
 )
 
-func TestSampleMetricsAtCellCentersDownsamplesWithoutFillingMissingCells(t *testing.T) {
+func TestSampleMetricsAtRepresentativeCellsStaysWithinTargetCell(t *testing.T) {
 	sourceSpec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 4, South: 0, North: 4}, Rows: 4, Cols: 4}
 	targetSpec := delivery.GridSpec{Bounds: sourceSpec.Bounds, Rows: 2, Cols: 2}
 	source := make([]weather.DailyMetrics, 16)
@@ -17,34 +17,125 @@ func TestSampleMetricsAtCellCentersDownsamplesWithoutFillingMissingCells(t *test
 		source[index] = rangeMetric(float64(index))
 	}
 	source[3*4+3] = weather.DailyMetrics{}
-	got, err := SampleMetricsAtCellCenters(sourceSpec, source, targetSpec)
+	got, err := SampleMetricsAtRepresentativeCells(sourceSpec, source, targetSpec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Target centres (1,3), (3,3), (1,1), (3,1) select source cells
-	// (1,1), (1,3), (3,1), (3,3) respectively.
-	if got[0].ComfortableTempC != source[5].ComfortableTempC || got[1].ComfortableTempC != source[7].ComfortableTempC || got[2].ComfortableTempC != source[13].ComfortableTempC || got[3].Valid {
+	// Each 2x2 source block is one target cell. When the south-east target's
+	// nearest source cell is unavailable, another valid cell in that same block
+	// represents it; no neighbouring target cell is consulted.
+	if got[0].ComfortableTempC != source[5].ComfortableTempC || got[1].ComfortableTempC != source[7].ComfortableTempC || got[2].ComfortableTempC != source[13].ComfortableTempC || got[3].ComfortableTempC != source[10].ComfortableTempC {
 		t.Fatalf("sampled metrics = %+v", got)
 	}
-	if _, err := SampleMetricsAtCellCenters(targetSpec, got, sourceSpec); err == nil {
+	for _, index := range []int{10, 11, 14} {
+		source[index] = weather.DailyMetrics{}
+	}
+	got, err = SampleMetricsAtRepresentativeCells(sourceSpec, source, targetSpec)
+	if err != nil || got[3].Valid {
+		t.Fatalf("empty target cell was filled across its boundary: metrics=%+v err=%v", got[3], err)
+	}
+	if _, err := SampleMetricsAtRepresentativeCells(targetSpec, got, sourceSpec); err == nil {
 		t.Fatal("coarse forecast was allowed to masquerade as a finer grid")
 	}
 }
 
-func TestSampleMaskAtCellCentersDoesNotPromoteCoastalTouches(t *testing.T) {
+func TestSampleMaskAtRepresentativeCellsPreservesCoastalTouchesInsideTarget(t *testing.T) {
 	sourceSpec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 4, South: 0, North: 4}, Rows: 4, Cols: 4}
 	targetSpec := delivery.GridSpec{Bounds: sourceSpec.Bounds, Rows: 2, Cols: 2}
-	// Fine cell 0 touches a tiny island inside the north-west coarse cell, but
-	// that coarse cell's centre maps to fine cell 5, which is water. Fine cell 7
-	// supports the north-east target centre.
+	// Fine cell 0 touches a tiny island inside the north-west coarse cell even
+	// though that coarse cell's centre is water. Fine cell 7 supports the
+	// north-east target cell. Neither may leak into the southern target cells.
 	source := FloatGrid{Spec: sourceSpec, Values: make([]float32, 16)}
 	source.Values[0], source.Values[7] = 1, 1
-	target, err := SampleMaskAtCellCenters(source, targetSpec)
+	target, err := SampleMaskAtRepresentativeCells(source, targetSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Values[0] != 1 || target.Values[1] != 1 || target.Values[2] != 0 || target.Values[3] != 0 {
+		t.Fatalf("representative support = %v; want [1 1 0 0]", target.Values)
+	}
+}
+
+func TestRepresentativeCellsOwnBoundaryCentresOnce(t *testing.T) {
+	source := FloatGrid{
+		Spec:   delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 3, South: 0, North: 1}, Rows: 1, Cols: 3},
+		Values: []float32{0, 1, 0},
+	}
+	targetSpec := delivery.GridSpec{Bounds: source.Spec.Bounds, Rows: 1, Cols: 2}
+	target, err := SampleMaskAtRepresentativeCells(source, targetSpec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if target.Values[0] != 0 || target.Values[1] != 1 {
-		t.Fatalf("target-centre support = %v; want north row [0 1]", target.Values)
+		t.Fatalf("boundary source support = %v; want half-open ownership [0 1]", target.Values)
+	}
+	shiftedSource := FloatGrid{
+		Spec:   delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 1}, Rows: 1, Cols: 2},
+		Values: []float32{1, 0},
+	}
+	shiftedTarget := delivery.GridSpec{Bounds: delivery.GridBounds{West: -.5, East: 1.5, South: 0, North: 1}, Rows: 1, Cols: 2}
+	target, err = SampleMaskAtRepresentativeCells(shiftedSource, shiftedTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Values[0] != 0 || target.Values[1] != 1 {
+		t.Fatalf("shifted boundary source support = %v; want canonical owner [0 1]", target.Values)
+	}
+}
+
+func TestMalagaCoastalPatternPublishesPointAndMapCell(t *testing.T) {
+	sourceSpec := delivery.GridSpec{Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5}, Rows: 680, Cols: 1104}
+	targetSpec := delivery.GridSpec{Bounds: sourceSpec.Bounds, Rows: 170, Cols: 276}
+	const lon, lat = -4.42034, 36.72016
+	const targetRow, targetCol = 139, 78
+	// This is the exact 4x4 validity pattern in Málaga's 28 km target cell
+	// from the live 2026-07-19 ICON-EU grid. The target-centre source cell
+	// (local row 2, column 2) is water, while six detailed land cells carry
+	// complete weather inside the same target cell.
+	pattern := [4]string{"1111", "1000", "1000", "0000"}
+	sourceMask := FloatGrid{Spec: sourceSpec, Values: make([]float32, int(sourceSpec.Rows)*int(sourceSpec.Cols))}
+	source := make([]weather.DailyMetrics, len(sourceMask.Values))
+	for localRow, line := range pattern {
+		for localCol, value := range line {
+			if value != '1' {
+				continue
+			}
+			index := (targetRow*4+localRow)*int(sourceSpec.Cols) + targetCol*4 + localCol
+			sourceMask.Values[index] = 1
+			source[index] = rangeMetric(24)
+		}
+	}
+	sampledSupport, err := SampleMaskAtRepresentativeCells(sourceMask, targetSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sampled, err := SampleMetricsAtRepresentativeCells(sourceSpec, source, targetSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetIndex := targetRow*int(targetSpec.Cols) + targetCol
+	if sampledSupport.Values[targetIndex] != 1 || !sampled[targetIndex].Valid {
+		t.Fatalf("Málaga target support=%v metrics=%+v", sampledSupport.Values[targetIndex], sampled[targetIndex])
+	}
+	days := make([][]weather.DailyMetrics, 14)
+	for day := range days {
+		days[day] = sampled
+	}
+	records, err := ForecastRangeRecords(targetSpec, days, weather.ProfileNice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := t.TempDir() + "/range.nwr"
+	if _, err := delivery.WriteRangeGrid(path, targetSpec, records); err != nil {
+		t.Fatal(err)
+	}
+	grid, err := delivery.OpenRangeGrid(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer grid.Close()
+	if _, valid, err := grid.RecordAt(lon, lat); err != nil || !valid {
+		t.Fatalf("Málaga lookup valid=%v err=%v", valid, err)
 	}
 }
 

@@ -4,7 +4,7 @@ import type {
 } from './types';
 
 const MANIFEST_VERSION = 5;
-const PRODUCT_CONTRACT = 'nice-weather-v10';
+const PRODUCT_CONTRACT = 'nice-weather-v11';
 
 export class StaleReleaseError extends Error {
   readonly code = 'stale_release';

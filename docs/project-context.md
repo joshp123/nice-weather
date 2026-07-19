@@ -51,7 +51,7 @@ provider fields
     -> delivery records and profile PNGs
 ```
 
-Map pixels and point details use the same score. The frontend only selects a period and profile; client-side scoring is forbidden.
+Map pixels and point details use the same score. The frontend only selects a period and profile; client-side scoring is forbidden. The 14-day product keeps a coastal target cell when its centre is water but a complete finer detailed-forecast cell exists inside that same honest 28 km target cell; it never reaches into a neighbouring target cell.
 
 The score has four orthogonal components: thermal comfort, dryness, brightness and wind. Thermal comfort combines temperature with moisture: hot-dry and hot-humid conditions are deliberately different, as are cold-dry and cold-damp conditions. Deal-breaker rules stop cold, oppressive, very wet or very windy days from winning through averages alone.
 
@@ -87,7 +87,7 @@ artifacts/places/releases/     immutable place manifests and shards
 
 A live update starts in `artifacts/.building`. After the forecast window, daily forecasts, climate months, images, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v10` binds forecast-window scoring, component lenses, rating semantics, colours, masks, grid and display projection. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v11` binds forecast-window scoring, coastal-cell reduction, component lenses, rating semantics, colours, masks, grid and display projection. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
 
 Runtime routes:
 
