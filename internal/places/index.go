@@ -681,6 +681,13 @@ func makeStaging(output string) (string, error) {
 }
 
 func validateOutput(root string, config buildConfig, want Summary) error {
+	validated, err := ValidateRelease(root)
+	if err != nil {
+		return err
+	}
+	if validated != want {
+		return fmt.Errorf("generated place summary %+v does not match expected %+v", validated, want)
+	}
 	payload, err := os.ReadFile(filepath.Join(root, "manifest.json"))
 	if err != nil {
 		return err
@@ -691,38 +698,6 @@ func validateOutput(root string, config buildConfig, want Summary) error {
 	}
 	if got.Schema != schema || got.Source.ExtractDate != config.sourceDate || got.Source.License != "CC BY 4.0" || !got.Source.Modified || got.ProductBounds != config.coverage || got.Summary != want || got.ShardCount != want.ShardCount || len(got.Shards) != want.ShardCount {
 		return errors.New("generated manifest failed contract validation")
-	}
-	entries, err := os.ReadDir(filepath.Join(root, "shards"))
-	if err != nil {
-		return err
-	}
-	if len(entries) != want.ShardCount {
-		return fmt.Errorf("generated %d shard files, expected %d", len(entries), want.ShardCount)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			return fmt.Errorf("unexpected shard entry %q", entry.Name())
-		}
-		data, err := os.ReadFile(filepath.Join(root, "shards", entry.Name()))
-		if err != nil {
-			return err
-		}
-		name := strings.TrimSuffix(entry.Name(), ".json")
-		wantDigest, ok := got.Shards[name]
-		if !ok || len(wantDigest) != sha256.Size*2 {
-			return fmt.Errorf("shard %q has no valid manifest digest", entry.Name())
-		}
-		if _, err := hex.DecodeString(wantDigest); err != nil {
-			return fmt.Errorf("shard %q has invalid manifest digest: %w", entry.Name(), err)
-		}
-		digest := sha256.Sum256(data)
-		if hex.EncodeToString(digest[:]) != wantDigest {
-			return fmt.Errorf("shard %q checksum does not match manifest", entry.Name())
-		}
-		var decoded shard
-		if err := json.Unmarshal(data, &decoded); err != nil || decoded.Version != 1 || len(decoded.Records) == 0 {
-			return fmt.Errorf("invalid shard %q", entry.Name())
-		}
 	}
 	return nil
 }

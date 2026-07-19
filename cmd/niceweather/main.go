@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"nice-weather-finder/internal/appserver"
@@ -48,13 +49,17 @@ func main() {
 	case "places":
 		flags := flag.NewFlagSet("places", flag.ContinueOnError)
 		source := flags.String("source", "", "directory containing pinned GeoNames extracts")
-		out := flags.String("out", "", "immutable place-index release directory")
+		out := flags.String("out", "./artifacts", "artifact directory")
 		sourceDate := flags.String("source-date", "", "GeoNames extract date in YYYY-MM-DD")
+		releaseID := flags.String("release-id", "", "immutable release ID (default places-YYYYMMDD)")
 		if err = flags.Parse(os.Args[2:]); err == nil {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			if *releaseID == "" {
+				*releaseID = "places-" + strings.ReplaceAll(*sourceDate, "-", "")
+			}
 			var summary places.Summary
-			summary, err = places.BuildEurope(ctx, *source, *out, *sourceDate)
+			summary, err = places.BuildAndPublishEurope(ctx, *source, *out, *sourceDate, *releaseID)
 			if err == nil {
 				fmt.Printf("places: %d places, %d keys, %d shards, %.1f MiB gzip\n", summary.PlaceCount, summary.SearchKeyCount, summary.ShardCount, float64(summary.GzipBytes)/(1024*1024))
 			}

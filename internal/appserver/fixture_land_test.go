@@ -72,6 +72,9 @@ func TestFixtureReleaseHasInvalidOceanAndTransparentSea(t *testing.T) {
 	if manifest.ProductContract != delivery.ProductContract || manifest.DataStatus != delivery.DataStatusSample || len(manifest.Forecast.Days) != 14 || manifest.Climate == nil || len(manifest.Climate.Months) != 12 {
 		t.Fatalf("fixture production contract is incomplete: %+v", manifest)
 	}
+	if manifest.Climate.ReferencePeriod != "1981–2010" || manifest.Climate.Months[0].Source.ValidFrom != "1981-01-01T00:00:00Z" || manifest.Climate.Months[0].Source.ValidTo != "2011-01-01T00:00:00Z" {
+		t.Fatalf("fixture climate metadata does not match current CHELSA authority: %+v", manifest.Climate)
+	}
 
 	day := manifest.Forecast.Days[0]
 	grid, err := delivery.OpenGrid(filepath.Join(releaseRoot, filepath.FromSlash(day.GridURL)))

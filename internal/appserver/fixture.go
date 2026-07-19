@@ -12,6 +12,7 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
+	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/weather"
 )
 
@@ -25,7 +26,13 @@ var fixturePalette = delivery.CanonicalPalette()
 // GenerateFixture writes a complete, deterministic product release. Its
 // metadata calls it sample data so it cannot be presented as a live forecast.
 func GenerateFixture(root string) error {
-	return generateFixture(root, fixtureRelease, 0)
+	if err := generateFixture(root, fixtureRelease, 0); err != nil {
+		return err
+	}
+	if _, err := places.PublishSample(root); err != nil {
+		return fmt.Errorf("publish sample place index: %w", err)
+	}
+	return nil
 }
 
 func generateFixture(root, releaseName string, temperatureOffset float64) error {
@@ -55,7 +62,7 @@ func generateFixture(root, releaseName string, temperatureOffset float64) error 
 		Legend:          fixtureLegend,
 		Palette:         fixturePalette,
 		Forecast:        delivery.ForecastCatalog{UpdatedAt: fixtureTime.Add(-2 * time.Hour).Format(time.RFC3339), StaleAfterHours: 18},
-		Climate:         &delivery.ClimateCatalog{Label: "Typical year (sample data)", ReferencePeriod: "1991–2020"},
+		Climate:         &delivery.ClimateCatalog{Label: "Typical year (sample data)", ReferencePeriod: "1981–2010"},
 	}
 	forecastDays := make([][]weather.DailyMetrics, 0, 14)
 	for day := 0; day < 14; day++ {
@@ -250,7 +257,7 @@ func fixtureSource(group, id, sourceKind string) delivery.Source {
 	if group == "climate" {
 		return delivery.Source{
 			ProviderID: "sample-climate", ProviderLabel: "Sample typical weather",
-			RunAt: "1991-01-01T00:00:00Z", ValidFrom: "1991-01-01T00:00:00Z", ValidTo: "2021-01-01T00:00:00Z",
+			RunAt: "1981-01-01T00:00:00Z", ValidFrom: "1981-01-01T00:00:00Z", ValidTo: "2011-01-01T00:00:00Z",
 		}
 	}
 	date, _ := time.Parse("2006-01-02", id)

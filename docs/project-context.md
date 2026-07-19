@@ -78,14 +78,16 @@ artifacts/current/images/     overall and component map PNGs per period
 artifacts/current/grids/      one compact point-lookup grid per period
 artifacts/.building/           unpublished release under construction
 artifacts/releases/           validated release directories
+artifacts/places/current.json  revalidated place-index pointer
+artifacts/places/releases/     immutable place manifests and shards
 .cache/weather/staging/       bounded, temporary update work
 .cache/weather/land/          validated Natural Earth source cache
 .cache/weather/climate/       validated monthly climate checkpoints
 ```
 
-A live update starts in `artifacts/.building`. After the manifest, all 26 periods, their overall and component images, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
+A live update starts in `artifacts/.building`. After the forecast window, daily forecasts, climate months, images, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v7` binds scoring, component lenses, six ratings, masks, grid and display projection semantics. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v10` binds forecast-window scoring, component lenses, rating semantics, colours, masks, grid and display projection. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
 
 Runtime routes:
 
@@ -94,8 +96,11 @@ GET /                         React application
 GET /manifest.json            release catalogue
 GET /releases/<id>/images/... immutable score overlay for that release
 GET /api/point?...            score and weather at a coordinate
-GET /api/search?q=...         small local European place index
+GET /places/current.json      revalidated place-index pointer
+GET /places/releases/<id>/... immutable place manifest and search shards
 ```
+
+The place builder consumes pinned GeoNames extracts, validates the complete index and installs it beneath `artifacts/places/releases`. It writes `places/current.json` only after the immutable release is in place. The browser verifies the manifest and requested shard by SHA-256. The server does not implement search.
 
 ## Frontend boundaries
 
@@ -116,6 +121,9 @@ go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts --smo
 
 # Build and publish current live weather
 go run ./cmd/niceweather update --cache ./.cache/weather --out ./artifacts
+
+# Build and publish the Europe place index from pinned GeoNames extracts
+go run ./cmd/niceweather places --source ./.cache/geonames/2026-07-18 --source-date 2026-07-18 --out ./artifacts
 
 # Serve the built frontend and current weather release
 go run ./cmd/niceweather serve --web ./dist --artifacts ./artifacts --listen 127.0.0.1:5173

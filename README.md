@@ -35,10 +35,10 @@ go run ./cmd/niceweather serve \
 Open <http://127.0.0.1:5173/>. Useful checks are:
 
 - <http://127.0.0.1:5173/manifest.json>
-- <http://127.0.0.1:5173/api/search?q=Amsterdam>
+- <http://127.0.0.1:5173/places/current.json>
 - `http://127.0.0.1:5173/api/point?release=<release-id>&period=<period-id>&profile=nice&lat=52.37&lon=4.90`
 
-The fixture is deterministic sample data. It exercises all 14 forecast days, all 12 climate months, both profiles and the same delivery contract as a live release. The manifest sets `dataStatus` to `sample`, so the interface cannot mistake it for current weather; a production update sets it to `live`.
+The fixture is deterministic sample data. It exercises all 14 forecast days, all 12 climate months, both profiles and a seven-place search index through the production artifact schemas. The manifest sets `dataStatus` to `sample`, so the interface cannot mistake it for current weather; a production update sets it to `live`.
 
 ## Build live weather
 
@@ -59,6 +59,15 @@ go run ./cmd/niceweather update \
   --out ./artifacts
 ```
 
+Build and publish the Europe place index from a pinned GeoNames extract:
+
+```bash
+go run ./cmd/niceweather places \
+  --source ./.cache/geonames/2026-07-18 \
+  --source-date 2026-07-18 \
+  --out ./artifacts
+```
+
 The updater downloads current ICON-EU and AIFS fields, reads CHELSA through GDAL, rasterises the pinned Natural Earth land source, aggregates local daytime weather and scores every land cell with complete source evidence. It builds under `artifacts/.building`, validates the complete release, moves it into `artifacts/releases`, then atomically changes `artifacts/current`. A failed build leaves the last good release in place. Temporary download staging is removed when the command exits.
 
 Each validated climate month is checkpointed transactionally. A provider outage can stop a run without discarding completed months; the next run revalidates and reuses only checkpoints produced by the current product contract. The pinned Natural Earth archive is also cached after its size, SHA-256 and members validate.
@@ -67,13 +76,15 @@ A running server notices when `artifacts/current` changes. It validates the new 
 
 ## Architecture
 
-Go owns source retrieval, normalisation, scoring, release generation and HTTP serving. Every source passes through one path:
+Go owns source retrieval, normalisation, scoring, release generation and HTTP serving. Every weather source passes through one path:
 
 ```text
 source field -> DailyMetrics -> component scores -> profile score -> grid and PNG
 ```
 
-Each period contains a compact EPSG:4326 binary grid for constant-time point lookup, two overall Web Mercator PNGs and five component PNGs. Overall and wind differ by profile; comfort, dryness and brightness are shared facts. PNG pixels hold the canonical 0–100 judgement through a continuous colour ramp, which MapLibre interpolates without inventing another scoring model. The manifest binds every asset to its source, projection, hash, dimensions and resolution. The browser requests images through `/releases/<release-id>/...` with the image checksum, so a tab cannot mix assets from different publications.
+Daily forecasts and climate months contain compact EPSG:4326 binary grids for constant-time point lookup, two overall Web Mercator PNGs and five component PNGs. The forecast window has its own evaluated range grid and map image per profile. Overall and wind differ by profile; comfort, dryness and brightness are shared facts. PNG pixels hold the canonical 0–100 judgement through a continuous colour ramp, which MapLibre interpolates without inventing another scoring model. The manifest binds every asset to its source, projection, hash, dimensions and resolution. The browser requests images through `/releases/<release-id>/...` with the image checksum, so a tab cannot mix assets from different publications.
+
+Place search is a separate static index. Publication installs immutable `places/releases/<id>` files and writes `places/current.json` last. The browser fetches one three-character shard for a query and verifies manifest and shard checksums. There is no runtime search endpoint.
 
 React owns selection and progressive disclosure. MapLibre renders the map; the browser does not recalculate scores. If WebGL is unavailable, the product says so explicitly instead of presenting approximate geography.
 
@@ -86,7 +97,8 @@ internal/pipeline     decode, normalise, aggregate, mask and render
 internal/weather      canonical metrics and the only scoring policy
 internal/delivery     binary grids, manifest and atomic releases
 internal/update       complete live release job
-internal/appserver    static files, search and point lookup
+internal/appserver    static files and point lookup
+internal/places       GeoNames index build, validation and publication
 src                   React and MapLibre interface
 ```
 

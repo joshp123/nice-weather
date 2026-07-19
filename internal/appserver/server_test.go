@@ -14,8 +14,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/weather"
 )
 
@@ -417,7 +419,7 @@ func TestForecastWindowPointReturnsCanonicalRangeWithoutFakeDailyWeather(t *test
 	}
 }
 
-func TestCompressionCachingSearchAndSPA(t *testing.T) {
+func TestCompressionCachingAndSPA(t *testing.T) {
 	app := newTestApplication(t)
 
 	manifestRequest := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
@@ -467,15 +469,142 @@ func TestCompressionCachingSearchAndSPA(t *testing.T) {
 		t.Fatalf("unsafe release path returned %d", unsafeImage.Code)
 	}
 
-	search := httptest.NewRecorder()
-	app.handler.ServeHTTP(search, httptest.NewRequest(http.MethodGet, "/api/search?q=ams", nil))
-	if search.Code != http.StatusOK || !strings.Contains(search.Body.String(), "Amsterdam") || search.Header().Get("Cache-Control") != "public, max-age=300" {
-		t.Fatalf("search response: %d %s %+v", search.Code, search.Body.String(), search.Header())
+	removedSearch := httptest.NewRecorder()
+	app.handler.ServeHTTP(removedSearch, httptest.NewRequest(http.MethodGet, "/api/search?q=ams", nil))
+	if removedSearch.Code != http.StatusNotFound {
+		t.Fatalf("removed runtime search endpoint returned %d: %s", removedSearch.Code, removedSearch.Body.String())
 	}
 
 	spa := httptest.NewRecorder()
 	app.handler.ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "/some/map/route", nil))
 	if spa.Code != http.StatusOK || !strings.Contains(spa.Body.String(), "Nice Weather Finder") || spa.Header().Get("Cache-Control") != "no-cache" {
 		t.Fatalf("SPA response: %d %s %+v", spa.Code, spa.Body.String(), spa.Header())
+	}
+}
+
+func TestPlaceIndexFilesUsePointerAndImmutableHTTPContract(t *testing.T) {
+	app := newTestApplication(t)
+	pointerResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(pointerResponse, httptest.NewRequest(http.MethodGet, "/places/current.json", nil))
+	oldETag := pointerResponse.Header().Get("ETag")
+	oldModified := pointerResponse.Header().Get("Last-Modified")
+	if pointerResponse.Code != http.StatusOK || pointerResponse.Header().Get("Cache-Control") != "no-cache" || pointerResponse.Header().Get("Content-Type") != "application/json" || pointerResponse.Header().Get("Content-Encoding") != "" || oldETag == "" || oldModified != "" {
+		t.Fatalf("place pointer response: %d %+v", pointerResponse.Code, pointerResponse.Header())
+	}
+	var pointer places.Pointer
+	if err := json.Unmarshal(pointerResponse.Body.Bytes(), &pointer); err != nil {
+		t.Fatal(err)
+	}
+	if pointer.ReleaseID != places.SampleReleaseID || len(pointer.ManifestSHA256) != 64 {
+		t.Fatalf("place pointer = %+v", pointer)
+	}
+
+	manifestURL := "/places/releases/" + pointer.ReleaseID + "/manifest.json"
+	manifestPath := filepath.Join(app.root, filepath.FromSlash(strings.TrimPrefix(manifestURL, "/")))
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := httptest.NewRecorder()
+	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, manifestURL, nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(len(manifestBytes)) || head.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || head.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("place manifest HEAD: %d %+v body=%q", head.Code, head.Header(), head.Body.String())
+	}
+	gzipRequest := httptest.NewRequest(http.MethodGet, manifestURL, nil)
+	gzipRequest.Header.Set("Accept-Encoding", "gzip")
+	gzipResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(gzipResponse, gzipRequest)
+	if gzipResponse.Code != http.StatusOK || gzipResponse.Header().Get("Content-Encoding") != "gzip" || gzipResponse.Header().Get("Vary") != "Accept-Encoding" || gzipResponse.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("compressed place manifest: %d %+v", gzipResponse.Code, gzipResponse.Header())
+	}
+	gzipReader, err := gzip.NewReader(gzipResponse.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uncompressed, err := io.ReadAll(gzipReader)
+	if err != nil || string(uncompressed) != string(manifestBytes) {
+		t.Fatalf("compressed place manifest body: %v", err)
+	}
+	rangeRequest := httptest.NewRequest(http.MethodGet, manifestURL, nil)
+	rangeRequest.Header.Set("Range", "bytes=0-31")
+	rangeRequest.Header.Set("Accept-Encoding", "gzip")
+	partial := httptest.NewRecorder()
+	app.handler.ServeHTTP(partial, rangeRequest)
+	if partial.Code != http.StatusPartialContent || partial.Body.Len() != 32 || partial.Body.String() != string(manifestBytes[:32]) || partial.Header().Get("Content-Range") != fmt.Sprintf("bytes 0-31/%d", len(manifestBytes)) || partial.Header().Get("Content-Encoding") != "" || partial.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("place manifest range: %d %+v %q", partial.Code, partial.Header(), partial.Body.String())
+	}
+
+	var metadata struct {
+		Shards map[string]string `json:"shards"`
+	}
+	if err := json.Unmarshal(manifestBytes, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	shardURL := "/places/releases/" + pointer.ReleaseID + "/shards/mal.json"
+	shard := httptest.NewRecorder()
+	app.handler.ServeHTTP(shard, httptest.NewRequest(http.MethodGet, shardURL, nil))
+	if shard.Code != http.StatusOK || shard.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || shard.Header().Get("Content-Type") != "application/json" || !strings.Contains(shard.Body.String(), "Málaga") || metadata.Shards["mal"] == "" {
+		t.Fatalf("sample place shard: %d %+v %s", shard.Code, shard.Header(), shard.Body.String())
+	}
+
+	sampleRoot := filepath.Join(app.root, "places", "releases", pointer.ReleaseID)
+	second, err := places.Publish(app.root, sampleRoot, "fixture-places-second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldModified = time.Now().UTC().Format(http.TimeFormat)
+	conditional := httptest.NewRequest(http.MethodGet, "/places/current.json", nil)
+	conditional.Header.Set("If-None-Match", oldETag)
+	conditional.Header.Set("If-Modified-Since", oldModified)
+	rotated := httptest.NewRecorder()
+	app.handler.ServeHTTP(rotated, conditional)
+	if rotated.Code != http.StatusOK || !strings.Contains(rotated.Body.String(), second.ReleaseID) || rotated.Header().Get("ETag") == oldETag {
+		t.Fatalf("running server did not expose rotated pointer: %s", rotated.Body.String())
+	}
+	modifiedOnly := httptest.NewRequest(http.MethodGet, "/places/current.json", nil)
+	modifiedOnly.Header.Set("If-Modified-Since", oldModified)
+	modifiedResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(modifiedResponse, modifiedOnly)
+	if modifiedResponse.Code != http.StatusOK || !strings.Contains(modifiedResponse.Body.String(), second.ReleaseID) {
+		t.Fatalf("place pointer incorrectly used timestamp validator: %d %s", modifiedResponse.Code, modifiedResponse.Body.String())
+	}
+	old := httptest.NewRecorder()
+	app.handler.ServeHTTP(old, httptest.NewRequest(http.MethodGet, manifestURL, nil))
+	if old.Code != http.StatusOK || old.Body.String() != string(manifestBytes) {
+		t.Fatal("old immutable place release changed after pointer rotation")
+	}
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	if err := os.WriteFile(outside, []byte(`{"secret":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	secondShard := filepath.Join(app.root, "places", "releases", second.ReleaseID, "shards", "mal.json")
+	if err := os.Remove(secondShard); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, secondShard); err != nil {
+		t.Fatal(err)
+	}
+	escape := httptest.NewRecorder()
+	app.handler.ServeHTTP(escape, httptest.NewRequest(http.MethodGet, "/places/releases/"+second.ReleaseID+"/shards/mal.json", nil))
+	if escape.Code != http.StatusNotFound || strings.Contains(escape.Body.String(), "secret") {
+		t.Fatalf("artifact-root symlink escape response: %d %s", escape.Code, escape.Body.String())
+	}
+
+	for _, unsafe := range []string{
+		"/places/releases/../manifest.json",
+		"/places/releases/fixture-places-second/shards/../../current.json",
+		"/places/releases/fixture-places-second/shards/MAL.json",
+		"/places/anything-else.json",
+	} {
+		response := httptest.NewRecorder()
+		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, unsafe, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("unsafe place path %q returned %d", unsafe, response.Code)
+		}
+	}
+	post := httptest.NewRecorder()
+	app.handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/places/current.json", nil))
+	if post.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("place POST returned %d", post.Code)
 	}
 }

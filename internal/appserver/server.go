@@ -2,6 +2,8 @@ package appserver
 
 import (
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ type Config struct {
 type application struct {
 	webRoot      string
 	artifactRoot string
+	artifactFS   *os.Root
 	reloadMu     sync.Mutex
 	snapshotMu   sync.RWMutex
 	snapshot     *releaseSnapshot
@@ -150,16 +153,29 @@ func NewHandler(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve web root: %w", err)
 	}
-	snapshot, err := loadCurrentSnapshot(config.ArtifactRoot)
+	artifactRootAbsolute, err := filepath.Abs(config.ArtifactRoot)
 	if err != nil {
 		return nil, err
 	}
-	previous, err := loadPreviousAssets(config.ArtifactRoot, snapshot.releaseRoot)
+	artifactRoot, err := filepath.EvalSymlinks(artifactRootAbsolute)
+	if err != nil {
+		return nil, fmt.Errorf("resolve artifact root: %w", err)
+	}
+	snapshot, err := loadCurrentSnapshot(artifactRoot)
+	if err != nil {
+		return nil, err
+	}
+	previous, err := loadPreviousAssets(artifactRoot, snapshot.releaseRoot)
 	if err != nil {
 		_ = snapshot.catalog.Close()
 		return nil, err
 	}
-	return &application{webRoot: webRoot, artifactRoot: config.ArtifactRoot, snapshot: snapshot, previous: previous}, nil
+	artifactFS, err := os.OpenRoot(artifactRoot)
+	if err != nil {
+		_ = snapshot.catalog.Close()
+		return nil, fmt.Errorf("open artifact root: %w", err)
+	}
+	return &application{webRoot: webRoot, artifactRoot: artifactRoot, artifactFS: artifactFS, snapshot: snapshot, previous: previous}, nil
 }
 
 func loadPreviousAssets(artifactRoot, currentRoot string) (*releaseAssets, error) {
@@ -238,8 +254,6 @@ func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		serveBytes(w, r, snapshot.manifestRaw, "application/json; charset=utf-8")
 	case r.URL.Path == "/api/point":
 		app.servePoint(w, r, snapshot)
-	case r.URL.Path == "/api/search":
-		app.serveSearch(w, r)
 	default:
 		app.serveFile(w, r, snapshot)
 	}
@@ -290,7 +304,7 @@ func (app *application) close() error {
 	defer app.reloadMu.Unlock()
 	app.snapshotMu.Lock()
 	defer app.snapshotMu.Unlock()
-	return app.snapshot.catalog.Close()
+	return errors.Join(app.snapshot.catalog.Close(), app.artifactFS.Close())
 }
 
 func (app *application) servePoint(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot) {
@@ -452,21 +466,6 @@ func pointWeatherResponse(m weather.DailyMetrics) pointWeather {
 	}
 }
 
-func (app *application) serveSearch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Use GET for this endpoint.")
-		return
-	}
-	query := r.URL.Query().Get("q")
-	if len([]rune(query)) > 80 {
-		writeError(w, http.StatusBadRequest, "query_too_long", "Search terms must be 80 characters or fewer.")
-		return
-	}
-	writeJSON(w, r, http.StatusOK, struct {
-		Results []place `json:"results"`
-	}{Results: searchPlaces(query, 8)}, "public, max-age=300")
-}
-
 func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Use GET or HEAD for files.")
@@ -477,7 +476,18 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 		requestPath = "index.html"
 	}
 	root, cache := app.webRoot, "no-cache"
-	if releaseID, assetPath, matched, err := releaseAssetPath(requestPath); matched {
+	if assetPath, immutable, matched, err := placeAssetPath(requestPath); matched {
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_path", "The requested path is invalid.")
+			return
+		}
+		cache := "no-cache"
+		if immutable {
+			cache = "public, max-age=31536000, immutable"
+		}
+		app.servePlaceFile(w, r, assetPath, cache)
+		return
+	} else if releaseID, assetPath, matched, err := releaseAssetPath(requestPath); matched {
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_path", "The requested path is invalid.")
 			return
@@ -498,7 +508,7 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 	}
 	info, statErr := os.Stat(path)
 	if statErr != nil || !info.Mode().IsRegular() {
-		if root == app.webRoot && filepath.Ext(requestPath) == "" {
+		if root == app.webRoot && filepath.Ext(requestPath) == "" && !strings.HasPrefix(requestPath, "api/") {
 			path, err = safeJoin(app.webRoot, "index.html")
 			if err == nil {
 				info, statErr = os.Stat(path)
@@ -552,6 +562,53 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
 }
 
+func (app *application) servePlaceFile(w http.ResponseWriter, r *http.Request, requestPath, cache string) {
+	file, err := app.artifactFS.Open(requestPath)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
+		return
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(requestPath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Cache-Control", cache)
+	w.Header().Set("Content-Type", contentType)
+	modTime := info.ModTime()
+	if requestPath == "places/current.json" {
+		payload, err := io.ReadAll(io.LimitReader(file, 1025))
+		if err != nil || len(payload) > 1024 {
+			writeError(w, http.StatusInternalServerError, "read_failed", "The place index pointer could not be read.")
+			return
+		}
+		digest := sha256.Sum256(payload)
+		w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			writeError(w, http.StatusInternalServerError, "read_failed", "The place index pointer could not be read.")
+			return
+		}
+		// The pointer can rotate more than once within a filesystem timestamp
+		// tick. Its content-derived ETag is the sole safe cache validator.
+		modTime = time.Time{}
+	}
+	if r.Header.Get("Range") == "" && acceptsEncoding(r.Header.Get("Accept-Encoding"), "gzip") {
+		data, err := io.ReadAll(file)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "read_failed", "The requested file could not be read.")
+			return
+		}
+		serveBytes(w, r, data, contentType)
+		return
+	}
+	http.ServeContent(w, r, filepath.Base(requestPath), modTime, file)
+}
+
 func (app *application) releaseRoot(current *releaseSnapshot, releaseID string) string {
 	if releaseID == current.manifest.ReleaseID {
 		return current.releaseRoot
@@ -574,6 +631,36 @@ func releaseAssetPath(requestPath string) (releaseID, assetPath string, matched 
 		return "", "", true, joinErr
 	}
 	return parts[0], parts[1], true, nil
+}
+
+func placeAssetPath(requestPath string) (assetPath string, immutable, matched bool, err error) {
+	if requestPath == "places/current.json" {
+		return requestPath, false, true, nil
+	}
+	if !strings.HasPrefix(requestPath, "places/") {
+		return "", false, false, nil
+	}
+	parts := strings.Split(requestPath, "/")
+	if len(parts) == 4 && parts[0] == "places" && parts[1] == "releases" && validReleaseID(parts[2]) && parts[3] == "manifest.json" {
+		return requestPath, true, true, nil
+	}
+	if len(parts) == 5 && parts[0] == "places" && parts[1] == "releases" && validReleaseID(parts[2]) && parts[3] == "shards" && validPlaceShardName(parts[4]) {
+		return requestPath, true, true, nil
+	}
+	return "", false, true, errors.New("unsafe place asset path")
+}
+
+func validPlaceShardName(value string) bool {
+	if len(value) != len("abc.json") || !strings.HasSuffix(value, ".json") {
+		return false
+	}
+	for _, character := range strings.TrimSuffix(value, ".json") {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validReleaseID(value string) bool {
