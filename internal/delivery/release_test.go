@@ -81,6 +81,83 @@ func TestReleaseCatalogOpensValidatedGridsForRepeatedLookup(t *testing.T) {
 	if _, _, err := catalog.Lookup("missing", 5, 50); err == nil {
 		t.Fatal("unknown period was accepted")
 	}
+	for _, profile := range []string{ProfileNice, ProfileCycling} {
+		record, ok, err := catalog.LookupRange(profile, 5, 50)
+		if err != nil || !ok || record.DayCount != 1 || record.Score != 70 {
+			t.Fatalf("range lookup %s = (%+v, %v, %v)", profile, record, ok, err)
+		}
+	}
+	if _, _, err := catalog.LookupRange("missing", 5, 50); err == nil {
+		t.Fatal("unknown range profile was accepted")
+	}
+}
+
+func TestValidateReleaseRejectsForecastWindowCorruptionAndWrongDayCount(t *testing.T) {
+	root := t.TempDir()
+	release := makeRelease(t, root, "001", 210)
+	manifest, err := ValidateRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset := manifest.Forecast.Window.Profiles[ProfileNice]
+	gridPath := filepath.Join(release, filepath.FromSlash(asset.GridURL))
+	data, err := os.ReadFile(gridPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)-1] ^= 0xff
+	if err := os.WriteFile(gridPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateRelease(release); err == nil {
+		t.Fatal("release with corrupt forecast window grid was accepted")
+	}
+
+	release = makeRelease(t, root, "002", 210)
+	manifest, err = ValidateRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset = manifest.Forecast.Window.Profiles[ProfileNice]
+	gridPath = filepath.Join(release, filepath.FromSlash(asset.GridURL))
+	meta, err := WriteRangeGrid(gridPath, GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 1}, []RangeRecord{rangeRecord(70, 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset.GridSHA256 = meta.SHA256
+	manifest.Forecast.Window.Profiles[ProfileNice] = asset
+	if err := WriteManifest(release, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateRelease(release); err == nil || !strings.Contains(err.Error(), "contains 2 days; want 1") {
+		t.Fatalf("wrong range day count was accepted: %v", err)
+	}
+
+	release = makeRelease(t, root, "003", 210)
+	manifest, err = ValidateRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset = manifest.Forecast.Window.Profiles[ProfileNice]
+	gridPath = filepath.Join(release, filepath.FromSlash(asset.GridURL))
+	wrongSpec := GridSpec{Bounds: manifest.Region.Bounds, Rows: 2, Cols: 2}
+	meta, err = WriteRangeGrid(gridPath, wrongSpec, []RangeRecord{rangeRecord(70, 1), rangeRecord(70, 1), rangeRecord(70, 1), rangeRecord(70, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	width, height, err := WebMercatorImageDimensions(wrongSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset.GridSHA256 = meta.SHA256
+	asset.Image = writeTestPNGSize(t, filepath.Join(release, filepath.FromSlash(asset.Image.URL)), width, height)
+	manifest.Forecast.Window.Profiles[ProfileNice] = asset
+	if err := WriteManifest(release, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateRelease(release); err == nil || !strings.Contains(err.Error(), "geometry does not match coarsest forecast days") {
+		t.Fatalf("self-consistent false-resolution range geometry was accepted: %v", err)
+	}
 }
 
 func TestValidateReleaseChecksPNGChecksumAndDimensions(t *testing.T) {
@@ -445,6 +522,19 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 	manifest.Climate = nil
 	manifest.Forecast.Days[0].Images = assets
 	manifest.Forecast.Days[0].Lenses = lenses
+	manifest.Forecast.Window.Profiles = make(map[string]ForecastRangeAsset, 2)
+	for _, profile := range []string{ProfileNice, ProfileCycling} {
+		gridPath := filepath.Join(release, "grids", "range-"+profile+".nwr")
+		rangeMeta, err := WriteRangeGrid(gridPath, GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 1}, []RangeRecord{rangeRecord(70, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		imagePath := filepath.Join(release, "images", "range-"+profile+".png")
+		manifest.Forecast.Window.Profiles[profile] = ForecastRangeAsset{
+			GridURL: filepath.ToSlash(strings.TrimPrefix(gridPath, release+string(filepath.Separator))), GridSHA256: rangeMeta.SHA256,
+			Image: writeTestPNG(t, imagePath),
+		}
+	}
 	if err := WriteManifest(release, manifest); err != nil {
 		t.Fatal(err)
 	}

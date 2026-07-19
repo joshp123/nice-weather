@@ -80,6 +80,26 @@ func (reader *RangeGridReader) Close() error { return reader.file.Close() }
 
 func (reader *RangeGridReader) Metadata() GridMetadata { return reader.meta }
 
+// ValidateDayCount binds every available cell to the forecast window promised
+// by the manifest. Invalid sea/no-data cells remain the canonical zero record.
+func (reader *RangeGridReader) ValidateDayCount(days int) error {
+	if days <= 0 || days > maxRangeDayCount {
+		return errors.New("forecast window day count is outside delivery range")
+	}
+	for row := uint32(0); row < reader.meta.Rows; row++ {
+		for col := uint32(0); col < reader.meta.Cols; col++ {
+			record, err := reader.record(row, col)
+			if err != nil {
+				return err
+			}
+			if record.Valid && int(record.DayCount) != days {
+				return fmt.Errorf("range cell %d,%d contains %d days; want %d", row, col, record.DayCount, days)
+			}
+		}
+	}
+	return nil
+}
+
 // RecordAt follows the same MapLibre projection and coastal-cell selection as
 // the daily grid, so a range point lookup resolves to the cell shown on its
 // scalar map rather than a second geographic interpretation.

@@ -82,6 +82,32 @@ func TestMeasuredFinalCoverageRejectsOneMissingSupportedCell(t *testing.T) {
 	}
 }
 
+func TestForecastWindowCoverageRejectsStaggeredMissingDays(t *testing.T) {
+	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 4, South: 0, North: 1}, Rows: 1, Cols: 4}
+	support := pipeline.FloatGrid{Spec: spec, Values: []float32{1, 1, 1, 1}}
+	days := [][]weather.DailyMetrics{
+		{{Valid: true}, {Valid: true}, {Valid: true}, {}},
+		{{Valid: true}, {Valid: true}, {}, {Valid: true}},
+	}
+	availability, err := pipeline.ForecastRangeAvailability(spec, days)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := pipeline.MeasureForecastCoverage(spec, availability, support)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Global.Finite != 2 || coverage.Global.Support != 4 {
+		t.Fatalf("complete-window coverage = %+v", coverage)
+	}
+	if err := requireForecastWindowCoverage(coverage); err == nil || !strings.Contains(err.Error(), "complete-window coverage 50.00%") {
+		t.Fatalf("staggered 14-day holes were accepted: %v", err)
+	}
+	if err := requireForecastWindowCoverage(pipeline.ForecastCoverage{Global: pipeline.CoverageCount{Finite: 4, Support: 4}}); err != nil {
+		t.Fatalf("complete forecast window was rejected: %v", err)
+	}
+}
+
 func TestICONSupportUsesDocumentedDomainCellCentres(t *testing.T) {
 	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: -24, East: -22, South: 29, North: 72}, Rows: 43, Cols: 4}
 	land := pipeline.FloatGrid{Spec: spec, Values: make([]float32, 43*4)}

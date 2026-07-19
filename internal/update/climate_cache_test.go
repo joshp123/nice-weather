@@ -20,7 +20,7 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 425, Cols: 690}
 	metrics := make([]weather.DailyMetrics, int(spec.Rows*spec.Cols))
 	source := delivery.Source{ProviderID: "chelsa", ProviderLabel: "CHELSA 2.1 · CC0", RunAt: "1981-01-01T00:00:00Z", ValidFrom: "1981-01-01T00:00:00Z", ValidTo: "2011-01-01T00:00:00Z"}
-	period, err := writer.writePeriod("climate", "month-01", "January", spec, metrics, source, 11, 720)
+	period, _, err := writer.writePeriod("climate", "month-01", "January", spec, metrics, source, 11, 720)
 	if err != nil {
 		t.Fatal(err)
 	}

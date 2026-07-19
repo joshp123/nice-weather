@@ -368,6 +368,55 @@ func TestPointUsesCanonicalGridAndScore(t *testing.T) {
 	}
 }
 
+func TestForecastWindowPointReturnsCanonicalRangeWithoutFakeDailyWeather(t *testing.T) {
+	app := newTestApplication(t)
+	window := app.manifest.Forecast.Window
+	body := requestBody(t, app.handler, "/api/point?release="+app.manifest.ReleaseID+"&period="+window.ID+"&profile=nice&lat=52.3676&lon=4.9041")
+	var payload struct {
+		PeriodID string                    `json:"periodId"`
+		Score    pointScore                `json:"score"`
+		Window   pointForecastWindow       `json:"window"`
+		Source   pointForecastWindowSource `json:"source"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := delivery.CurrentDir(app.root)
+	resolved, err := filepath.EvalSymlinks(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := delivery.OpenProductionReleaseCatalog(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalog.Close()
+	record, valid, err := catalog.LookupRange(delivery.ProfileNice, 4.9041, 52.3676)
+	if err != nil || !valid {
+		t.Fatalf("range lookup valid=%t err=%v", valid, err)
+	}
+	want, err := record.Summary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.PeriodID != window.ID || payload.Score.Value != want.Score || payload.Score.Category != want.Rating ||
+		payload.Score.Components != (pointComponents{Comfort: componentResponse(want.Components.Thermal), Dryness: componentResponse(want.Components.Dryness), Sun: componentResponse(want.Components.Sun), Wind: componentResponse(want.Components.Wind)}) {
+		t.Fatalf("range score = %+v; want %+v", payload.Score, want)
+	}
+	if payload.Window != (pointForecastWindow{
+		StartDate: window.StartDate, EndDate: window.EndDate, DayCount: want.Days, NiceDays: want.NiceDays,
+		AwfulDays: want.AwfulDays, MedianScore: want.MedianScore, LongestPoorRun: want.LongestPoorRun,
+	}) {
+		t.Fatalf("range evidence = %+v; want %+v", payload.Window, want)
+	}
+	if payload.Source.Basis != "forecast-window" || payload.Source.DetailLabel != "14-day forecast" || payload.Source.ResolutionKM != 28 || payload.Source.ArtifactGeneratedAt != app.manifest.GeneratedAt {
+		t.Fatalf("range source = %+v", payload.Source)
+	}
+	if strings.Contains(string(body), `"weather"`) || strings.Contains(string(body), `"temperatureC"`) || strings.Contains(string(body), `"summary"`) {
+		t.Fatalf("range response pretends to be one physical day: %s", body)
+	}
+}
+
 func TestCompressionCachingSearchAndSPA(t *testing.T) {
 	app := newTestApplication(t)
 

@@ -30,7 +30,7 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 			m.ProductContract = "Nice Weather"
 		},
 		"product contract mismatch": func(m *Manifest) {
-			m.ProductContract = "nice-weather-v6"
+			m.ProductContract = "nice-weather-v7"
 		},
 		"data status":   func(m *Manifest) { m.DataStatus = "preview" },
 		"timestamp":     func(m *Manifest) { m.GeneratedAt = "today" },
@@ -54,15 +54,30 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 			asset.Projection = "epsg-4326"
 			m.Forecast.Days[0].Images["nice"] = asset
 		},
-		"date":                  func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
-		"kind":                  func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
-		"resolution":            func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
-		"checksum":              func(m *Manifest) { m.Forecast.Days[0].GridSHA256 = "abc" },
-		"path escape":           func(m *Manifest) { m.Forecast.Days[0].GridURL = "../secret" },
-		"missing profile image": func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
-		"missing lens image":    func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
-		"unexpected lens image": func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
-		"duplicate period":      func(m *Manifest) { m.Climate.Months[0].ID = m.Forecast.Days[0].ID },
+		"date":                    func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
+		"kind":                    func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
+		"resolution":              func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
+		"checksum":                func(m *Manifest) { m.Forecast.Days[0].GridSHA256 = "abc" },
+		"path escape":             func(m *Manifest) { m.Forecast.Days[0].GridURL = "../secret" },
+		"missing profile image":   func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
+		"missing lens image":      func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
+		"unexpected lens image":   func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
+		"missing forecast window": func(m *Manifest) { m.Forecast.Window = ForecastWindow{} },
+		"window day count":        func(m *Manifest) { m.Forecast.Window.DayCount++ },
+		"window date":             func(m *Manifest) { m.Forecast.Window.EndDate = "2026-07-19" },
+		"window resolution":       func(m *Manifest) { m.Forecast.Window.GridResolutionKM = 28 },
+		"window profile":          func(m *Manifest) { delete(m.Forecast.Window.Profiles, ProfileCycling) },
+		"window grid checksum": func(m *Manifest) {
+			asset := m.Forecast.Window.Profiles[ProfileNice]
+			asset.GridSHA256 = "bad"
+			m.Forecast.Window.Profiles[ProfileNice] = asset
+		},
+		"window image geometry": func(m *Manifest) {
+			asset := m.Forecast.Window.Profiles[ProfileNice]
+			asset.Image.Height = 0
+			m.Forecast.Window.Profiles[ProfileNice] = asset
+		},
+		"duplicate period": func(m *Manifest) { m.Climate.Months[0].ID = m.Forecast.Days[0].ID },
 		"duplicate date": func(m *Manifest) {
 			copy := m.Forecast.Days[0]
 			copy.ID = "another-day"
@@ -107,6 +122,8 @@ func TestValidateProductionManifestRequiresCompleteOrderedPeriods(t *testing.T) 
 		day.Source.ValidFrom, day.Source.ValidTo = date.Format(time.RFC3339), date.Add(12*time.Hour).Format(time.RFC3339)
 		manifest.Forecast.Days = append(manifest.Forecast.Days, day)
 	}
+	manifest.Forecast.Window.DayCount = 14
+	manifest.Forecast.Window.EndDate = manifest.Forecast.Days[13].Date
 	climate := first.Period
 	for month := 1; month <= 12; month++ {
 		period := climate
@@ -160,7 +177,17 @@ func validManifest(checksum string) Manifest {
 		Profiles: []Profile{{ID: ProfileNice, Label: "Nice"}, {ID: ProfileCycling, Label: "Cycling"}},
 		Legend:   CanonicalLegend(),
 		Palette:  CanonicalPalette(),
-		Forecast: ForecastCatalog{UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 18, Days: []ForecastPeriod{{Period: period, Date: "2026-07-18", Kind: "detailed"}}},
-		Climate:  &ClimateCatalog{Label: "Typical year", ReferencePeriod: "1991–2020", Months: []ClimatePeriod{{Period: climate, Month: 7}}},
+		Forecast: ForecastCatalog{
+			UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 18,
+			Window: ForecastWindow{
+				ID: "next-14-days", Label: "Next 14 days", StartDate: "2026-07-18", EndDate: "2026-07-18", DayCount: 1, GridResolutionKM: 7,
+				Profiles: map[string]ForecastRangeAsset{
+					ProfileNice:    {GridURL: "grids/range-nice.nwr", GridSHA256: strings.Repeat("3", 64), Image: ImageAsset{URL: "images/range-nice.png", SHA256: strings.Repeat("4", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
+					ProfileCycling: {GridURL: "grids/range-cycling.nwr", GridSHA256: strings.Repeat("5", 64), Image: ImageAsset{URL: "images/range-cycling.png", SHA256: strings.Repeat("6", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},
+				},
+			},
+			Days: []ForecastPeriod{{Period: period, Date: "2026-07-18", Kind: "detailed"}},
+		},
+		Climate: &ClimateCatalog{Label: "Typical year", ReferencePeriod: "1991–2020", Months: []ClimatePeriod{{Period: climate, Month: 7}}},
 	}
 }

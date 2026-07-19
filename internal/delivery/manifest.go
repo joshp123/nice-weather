@@ -13,12 +13,12 @@ import (
 	"time"
 )
 
-const ManifestVersion = 4
+const ManifestVersion = 5
 
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v7"
+const ProductContract = "nice-weather-v8"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -87,7 +87,27 @@ type PaletteStop struct {
 type ForecastCatalog struct {
 	UpdatedAt       string           `json:"updatedAt"`
 	StaleAfterHours int              `json:"staleAfterHours"`
+	Window          ForecastWindow   `json:"window"`
 	Days            []ForecastPeriod `json:"days"`
+}
+
+// ForecastWindow is the canonical judgement across every promised forecast
+// day. Its grid uses the coarsest forecast grid; detailed days are deliberately
+// sampled down to these cell centres and the outlook is never upsampled.
+type ForecastWindow struct {
+	ID               string                        `json:"id"`
+	Label            string                        `json:"label"`
+	StartDate        string                        `json:"startDate"`
+	EndDate          string                        `json:"endDate"`
+	DayCount         int                           `json:"dayCount"`
+	GridResolutionKM float64                       `json:"gridResolutionKm"`
+	Profiles         map[string]ForecastRangeAsset `json:"profiles"`
+}
+
+type ForecastRangeAsset struct {
+	GridURL    string     `json:"gridUrl"`
+	GridSHA256 string     `json:"gridSha256"`
+	Image      ImageAsset `json:"image"`
 }
 
 type ClimateCatalog struct {
@@ -248,6 +268,9 @@ func ValidateManifest(manifest Manifest) error {
 		}
 		seenDates[day.Date] = struct{}{}
 	}
+	if err := validateForecastWindow(manifest.Forecast.Window, manifest.Forecast.Days, profiles, seen); err != nil {
+		return fmt.Errorf("forecast window: %w", err)
+	}
 	if manifest.Climate != nil {
 		if strings.TrimSpace(manifest.Climate.Label) == "" || strings.TrimSpace(manifest.Climate.ReferencePeriod) == "" || len(manifest.Climate.Months) == 0 {
 			return errors.New("climate label, reference period and months are required")
@@ -264,6 +287,57 @@ func ValidateManifest(manifest Manifest) error {
 			if err := validatePeriod(month.Period, profiles, seen); err != nil {
 				return fmt.Errorf("climate month %q: %w", month.ID, err)
 			}
+		}
+	}
+	return nil
+}
+
+func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profiles, seen map[string]struct{}) error {
+	if !safeIDPattern.MatchString(window.ID) || strings.TrimSpace(window.Label) == "" {
+		return errors.New("identity and label are required")
+	}
+	if _, exists := seen[window.ID]; exists {
+		return fmt.Errorf("duplicate period ID %q", window.ID)
+	}
+	seen[window.ID] = struct{}{}
+	if len(days) == 0 || window.DayCount != len(days) || window.StartDate != days[0].Date || window.EndDate != days[len(days)-1].Date {
+		return errors.New("dates and day count must match the complete forecast catalog")
+	}
+	if !finite(window.GridResolutionKM) || window.GridResolutionKM <= 0 {
+		return errors.New("grid resolution must be positive")
+	}
+	coarsest := 0.0
+	for _, day := range days {
+		if day.NativeResolutionKM > coarsest {
+			coarsest = day.NativeResolutionKM
+		}
+	}
+	if window.GridResolutionKM != coarsest {
+		return errors.New("grid resolution must match the coarsest forecast day")
+	}
+	if len(window.Profiles) != len(profiles) {
+		return errors.New("must contain one range grid and image per profile")
+	}
+	paths := make(map[string]string, len(profiles)*2)
+	for profile := range profiles {
+		asset, ok := window.Profiles[profile]
+		if !ok {
+			return fmt.Errorf("missing profile %q", profile)
+		}
+		if err := validateAssetPath(asset.GridURL); err != nil {
+			return fmt.Errorf("profile %q grid URL: %w", profile, err)
+		}
+		if !validSHA256(asset.GridSHA256) {
+			return fmt.Errorf("profile %q grid needs SHA-256", profile)
+		}
+		if err := validateImageAsset(asset.Image); err != nil {
+			return fmt.Errorf("profile %q image: %w", profile, err)
+		}
+		for kind, path := range map[string]string{"grid": asset.GridURL, "image": asset.Image.URL} {
+			if owner, exists := paths[path]; exists {
+				return fmt.Errorf("profile %q %s path duplicates %s", profile, kind, owner)
+			}
+			paths[path] = profile + " " + kind
 		}
 	}
 	return nil

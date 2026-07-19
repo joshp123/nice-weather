@@ -103,6 +103,23 @@ type pointSource struct {
 	ReferencePeriod         string  `json:"referencePeriod,omitempty"`
 }
 
+type pointForecastWindow struct {
+	StartDate      string `json:"startDate"`
+	EndDate        string `json:"endDate"`
+	DayCount       int    `json:"dayCount"`
+	NiceDays       int    `json:"niceDays"`
+	AwfulDays      int    `json:"awfulDays"`
+	MedianScore    int    `json:"medianScore"`
+	LongestPoorRun int    `json:"longestPoorRun"`
+}
+
+type pointForecastWindowSource struct {
+	Basis               string  `json:"basis"`
+	DetailLabel         string  `json:"detailLabel"`
+	ResolutionKM        float64 `json:"resolutionKm"`
+	ArtifactGeneratedAt string  `json:"artifactGeneratedAt"`
+}
+
 func Serve(config Config) error {
 	if config.Listen == "" {
 		config.Listen = "127.0.0.1:5173"
@@ -286,11 +303,6 @@ func (app *application) servePoint(w http.ResponseWriter, r *http.Request, snaps
 		return
 	}
 	periodID := strings.TrimSpace(r.URL.Query().Get("period"))
-	reader, ok := snapshot.periods[periodID]
-	if !ok {
-		writeError(w, http.StatusBadRequest, "unknown_period", "Choose a period from the manifest.")
-		return
-	}
 	profileID := r.URL.Query().Get("profile")
 	profile := weather.ProfileNice
 	if profileID == "cycling" {
@@ -303,6 +315,15 @@ func (app *application) servePoint(w http.ResponseWriter, r *http.Request, snaps
 	lat, latErr := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	if lonErr != nil || latErr != nil {
 		writeError(w, http.StatusBadRequest, "invalid_location", "Latitude and longitude must be numbers.")
+		return
+	}
+	if periodID == snapshot.manifest.Forecast.Window.ID {
+		app.serveForecastWindowPoint(w, r, snapshot, profileID, lon, lat)
+		return
+	}
+	reader, ok := snapshot.periods[periodID]
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown_period", "Choose a period from the manifest.")
 		return
 	}
 	record, valid, err := snapshot.catalog.Lookup(periodID, lon, lat)
@@ -338,6 +359,51 @@ func (app *application) servePoint(w http.ResponseWriter, r *http.Request, snaps
 			Sun: componentResponse(result.Components.Sun), Wind: componentResponse(result.Components.Wind),
 		}},
 		Weather: pointWeatherResponse(m), Source: snapshot.pointSource(periodID, reader.period),
+	}
+	writeJSON(w, r, http.StatusOK, response, "no-store")
+}
+
+func (app *application) serveForecastWindowPoint(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot, profileID string, lon, lat float64) {
+	record, valid, err := snapshot.catalog.LookupRange(profileID, lon, lat)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "read_failed", "The forecast window could not be read.")
+		return
+	}
+	if !valid {
+		writeError(w, http.StatusNotFound, "no_data", "A complete 14-day forecast is not available at this point.")
+		return
+	}
+	summary, err := record.Summary()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "decode_failed", "The forecast window could not be decoded.")
+		return
+	}
+	window := snapshot.manifest.Forecast.Window
+	response := struct {
+		ReleaseID string                    `json:"releaseId"`
+		PeriodID  string                    `json:"periodId"`
+		Label     string                    `json:"periodLabel"`
+		Profile   string                    `json:"profile"`
+		Location  map[string]float64        `json:"location"`
+		Score     pointScore                `json:"score"`
+		Window    pointForecastWindow       `json:"window"`
+		Source    pointForecastWindowSource `json:"source"`
+	}{
+		ReleaseID: snapshot.manifest.ReleaseID, PeriodID: window.ID, Label: window.Label, Profile: profileID,
+		Location: map[string]float64{"lat": lat, "lon": lon},
+		Score: pointScore{Value: summary.Score, Category: summary.Rating, Components: pointComponents{
+			Comfort: componentResponse(summary.Components.Thermal), Dryness: componentResponse(summary.Components.Dryness),
+			Sun: componentResponse(summary.Components.Sun), Wind: componentResponse(summary.Components.Wind),
+		}},
+		Window: pointForecastWindow{
+			StartDate: window.StartDate, EndDate: window.EndDate, DayCount: summary.Days,
+			NiceDays: summary.NiceDays, AwfulDays: summary.AwfulDays, MedianScore: summary.MedianScore,
+			LongestPoorRun: summary.LongestPoorRun,
+		},
+		Source: pointForecastWindowSource{
+			Basis: "forecast-window", DetailLabel: "14-day forecast", ResolutionKM: window.GridResolutionKM,
+			ArtifactGeneratedAt: snapshot.manifest.GeneratedAt,
+		},
 	}
 	writeJSON(w, r, http.StatusOK, response, "no-store")
 }

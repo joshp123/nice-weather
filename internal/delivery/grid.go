@@ -169,6 +169,12 @@ func validateGridSpec(spec GridSpec) error {
 	return validateGridSpecForRecordSize(spec, gridRecordSize)
 }
 
+// ValidateGridSpec checks the shared regular-grid geometry without coupling a
+// caller to either daily or range record bytes.
+func ValidateGridSpec(spec GridSpec) error {
+	return validateGridSpec(spec)
+}
+
 func validateGridSpecForRecordSize(spec GridSpec, recordSize uint16) error {
 	b := spec.Bounds
 	if recordSize == 0 {

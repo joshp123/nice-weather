@@ -17,7 +17,7 @@ import (
 
 var fixtureTime = time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 
-const fixtureRelease = "fixture-20260718-v11"
+const fixtureRelease = "fixture-20260718-v12"
 
 var fixtureLegend = delivery.CanonicalLegend()
 var fixturePalette = delivery.CanonicalPalette()
@@ -57,23 +57,30 @@ func generateFixture(root, releaseName string, temperatureOffset float64) error 
 		Forecast:        delivery.ForecastCatalog{UpdatedAt: fixtureTime.Add(-2 * time.Hour).Format(time.RFC3339), StaleAfterHours: 18},
 		Climate:         &delivery.ClimateCatalog{Label: "Typical year (sample data)", ReferencePeriod: "1991–2020"},
 	}
+	forecastDays := make([][]weather.DailyMetrics, 0, 14)
 	for day := 0; day < 14; day++ {
 		date := fixtureTime.AddDate(0, 0, day)
 		kind, temporal := "outlook", 6
 		if day < 5 {
 			kind, temporal = "detailed", 1
 		}
-		period, err := writeFixturePeriod(releaseDir, spec, landMask, "forecast", date.Format("2006-01-02"), day, 7, 28, temporal, kind, temperatureOffset)
+		period, metrics, err := writeFixturePeriod(releaseDir, spec, landMask, "forecast", date.Format("2006-01-02"), day, 7, 28, temporal, kind, temperatureOffset)
 		if err != nil {
 			return err
 		}
 		manifest.Forecast.Days = append(manifest.Forecast.Days, delivery.ForecastPeriod{
 			Period: period, Date: date.Format("2006-01-02"), Kind: kind,
 		})
+		forecastDays = append(forecastDays, metrics)
 	}
+	window, err := writeFixtureForecastWindow(releaseDir, spec, forecastDays)
+	if err != nil {
+		return err
+	}
+	manifest.Forecast.Window = window
 	for month := 1; month <= 12; month++ {
 		id := fmt.Sprintf("month-%02d", month)
-		period, err := writeFixturePeriod(releaseDir, spec, landMask, "climate", id, month-1, month, 28, 24*30, "climate", temperatureOffset)
+		period, _, err := writeFixturePeriod(releaseDir, spec, landMask, "climate", id, month-1, month, 28, 24*30, "climate", temperatureOffset)
 		if err != nil {
 			return err
 		}
@@ -89,9 +96,9 @@ func generateFixture(root, releaseName string, temperatureOffset float64) error 
 	return delivery.CleanupStaleReleases(root)
 }
 
-func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []byte, group, id string, phase, month int, resolution float64, temporal int, sourceKind string, temperatureOffset float64) (delivery.Period, error) {
+func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []byte, group, id string, phase, month int, resolution float64, temporal int, sourceKind string, temperatureOffset float64) (delivery.Period, []weather.DailyMetrics, error) {
 	if spec != fixtureGridSpec || len(landMask)*8 != int(spec.Rows*spec.Cols) {
-		return delivery.Period{}, fmt.Errorf("fixture land mask does not match fixture grid")
+		return delivery.Period{}, nil, fmt.Errorf("fixture land mask does not match fixture grid")
 	}
 	records := make([]delivery.DailyRecord, int(spec.Rows*spec.Cols))
 	for row := uint32(0); row < spec.Rows; row++ {
@@ -104,7 +111,7 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 			lon := spec.Bounds.West + (float64(col)+.5)/float64(spec.Cols)*(spec.Bounds.East-spec.Bounds.West)
 			record, err := fixtureRecord(lon, lat, phase, month, sourceKind != "climate", temperatureOffset)
 			if err != nil {
-				return delivery.Period{}, fmt.Errorf("build fixture cell: %w", err)
+				return delivery.Period{}, nil, fmt.Errorf("build fixture cell: %w", err)
 			}
 			records[index] = record
 		}
@@ -113,11 +120,11 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 	gridTemporary := filepath.Join(gridDirectory, "."+id+".building.nwg")
 	metadata, err := delivery.WriteGrid(gridTemporary, spec, records)
 	if err != nil {
-		return delivery.Period{}, fmt.Errorf("write fixture grid %s: %w", id, err)
+		return delivery.Period{}, nil, fmt.Errorf("write fixture grid %s: %w", id, err)
 	}
 	gridURL := filepath.ToSlash(filepath.Join("grids", group, id+"-"+metadata.SHA256+".nwg"))
 	if err := os.Rename(gridTemporary, filepath.Join(releaseDir, filepath.FromSlash(gridURL))); err != nil {
-		return delivery.Period{}, fmt.Errorf("name fixture grid %s by content: %w", id, err)
+		return delivery.Period{}, nil, fmt.Errorf("name fixture grid %s by content: %w", id, err)
 	}
 	metrics := make([]weather.DailyMetrics, len(records))
 	for index, record := range records {
@@ -126,7 +133,7 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 		}
 		metric, err := record.WeatherMetrics(1)
 		if err != nil {
-			return delivery.Period{}, fmt.Errorf("rebuild fixture weather cell %d: %w", index, err)
+			return delivery.Period{}, nil, fmt.Errorf("rebuild fixture weather cell %d: %w", index, err)
 		}
 		metrics[index] = metric
 	}
@@ -137,7 +144,7 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 	}{{"nice", weather.ProfileNice}, {"cycling", weather.ProfileCycling}} {
 		asset, err := writeOverlay(releaseDir, group, id, profile.id, spec, records, metrics, profile.p, weather.LensOverall)
 		if err != nil {
-			return delivery.Period{}, err
+			return delivery.Period{}, nil, err
 		}
 		images[profile.id] = asset
 	}
@@ -155,7 +162,7 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 	} {
 		asset, err := writeOverlay(releaseDir, group, id, item.id, spec, records, metrics, item.profile, item.lens)
 		if err != nil {
-			return delivery.Period{}, err
+			return delivery.Period{}, nil, err
 		}
 		lenses[item.id] = asset
 	}
@@ -164,6 +171,78 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 		ID: id, Label: id, Source: source,
 		NativeResolutionKM: resolution, TemporalResolutionHours: temporal,
 		Images: images, Lenses: lenses, GridURL: gridURL, GridSHA256: metadata.SHA256,
+	}, metrics, nil
+}
+
+func writeFixtureForecastWindow(releaseDir string, spec delivery.GridSpec, days [][]weather.DailyMetrics) (delivery.ForecastWindow, error) {
+	window := delivery.ForecastWindow{
+		ID: "next-14-days", Label: "Next 14 days", StartDate: fixtureTime.Format("2006-01-02"),
+		EndDate: fixtureTime.AddDate(0, 0, len(days)-1).Format("2006-01-02"), DayCount: len(days),
+		GridResolutionKM: 28, Profiles: make(map[string]delivery.ForecastRangeAsset, 2),
+	}
+	for _, item := range []struct {
+		id      string
+		profile weather.Profile
+	}{{delivery.ProfileNice, weather.ProfileNice}, {delivery.ProfileCycling, weather.ProfileCycling}} {
+		records, err := pipeline.ForecastRangeRecords(spec, days, item.profile)
+		if err != nil {
+			return delivery.ForecastWindow{}, err
+		}
+		gridTemporary := filepath.Join(releaseDir, "grids", "forecast-window", "."+item.id+".building.nwr")
+		metadata, err := delivery.WriteRangeGrid(gridTemporary, spec, records)
+		if err != nil {
+			return delivery.ForecastWindow{}, err
+		}
+		gridURL := filepath.ToSlash(filepath.Join("grids", "forecast-window", window.ID+"-"+item.id+"-"+metadata.SHA256+".nwr"))
+		if err := os.Rename(gridTemporary, filepath.Join(releaseDir, filepath.FromSlash(gridURL))); err != nil {
+			return delivery.ForecastWindow{}, err
+		}
+		image, err := writeRangeOverlay(releaseDir, window.ID, item.id, spec, records)
+		if err != nil {
+			return delivery.ForecastWindow{}, err
+		}
+		window.Profiles[item.id] = delivery.ForecastRangeAsset{GridURL: gridURL, GridSHA256: metadata.SHA256, Image: image}
+	}
+	return window, nil
+}
+
+func writeRangeOverlay(releaseDir, windowID, profile string, spec delivery.GridSpec, records []delivery.RangeRecord) (delivery.ImageAsset, error) {
+	directory := filepath.Join(releaseDir, "images", "forecast-window")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	file, err := os.CreateTemp(directory, ".overlay-*.png")
+	if err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	temporary := file.Name()
+	committed := false
+	defer func() {
+		_ = file.Close()
+		if !committed {
+			_ = os.Remove(temporary)
+		}
+	}()
+	digest := sha256.New()
+	if err := pipeline.RenderWebMercatorRangeRecords(io.MultiWriter(file, digest), spec, records, fixturePalette); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	if err := file.Close(); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	checksum := hex.EncodeToString(digest.Sum(nil))
+	filename := fmt.Sprintf("%s-%s-%s.png", windowID, profile, checksum)
+	if err := os.Rename(temporary, filepath.Join(directory, filename)); err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	committed = true
+	width, height, err := delivery.WebMercatorImageDimensions(spec)
+	if err != nil {
+		return delivery.ImageAsset{}, err
+	}
+	return delivery.ImageAsset{
+		URL: filepath.ToSlash(filepath.Join("images", "forecast-window", filename)), SHA256: checksum,
+		Width: width, Height: height, Projection: delivery.ImageProjectionWebMercator,
 	}, nil
 }
 

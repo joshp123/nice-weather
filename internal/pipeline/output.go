@@ -135,6 +135,56 @@ func RenderWebMercatorLensRecords(w io.Writer, spec delivery.GridSpec, records [
 	return nil
 }
 
+// RenderWebMercatorRangeRecords renders the score stored in the immutable
+// range grid. It cannot drift from point lookup because both consume the same
+// compact record rather than independently aggregating daily weather.
+func RenderWebMercatorRangeRecords(w io.Writer, spec delivery.GridSpec, records []delivery.RangeRecord, paletteStops []delivery.PaletteStop) error {
+	if spec.Rows == 0 || spec.Cols == 0 || len(records) != int(spec.Rows)*int(spec.Cols) {
+		return fmt.Errorf("range overlay grid dimensions do not match delivery records")
+	}
+	for index, record := range records {
+		if !record.Valid {
+			if record != (delivery.RangeRecord{}) {
+				return fmt.Errorf("range overlay record %d contains invalid data", index)
+			}
+			continue
+		}
+		if _, err := record.Summary(); err != nil {
+			return fmt.Errorf("range overlay record %d: %w", index, err)
+		}
+	}
+	width, height, err := delivery.WebMercatorImageDimensions(spec)
+	if err != nil {
+		return err
+	}
+	mapper, err := delivery.NewWebMercatorMapper(spec)
+	if err != nil {
+		return err
+	}
+	palette, err := scorePalette(paletteStops)
+	if err != nil {
+		return err
+	}
+	imageData := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for destinationRow := 0; destinationRow < height; destinationRow++ {
+		for destinationCol := 0; destinationCol < width; destinationCol++ {
+			sourceRow, sourceCol, ok := mapper.Select(destinationRow, destinationCol, func(row, col uint32) bool {
+				return records[int(row)*int(spec.Cols)+int(col)].Valid
+			})
+			if !ok {
+				continue
+			}
+			record := records[int(sourceRow)*int(spec.Cols)+int(sourceCol)]
+			imageData.SetNRGBA(destinationCol, destinationRow, palette[record.Score])
+		}
+	}
+	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := encoder.Encode(w, imageData); err != nil {
+		return fmt.Errorf("encode forecast range overlay: %w", err)
+	}
+	return nil
+}
+
 func scorePalette(stops []delivery.PaletteStop) ([101]color.NRGBA, error) {
 	var palette [101]color.NRGBA
 	if len(stops) < 2 || stops[0].Score != 0 || stops[len(stops)-1].Score != 100 {

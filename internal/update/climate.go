@@ -109,7 +109,7 @@ func buildClimate(ctx context.Context, decoder *pipeline.Decoder, writer *releas
 			ProviderID: "chelsa", ProviderLabel: "CHELSA 2.1 · CC0",
 			RunAt: "1981-01-01T00:00:00Z", ValidFrom: "1981-01-01T00:00:00Z", ValidTo: "2011-01-01T00:00:00Z",
 		}
-		period, err := writer.writePeriod("climate", id, time.Month(month).String(), grids["tas"].Spec, metrics, source, 11, 24*30)
+		period, _, err := writer.writePeriod("climate", id, time.Month(month).String(), grids["tas"].Spec, metrics, source, 11, 24*30)
 		if err != nil {
 			return err
 		}

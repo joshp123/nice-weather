@@ -148,14 +148,43 @@ func Run(ctx context.Context, config Config) error {
 	}
 	locationCache := map[string]*time.Location{}
 	locations := map[bool][]*time.Location{}
+	var rangeTargetSpec delivery.GridSpec
+	var cachedOutlookDate time.Time
+	var cachedOutlookSeries pipeline.Series
+	for _, day := range days {
+		if day.Detailed {
+			continue
+		}
+		cachedOutlookDate = day.Date
+		cachedOutlookSeries, err = decodeFrames(ctx, decoder, stagedForDay(aifsStaged, day.Date, false))
+		if err != nil {
+			return fmt.Errorf("decode forecast-window target grid: %w", err)
+		}
+		rangeTargetSpec, err = seriesSpec(cachedOutlookSeries)
+		if err != nil {
+			return fmt.Errorf("forecast-window target grid: %w", err)
+		}
+		break
+	}
+	if rangeTargetSpec.Rows == 0 {
+		return fmt.Errorf("14-day forecast requires at least one AIFS outlook day")
+	}
+	rangeDays := make([][]weather.DailyMetrics, 0, len(days))
+	var detailedRangeSupport pipeline.FloatGrid
+	var outlookRangeSupport pipeline.FloatGrid
 	for _, day := range days {
 		staged, run, resolution, temporal, kind, providerID, providerLabel := stagedForDay(aifsStaged, day.Date, false), aifsRun.Time, 28.0, 6, "outlook", "ecmwf-aifs", "ECMWF AIFS"
 		if day.Detailed {
 			staged, run, resolution, temporal, kind, providerID, providerLabel = stagedForDay(dwdStaged, day.Date, true), dwdRun.StartedAt, 7, dwdTemporal(day.Date, dwdRun.StartedAt), "detailed", "dwd-icon-eu", "DWD ICON-EU"
 		}
-		series, err := decodeFrames(ctx, decoder, staged)
-		if err != nil {
-			return err
+		series := cachedOutlookSeries
+		if !day.Date.Equal(cachedOutlookDate) {
+			series, err = decodeFrames(ctx, decoder, staged)
+			if err != nil {
+				return err
+			}
+		} else {
+			cachedOutlookSeries = nil
 		}
 		spec, err := seriesSpec(series)
 		if err != nil {
@@ -187,6 +216,12 @@ func Run(ctx context.Context, config Config) error {
 		expectedSupport, err := expectedForecastSupport(forecastMask, day.Detailed)
 		if err != nil {
 			return fmt.Errorf("build %s expected provider support: %w", day.Date.Format("2006-01-02"), err)
+		}
+		if day.Detailed && len(detailedRangeSupport.Values) == 0 {
+			detailedRangeSupport = expectedSupport
+		}
+		if !day.Detailed && len(outlookRangeSupport.Values) == 0 {
+			outlookRangeSupport = expectedSupport
 		}
 		fieldCoverage, err := pipeline.MeasureFieldCoverage(series, expectedSupport)
 		if err != nil {
@@ -220,13 +255,49 @@ func Run(ctx context.Context, config Config) error {
 			ProviderID: providerID, ProviderLabel: providerLabel, RunAt: run.Format(time.RFC3339),
 			ValidFrom: day.Date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: day.Date.Add(21 * time.Hour).Format(time.RFC3339),
 		}
-		period, err := writer.writePeriod("forecast", id, day.Date.Format("Mon 2 Jan"), aggregatedSpec, metrics, source, resolution, temporal)
+		period, quantized, err := writer.writePeriod("forecast", id, day.Date.Format("Mon 2 Jan"), aggregatedSpec, metrics, source, resolution, temporal)
 		if err != nil {
 			return err
 		}
+		rangeMetrics, err := pipeline.SampleMetricsAtCellCenters(aggregatedSpec, quantized, rangeTargetSpec)
+		if err != nil {
+			return fmt.Errorf("sample %s onto 14-day grid: %w", day.Date.Format("2006-01-02"), err)
+		}
+		rangeDays = append(rangeDays, rangeMetrics)
 		writer.manifest.Forecast.Days = append(writer.manifest.Forecast.Days, delivery.ForecastPeriod{Period: period, Date: id, Kind: kind})
 		fmt.Printf("forecast %s ready (%s, %.0f km)\n", id, kind, resolution)
 	}
+	detailedTargetSupport, err := pipeline.SampleMaskAtCellCenters(detailedRangeSupport, rangeTargetSpec)
+	if err != nil {
+		return fmt.Errorf("sample detailed forecast support onto 14-day grid: %w", err)
+	}
+	if outlookRangeSupport.Spec != rangeTargetSpec || len(outlookRangeSupport.Values) != len(detailedTargetSupport.Values) {
+		return fmt.Errorf("outlook support does not match 14-day target grid")
+	}
+	rangeExpectedSupport := detailedTargetSupport
+	for index := range rangeExpectedSupport.Values {
+		if outlookRangeSupport.Values[index] != 1 {
+			rangeExpectedSupport.Values[index] = 0
+		}
+	}
+	rangeAvailability, err := pipeline.ForecastRangeAvailability(rangeTargetSpec, rangeDays)
+	if err != nil {
+		return err
+	}
+	rangeCoverage, err := pipeline.MeasureForecastCoverage(rangeTargetSpec, rangeAvailability, rangeExpectedSupport)
+	if err != nil {
+		return fmt.Errorf("measure 14-day forecast coverage: %w", err)
+	}
+	if err := requireForecastWindowCoverage(rangeCoverage); err != nil {
+		return err
+	}
+	fmt.Printf("forecast window complete-support coverage: %.2f%% (%d/%d), worst spatial block %.2f%% (%d/%d)\n", 100*rangeCoverage.Fraction(), rangeCoverage.Global.Finite, rangeCoverage.Global.Support, 100*rangeCoverage.BlockFraction(), rangeCoverage.WorstBlock.Finite, rangeCoverage.WorstBlock.Support)
+	window, err := writer.writeForecastWindow("next-14-days", "Next 14 days", days[0].Date, days[len(days)-1].Date, rangeTargetSpec, rangeDays, 28)
+	if err != nil {
+		return err
+	}
+	writer.manifest.Forecast.Window = window
+	fmt.Printf("forecast window ready (%d days, %.0f km)\n", window.DayCount, window.GridResolutionKM)
 	if err := writer.finish(config.Out); err != nil {
 		return err
 	}
@@ -316,6 +387,15 @@ func applyOptionalSolarCoveragePolicy(series pipeline.Series, coverage []pipelin
 func requireForecastCoverage(date time.Time, provider string, coverage pipeline.ForecastCoverage) error {
 	if coverage.Global.Support == 0 || coverage.Global.Finite != coverage.Global.Support {
 		return fmt.Errorf("refuse forecast %s from %s: publishable coverage %.2f%% (%d/%d); every expected provider-support cell is required", date.Format("2006-01-02"), provider, 100*coverage.Fraction(), coverage.Global.Finite, coverage.Global.Support)
+	}
+	return nil
+}
+
+const requiredForecastWindowCoverage = 1.0
+
+func requireForecastWindowCoverage(coverage pipeline.ForecastCoverage) error {
+	if coverage.Global.Support == 0 || coverage.Fraction() < requiredForecastWindowCoverage {
+		return fmt.Errorf("refuse 14-day forecast: complete-window coverage %.2f%% (%d/%d); every target cell supported by all forecast providers is required", 100*coverage.Fraction(), coverage.Global.Finite, coverage.Global.Support)
 	}
 	return nil
 }

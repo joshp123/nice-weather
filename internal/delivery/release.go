@@ -93,9 +93,11 @@ func ValidateProductionRelease(releaseDir string) (Manifest, error) {
 }
 
 type ReleaseCatalog struct {
-	manifest Manifest
-	byPeriod map[string]*GridReader
-	byPath   map[string]*GridReader
+	manifest       Manifest
+	byPeriod       map[string]*GridReader
+	byPath         map[string]*GridReader
+	rangeByProfile map[string]*RangeGridReader
+	rangeByPath    map[string]*RangeGridReader
 }
 
 func OpenReleaseCatalog(releaseDir string) (*ReleaseCatalog, error) {
@@ -116,6 +118,14 @@ func (catalog *ReleaseCatalog) Lookup(periodID string, lon, lat float64) (DailyR
 	return reader.RecordAt(lon, lat)
 }
 
+func (catalog *ReleaseCatalog) LookupRange(profile string, lon, lat float64) (RangeRecord, bool, error) {
+	reader, ok := catalog.rangeByProfile[profile]
+	if !ok {
+		return RangeRecord{}, false, fmt.Errorf("unknown range profile %q", profile)
+	}
+	return reader.RecordAt(lon, lat)
+}
+
 func (catalog *ReleaseCatalog) Close() error {
 	var result error
 	for _, reader := range catalog.byPath {
@@ -123,8 +133,15 @@ func (catalog *ReleaseCatalog) Close() error {
 			result = errors.Join(result, err)
 		}
 	}
+	for _, reader := range catalog.rangeByPath {
+		if err := reader.Close(); err != nil {
+			result = errors.Join(result, err)
+		}
+	}
 	catalog.byPath = nil
 	catalog.byPeriod = nil
+	catalog.rangeByPath = nil
+	catalog.rangeByProfile = nil
 	return result
 }
 
@@ -184,7 +201,10 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			return nil, err
 		}
 	}
-	catalog := &ReleaseCatalog{manifest: manifest, byPeriod: make(map[string]*GridReader), byPath: make(map[string]*GridReader)}
+	catalog := &ReleaseCatalog{
+		manifest: manifest, byPeriod: make(map[string]*GridReader), byPath: make(map[string]*GridReader),
+		rangeByProfile: make(map[string]*RangeGridReader), rangeByPath: make(map[string]*RangeGridReader),
+	}
 	success := false
 	defer func() {
 		if !success {
@@ -251,6 +271,73 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			if asset.Width != imageWidth || asset.Height != imageHeight {
 				return nil, fmt.Errorf("image %q geometry does not match its grid", asset.URL)
 			}
+		}
+	}
+	var forecastWindowSpec GridSpec
+	coarsestGridFound := false
+	for _, day := range manifest.Forecast.Days {
+		if day.NativeResolutionKM != manifest.Forecast.Window.GridResolutionKM {
+			continue
+		}
+		metadata := catalog.byPeriod[day.ID].Metadata()
+		spec := GridSpec{Bounds: metadata.Bounds, Rows: metadata.Rows, Cols: metadata.Cols}
+		if !coarsestGridFound {
+			forecastWindowSpec, coarsestGridFound = spec, true
+		} else if spec != forecastWindowSpec {
+			return nil, errors.New("coarsest forecast days do not share one grid geometry")
+		}
+	}
+	if !coarsestGridFound {
+		return nil, errors.New("forecast window has no matching coarsest daily grid")
+	}
+	for profile, asset := range manifest.Forecast.Window.Profiles {
+		gridPath, err := releaseAsset(releaseDir, asset.GridURL)
+		if err != nil {
+			return nil, err
+		}
+		reader, exists := catalog.rangeByPath[gridPath]
+		if !exists {
+			reader, err = OpenRangeGrid(gridPath)
+			if err != nil {
+				return nil, fmt.Errorf("validate forecast window grid %q: %w", asset.GridURL, err)
+			}
+			catalog.rangeByPath[gridPath] = reader
+		}
+		if reader.Metadata().SHA256 != strings.ToLower(asset.GridSHA256) {
+			return nil, fmt.Errorf("forecast window grid %q checksum does not match manifest", asset.GridURL)
+		}
+		if reader.Metadata().Bounds != manifest.Region.Bounds {
+			return nil, fmt.Errorf("forecast window grid %q bounds do not match manifest region", asset.GridURL)
+		}
+		if (GridSpec{Bounds: reader.Metadata().Bounds, Rows: reader.Metadata().Rows, Cols: reader.Metadata().Cols}) != forecastWindowSpec {
+			return nil, fmt.Errorf("forecast window grid %q geometry does not match coarsest forecast days", asset.GridURL)
+		}
+		if err := reader.ValidateDayCount(manifest.Forecast.Window.DayCount); err != nil {
+			return nil, fmt.Errorf("forecast window grid %q: %w", asset.GridURL, err)
+		}
+		catalog.rangeByProfile[profile] = reader
+		imageWidth, imageHeight, err := WebMercatorImageDimensions(GridSpec{
+			Bounds: reader.Metadata().Bounds, Rows: reader.Metadata().Rows, Cols: reader.Metadata().Cols,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("derive forecast window image geometry for %q: %w", profile, err)
+		}
+		path, err := releaseAsset(releaseDir, asset.Image.URL)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			if err == nil {
+				err = errors.New("not a regular file")
+			}
+			return nil, fmt.Errorf("validate forecast window image %q: %w", asset.Image.URL, err)
+		}
+		if err := validatePNG(path, asset.Image); err != nil {
+			return nil, err
+		}
+		if asset.Image.Width != imageWidth || asset.Image.Height != imageHeight {
+			return nil, fmt.Errorf("forecast window image %q geometry does not match its grid", asset.Image.URL)
 		}
 	}
 	success = true
