@@ -54,9 +54,11 @@ type apiError struct {
 	} `json:"error"`
 }
 
+const DefaultListen = "127.0.0.1:5198"
+
 func Serve(config Config) error {
 	if config.Listen == "" {
-		config.Listen = "127.0.0.1:5198"
+		config.Listen = DefaultListen
 	}
 	handler, err := NewHandler(config)
 	if err != nil {
