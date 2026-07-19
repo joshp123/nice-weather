@@ -84,6 +84,34 @@ func TestAgERA5DistributionCombinesReferenceYearsAndRejectsDuplicateDates(t *tes
 	}
 }
 
+func TestAgERA5DistributionMeasuresObservedPoorWeekRisk(t *testing.T) {
+	days := make([]AgERA5Day, 10)
+	for index := range days {
+		temperature, rain, wet, solar, cloud, wind := 24.0, 0.0, 0.0, 15.0, 20.0, 12.0
+		if index >= 2 && index <= 4 {
+			temperature, rain, wet, solar, cloud, wind = 7, 5, .8, 2, 95, 30
+		}
+		days[index] = day(fmt.Sprintf("2025-11-%02d", index+1), 52.37, 4.90, temperature, rain, wet, solar, cloud, wind)
+	}
+	result, err := Aggregate(days, weather.ProfileNice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PoorWeekWindows != 4 || result.PoorWeekFraction != .75 {
+		t.Fatalf("poor-week result = %+v; want 3 of 4 complete seven-day windows", result)
+	}
+}
+
+func TestAgERA5DoesNotInventSynchronousRelativeHumidity(t *testing.T) {
+	metrics, err := day("2025-11-01", 36.72, -4.42, 30, 0, 0, 15, 20, 12).Metrics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.RelativeHumidityPercent.Available || !metrics.DewPointC.Available || metrics.NativeResolutionKM != 30 {
+		t.Fatalf("metrics = %+v", metrics)
+	}
+}
+
 func day(date string, lat, lon, temperature, rain, wet, solar, cloud, wind float64) AgERA5Day {
 	dewPoint := temperature - 10
 	if wet > .5 {

@@ -35,14 +35,16 @@ type AgERA5Day struct {
 // Distribution is one cell and calendar month after every observed day has
 // been scored. It answers frequency questions that a synthetic mean day cannot.
 type Distribution struct {
-	Days          int
-	ExpectedDays  int
-	Coverage      float64
-	MeanScore     float64
-	MedianScore   int
-	NiceFraction  float64
-	AwfulFraction float64
-	Ratings       map[string]int
+	Days             int
+	ExpectedDays     int
+	Coverage         float64
+	MeanScore        float64
+	MedianScore      int
+	NiceFraction     float64
+	AwfulFraction    float64
+	PoorWeekWindows  int
+	PoorWeekFraction float64
+	Ratings          map[string]int
 }
 
 // DecodeAgERA5 reads a bounded newline-delimited interchange for single-cell
@@ -143,14 +145,21 @@ func (day AgERA5Day) Metrics() (weather.DailyMetrics, error) {
 	metrics := weather.DailyMetrics{
 		ComfortableTempC: day.DaytimeMeanTemperatureC,
 		MinTempC:         day.MinimumTemperatureC, MaxTempC: day.MaximumTemperatureC,
-		RainMM:                  day.PrecipitationMM,
-		WetTimeFraction:         weather.OptionalFloat{Value: day.PrecipitationDurationFrac, Available: true},
-		SolarEnergyMJm2:         weather.OptionalFloat{Value: day.SolarEnergyMJm2, Available: true},
-		CloudCoverPercent:       weather.OptionalFloat{Value: day.CloudCoverPercent, Available: true},
-		WindSpeedKPH:            day.WindSpeedKPH,
-		DewPointC:               weather.OptionalFloat{Value: day.DewPointC, Available: true},
-		RelativeHumidityPercent: weather.OptionalFloat{Value: relativeHumidity(day.DaytimeMeanTemperatureC, day.DewPointC), Available: true},
-		NativeResolutionKM:      11, Valid: true,
+		RainMM:            day.PrecipitationMM,
+		WetTimeFraction:   weather.OptionalFloat{Value: day.PrecipitationDurationFrac, Available: true},
+		SolarEnergyMJm2:   weather.OptionalFloat{Value: day.SolarEnergyMJm2, Available: true},
+		CloudCoverPercent: weather.OptionalFloat{Value: day.CloudCoverPercent, Available: true},
+		WindSpeedKPH:      day.WindSpeedKPH,
+		DewPointC:         weather.OptionalFloat{Value: day.DewPointC, Available: true},
+		// Daytime temperature and 24-hour dew point are not synchronous, so
+		// deriving and publishing relative humidity from them would imply a
+		// measurement AgERA5 does not provide. Dew point remains canonical hot-
+		// moisture evidence; cold dampness uses rain duration, cloud and wind.
+		RelativeHumidityPercent: weather.OptionalFloat{},
+		// AgERA5 is delivered on a 0.1° output grid, but the atmospheric source
+		// information is ERA5 at roughly 30 km. Delivery metadata must describe
+		// both rather than calling every field native 11 km weather.
+		NativeResolutionKM: 30, Valid: true,
 	}
 	if err := metrics.Validate(); err != nil {
 		return weather.DailyMetrics{}, err
@@ -158,17 +167,17 @@ func (day AgERA5Day) Metrics() (weather.DailyMetrics, error) {
 	return metrics, nil
 }
 
-func relativeHumidity(temperatureC, dewPointC float64) float64 {
-	ratio := math.Exp(17.625*dewPointC/(243.04+dewPointC)) / math.Exp(17.625*temperatureC/(243.04+temperatureC))
-	return math.Max(0, math.Min(100, ratio*100))
-}
-
 func Aggregate(days []AgERA5Day, profile weather.Profile) (Distribution, error) {
 	if len(days) == 0 {
 		return Distribution{}, errors.New("at least one AgERA5 day is required")
 	}
 	firstDate, _ := time.Parse("2006-01-02", days[0].Date)
+	type observation struct {
+		date  time.Time
+		score int
+	}
 	scores := make([]int, len(days))
+	observations := make([]observation, len(days))
 	seenDates := make(map[string]struct{}, len(days))
 	ratings := map[string]int{"Awful": 0, "Poor": 0, "Mixed": 0, "Good": 0, "Very good": 0, "Excellent": 0}
 	sum, nice, awful := 0, 0, 0
@@ -190,6 +199,7 @@ func Aggregate(days []AgERA5Day, profile weather.Profile) (Distribution, error) 
 			return Distribution{}, fmt.Errorf("day %s is not scoreable", day.Date)
 		}
 		scores[index], sum = result.Score, sum+result.Score
+		observations[index] = observation{date: date, score: result.Score}
 		ratings[result.Rating]++
 		if result.Score >= 55 {
 			nice++
@@ -203,11 +213,45 @@ func Aggregate(days []AgERA5Day, profile weather.Profile) (Distribution, error) 
 	if len(scores)%2 == 0 {
 		median = (scores[len(scores)/2-1] + scores[len(scores)/2]) / 2
 	}
+	sort.Slice(observations, func(left, right int) bool { return observations[left].date.Before(observations[right].date) })
+	poorWeeks, fullWeeks := 0, 0
+	for start := 0; start+7 <= len(observations); start++ {
+		window := observations[start : start+7]
+		complete := true
+		for index := 1; index < len(window); index++ {
+			if !window[index].date.Equal(window[index-1].date.AddDate(0, 0, 1)) {
+				complete = false
+				break
+			}
+		}
+		if !complete {
+			continue
+		}
+		fullWeeks++
+		poorRun, hasPoorSpell := 0, false
+		for _, item := range window {
+			if item.score <= 39 {
+				poorRun++
+				if poorRun >= 3 {
+					hasPoorSpell = true
+				}
+			} else {
+				poorRun = 0
+			}
+		}
+		if hasPoorSpell {
+			poorWeeks++
+		}
+	}
 	expectedDays := 0
 	for year := 2006; year <= 2025; year++ {
 		expectedDays += time.Date(year, firstDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
 	}
-	return Distribution{Days: len(days), ExpectedDays: expectedDays, Coverage: float64(len(days)) / float64(expectedDays), MeanScore: float64(sum) / float64(len(days)), MedianScore: median, NiceFraction: float64(nice) / float64(len(days)), AwfulFraction: float64(awful) / float64(len(days)), Ratings: ratings}, nil
+	poorWeekFraction := 0.0
+	if fullWeeks > 0 {
+		poorWeekFraction = float64(poorWeeks) / float64(fullWeeks)
+	}
+	return Distribution{Days: len(days), ExpectedDays: expectedDays, Coverage: float64(len(days)) / float64(expectedDays), MeanScore: float64(sum) / float64(len(days)), MedianScore: median, NiceFraction: float64(nice) / float64(len(days)), AwfulFraction: float64(awful) / float64(len(days)), PoorWeekWindows: fullWeeks, PoorWeekFraction: poorWeekFraction, Ratings: ratings}, nil
 }
 
 func finite(values ...float64) bool {
