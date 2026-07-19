@@ -7,7 +7,7 @@ import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherMani
 import { StaleWindReleaseError, WindFrameLoader, type WindGrid } from './data/wind';
 import type { MapPoint, OverlayState } from './map/WeatherMap';
 import { pointSourceLabel } from './presentation';
-import { forecastDetailNote, ratingBandLabel } from './scoreGuide';
+import { DRY_SCORE_NOTE, forecastDetailNote, PROFILE_WEIGHT_NOTES, ratingBandLabel } from './scoreGuide';
 import { reportResourceSummary, telemetry } from './telemetry';
 import './styles.css';
 
@@ -345,9 +345,11 @@ function ScoreGuide({ manifest }: { manifest: WeatherManifest }) {
     <section className="scoreGuide">
       <h2>How scores work</h2>
       <div className="scoreGuideBody">
-        <p>Scores combine Comfort, Dry, Bright and Calm. Higher is better.</p>
+        <p>Overall starts with four scores. Severe heat, cold, rain or wind can cap it.</p>
+        <p><strong>Nice</strong> · {PROFILE_WEIGHT_NOTES.nice}</p>
+        <p><strong>Cycling</strong> · {PROFILE_WEIGHT_NOTES.cycling}</p>
+        <p>{DRY_SCORE_NOTE}</p>
         <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
-        <p><strong>Nice</strong> favours warm, bright, dry and calm weather. <strong>Cycling</strong> is stricter about rain, wind and gusts.</p>
         <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
       </div>
     </section>
@@ -371,6 +373,7 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
   const restoringFocusAfterDismiss = useRef(false);
   const showBest = focused && !bestDismissed && view === 'range' && query.trim() === '';
   const open = focused && (showBest || results.length > 0 || Boolean(status));
+  const prompt = placeSearchPrompt(view);
 
   useEffect(() => () => {
     search.clear();
@@ -460,8 +463,8 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
       input.current?.focus();
     }}>
       <SearchIcon />
-      <label className="srOnly" htmlFor="place-search">Find a place in Europe</label>
-      <input id="place-search" ref={input} value={query} placeholder="Find a place" autoComplete="off" onFocus={() => {
+      <label className="srOnly" htmlFor="place-search">{prompt}</label>
+      <input id="place-search" ref={input} value={query} placeholder={prompt} autoComplete="off" onFocus={() => {
         onEngage();
         window.clearTimeout(blurTimer.current);
         blurTimer.current = undefined;
@@ -687,10 +690,22 @@ export function temperatureRange(minimum: number, maximum: number): string {
   return low === high ? `${low}°` : `${low}–${high}°`;
 }
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
+export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search Europe or see best weather' : 'Search Europe'; }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
-  return data.source.basis === 'climate'
-    ? { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` }
-    : { label: 'Rain', value: `${format(data.metrics.rainMm, 1)} mm` };
+  if (data.source.basis === 'climate') return { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` };
+  const amount = `${format(data.metrics.rainMm, 1)} mm`;
+  return !data.metrics.wetTimeFraction
+    ? { label: 'Rain', value: amount }
+    : { label: 'Rain', value: `${amount} · ${wetDaytimeDuration(data.metrics.wetTimeFraction)}` };
+}
+export function wetDaytimeDuration(fraction: number): string {
+  const hours = Math.max(0, Math.min(1, fraction)) * 10;
+  if (hours === 0) return 'no wet hours';
+  if (hours < .25) return 'under ½ wet hour';
+  const rounded = Math.round(hours * 2) / 2;
+  if (rounded === .5) return 'about ½ wet hour';
+  if (rounded === 1) return 'about 1 wet hour';
+  return `about ${new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }).format(rounded)} wet hours`;
 }
 function timeLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' }).format(new Date(value)) + ' UTC'; }
 function defaultWindFrameIndex(frames: Period['windFrames']): number {
