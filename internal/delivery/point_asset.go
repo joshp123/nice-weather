@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	PointAssetVersion     = 1
-	PointAssetHeaderBytes = 128
-	DailyPointRecordBytes = 30
-	RangePointRecordBytes = 44
-	ForecastPointDayCount = 14
+	PointAssetVersion       = 1
+	PointAssetHeaderBytes   = 128
+	DailyPointRecordBytes   = 30
+	RangePointRecordBytes   = 44
+	DisplayScoreRecordBytes = 8
+	ForecastPointDayCount   = 14
 )
 
 type PointKind uint8
@@ -33,6 +34,7 @@ const (
 	// daily-distribution climate product. A CHELSA mean month must never be
 	// decoded as that future evidence.
 	PointKindClimateDistribution
+	PointKindDisplayScore
 )
 
 const pointProjectionWebMercatorImage uint8 = 1
@@ -91,6 +93,17 @@ type DailyPointRecord struct {
 	SummaryCode  uint8
 }
 
+// DisplayScoreRecord is the evaluated scalar field used by the map. It is
+// deliberately separate from DailyPointRecord: outlook weather facts retain
+// their native provider geometry while the visible judgement may use a denser
+// interpolated score plane.
+type DisplayScoreRecord struct {
+	Thermal, Dryness, Sun     uint8
+	NiceScore, NiceWind       uint8
+	CyclingScore, CyclingWind uint8
+	Valid                     bool
+}
+
 type RangePointRecord struct {
 	Nice        RangeRecord
 	Cycling     RangeRecord
@@ -113,13 +126,15 @@ func PointKindName(kind PointKind) string {
 		return "legacy-climate-month"
 	case PointKindClimateDistribution:
 		return "climate-distribution"
+	case PointKindDisplayScore:
+		return "display-score"
 	default:
 		return ""
 	}
 }
 
 func ParsePointKind(value string) (PointKind, bool) {
-	for _, kind := range []PointKind{PointKindForecastDay, PointKindForecastWindow, PointKindLegacyClimateMonth, PointKindClimateDistribution} {
+	for _, kind := range []PointKind{PointKindForecastDay, PointKindForecastWindow, PointKindLegacyClimateMonth, PointKindClimateDistribution, PointKindDisplayScore} {
 		if value == PointKindName(kind) {
 			return kind, true
 		}
@@ -133,6 +148,8 @@ func pointRecordBytes(kind PointKind) (uint16, error) {
 		return DailyPointRecordBytes, nil
 	case PointKindForecastWindow:
 		return RangePointRecordBytes, nil
+	case PointKindDisplayScore:
+		return DisplayScoreRecordBytes, nil
 	case PointKindClimateDistribution:
 		return 0, errors.New("recent climate-distribution point records are not implemented")
 	default:
@@ -309,6 +326,16 @@ func WriteRangePointAsset(path, releaseID string, geometry PointGeometry, record
 	})
 }
 
+func WriteDisplayScoreAsset(path, releaseID string, geometry PointGeometry, records []DisplayScoreRecord) (PointMetadata, error) {
+	return writePointAsset(path, releaseID, PointKindDisplayScore, geometry, len(records), func(dst []byte, index int) error {
+		if err := validateDisplayScoreRecord(records[index]); err != nil {
+			return err
+		}
+		encodeDisplayScoreRecord(dst, records[index])
+		return nil
+	})
+}
+
 type pointEncoder func([]byte, int) error
 
 func writePointAsset(path, releaseID string, kind PointKind, geometry PointGeometry, count int, encode pointEncoder) (PointMetadata, error) {
@@ -432,6 +459,8 @@ func ValidatePointAssetRecords(path string) (PointMetadata, error) {
 			_, err = decodeDailyPointRecord(encoded)
 		case PointKindForecastWindow:
 			_, err = decodeRangePointRecord(encoded)
+		case PointKindDisplayScore:
+			_, err = decodeDisplayScoreRecord(encoded)
 		default:
 			err = errors.New("unsupported point asset kind")
 		}
@@ -440,6 +469,22 @@ func ValidatePointAssetRecords(path string) (PointMetadata, error) {
 		}
 	}
 	return reader.Metadata(), nil
+}
+
+func (reader *PointAssetReader) DisplayScoreAt(lon, lat float64) (DisplayScoreRecord, bool, error) {
+	if reader.meta.Kind != PointKindDisplayScore {
+		return DisplayScoreRecord{}, false, errors.New("point asset does not contain display-score records")
+	}
+	index, ok := pointIndex(reader.meta.Geometry, lon, lat)
+	if !ok {
+		return DisplayScoreRecord{}, false, nil
+	}
+	encoded := make([]byte, reader.meta.RecordBytes)
+	if _, err := reader.file.ReadAt(encoded, int64(PointAssetHeaderBytes)+int64(index)*int64(reader.meta.RecordBytes)); err != nil {
+		return DisplayScoreRecord{}, false, err
+	}
+	record, err := decodeDisplayScoreRecord(encoded)
+	return record, record.Valid, err
 }
 
 func (reader *PointAssetReader) Close() error            { return reader.file.Close() }
@@ -658,6 +703,47 @@ func validateDailyPointRecord(record DailyPointRecord) error {
 		return errors.New("daily point summary does not match its physical weather")
 	}
 	return nil
+}
+
+func validateDisplayScoreRecord(record DisplayScoreRecord) error {
+	if !record.Valid {
+		if record != (DisplayScoreRecord{}) {
+			return errors.New("invalid display-score record must contain only zero values")
+		}
+		return nil
+	}
+	for name, value := range map[string]uint8{"thermal": record.Thermal, "dryness": record.Dryness, "sun": record.Sun, "nice score": record.NiceScore, "nice wind": record.NiceWind, "cycling score": record.CyclingScore, "cycling wind": record.CyclingWind} {
+		if value > 100 {
+			return fmt.Errorf("display-score %s exceeds 100", name)
+		}
+	}
+	return nil
+}
+
+func encodeDisplayScoreRecord(dst []byte, record DisplayScoreRecord) {
+	if !record.Valid {
+		return
+	}
+	dst[0], dst[1], dst[2] = record.Thermal, record.Dryness, record.Sun
+	dst[3], dst[4] = record.NiceScore, record.NiceWind
+	dst[5], dst[6], dst[7] = record.CyclingScore, record.CyclingWind, 1
+}
+
+func decodeDisplayScoreRecord(src []byte) (DisplayScoreRecord, error) {
+	if len(src) != DisplayScoreRecordBytes {
+		return DisplayScoreRecord{}, errors.New("invalid display-score record size")
+	}
+	if src[7] == 0 {
+		if !allZero(src) {
+			return DisplayScoreRecord{}, errors.New("invalid display-score record contains data")
+		}
+		return DisplayScoreRecord{}, nil
+	}
+	if src[7] != 1 {
+		return DisplayScoreRecord{}, errors.New("display-score record contains unknown flags")
+	}
+	record := DisplayScoreRecord{Thermal: src[0], Dryness: src[1], Sun: src[2], NiceScore: src[3], NiceWind: src[4], CyclingScore: src[5], CyclingWind: src[6], Valid: true}
+	return record, validateDisplayScoreRecord(record)
 }
 
 func validateRangePointRecord(record RangePointRecord) error {

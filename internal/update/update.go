@@ -121,6 +121,13 @@ func Run(ctx context.Context, config Config) error {
 	}
 	defer writer.discardUncommitted()
 	writer.manifest.Forecast.UpdatedAt = freshness.Format(time.RFC3339)
+	denseForecastMask, err := land.Mask(ctx, pipeline.DenseForecastScoreSpec())
+	if err != nil {
+		return fmt.Errorf("Natural Earth dense forecast mask: %w", err)
+	}
+	if err := writer.setDenseForecastMask(denseForecastMask); err != nil {
+		return err
+	}
 
 	fmt.Println("building CHELSA 1981–2010 typical months")
 	climateCache := filepath.Join(config.Cache, "climate", "chelsa-2.1-1981-2010-0p1")
@@ -257,7 +264,7 @@ func Run(ctx context.Context, config Config) error {
 			ProviderID: providerID, ProviderLabel: providerLabel, RunAt: run.Format(time.RFC3339),
 			ValidFrom: day.Date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: day.Date.Add(21 * time.Hour).Format(time.RFC3339),
 		}
-		period, quantized, err := writer.writePeriod("forecast", id, day.Date.Format("Mon 2 Jan"), aggregatedSpec, metrics, source, resolution, temporal)
+		period, quantized, err := writer.writePeriod("forecast", id, day.Date.Format("Mon 2 Jan"), aggregatedSpec, metrics, source, resolution, temporal, !day.Detailed)
 		if err != nil {
 			return err
 		}
@@ -304,6 +311,7 @@ func Run(ctx context.Context, config Config) error {
 	}
 	writer.manifest.Forecast.Window = window
 	fmt.Printf("forecast window ready (%d days, %.0f km)\n", window.DayCount, window.GridResolutionKM)
+	fmt.Printf("dense score delivery ready: %d files, %.1f MiB, build %s\n", writer.denseScoreFiles, float64(writer.denseScoreBytes)/(1<<20), writer.denseScoreBuildTime.Round(time.Millisecond))
 	if _, err := finishCurrentProduct(ctx, config.Out, func() error { return writer.finish(config.Out) }); err != nil {
 		return err
 	}

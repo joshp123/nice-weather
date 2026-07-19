@@ -78,6 +78,7 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 		t.Fatal(err)
 	}
 	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	setTestDenseMask(t, writer, pipeline.DenseForecastScoreSpec())
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 20, MaxTempC: 27, RainMM: 0,
 		WetTimeFraction: weather.OptionalFloat{Available: true}, CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
@@ -94,7 +95,7 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 		}
 		source := delivery.Source{ProviderID: provider, ProviderLabel: label, RunAt: run.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(21 * time.Hour).Format(time.RFC3339)}
 		id := date.Format("2006-01-02")
-		period, quantized, err := writer.writePeriod("forecast", id, id, spec, []weather.DailyMetrics{metric}, source, resolution, temporal)
+		period, quantized, err := writer.writePeriod("forecast", id, id, spec, []weather.DailyMetrics{metric}, source, resolution, temporal, kind == "outlook")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +114,7 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 	for month := 1; month <= 12; month++ {
 		id := time.Month(month).String()
 		source := delivery.Source{ProviderID: "chelsa", ProviderLabel: "CHELSA 2.1 · CC0", RunAt: "1981-01-01T00:00:00Z", ValidFrom: "1981-01-01T00:00:00Z", ValidTo: "2011-01-01T00:00:00Z"}
-		period, _, err := writer.writePeriod("climate", "month-"+time.Month(month).String(), id, spec, []weather.DailyMetrics{metric}, source, 11, 720)
+		period, _, err := writer.writePeriod("climate", "month-"+time.Month(month).String(), id, spec, []weather.DailyMetrics{metric}, source, 11, 720, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -345,6 +346,7 @@ func TestForecastWindowUsesThePublishedDailyQuantizationAtScoreThresholds(t *tes
 		t.Fatal(err)
 	}
 	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	setTestDenseMask(t, writer, spec)
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 19, MinTempC: 16, MaxTempC: 22, CloudCoverPercent: weather.OptionalFloat{Value: 30, Available: true},
 		WindSpeedKPH: 9, GustKPH: weather.OptionalFloat{Value: 14, Available: true},
@@ -375,7 +377,7 @@ func TestForecastWindowUsesThePublishedDailyQuantizationAtScoreThresholds(t *tes
 	}
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Add(-6 * time.Hour).Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(21 * time.Hour).Format(time.RFC3339)}
-	_, publishedMetrics, err := writer.writePeriod("forecast", date.Format("2006-01-02"), "Today", spec, []weather.DailyMetrics{metric}, source, 7, 1)
+	_, publishedMetrics, err := writer.writePeriod("forecast", date.Format("2006-01-02"), "Today", spec, []weather.DailyMetrics{metric}, source, 7, 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,6 +415,7 @@ func TestForecastWindowImagesMatchThePublishedPointRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	setTestDenseMask(t, writer, spec)
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 19, MaxTempC: 29, RainMM: 1.2,
 		WetTimeFraction:   weather.OptionalFloat{Value: 0.2, Available: true},
@@ -473,4 +476,15 @@ func formatMonth(month int) string {
 		return "0" + string(rune('0'+month))
 	}
 	return "1" + string(rune('0'+month-10))
+}
+
+func setTestDenseMask(t *testing.T, writer *releaseWriter, spec delivery.GridSpec) {
+	t.Helper()
+	values := make([]float32, int(spec.Rows)*int(spec.Cols))
+	for index := range values {
+		values[index] = 1
+	}
+	if err := writer.setDenseForecastMask(pipeline.FloatGrid{Spec: spec, Values: values}); err != nil {
+		t.Fatal(err)
+	}
 }

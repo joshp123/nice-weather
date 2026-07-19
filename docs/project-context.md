@@ -75,7 +75,7 @@ Runtime output is separate from the frontend build:
 dist/                         Vite application
 artifacts/current/manifest.json
 artifacts/current/images/     overall and component map PNGs per period
-artifacts/current/points/     one immutable point-detail file per period
+artifacts/current/points/     immutable native-weather, display-score and window records
 artifacts/current/wind/       immutable gzip-compressed u/v frames per forecast day
 artifacts/.building/           unpublished release under construction
 artifacts/releases/           validated release directories
@@ -88,9 +88,11 @@ artifacts/places/releases/     immutable place manifests and shards
 
 A live update starts in `artifacts/.building`. After the forecast window, daily forecasts, climate months, images, point files, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates the complete release and swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v14` adds static point delivery to the v13 weather and wind semantics. Older releases and climate checkpoints are rejected. Each point file has a fixed header, a literal whole-file SHA-256 and a separate embedded payload checksum. Its path contains the whole-file hash. The browser accepts only exact `206 Partial Content` responses with the expected range, total size, byte count, content type and no content encoding. It does not claim to verify a whole-file hash after reading two small ranges.
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Older releases and climate checkpoints are rejected. Each point file has a fixed header, a literal whole-file SHA-256 and a separate embedded payload checksum. Its path contains the whole-file hash. The browser accepts only exact `206 Partial Content` responses with the expected range, total size, byte count, content type and no content encoding. It does not claim to verify a whole-file hash after reading partial ranges.
 
-The point plane is laid out one-for-one with the snapped Web Mercator score image, including the same coastline fallback. Daily records contain both profiles. The forecast-window record contains both summaries and the exact 14 daily judgements used at that coarse 28 km cell; it does not re-query finer daily cells after selection.
+Product contract `nice-weather-v16` separates native weather evidence from the display score when their geometry differs. ICON and climate images remain one-for-one with their native point planes. Each AIFS outlook keeps its native 28 km weather file and adds an 8-byte-per-texel display-score file on the canonical 690-column, roughly 0.1° score grid. The 14-day record uses that same dense geometry and contains both summaries plus the exact 14 daily judgements behind the visible texel.
+
+The dense field interpolates canonical scalar scores in Go, before palette rendering. It uses bilinear interpolation only when all four source records are valid. A Natural Earth mask is rasterised at target density; target water remains transparent, while partial coastal neighbourhoods use the nearest valid contributor deterministically. This improves the decision surface without changing the honest `about 28 km` AIFS source label or creating browser-side scoring.
 
 Runtime routes:
 

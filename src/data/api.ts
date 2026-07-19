@@ -3,11 +3,12 @@ import type {
   PointWeather, WeatherImage, WeatherManifest,
 } from './types';
 
-const MANIFEST_VERSION = 7;
-const PRODUCT_CONTRACT = 'nice-weather-v15';
+const MANIFEST_VERSION = 8;
+const PRODUCT_CONTRACT = 'nice-weather-v16';
 const POINT_HEADER_BYTES = 128;
 const MAX_MERCATOR_LATITUDE = 85.0511287798066;
 const MAPLIBRE_TILE_EXTENT = 8192;
+const DENSE_FORECAST_SCORE_COLS = 690;
 const pointHeaderCache = new Map<string, ParsedPointHeader>();
 let pointCacheRelease = '';
 
@@ -38,23 +39,28 @@ export async function loadPoint(request: PointRequest, manifest: WeatherManifest
     pointCacheRelease = manifest.releaseId;
   }
   const target = pointTarget(request, manifest);
-  const url = pointAssetUrl(request.releaseId, target.asset);
   try {
-    const header = pointHeaderCache.get(url) ?? await loadPointHeader(url, target.asset, signal);
-    pointHeaderCache.set(url, header);
-    const index = pointIndex(header, request.lon, request.lat);
-    if (index === undefined) throw new Error('There is no complete weather record here.');
-    const start = POINT_HEADER_BYTES + index * header.recordBytes;
-    if (!Number.isSafeInteger(start) || start + header.recordBytes > header.bytes) throw new Error('Point record offset is unsafe.');
-    const bytes = await rangeBytes(url, start, start + header.recordBytes - 1, header.bytes, signal);
+    const bytes = await loadPointRecord(request, target.asset, signal);
+    const displayBytes = target.display ? await loadPointRecord(request, target.display, signal) : undefined;
     return target.kind === 'range'
       ? decodeRangePoint(bytes, request, manifest)
-      : decodeDailyPoint(bytes, request, manifest, target.period!, target.kind === 'climate');
+      : decodeDailyPoint(bytes, request, manifest, target.period!, target.kind === 'climate', displayBytes);
   } catch (error) {
     if (error instanceof StaleReleaseError || (error instanceof Error && error.message === 'There is no complete weather record here.')) throw error;
     console.error('[nice-weather] Invalid static point asset.', error);
     throw new Error('Weather details could not be read.');
   }
+}
+
+async function loadPointRecord(request: PointRequest, asset: PointAsset, signal?: AbortSignal): Promise<Uint8Array> {
+  const url = pointAssetUrl(request.releaseId, asset);
+  const header = pointHeaderCache.get(url) ?? await loadPointHeader(url, asset, signal);
+  pointHeaderCache.set(url, header);
+  const index = pointIndex(header, request.lon, request.lat);
+  if (index === undefined) throw new Error('There is no complete weather record here.');
+  const start = POINT_HEADER_BYTES + index * header.recordBytes;
+  if (!Number.isSafeInteger(start) || start + header.recordBytes > header.bytes) throw new Error('Point record offset is unsafe.');
+  return rangeBytes(url, start, start + header.recordBytes - 1, header.bytes, signal);
 }
 
 export function imageAssetUrl(release: string, image: WeatherImage): string {
@@ -96,13 +102,20 @@ function parseManifest(value: unknown): WeatherManifest {
     climate = { label: text(row.label, 'climate label'), period: text(row.referencePeriod, 'climate referencePeriod'), months };
   }
 	const manifestBounds = { west: number(bounds.west, 'west'), east: number(bounds.east, 'east'), south: number(bounds.south, 'south'), north: number(bounds.north, 'north') };
-	for (const period of [...days, ...(climate?.months ?? [])]) validatePointImageParity(period.point, [...Object.values(period.images), ...Object.values(period.lenses)], manifestBounds, `${period.id} assets`);
+	for (const period of [...days, ...(climate?.months ?? [])]) validatePointImageParity(period.displayPoint ?? period.point, [...Object.values(period.images), ...Object.values(period.lenses)], manifestBounds, `${period.id} assets`);
 	validatePointImageParity(window.point, [...Object.values(window.profiles).map((profile) => profile.image), ...Object.values(window.lenses)], manifestBounds, 'forecast window assets');
-	const coarsest = days.filter((day) => day.resolutionKm === window.resolutionKm);
-	if (coarsest.length === 0 || coarsest.some((day) => !samePointGeometry(day.point, window.point))) throw new Error('Forecast window point geometry does not match its coarsest days.');
+	const outlooks = days.filter((day) => day.kind === 'outlook');
+	if (outlooks.length === 0 || outlooks.some((day) => !day.displayPoint || !samePointGeometry(day.displayPoint, window.point))) throw new Error('Forecast window point geometry does not match its outlook display planes.');
+	if (data.dataStatus === 'live') {
+		const radians = (degrees: number) => degrees * Math.PI / 180;
+		const projectedHeight = Math.asinh(Math.tan(radians(manifestBounds.north))) - Math.asinh(Math.tan(radians(manifestBounds.south)));
+		const longitudeSpan = radians(manifestBounds.east - manifestBounds.west);
+		const rows = Math.max(1, Math.round(DENSE_FORECAST_SCORE_COLS * projectedHeight / longitudeSpan));
+		if (window.point.geometry.cols !== DENSE_FORECAST_SCORE_COLS || window.point.geometry.rows !== rows) throw new Error('Live forecast window does not use the canonical dense score geometry.');
+	}
 
   return {
-    version: 7,
+    version: 8,
     releaseId: releaseId(data.releaseId, 'releaseId'),
     productContract: PRODUCT_CONTRACT,
     dataStatus: data.dataStatus,
@@ -171,8 +184,8 @@ function paletteList(value: unknown): Array<{ score: number; color: string }> {
 
 function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
   return array(value, `${basis} periods`).map((item, index) => {
-		const allowed = ['id', 'label', 'source', 'nativeResolutionKm', 'temporalResolutionHours', 'images', 'lenses', 'point', basis === 'forecast' ? 'date' : 'month', basis === 'forecast' ? 'kind' : 'month', ...(basis === 'forecast' ? ['windFrames'] : [])];
-    const row = exactObject(item, [...new Set(allowed)], `${basis} period ${index + 1}`);
+		const allowed = ['id', 'label', 'source', 'nativeResolutionKm', 'temporalResolutionHours', 'images', 'lenses', 'point', basis === 'forecast' ? 'date' : 'month', basis === 'forecast' ? 'kind' : 'month', ...(basis === 'forecast' ? ['windFrames', 'displayPoint'] : [])];
+		const row = exactObject(item, [...new Set(allowed)], `${basis} period ${index + 1}`, basis === 'forecast' ? ['displayPoint'] : []);
     const source = exactObject(row.source, ['providerId', 'providerLabel', 'runAt', 'validFrom', 'validTo'], `${basis} source`);
     const images = exactObject(row.images, ['nice', 'cycling'], `${basis} images`);
     const lenses = exactObject(row.lenses, ['comfort', 'dry', 'bright', 'wind-nice', 'wind-cycling'], `${basis} lenses`);
@@ -204,6 +217,10 @@ function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
       period.date = date(row.date, 'forecast date');
       if (row.kind !== 'detailed' && row.kind !== 'outlook') throw new Error('Invalid forecast kind.');
       period.kind = row.kind;
+			if (row.kind === 'outlook') {
+				if (row.displayPoint === undefined) throw new Error('Outlook requires dense display scores.');
+				period.displayPoint = pointAsset(row.displayPoint, 'display-score', `${basis} display score`);
+			} else if (row.displayPoint !== undefined) throw new Error('Detailed forecast must remain on its native score plane.');
       period.windFrames = windFrames(row.windFrames, sourceValidFrom, sourceValidTo);
     } else {
       const month = positiveInteger(row.month, 'climate month');
@@ -265,7 +282,7 @@ function pointAsset(value: unknown, expectedKind: PointAsset['kind'], label: str
   const payloadSha256 = checksum(row.payloadSha256, `${label} payload checksum`);
   const rows = positiveInteger(geometryRow.rows, `${label} rows`);
   const cols = positiveInteger(geometryRow.cols, `${label} columns`);
-  const recordBytes: 30 | 44 = expectedKind === 'forecast-window' ? 44 : 30;
+  const recordBytes: 8 | 30 | 44 = expectedKind === 'forecast-window' ? 44 : expectedKind === 'display-score' ? 8 : 30;
   const bytes = positiveInteger(row.bytes, `${label} bytes`);
   if (row.kind !== expectedKind || row.headerBytes !== POINT_HEADER_BYTES || row.recordBytes !== recordBytes || row.projection !== 'web-mercator-image') throw new Error(`Invalid ${label} layout.`);
   if (!url.endsWith('.nwp') || !url.includes(sha256)) throw new Error(`Invalid ${label} identity.`);
@@ -322,12 +339,12 @@ function legendList(value: unknown): LegendCategory[] {
   });
 }
 
-type ParsedPointHeader = PointAsset & { recordBytes: 30 | 44 };
+type ParsedPointHeader = PointAsset & { recordBytes: 8 | 30 | 44 };
 
-function pointTarget(request: PointRequest, manifest: WeatherManifest): { asset: PointAsset; kind: 'range' | 'forecast' | 'climate'; period?: Period } {
+function pointTarget(request: PointRequest, manifest: WeatherManifest): { asset: PointAsset; display?: PointAsset; kind: 'range' | 'forecast' | 'climate'; period?: Period } {
   if (request.period === manifest.forecast.window.id) return { asset: manifest.forecast.window.point, kind: 'range' };
   const forecast = manifest.forecast.days.find((period) => period.id === request.period);
-  if (forecast) return { asset: forecast.point, kind: 'forecast', period: forecast };
+  if (forecast) return { asset: forecast.point, display: forecast.displayPoint, kind: 'forecast', period: forecast };
   const climate = manifest.climate?.months.find((period) => period.id === request.period);
   if (climate) return { asset: climate.point, kind: 'climate', period: climate };
   throw new Error('There is no complete weather record here.');
@@ -342,7 +359,7 @@ async function loadPointHeader(url: string, asset: PointAsset, signal?: AbortSig
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (new TextDecoder().decode(bytes.subarray(0, 8)) !== 'NWFPOINT' || view.getUint16(8, true) !== 1 || view.getUint16(10, true) !== POINT_HEADER_BYTES) throw new Error('Unsupported point asset header.');
   const kindCode = view.getUint8(14);
-  const kind = kindCode === 1 ? 'forecast-day' : kindCode === 2 ? 'forecast-window' : kindCode === 3 ? 'legacy-climate-month' : undefined;
+  const kind = kindCode === 1 ? 'forecast-day' : kindCode === 2 ? 'forecast-window' : kindCode === 3 ? 'legacy-climate-month' : kindCode === 5 ? 'display-score' : undefined;
   if (!kind || kind !== asset.kind || view.getUint8(15) !== 1 || view.getUint16(12, true) !== asset.recordBytes) throw new Error('Point asset header does not match its manifest.');
   const geometry = {
     rows: view.getUint32(16, true), cols: view.getUint32(20, true),
@@ -386,7 +403,7 @@ function pointIndex(header: ParsedPointHeader, lon: number, lat: number): number
   return row < 0 || col < 0 || row >= header.geometry.rows || col >= header.geometry.cols || !Number.isSafeInteger(index) ? undefined : index;
 }
 
-function decodeDailyPoint(bytes: Uint8Array, request: PointRequest, manifest: WeatherManifest, period: Period, climate: boolean): DailyPoint {
+function decodeDailyPoint(bytes: Uint8Array, request: PointRequest, manifest: WeatherManifest, period: Period, climate: boolean, display?: Uint8Array): DailyPoint {
   if (bytes.length !== 30 || bytes.every((value) => value === 0)) throw new Error('There is no complete weather record here.');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const flags = bytes[20];
@@ -396,9 +413,11 @@ function decodeDailyPoint(bytes: Uint8Array, request: PointRequest, manifest: We
   const dewPoint = view.getInt16(6, true); const gust = view.getUint16(12, true); const solar = view.getUint16(14, true);
   const wet = view.getUint16(16, true); const cloud = bytes[18]; const humidity = bytes[19];
   if (((flags & 2) === 0 && dewPoint !== 0) || ((flags & 4) === 0 && gust !== 0) || ((flags & 8) === 0 && solar !== 0) || ((flags & 16) === 0 && cloud !== 0) || ((flags & 32) === 0 && humidity !== 0) || ((flags & 64) === 0 && wet !== 0) || wet > 1000 || cloud > 100 || humidity > 100 || ((flags & 0x18) === 0) || ((flags & 0x22) === 0)) throw new Error('Invalid daily point weather fields.');
-  const profileOffset = request.profile === 'nice' ? 25 : 27;
-  const score = bytes[profileOffset]; const wind = bytes[profileOffset + 1];
-  const components = scoreComponents(bytes[22], bytes[23], bytes[24], wind, manifest.legend);
+  const scoreBytes = display ?? bytes.subarray(22, 30);
+	if (display && (display.length !== 8 || display[7] !== 1 || display.subarray(0, 7).some((value) => value > 100))) throw new Error('Invalid display-score point record.');
+  const profileOffset = request.profile === 'nice' ? 3 : 5;
+  const score = scoreBytes[profileOffset]; const wind = scoreBytes[profileOffset + 1];
+  const components = scoreComponents(scoreBytes[0], scoreBytes[1], scoreBytes[2], wind, manifest.legend);
   const summaryParts = decodeSummary(bytes[29]);
   const temperature = view.getInt16(0, true) / 10;
   const source = climate ? {

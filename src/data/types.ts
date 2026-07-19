@@ -31,9 +31,9 @@ export type PointAsset = {
   sha256: string;
   payloadSha256: string;
   bytes: number;
-  kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month';
+  kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month' | 'display-score';
   headerBytes: 128;
-  recordBytes: 30 | 44;
+  recordBytes: 8 | 30 | 44;
   projection: 'web-mercator-image';
   geometry: PointGeometry;
 };
@@ -54,6 +54,7 @@ export type Period = {
   sourceValidTo: string;
   temporalResolutionHours: number;
   point: PointAsset;
+  displayPoint?: PointAsset;
   windFrames?: WindFrameAsset[];
 };
 
@@ -80,9 +81,9 @@ export type LegendCategory = {
 export type PaletteStop = { score: number; color: string };
 
 export type WeatherManifest = {
-  version: 7;
+  version: 8;
   releaseId: string;
-  productContract: 'nice-weather-v15';
+  productContract: 'nice-weather-v16';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];

@@ -237,6 +237,28 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			return nil, fmt.Errorf("point asset %q bounds do not match manifest region", period.Point.URL)
 		}
 		catalog.byPeriod[period.ID] = reader
+		imageReader := reader
+		if period.DisplayPoint != nil {
+			displayPath, err := releaseAsset(releaseDir, period.DisplayPoint.URL)
+			if err != nil {
+				return nil, err
+			}
+			displayReader, exists := catalog.byPath[displayPath]
+			if !exists {
+				displayReader, err = OpenPointAsset(displayPath)
+				if err != nil {
+					return nil, fmt.Errorf("validate display-score asset %q: %w", period.DisplayPoint.URL, err)
+				}
+				catalog.byPath[displayPath] = displayReader
+			}
+			if err := pointMetadataMatchesAsset(displayReader.Metadata(), *period.DisplayPoint, manifest.ReleaseID); err != nil {
+				return nil, fmt.Errorf("display-score asset %q: %w", period.DisplayPoint.URL, err)
+			}
+			if displayReader.Metadata().Geometry.Bounds != manifest.Region.Bounds {
+				return nil, fmt.Errorf("display-score asset %q bounds do not match manifest region", period.DisplayPoint.URL)
+			}
+			imageReader = displayReader
+		}
 		assets := make([]ImageAsset, 0, len(period.Images)+len(period.Lenses))
 		for _, asset := range period.Images {
 			assets = append(assets, asset)
@@ -259,8 +281,8 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 			if err := validatePNG(path, asset); err != nil {
 				return nil, err
 			}
-			if asset.Width != int(reader.Metadata().Geometry.Cols) || asset.Height != int(reader.Metadata().Geometry.Rows) {
-				return nil, fmt.Errorf("image %q geometry does not match its point asset", asset.URL)
+			if asset.Width != int(imageReader.Metadata().Geometry.Cols) || asset.Height != int(imageReader.Metadata().Geometry.Rows) {
+				return nil, fmt.Errorf("image %q geometry does not match its display authority", asset.URL)
 			}
 		}
 		for _, asset := range period.WindFrames {
@@ -289,7 +311,10 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 		if day.NativeResolutionKM != manifest.Forecast.Window.GridResolutionKM {
 			continue
 		}
-		geometry := catalog.byPeriod[day.ID].Metadata().Geometry
+		if day.DisplayPoint == nil {
+			return nil, fmt.Errorf("coarsest forecast day %q has no display-score asset", day.ID)
+		}
+		geometry := day.DisplayPoint.Geometry
 		if !coarsestGridFound {
 			forecastWindowGeometry, coarsestGridFound = geometry, true
 		} else if geometry != forecastWindowGeometry {

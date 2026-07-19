@@ -105,6 +105,36 @@ func TestPointAssetDigestsRoundTripAndProfiles(t *testing.T) {
 	}
 }
 
+func TestDisplayScoreAssetRangeRecordAndCorruptionValidation(t *testing.T) {
+	geometry := canonicalTestPointGeometry(GridBounds{West: -25, East: 45, South: 30, North: 72}, 1, 1)
+	record := DisplayScoreRecord{Thermal: 10, Dryness: 20, Sun: 30, NiceScore: 40, NiceWind: 50, CyclingScore: 60, CyclingWind: 70, Valid: true}
+	path := filepath.Join(t.TempDir(), "display.nwp")
+	metadata, err := WriteDisplayScoreAsset(path, "test-release", geometry, []DisplayScoreRecord{record})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Kind != PointKindDisplayScore || metadata.RecordBytes != DisplayScoreRecordBytes || metadata.Bytes != PointAssetHeaderBytes+DisplayScoreRecordBytes {
+		t.Fatalf("display metadata = %+v", metadata)
+	}
+	reader, err := OpenPointAsset(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, valid, err := reader.DisplayScoreAt(0, 45)
+	_ = reader.Close()
+	if err != nil || !valid || got != record {
+		t.Fatalf("display record = (%+v, %t, %v)", got, valid, err)
+	}
+	data, _ := os.ReadFile(path)
+	data[len(data)-1] = 2
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidatePointAssetRecords(path); err == nil {
+		t.Fatal("corrupt display-score asset was accepted")
+	}
+}
+
 func TestPointAssetRejectsNonCanonicalZeroReservedAndHostileGeometry(t *testing.T) {
 	geometry := canonicalTestPointGeometry(GridBounds{West: -25, East: 45, South: 30, North: 72}, 1, 1)
 	alteredGeometry := geometry

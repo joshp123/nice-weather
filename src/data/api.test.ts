@@ -5,10 +5,10 @@ import pointVector from './testdata/point-asset-vector.json';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('weather delivery client', () => {
-  it('parses manifest v7 with the canonical 14-day window lenses', async () => {
+  it('parses manifest v8 with dense outlook score planes and window lenses', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v15');
+    expect(manifest.productContract).toBe('nice-weather-v16');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
     expect(Object.keys(manifest.forecast.window.lenses)).toEqual(['comfort', 'dry', 'bright', 'wind-nice', 'wind-cycling']);
     expect(manifest.forecast.days).toHaveLength(14);
@@ -48,6 +48,13 @@ describe('weather delivery client', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
     await expect(loadManifest()).rejects.toThrow('forecast could not be read');
     expect(error).toHaveBeenCalledWith('[nice-weather] Invalid weather manifest.', expect.any(Error));
+  });
+
+  it('rejects a live release that substitutes fixture-sized display geometry', async () => {
+    const fixture = manifestFixture(); fixture.dataStatus = 'live';
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+    await expect(loadManifest()).rejects.toThrow('forecast could not be read');
   });
 
   it('rejects unknown manifest fields rather than silently drifting', async () => {
@@ -141,6 +148,22 @@ describe('weather delivery client', () => {
     vi.stubGlobal('fetch', vi.fn(rangeFetch(file)));
     const point = await loadPoint({ releaseId: manifest.releaseId, lat: 45, lon: 0, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest);
     expect(point).toMatchObject({ kind: 'daily', score: 19, summary: '-1°C · brief rain · bright · light wind', metrics: { temperatureC: -0.5, rainMm: 0.2 } });
+  });
+
+  it('keeps native outlook facts while using the dense displayed score', async () => {
+    const manifest = await parsedManifest('outlook-display-test');
+    const period = manifest.forecast.days[5];
+    const nativeFile = joinPointFile(pointHeader(period.point, 1), dailyRecord());
+    const display = new Uint8Array([10, 20, 30, 91, 40, 92, 41, 1]);
+    const displayFile = joinPointFile(pointHeader(period.displayPoint!, 5), display);
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const file = String(input).includes(period.displayPoint!.url) ? displayFile : nativeFile;
+      return rangeFetch(file)(input, init);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const point = await loadPoint({ releaseId: manifest.releaseId, lat: 39.47, lon: -0.38, period: period.id, profile: 'nice' }, manifest);
+    expect(point).toMatchObject({ kind: 'daily', score: 91, components: { comfort: { value: 10 }, dryness: { value: 20 }, sun: { value: 30 }, wind: { value: 40 } }, metrics: { temperatureC: 25 }, source: { resolutionKm: 28 } });
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 
   it('reads the one 14-day record and rejects a forged aggregate', async () => {
@@ -244,10 +267,11 @@ function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
       sha256: digest(`${date}-${hour}`),
       clippedComponents: 0,
     }));
-    return period(date, { date, kind: index < 5 ? 'detailed' : 'outlook', windFrames });
+    const kind = index < 5 ? 'detailed' : 'outlook';
+    return period(date, { date, kind, ...(kind === 'outlook' ? { displayPoint: pointAsset(`${date}-display`, 'display-score') } : {}), windFrames });
   });
   return {
-    version: 7, releaseId, productContract: 'nice-weather-v15', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 8, releaseId, productContract: 'nice-weather-v16', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: POINT_LEGEND,
@@ -267,9 +291,9 @@ function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
 function image(id: string) { return { url: `images/${id}.png`, sha256: digest(id), width: 1, height: 1, projection: 'web-mercator' as const }; }
 function digest(value: string) { return Array.from(value).reduce((total, char) => (total * 31 + char.charCodeAt(0)) >>> 0, 0).toString(16).padStart(8, '0').repeat(8); }
 
-function pointAsset(id: string, kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month') {
+function pointAsset(id: string, kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month' | 'display-score') {
   const sha256 = digest(`point-${id}-${kind}`);
-  const recordBytes = kind === 'forecast-window' ? 44 : 30;
+  const recordBytes = kind === 'forecast-window' ? 44 : kind === 'display-score' ? 8 : 30;
   const bounds = { west: -25, east: 45, south: 30, north: 72 };
   return {
     url: `points/${id}-${sha256}.nwp`, sha256, payloadSha256: digest(`payload-${id}-${kind}`), bytes: 128 + recordBytes,
@@ -292,7 +316,7 @@ async function parsedManifest(release: string) {
   return loadManifest();
 }
 
-function pointHeader(asset: any, kindCode: 1 | 2 | 3): Uint8Array {
+function pointHeader(asset: any, kindCode: 1 | 2 | 3 | 5): Uint8Array {
   const bytes = new Uint8Array(128); const view = new DataView(bytes.buffer);
   bytes.set(new TextEncoder().encode('NWFPOINT'));
   view.setUint16(8, 1, true); view.setUint16(10, 128, true); view.setUint16(12, asset.recordBytes, true);

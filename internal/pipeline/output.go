@@ -230,6 +230,51 @@ func RenderPointDailyRecords(w io.Writer, geometry delivery.PointGeometry, recor
 	return encoder.Encode(w, imageData)
 }
 
+// RenderDisplayScoreRecords renders the same compact records used for a
+// selected outlook headline. Physical weather does not participate here.
+func RenderDisplayScoreRecords(w io.Writer, geometry delivery.PointGeometry, records []delivery.DisplayScoreRecord, profile weather.Profile, lens weather.Lens, paletteStops []delivery.PaletteStop) error {
+	if len(records) != int(geometry.Rows)*int(geometry.Cols) {
+		return fmt.Errorf("display-score overlay geometry does not match records")
+	}
+	if profile != weather.ProfileNice && profile != weather.ProfileCycling {
+		return fmt.Errorf("unsupported display-score profile %q", profile)
+	}
+	palette, err := scorePalette(paletteStops)
+	if err != nil {
+		return err
+	}
+	imageData := image.NewNRGBA(image.Rect(0, 0, int(geometry.Cols), int(geometry.Rows)))
+	for index, record := range records {
+		if !record.Valid {
+			continue
+		}
+		var score uint8
+		switch lens {
+		case weather.LensOverall:
+			score = record.NiceScore
+			if profile == weather.ProfileCycling {
+				score = record.CyclingScore
+			}
+		case weather.LensComfort:
+			score = record.Thermal
+		case weather.LensDry:
+			score = record.Dryness
+		case weather.LensBright:
+			score = record.Sun
+		case weather.LensCalm:
+			score = record.NiceWind
+			if profile == weather.ProfileCycling {
+				score = record.CyclingWind
+			}
+		default:
+			return fmt.Errorf("unsupported display-score lens %q", lens)
+		}
+		imageData.SetNRGBA(index%int(geometry.Cols), index/int(geometry.Cols), palette[score])
+	}
+	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
+	return encoder.Encode(w, imageData)
+}
+
 // RenderPointRangeLensRecords renders an already-aggregated forecast-window
 // judgement. Every value comes from the same RangePointRecord returned for a
 // selected texel; this function never re-scores or re-aggregates weather.

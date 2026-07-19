@@ -74,16 +74,22 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 			asset.Projection = "epsg-4326"
 			m.Forecast.Days[0].Images["nice"] = asset
 		},
-		"date":                  func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
-		"kind":                  func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
-		"resolution":            func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
-		"checksum":              func(m *Manifest) { m.Forecast.Days[0].Point.SHA256 = "abc" },
-		"path escape":           func(m *Manifest) { m.Forecast.Days[0].Point.URL = "../secret" },
-		"missing profile image": func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
-		"missing lens image":    func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
-		"unexpected lens image": func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
-		"missing wind frames":   func(m *Manifest) { m.Forecast.Days[0].WindFrames = nil },
-		"duplicate wind time":   func(m *Manifest) { m.Forecast.Days[0].WindFrames[1].ValidAt = "2026-07-18T08:00:00Z" },
+		"date":                           func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
+		"kind":                           func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
+		"resolution":                     func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
+		"checksum":                       func(m *Manifest) { m.Forecast.Days[0].Point.SHA256 = "abc" },
+		"path escape":                    func(m *Manifest) { m.Forecast.Days[0].Point.URL = "../secret" },
+		"missing profile image":          func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
+		"missing lens image":             func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
+		"unexpected lens image":          func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
+		"missing wind frames":            func(m *Manifest) { m.Forecast.Days[0].WindFrames = nil },
+		"missing outlook display scores": func(m *Manifest) { m.Forecast.Days[5].DisplayPoint = nil },
+		"unexpected detailed display scores": func(m *Manifest) {
+			display := manifestPointAsset(PointKindDisplayScore, strings.Repeat("5", 64))
+			m.Forecast.Days[0].DisplayPoint = &display
+		},
+		"display-score checksum": func(m *Manifest) { m.Forecast.Days[5].DisplayPoint.SHA256 = "bad" },
+		"duplicate wind time":    func(m *Manifest) { m.Forecast.Days[0].WindFrames[1].ValidAt = "2026-07-18T08:00:00Z" },
 		"out-of-order wind times": func(m *Manifest) {
 			m.Forecast.Days[0].WindFrames[0].ValidAt, m.Forecast.Days[0].WindFrames[1].ValidAt = "2026-07-18T09:00:00Z", "2026-07-18T08:00:00Z"
 		},
@@ -92,7 +98,7 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"missing forecast window": func(m *Manifest) { m.Forecast.Window = ForecastWindow{} },
 		"window day count":        func(m *Manifest) { m.Forecast.Window.DayCount++ },
 		"window date":             func(m *Manifest) { m.Forecast.Window.EndDate = "2026-07-19" },
-		"window resolution":       func(m *Manifest) { m.Forecast.Window.GridResolutionKM = 28 },
+		"window resolution":       func(m *Manifest) { m.Forecast.Window.GridResolutionKM = 29 },
 		"window profile":          func(m *Manifest) { delete(m.Forecast.Window.Profiles, ProfileCycling) },
 		"window missing lens":     func(m *Manifest) { delete(m.Forecast.Window.Lenses, LensComfort) },
 		"window unexpected lens":  func(m *Manifest) { m.Forecast.Window.Lenses["humidity"] = m.Forecast.Window.Lenses[LensComfort] },
@@ -179,6 +185,14 @@ func TestValidateProductionManifestRequiresCompleteOrderedPeriods(t *testing.T) 
 		day.ID, day.Date = date.Format("2006-01-02"), date.Format("2006-01-02")
 		day.Source.ValidFrom, day.Source.ValidTo = date.Format(time.RFC3339), date.Add(12*time.Hour).Format(time.RFC3339)
 		day.WindFrames = testWindFrames(date, 1)
+		day.Kind = "detailed"
+		day.DisplayPoint = nil
+		if index >= 4 {
+			day.Kind = "outlook"
+			day.NativeResolutionKM = 28
+			display := manifestPointAsset(PointKindDisplayScore, strings.Repeat("5", 64))
+			day.DisplayPoint = &display
+		}
 		manifest.Forecast.Days = append(manifest.Forecast.Days, day)
 	}
 	manifest.Forecast.Window.DayCount = 14
@@ -212,6 +226,14 @@ func TestValidateProductionManifestRequiresCompleteOrderedPeriods(t *testing.T) 
 	}
 }
 
+func TestLiveProductionManifestRequiresCanonicalDenseGeometry(t *testing.T) {
+	manifest := validManifest(strings.Repeat("a", 64))
+	manifest.DataStatus = DataStatusLive
+	if err := ValidateProductionManifest(manifest); err == nil || !strings.Contains(err.Error(), "canonical dense score geometry") {
+		t.Fatalf("noncanonical live dense geometry accepted: %v", err)
+	}
+}
+
 func validManifest(checksum string) Manifest {
 	period := Period{
 		ID: "2026-07-18", Label: "Sat 18",
@@ -242,10 +264,17 @@ func validManifest(checksum string) Manifest {
 		day.ID, day.Label = date.Format("2006-01-02"), date.Format("Mon 2")
 		day.Source.ValidFrom, day.Source.ValidTo = date.Add(8*time.Hour).Format(time.RFC3339), date.Add(20*time.Hour).Format(time.RFC3339)
 		day.WindFrames = testWindFrames(date.Add(8*time.Hour), 1)
-		days[index] = ForecastPeriod{Period: day, Date: date.Format("2006-01-02"), Kind: "detailed"}
+		kind := "detailed"
+		if index >= 4 {
+			kind = "outlook"
+			day.NativeResolutionKM = 28
+			display := manifestPointAsset(PointKindDisplayScore, strings.Repeat("5", 64))
+			day.DisplayPoint = &display
+		}
+		days[index] = ForecastPeriod{Period: day, Date: date.Format("2006-01-02"), Kind: kind}
 	}
 	return Manifest{
-		Version: ManifestVersion, ReleaseID: "test-release", ProductContract: ProductContract, DataStatus: DataStatusLive, GeneratedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Version: ManifestVersion, ReleaseID: "test-release", ProductContract: ProductContract, DataStatus: DataStatusSample, GeneratedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
 		Region:   Region{ID: "europe", Label: "Europe", Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}},
 		Profiles: []Profile{{ID: ProfileNice, Label: "Nice"}, {ID: ProfileCycling, Label: "Cycling"}},
 		Legend:   CanonicalLegend(),
@@ -253,7 +282,7 @@ func validManifest(checksum string) Manifest {
 		Forecast: ForecastCatalog{
 			UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 18,
 			Window: ForecastWindow{
-				ID: "next-14-days", Label: "Next 14 days", StartDate: "2026-07-18", EndDate: "2026-07-31", DayCount: ForecastPointDayCount, GridResolutionKM: 7,
+				ID: "next-14-days", Label: "Next 14 days", StartDate: "2026-07-18", EndDate: "2026-07-31", DayCount: ForecastPointDayCount, GridResolutionKM: 28,
 				Point: manifestPointAsset(PointKindForecastWindow, strings.Repeat("3", 64)),
 				Profiles: map[string]ForecastRangeAsset{
 					ProfileNice:    {Image: ImageAsset{URL: "images/range-nice.png", SHA256: strings.Repeat("4", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator}},

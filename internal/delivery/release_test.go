@@ -66,6 +66,23 @@ func TestValidateReleaseChecksManifestPointAssetAndImages(t *testing.T) {
 	if _, err := ValidateRelease(release); err == nil {
 		t.Fatal("release with corrupt point asset was accepted")
 	}
+	release = makeRelease(t, root, "002", 210)
+	manifest, err = ValidateRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	display := filepath.Join(release, filepath.FromSlash(manifest.Forecast.Days[5].DisplayPoint.URL))
+	data, err = os.ReadFile(display)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)-1] ^= 0xff
+	if err := os.WriteFile(display, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateRelease(release); err == nil {
+		t.Fatal("release with corrupt display-score asset was accepted")
+	}
 }
 
 func TestReleaseCatalogOpensValidatedGridsForRepeatedLookup(t *testing.T) {
@@ -145,10 +162,7 @@ func TestValidateReleaseRejectsForecastWindowCorruptionAndWrongDayCount(t *testi
 	for lens := range manifest.Forecast.Window.Lenses {
 		manifest.Forecast.Window.Lenses[lens] = writeTestPNGSize(t, filepath.Join(release, "images", "false-geometry-range-"+lens+".png"), int(falseGeometry.Cols), int(falseGeometry.Rows))
 	}
-	if err := WriteManifest(release, manifest); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ValidateRelease(release); err == nil || !strings.Contains(err.Error(), "geometry does not match coarsest forecast days") {
+	if err := WriteManifest(release, manifest); err == nil || !strings.Contains(err.Error(), "geometry must match every outlook display plane") {
 		t.Fatalf("self-consistent false-resolution range geometry was accepted: %v", err)
 	}
 }
@@ -231,7 +245,7 @@ func TestCatalogRequiresSharedGridImageAndRegionGeometry(t *testing.T) {
 	path := filepath.Join(release, "images", "nice.png")
 	asset := writeTestPNGSize(t, path, 2, 1)
 	manifest.Forecast.Days[0].Images["nice"] = asset
-	if err := WriteManifest(release, manifest); err == nil || !strings.Contains(err.Error(), "geometry does not match point asset") {
+	if err := WriteManifest(release, manifest); err == nil || !strings.Contains(err.Error(), "geometry does not match display authority") {
 		t.Fatalf("image/point dimensions mismatch was accepted or misclassified: %v", err)
 	}
 }
@@ -540,10 +554,29 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 	manifest := validManifest(dailyMeta.SHA256)
 	manifest.ReleaseID = name
 	manifest.Climate = nil
+	displayRecords := make([]DisplayScoreRecord, len(dailyRecords))
+	for index, record := range dailyRecords {
+		if record.Weather.Valid {
+			displayRecords[index] = DisplayScoreRecord{Thermal: record.Thermal, Dryness: record.Dryness, Sun: record.Sun, NiceScore: record.NiceScore, NiceWind: record.NiceWind, CyclingScore: record.CyclingScore, CyclingWind: record.CyclingWind, Valid: true}
+		}
+	}
+	displayTemporary := filepath.Join(release, "points", ".display.nwp")
+	displayMeta, err := WriteDisplayScoreAsset(displayTemporary, name, dailyGeometry, displayRecords)
+	if err != nil {
+		t.Fatal(err)
+	}
+	displayURL := filepath.ToSlash(filepath.Join("points", "display-"+displayMeta.SHA256+".nwp"))
+	if err := os.Rename(displayTemporary, filepath.Join(release, filepath.FromSlash(displayURL))); err != nil {
+		t.Fatal(err)
+	}
+	displayAsset := PointAssetFromMetadata(displayURL, displayMeta)
 	for dayIndex := range manifest.Forecast.Days {
 		manifest.Forecast.Days[dayIndex].Images = assets
 		manifest.Forecast.Days[dayIndex].Lenses = lenses
 		manifest.Forecast.Days[dayIndex].Point = PointAssetFromMetadata(dailyURL, dailyMeta)
+		if manifest.Forecast.Days[dayIndex].Kind == "outlook" {
+			manifest.Forecast.Days[dayIndex].DisplayPoint = &displayAsset
+		}
 		for frameIndex := range manifest.Forecast.Days[dayIndex].WindFrames {
 			temporary := filepath.Join(release, "wind", ".frame-"+string(rune('a'+dayIndex))+string(rune('a'+frameIndex))+".nww.gz")
 			windMeta, err := WriteWindGridGzip(temporary, sourceSpec, []WindVector{{U: float32(frameIndex + 2), V: -1, Valid: true}})

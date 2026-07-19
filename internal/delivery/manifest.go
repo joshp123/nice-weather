@@ -13,14 +13,19 @@ import (
 	"time"
 )
 
-const ManifestVersion = 7
+const ManifestVersion = 8
 
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v15"
+const ProductContract = "nice-weather-v16"
 
 const ImageProjectionWebMercator = "web-mercator"
+
+const (
+	DenseForecastScoreRows = 425
+	DenseForecastScoreCols = 690
+)
 
 const webMercatorMaxLatitude = 85.0511287798066
 
@@ -137,6 +142,7 @@ type Period struct {
 	Images                  map[string]ImageAsset `json:"images"`
 	Lenses                  map[string]ImageAsset `json:"lenses"`
 	Point                   PointAsset            `json:"point"`
+	DisplayPoint            *PointAsset           `json:"displayPoint,omitempty"`
 	WindFrames              []WindFrameAsset      `json:"windFrames,omitempty"`
 }
 
@@ -274,6 +280,12 @@ func ValidateManifest(manifest Manifest) error {
 		if err := validatePeriod(day.Period, profiles, seen, manifest.ReleaseID, PointKindForecastDay); err != nil {
 			return fmt.Errorf("forecast day %q: %w", day.ID, err)
 		}
+		if day.Kind == "outlook" && day.DisplayPoint == nil {
+			return fmt.Errorf("forecast day %q: outlook requires dense display scores", day.ID)
+		}
+		if day.Kind == "detailed" && day.DisplayPoint != nil {
+			return fmt.Errorf("forecast day %q: detailed forecast must remain on its native score plane", day.ID)
+		}
 		if err := validateWindFrames(day.Period, seenWindPaths); err != nil {
 			return fmt.Errorf("forecast day %q: %w", day.ID, err)
 		}
@@ -300,6 +312,9 @@ func ValidateManifest(manifest Manifest) error {
 			seenMonths[month.Month] = struct{}{}
 			if err := validatePeriod(month.Period, profiles, seen, manifest.ReleaseID, PointKindLegacyClimateMonth); err != nil {
 				return fmt.Errorf("climate month %q: %w", month.ID, err)
+			}
+			if month.DisplayPoint != nil {
+				return fmt.Errorf("climate month %q must remain on its native score plane", month.ID)
 			}
 			if len(month.WindFrames) != 0 {
 				return fmt.Errorf("climate month %q must not contain forecast wind frames", month.ID)
@@ -337,6 +352,11 @@ func validateForecastWindow(window ForecastWindow, days []ForecastPeriod, profil
 	}
 	if window.Point.Geometry.Bounds != days[0].Point.Geometry.Bounds {
 		return errors.New("point asset bounds must match forecast periods")
+	}
+	for _, day := range days {
+		if day.Kind == "outlook" && (day.DisplayPoint == nil || day.DisplayPoint.Geometry != window.Point.Geometry) {
+			return errors.New("forecast window geometry must match every outlook display plane")
+		}
 	}
 	if len(window.Profiles) != len(profiles) {
 		return errors.New("must contain one range grid and image per profile")
@@ -437,6 +457,16 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 	if err := ValidatePointAssetDescriptor(period.Point, releaseID, pointKind); err != nil {
 		return fmt.Errorf("point asset: %w", err)
 	}
+	imagePoint := period.Point
+	if period.DisplayPoint != nil {
+		if err := ValidatePointAssetDescriptor(*period.DisplayPoint, releaseID, PointKindDisplayScore); err != nil {
+			return fmt.Errorf("display-score asset: %w", err)
+		}
+		if period.DisplayPoint.Geometry.Bounds != period.Point.Geometry.Bounds {
+			return errors.New("display-score and native weather bounds must match")
+		}
+		imagePoint = *period.DisplayPoint
+	}
 	if len(period.Images) != len(profiles) {
 		return errors.New("period must have one image per profile")
 	}
@@ -454,8 +484,8 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 		if asset.Projection != ImageProjectionWebMercator {
 			return fmt.Errorf("image for profile %q projection must be %q", profile, ImageProjectionWebMercator)
 		}
-		if asset.Width != int(period.Point.Geometry.Cols) || asset.Height != int(period.Point.Geometry.Rows) {
-			return fmt.Errorf("image for profile %q geometry does not match point asset", profile)
+		if asset.Width != int(imagePoint.Geometry.Cols) || asset.Height != int(imagePoint.Geometry.Rows) {
+			return fmt.Errorf("image for profile %q geometry does not match display authority", profile)
 		}
 	}
 	requiredLenses := RequiredLensAssets()
@@ -470,8 +500,8 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 		if err := validateImageAsset(asset); err != nil {
 			return fmt.Errorf("component lens %q: %w", lens, err)
 		}
-		if asset.Width != int(period.Point.Geometry.Cols) || asset.Height != int(period.Point.Geometry.Rows) {
-			return fmt.Errorf("component lens %q geometry does not match point asset", lens)
+		if asset.Width != int(imagePoint.Geometry.Cols) || asset.Height != int(imagePoint.Geometry.Rows) {
+			return fmt.Errorf("component lens %q geometry does not match display authority", lens)
 		}
 	}
 	return nil
@@ -583,6 +613,20 @@ func ValidateProductionManifest(manifest Manifest) error {
 	}
 	if len(manifest.Forecast.Days) != 14 {
 		return errors.New("production manifest must contain exactly 14 forecast days")
+	}
+	if manifest.DataStatus == DataStatusLive {
+		dense, err := NewPointGeometry(GridSpec{Bounds: manifest.Region.Bounds, Rows: DenseForecastScoreRows, Cols: DenseForecastScoreCols})
+		if err != nil {
+			return fmt.Errorf("production dense forecast geometry: %w", err)
+		}
+		if manifest.Forecast.Window.Point.Geometry != dense {
+			return errors.New("live forecast window must use the canonical dense score geometry")
+		}
+		for _, day := range manifest.Forecast.Days {
+			if day.Kind == "outlook" && (day.DisplayPoint == nil || day.DisplayPoint.Geometry != dense) {
+				return fmt.Errorf("live outlook %q must use the canonical dense score geometry", day.ID)
+			}
+		}
 	}
 	for index, day := range manifest.Forecast.Days {
 		date, _ := time.Parse("2006-01-02", day.Date)
