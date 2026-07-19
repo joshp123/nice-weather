@@ -227,6 +227,22 @@ describe('EuropePlaceSearch', () => {
       expect.objectContaining({ geonameId: 1 }),
     ]);
   });
+
+  it('accepts gzip overhead when a tiny index is larger compressed', async () => {
+    const records = [row('malaga', 'Málaga', 'ES', '51', 36.7, -4.4, 1, 1, 1)];
+    const manifest = manifestFixture({ mal: records });
+    manifest.summary = {
+      ...manifest.summary,
+      uncompressedBytes: 100,
+      gzipBytes: 120,
+      largestShardGzipBytes: 120,
+    };
+    const harness = await searchHarness({ mal: records }, 6, { manifest });
+
+    await expect(harness.client.search('malaga')).resolves.toEqual([
+      expect.objectContaining({ geonameId: 1, name: 'Málaga' }),
+    ]);
+  });
 });
 
 const RELEASE = 'places-20260718';

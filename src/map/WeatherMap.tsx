@@ -19,6 +19,7 @@ type Props = {
   selectedPoint?: MapPoint;
   focusPoint?: MapPoint & { token: number };
   onSelect: (point: MapPoint, intent?: { focusDetails?: boolean }) => void;
+  onViewportChange?: (viewport: { latitude: number; longitude: number }) => void;
   onReady?: (elapsedMs: number) => void;
   onOverlayReady?: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => void;
   onOverlayState?: (state: OverlayState) => void;
@@ -114,7 +115,7 @@ type RendererProps = Props & {
   onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => void;
 };
 
-function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
+function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -122,13 +123,16 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, se
   const loadedRef = useRef(false);
   const boundsRef = useRef(bounds);
   const onReadyRef = useRef(onReady);
+  const onViewportChangeRef = useRef(onViewportChange);
   const onOverlayReadyRef = useRef(onRendererOverlayReady);
   const onOverlayErrorRef = useRef(onRendererOverlayError);
   const overlayGeneration = useRef(0);
   const [styleLoaded, setStyleLoaded] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
   onSelectRef.current = onSelect;
   boundsRef.current = bounds;
   onReadyRef.current = onReady;
+  onViewportChangeRef.current = onViewportChange;
   onOverlayReadyRef.current = onRendererOverlayReady;
   onOverlayErrorRef.current = onRendererOverlayError;
 
@@ -162,6 +166,15 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, se
     map.getCanvas().tabIndex = -1;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
+    // MapLibre opens compact attribution on creation. Close only that initial
+    // disclosure so it cannot obscure search or sample status; the native
+    // details control remains available and opens normally when selected.
+    const collapseInitialAttribution = () => {
+      const attribution = containerRef.current?.querySelector<HTMLDetailsElement>('details.maplibregl-ctrl-attrib');
+      attribution?.removeAttribute('open');
+      attribution?.classList.remove('maplibregl-compact-show');
+    };
+    const attributionDeadline = window.setTimeout(collapseInitialAttribution, 750);
     let baseMapFailures: number[] = [];
     const deadline = window.setTimeout(() => {
       if (!loadedRef.current) {
@@ -180,8 +193,16 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, se
     });
     map.on('load', () => {
       loadedRef.current = true;
+      setMapLoaded(true);
       window.clearTimeout(deadline);
+      window.requestAnimationFrame(collapseInitialAttribution);
+      const center = map.getCenter();
+      onViewportChangeRef.current?.({ latitude: center.lat, longitude: center.lng });
       onReadyRef.current?.(Math.round(performance.now() - startedAt));
+    });
+    map.on('moveend', () => {
+      const center = map.getCenter();
+      onViewportChangeRef.current?.({ latitude: center.lat, longitude: center.lng });
     });
     map.on('click', (event) => onSelectRef.current({ lat: event.lngLat.lat, lon: event.lngLat.lng }));
     map.on('error', (event) => {
@@ -203,6 +224,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, se
     map.getCanvas().addEventListener('webglcontextlost', onFailure, { once: true });
     return () => {
       window.clearTimeout(deadline);
+      window.clearTimeout(attributionDeadline);
       markerRef.current?.remove();
       map.remove();
       mapRef.current = null;
@@ -290,7 +312,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, se
     else map.panBy([command.type === 'left' ? -80 : command.type === 'right' ? 80 : 0, command.type === 'up' ? -80 : command.type === 'down' ? 80 : 0], { duration: 0 });
   }, [command, styleLoaded]);
 
-  return <div ref={containerRef} className="maplibreSurface" aria-hidden="true" />;
+  return <><div ref={containerRef} className="maplibreSurface" aria-hidden="true" />{!mapLoaded && <div className="mapPending" aria-hidden="true"><span>Loading map</span></div>}</>;
 }
 
 function installOverlay(map: Map, url: string, bounds: [number, number, number, number]) {
@@ -300,7 +322,11 @@ function installOverlay(map: Map, url: string, bounds: [number, number, number, 
     url,
     coordinates: [[bounds[0], bounds[3]], [bounds[2], bounds[3]], [bounds[2], bounds[1]], [bounds[0], bounds[1]]],
   });
-  const beforeId = map.getStyle().layers?.find((layer) => layer.type === 'symbol')?.id;
+  // Keep administrative boundaries and labels above the score field without
+  // pulling the basemap's complete road network above it at larger screens.
+  const layers = map.getStyle().layers ?? [];
+  const beforeId = layers.find((layer) => layer.type === 'line' && /boundary|border|admin/i.test(layer.id))?.id
+    ?? layers.find((layer) => layer.type === 'symbol')?.id;
   map.addLayer({ id: 'weather-score', type: 'raster', source: sourceId, paint: { 'raster-opacity': 1, 'raster-resampling': 'linear' } }, beforeId);
 }
 

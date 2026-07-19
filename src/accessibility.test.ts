@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isEscapeKey, isKeyboardActivation, restoreFocus } from './accessibility';
+import { isEscapeKey, isKeyboardActivation, nextDetailsFocusIntent, restoreFocus, shouldFocusDetails } from './accessibility';
 
 describe('accessible disclosure focus', () => {
   it('distinguishes keyboard activation from pointer clicks', () => {
@@ -23,5 +23,18 @@ describe('accessible disclosure focus', () => {
     const focus = vi.fn();
     restoreFocus({ isConnected: false, focus });
     expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('focuses details for keyboard and search selections but not map pointer clicks', () => {
+    expect(shouldFocusDetails('map-keyboard')).toBe(true);
+    expect(shouldFocusDetails('search')).toBe(true);
+    expect(shouldFocusDetails('map-pointer')).toBe(false);
+  });
+
+  it('does not carry keyboard focus intent into a later pointer selection', () => {
+    const keyboard = nextDetailsFocusIntent({ token: 0, requested: false }, true);
+    const pointer = nextDetailsFocusIntent(keyboard, false);
+    expect(keyboard).toEqual({ token: 1, requested: true });
+    expect(pointer).toEqual({ token: 2, requested: false });
   });
 });

@@ -272,10 +272,10 @@ function parseManifest(value: unknown, pointer: Pointer): Manifest {
       integer(summary.shardCount, 'summary shardCount', 1, 7_500) !== shardCount) {
     throw new Error('Place index summary counts do not match its manifest.');
   }
-  const uncompressedBytes = integer(summary.uncompressedBytes, 'summary uncompressedBytes', 1, Number.MAX_SAFE_INTEGER);
+  integer(summary.uncompressedBytes, 'summary uncompressedBytes', 1, Number.MAX_SAFE_INTEGER);
   const gzipBytes = integer(summary.gzipBytes, 'summary gzipBytes', 1, Number.MAX_SAFE_INTEGER);
   const largestShardGzipBytes = integer(summary.largestShardGzipBytes, 'summary largestShardGzipBytes', 1, 256 * 1024);
-  if (gzipBytes > uncompressedBytes || gzipBytes < largestShardGzipBytes) throw new Error('Place index byte summary is inconsistent.');
+  if (gzipBytes < largestShardGzipBytes) throw new Error('Place index byte summary is inconsistent.');
 
   return {
     releaseId: pointer.releaseId,

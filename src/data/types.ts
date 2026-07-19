@@ -1,4 +1,4 @@
-export type Mode = 'forecast' | 'climate';
+export type View = 'range' | 'daily' | 'climate';
 export type Profile = 'nice' | 'cycling';
 export type Lens = 'overall' | 'comfort' | 'dry' | 'bright' | 'wind';
 export type ForecastKind = 'detailed' | 'outlook';
@@ -27,6 +27,17 @@ export type Period = {
   temporalResolutionHours: number;
 };
 
+export type ForecastWindow = {
+  id: 'next-14-days';
+  label: string;
+  shortLabel: string;
+  startDate: string;
+  endDate: string;
+  dayCount: 14;
+  resolutionKm: number;
+  profiles: Record<Profile, { image: WeatherImage }>;
+};
+
 export type LegendCategory = {
   label: string;
   color: string;
@@ -37,18 +48,20 @@ export type LegendCategory = {
 export type PaletteStop = { score: number; color: string };
 
 export type WeatherManifest = {
-  version: 4;
+  version: 5;
   releaseId: string;
-  productContract: 'nice-weather-v7';
+  productContract: 'nice-weather-v10';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];
   forecast: {
     updatedAt: string;
     staleAfterHours: number;
+    window: ForecastWindow;
     days: Period[];
   };
-  climate: {
+  climate?: {
+    label: string;
     period: string;
     months: Period[];
   };
@@ -79,7 +92,7 @@ export type ScoreComponents = {
 
 export type ComponentScore = { value: number; category: string };
 
-export type PointWeather = {
+type PointBase = {
   releaseId: string;
   lat: number;
   lon: number;
@@ -87,10 +100,35 @@ export type PointWeather = {
   score: number;
   category: string;
   components: ScoreComponents;
+};
+
+export type ForecastWindowPoint = PointBase & {
+  kind: 'range';
+  window: {
+    startDate: string;
+    endDate: string;
+    dayCount: number;
+    niceDays: number;
+    awfulDays: number;
+    medianScore: number;
+    longestPoorRun: number;
+  };
+  source: {
+    basis: 'forecast-window';
+    detailLabel: string;
+    resolutionKm: number;
+    artifactGeneratedAt: string;
+  };
+};
+
+export type DailyPoint = PointBase & {
+  kind: 'daily';
   summary: string;
   metrics: PointMetrics;
   source: PointSource;
 };
+
+export type PointWeather = ForecastWindowPoint | DailyPoint;
 
 export type PointSource = {
   basis: 'forecast' | 'climate';
