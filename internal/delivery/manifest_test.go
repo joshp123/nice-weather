@@ -52,6 +52,7 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"product contract v11 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v11" },
 		"product contract v12 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v12" },
 		"product contract v14 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v14" },
+		"product contract v16 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v16" },
 		"data status":                   func(m *Manifest) { m.DataStatus = "preview" },
 		"timestamp":                     func(m *Manifest) { m.GeneratedAt = "today" },
 		"profile":                       func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },

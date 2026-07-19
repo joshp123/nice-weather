@@ -4,11 +4,11 @@ import type {
 } from './types';
 
 const MANIFEST_VERSION = 8;
-const PRODUCT_CONTRACT = 'nice-weather-v16';
+const PRODUCT_CONTRACT = 'nice-weather-v17';
 const POINT_HEADER_BYTES = 128;
 const MAX_MERCATOR_LATITUDE = 85.0511287798066;
 const MAPLIBRE_TILE_EXTENT = 8192;
-const DENSE_FORECAST_SCORE_COLS = 690;
+const DENSE_FORECAST_SCORE_COLS = 1104;
 const pointHeaderCache = new Map<string, ParsedPointHeader>();
 let pointCacheRelease = '';
 
@@ -491,9 +491,12 @@ function rating(score: number, legend: LegendCategory[]): string {
 }
 
 function decodeSummary(code: number): string[] {
-  const rain = code & 3; const sun = (code >> 2) & 3; const wind = (code >> 4) & 7;
-  if ((code & 0x80) !== 0 || wind > 4) throw new Error('Invalid point summary code.');
-  return [['dry', 'brief rain', 'some rain', 'wet'][rain], ['overcast', 'mixed cloud', 'bright', 'sunny'][sun], ['light wind', 'breezy', 'windy', 'strong gusts', 'severe gusts'][wind]];
+  if (!Number.isInteger(code) || code < 0 || code >= 240) throw new Error('Invalid point summary code.');
+  const thermal = Math.floor(code / 80); let remainder = code % 80;
+  const wind = Math.floor(remainder / 16); remainder %= 16;
+  const sun = Math.floor(remainder / 4); const rain = remainder % 4;
+  const parts = thermal === 0 ? [] : [['too hot', 'too cold'][thermal - 1]];
+  return [...parts, ['dry', 'brief rain', 'some rain', 'wet'][rain], ['overcast', 'mixed cloud', 'bright', 'sunny'][sun], ['light wind', 'breezy', 'windy', 'strong gusts', 'severe gusts'][wind]];
 }
 
 function goRound(value: number): number { return value < 0 ? -Math.floor(-value + 0.5) : Math.floor(value + 0.5); }

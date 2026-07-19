@@ -2,6 +2,7 @@ package weather
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -538,6 +539,86 @@ func TestSummaryUsesOnlyObservedConditions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSummaryNamesMaterialThermalDiscomfort(t *testing.T) {
+	hotDry := idealDay()
+	hotDry.ComfortableTempC, hotDry.MinTempC, hotDry.MaxTempC = 35, 28, 38
+	hotDry.DewPointC, hotDry.RelativeHumidityPercent = known(5), known(20)
+
+	hotHumid := idealDay()
+	hotHumid.ComfortableTempC, hotHumid.MinTempC, hotHumid.MaxTempC = 27.9, 24, 31
+	hotHumid.DewPointC, hotHumid.RelativeHumidityPercent = known(27.9), known(100)
+
+	coldDry := idealDay()
+	coldDry.ComfortableTempC, coldDry.MinTempC, coldDry.MaxTempC = 7, 3, 10
+	coldDry.WindSpeedKPH, coldDry.GustKPH = 5, known(8)
+	coldDry.DewPointC, coldDry.RelativeHumidityPercent = known(-5), known(35)
+
+	coldDamp := coldDry
+	coldDamp.RainMM, coldDamp.WetTimeFraction = 5, known(.8)
+	coldDamp.SolarEnergyMJm2, coldDamp.CloudCoverPercent = known(0), known(100)
+	coldDamp.WindSpeedKPH, coldDamp.GustKPH = 30, known(45)
+	coldDamp.DewPointC, coldDamp.RelativeHumidityPercent = known(7), known(100)
+
+	tests := []struct {
+		name       string
+		day        DailyMetrics
+		want       string
+		wantNotice bool
+	}{
+		{"hot dry", hotDry, "35°C · too hot · dry · sunny · light wind", true},
+		{"hot humid just above the comfort plateau", hotHumid, "28°C · too hot · dry · sunny · light wind", true},
+		{"cold dry", coldDry, "7°C · too cold · dry · sunny · light wind", true},
+		{"cold damp", coldDamp, "7°C · too cold · wet · overcast · strong gusts", true},
+		{"comfortable", idealDay(), "24°C · dry · sunny · light wind", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := Score(test.day, ProfileNice)
+			thermalRating := Rating(result.Components.Thermal)
+			if test.wantNotice && thermalRating != "Poor" && thermalRating != "Awful" {
+				t.Fatalf("thermal component = %+v; notice must describe a Poor or Awful thermal result", result)
+			}
+			if got := Summary(test.day); got != test.want {
+				t.Fatalf("summary = %q, want %q", got, test.want)
+			}
+			code, err := EncodeSummary(test.day)
+			if err != nil || len(SummaryParts(code)) != 3+btoi(test.wantNotice) {
+				t.Fatalf("summary code = %d, parts = %v, err = %v", code, SummaryParts(code), err)
+			}
+		})
+	}
+}
+
+func TestSummaryCodeBoundaries(t *testing.T) {
+	tests := []struct {
+		code uint8
+		want []string
+	}{
+		{79, []string{"wet", "sunny", "severe gusts"}},
+		{80, []string{"too hot", "dry", "overcast", "light wind"}},
+		{159, []string{"too hot", "wet", "sunny", "severe gusts"}},
+		{160, []string{"too cold", "dry", "overcast", "light wind"}},
+		{239, []string{"too cold", "wet", "sunny", "severe gusts"}},
+	}
+	for _, test := range tests {
+		if got := SummaryParts(test.code); !slices.Equal(got, test.want) {
+			t.Errorf("SummaryParts(%d) = %v, want %v", test.code, got, test.want)
+		}
+	}
+	for _, code := range []uint8{240, 255} {
+		if got := SummaryParts(code); got != nil {
+			t.Errorf("SummaryParts(%d) = %v, want invalid", code, got)
+		}
+	}
+}
+
+func btoi(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func TestComponentsAndScoreStayInRange(t *testing.T) {

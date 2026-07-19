@@ -11,8 +11,9 @@ import (
 
 // DenseForecastScoreSpec is the single display grid used by AIFS outlooks and
 // the forecast window. It is an evaluated-score grid, not a claim about the
-// native weather evidence. Its 0.1 degree columns keep the Europe release
-// bounded while removing the coarse 28 km blocks from the decision surface.
+// native weather evidence. It matches the detailed forecast's 1104-by-680
+// regular Europe grid while removing the coarse 28 km blocks from the decision
+// surface.
 func DenseForecastScoreSpec() delivery.GridSpec {
 	return delivery.GridSpec{Bounds: EuropeGridBounds(), Rows: delivery.DenseForecastScoreRows, Cols: delivery.DenseForecastScoreCols}
 }

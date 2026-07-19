@@ -8,7 +8,7 @@ describe('weather delivery client', () => {
   it('parses manifest v8 with dense outlook score planes and window lenses', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v16');
+    expect(manifest.productContract).toBe('nice-weather-v17');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
     expect(Object.keys(manifest.forecast.window.lenses)).toEqual(['comfort', 'dry', 'bright', 'wind-nice', 'wind-cycling']);
     expect(manifest.forecast.days).toHaveLength(14);
@@ -140,6 +140,47 @@ describe('weather delivery client', () => {
     expect(fetch.mock.calls.map((call) => new Headers(call[1]?.headers).get('Range'))).toEqual(['bytes=0-127', 'bytes=128-157', 'bytes=128-157']);
   });
 
+  it('decodes the canonical thermal notice without evaluating weather in the browser', async () => {
+    const manifest = await parsedManifest('thermal-summary-test');
+    const asset = manifest.forecast.days[0].point;
+    const record = dailyRecord();
+    const view = new DataView(record.buffer);
+    view.setInt16(0, 350, true); view.setInt16(2, 280, true); view.setInt16(4, 380, true); view.setInt16(6, 50, true);
+    record[22] = 36; record[25] = 36; record[27] = 36;
+    record[29] = 92; // Go code: too hot + dry + sunny + light wind.
+    vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(pointHeader(asset, 1), record))));
+    const point = await loadPoint({ releaseId: manifest.releaseId, lat: 39.47, lon: -0.38, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest);
+    expect(point).toMatchObject({ kind: 'daily', score: 36, summary: '35°C · too hot · dry · sunny · light wind' });
+  });
+
+  it('decodes every summary-code boundary and rejects the reserved tail', async () => {
+    const cases: [number, string][] = [
+      [79, '25°C · wet · sunny · severe gusts'],
+      [80, '25°C · too hot · dry · overcast · light wind'],
+      [159, '25°C · too hot · wet · sunny · severe gusts'],
+      [160, '25°C · too cold · dry · overcast · light wind'],
+      [239, '25°C · too cold · wet · sunny · severe gusts'],
+    ];
+    for (const [code, summary] of cases) {
+      const manifest = await parsedManifest(`summary-code-${code}`);
+      const asset = manifest.forecast.days[0].point;
+      const record = dailyRecord(); record[29] = code;
+      vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(pointHeader(asset, 1), record))));
+      const point = await loadPoint({ releaseId: manifest.releaseId, lat: 39.47, lon: -0.38, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest);
+      expect(point).toMatchObject({ kind: 'daily', summary });
+    }
+    for (const code of [240, 255]) {
+      const manifest = await parsedManifest(`invalid-summary-code-${code}`);
+      const asset = manifest.forecast.days[0].point;
+      const record = dailyRecord(); record[29] = code;
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.stubGlobal('fetch', vi.fn(rangeFetch(joinPointFile(pointHeader(asset, 1), record))));
+      await expect(loadPoint({ releaseId: manifest.releaseId, lat: 39.47, lon: -0.38, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest)).rejects.toThrow('Weather details could not be read');
+      expect(error).toHaveBeenCalledWith('[nice-weather] Invalid static point asset.', expect.objectContaining({ message: 'Invalid point summary code.' }));
+      vi.restoreAllMocks();
+    }
+  });
+
   it('decodes the literal Go binary vector including negative half-degree rounding', async () => {
     const manifest = await parsedManifest('shared-vector-test');
     const asset = manifest.forecast.days[0].point;
@@ -147,7 +188,7 @@ describe('weather delivery client', () => {
     const file = joinPointFile(hexBytes(pointVector.headerHex), hexBytes(pointVector.dailyRecordHex));
     vi.stubGlobal('fetch', vi.fn(rangeFetch(file)));
     const point = await loadPoint({ releaseId: manifest.releaseId, lat: 45, lon: 0, period: manifest.forecast.days[0].id, profile: 'nice' }, manifest);
-    expect(point).toMatchObject({ kind: 'daily', score: 19, summary: '-1°C · brief rain · bright · light wind', metrics: { temperatureC: -0.5, rainMm: 0.2 } });
+    expect(point).toMatchObject({ kind: 'daily', score: 19, summary: '-1°C · too cold · brief rain · bright · light wind', metrics: { temperatureC: -0.5, rainMm: 0.2 } });
   });
 
   it('keeps native outlook facts while using the dense displayed score', async () => {
@@ -271,7 +312,7 @@ function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
     return period(date, { date, kind, ...(kind === 'outlook' ? { displayPoint: pointAsset(`${date}-display`, 'display-score') } : {}), windFrames });
   });
   return {
-    version: 8, releaseId, productContract: 'nice-weather-v16', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 8, releaseId, productContract: 'nice-weather-v17', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: POINT_LEGEND,

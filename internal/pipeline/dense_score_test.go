@@ -10,6 +10,17 @@ import (
 	"nice-weather-finder/internal/weather"
 )
 
+func TestDenseForecastScoreSpecMatchesDetailedEuropeGeometry(t *testing.T) {
+	spec := DenseForecastScoreSpec()
+	geometry, err := delivery.NewPointGeometry(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Rows != 680 || spec.Cols != 1104 || geometry.Rows != 1179 || geometry.Cols != 1104 {
+		t.Fatalf("dense spec = %dx%d regular, %dx%d displayed; want 1104x680 regular, 1104x1179 displayed", spec.Cols, spec.Rows, geometry.Cols, geometry.Rows)
+	}
+}
+
 func TestDenseDisplayScoresBilinearlyInterpolateCanonicalScalars(t *testing.T) {
 	sourceSpec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 2}, Rows: 2, Cols: 2}
 	source, err := delivery.NewPointGeometry(sourceSpec)

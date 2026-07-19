@@ -213,8 +213,13 @@ func applyDealbreakers(score float64, m DailyMetrics, profile Profile, component
 
 type point struct{ input, score float64 }
 
+const (
+	thermalIdealMinimumC = 22
+	thermalIdealMaximumC = 27
+)
+
 var (
-	thermalCurve     = []point{{-15, 0}, {-5, 8}, {0, 20}, {5, 25}, {8, 35}, {12, 45}, {16, 54}, {19, 75}, {22, 100}, {27, 100}, {30, 88}, {34, 45}, {38, 8}, {42, 0}}
+	thermalCurve     = []point{{-15, 0}, {-5, 8}, {0, 20}, {5, 25}, {8, 35}, {12, 45}, {16, 54}, {19, 75}, {thermalIdealMinimumC, 100}, {thermalIdealMaximumC, 100}, {30, 88}, {34, 45}, {38, 8}, {42, 0}}
 	rainCurve        = []point{{0, 100}, {.2, 96}, {1, 80}, {3, 48}, {6, 18}, {10, 0}}
 	wetTimeCurve     = []point{{0, 100}, {.1, 92}, {.25, 70}, {.5, 30}, {.8, 0}}
 	solarCurve       = []point{{0, 0}, {4, 20}, {8, 45}, {12, 70}, {18, 100}}
@@ -275,8 +280,9 @@ func Rating(score int) string {
 	}
 }
 
-// Summary describes observed conditions without trying to explain or market
-// the score. Invalid data has one clear fallback.
+// Summary describes observed conditions and names severe thermal discomfort
+// when it is itself a Poor or Awful component. Invalid data has one clear
+// fallback.
 func Summary(m DailyMetrics) string {
 	code, err := EncodeSummary(m)
 	if err != nil {
@@ -287,9 +293,11 @@ func Summary(m DailyMetrics) string {
 	return strings.Join(parts, " · ")
 }
 
-// EncodeSummary freezes the three descriptive phrase choices beside the Go
-// scoring path. Point assets carry this byte so the browser only maps codes to
-// copy; it does not re-evaluate weather thresholds.
+// EncodeSummary freezes the thermal notice and three descriptive phrase
+// choices beside the Go scoring path. Point assets carry this byte so the
+// browser only maps codes to copy; it does not re-evaluate weather thresholds.
+// The mixed-radix layout fits 3*4*4*5 states in one byte and leaves 240..255
+// invalid. Thermal-neutral codes 0..79 retain their previous representation.
 func EncodeSummary(m DailyMetrics) (uint8, error) {
 	if err := m.Validate(); err != nil {
 		return 0, err
@@ -300,18 +308,39 @@ func EncodeSummary(m DailyMetrics) (uint8, error) {
 	if !ok {
 		return 0, errors.New("weather summary phrase is not encodable")
 	}
-	return rain | sun<<2 | wind<<4, nil
+	thermal := map[string]uint8{"": 0, "too hot": 1, "too cold": 2}[thermalNotice(m)]
+	return rain + 4*sun + 16*wind + 80*thermal, nil
 }
 
 func SummaryParts(code uint8) []string {
-	rain, sun, wind := code&3, (code>>2)&3, (code>>4)&7
-	if rain > 3 || sun > 3 || wind > 4 || code&0x80 != 0 {
+	if code >= 240 {
 		return nil
 	}
-	return []string{
+	thermal, remainder := code/80, code%80
+	wind, remainder := remainder/16, remainder%16
+	sun, rain := remainder/4, remainder%4
+	parts := make([]string, 0, 4)
+	if thermal > 0 {
+		parts = append(parts, []string{"", "too hot", "too cold"}[thermal])
+	}
+	return append(parts,
 		[]string{"dry", "brief rain", "some rain", "wet"}[rain],
 		[]string{"overcast", "mixed cloud", "bright", "sunny"}[sun],
-		[]string{"light wind", "breezy", "windy", "strong gusts", "severe gusts"}[wind],
+		[]string{"light wind", "breezy", "windy", "strong gusts", "severe gusts"}[wind])
+}
+
+func thermalNotice(m DailyMetrics) string {
+	rating := Rating(thermalScore(m))
+	if rating != "Poor" && rating != "Awful" {
+		return ""
+	}
+	switch {
+	case m.ComfortableTempC > thermalIdealMaximumC:
+		return "too hot"
+	case m.ComfortableTempC < thermalIdealMinimumC:
+		return "too cold"
+	default:
+		return ""
 	}
 }
 
