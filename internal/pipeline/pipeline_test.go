@@ -714,6 +714,77 @@ func TestMetadataAcceptsGRIBLSArrayAndKeepsZeroHourAccumulationCumulative(t *tes
 	}
 }
 
+func TestMetadataConvertsExplicitECCodesStepUnitsToHours(t *testing.T) {
+	tests := []struct {
+		start, end string
+		wantStart  float64
+		wantEnd    float64
+	}{
+		{start: "0m", end: "90m", wantStart: 0, wantEnd: 1.5},
+		{start: "3600s", end: "7200s", wantStart: 1, wantEnd: 2},
+		{start: "1h", end: "3h", wantStart: 1, wantEnd: 3},
+		{start: "1d", end: "2d", wantStart: 24, wantEnd: 48},
+	}
+	for _, test := range tests {
+		data := []byte(fmt.Sprintf(`[{"shortName":"2t","stepType":"instant","startStep":%q,"endStep":%q,"units":"K","packingError":0.01,"binaryScaleFactor":-6,"decimalScaleFactor":0}]`, test.start, test.end))
+		metadata, err := ParseECCodesJSON(data)
+		if err != nil {
+			t.Fatalf("steps %s..%s: %v", test.start, test.end, err)
+		}
+		if metadata.StartStep != test.wantStart || metadata.EndStep != test.wantEnd {
+			t.Fatalf("steps %s..%s = %.3f..%.3f hours; want %.3f..%.3f", test.start, test.end, metadata.StartStep, metadata.EndStep, test.wantStart, test.wantEnd)
+		}
+	}
+}
+
+func TestMetadataRejectsUnknownOrCompoundStepUnits(t *testing.T) {
+	for _, step := range []string{"1w", "1h30m", "NaNh"} {
+		data := []byte(fmt.Sprintf(`[{"shortName":"2t","stepType":"instant","startStep":"0m","endStep":%q,"units":"K","packingError":0.01,"binaryScaleFactor":-6,"decimalScaleFactor":0}]`, step))
+		if _, err := ParseECCodesJSON(data); err == nil {
+			t.Fatalf("invalid step %q was accepted", step)
+		}
+	}
+}
+
+func TestNormalizeSeriesDropsOnlyLeadingZeroDurationMaximum(t *testing.T) {
+	run := time.Date(2026, 7, 19, 6, 0, 0, 0, time.UTC)
+	frames := []Frame{
+		frameAt(Gust, run, run, IntervalMaximum, 0),
+		frameAt(Gust, run, run.Add(time.Hour), IntervalMaximum, 32),
+	}
+	normalized, err := NormalizeSeries(frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized) != 1 || !normalized[0].Start.Equal(run) || !normalized[0].End.Equal(run.Add(time.Hour)) || normalized[0].Grid.Values[0] != 32 {
+		t.Fatalf("zero-duration gust baseline was not discarded exactly: %+v", normalized)
+	}
+
+	malformed := []Frame{
+		frameAt(Gust, run, run.Add(time.Hour), IntervalMaximum, 32),
+		frameAt(Gust, run.Add(time.Hour), run.Add(time.Hour), IntervalMaximum, 0),
+	}
+	if _, err := NormalizeSeries(malformed); err == nil {
+		t.Fatal("non-leading zero-duration maximum was accepted")
+	}
+	for name, malformed := range map[string][]Frame{
+		"standalone baseline": {
+			frameAt(Gust, run, run, IntervalMaximum, 0),
+		},
+		"disconnected baseline": {
+			frameAt(Gust, run, run, IntervalMaximum, 0),
+			frameAt(Gust, run.Add(time.Hour), run.Add(2*time.Hour), IntervalMaximum, 32),
+		},
+	} {
+		if _, err := NormalizeSeries(malformed); err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+	if _, err := NormalizeSeries([]Frame{frameAt(Temperature, run, run, IntervalMaximum, 20)}); err == nil {
+		t.Fatal("zero-duration maximum for a non-gust field was accepted")
+	}
+}
+
 func TestMetadataRejectsInvalidPackingScales(t *testing.T) {
 	tests := map[string]string{
 		"missing binary scale":       `[{"shortName":"tp","stepType":"accum","startStep":0,"endStep":1,"units":"m","packingError":0.1,"decimalScaleFactor":0}]`,

@@ -224,6 +224,15 @@ func NormalizeSeries(frames []Frame) ([]Frame, error) {
 			result = append(result, frame)
 		case IntervalMean, IntervalMaximum, IntervalAccumulation:
 			if !frame.End.After(frame.Start) {
+				// ICON-EU publishes a zero-step gust maximum at model time.
+				// There is no interval over which a maximum could be observed, so
+				// discard that one leading optional baseline. Empty intervals later
+				// in a series remain a source-contract failure.
+				if index == 0 && len(frames) > 1 && field == Gust && frame.Semantics == IntervalMaximum &&
+					frame.End.Equal(frame.Start) && frames[1].Semantics == IntervalMaximum &&
+					frames[1].Start.Equal(frame.End) && frames[1].End.After(frames[1].Start) {
+					continue
+				}
 				return nil, fmt.Errorf("interval forecast has an empty interval")
 			}
 			result = append(result, frame)

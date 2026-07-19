@@ -54,11 +54,11 @@ func ParseECCodesJSON(data []byte) (GRIBMetadata, error) {
 	if err != nil {
 		return GRIBMetadata{}, fmt.Errorf("stepType: %w", err)
 	}
-	startStep, err := metadataFloat(message["startStep"])
+	startStep, err := metadataStepHours(message["startStep"])
 	if err != nil {
 		return GRIBMetadata{}, fmt.Errorf("startStep: %w", err)
 	}
-	endStep, err := metadataFloat(message["endStep"])
+	endStep, err := metadataStepHours(message["endStep"])
 	if err != nil {
 		return GRIBMetadata{}, fmt.Errorf("endStep: %w", err)
 	}
@@ -144,6 +144,37 @@ func metadataFloat(raw json.RawMessage) (float64, error) {
 		return 0, fmt.Errorf("invalid number %q", text)
 	}
 	return value, nil
+}
+
+// ecCodes normally emits forecast steps as bare hours, but uses an explicit
+// unit when the GRIB step cannot be represented honestly in hours. Current
+// ICON-EU zero-step messages, for example, are reported as "0m". Keep bare
+// values backwards compatible and convert only the documented scalar duration
+// suffixes; unknown or compound forms still fail closed.
+func metadataStepHours(raw json.RawMessage) (float64, error) {
+	text, err := metadataString(raw)
+	if err != nil {
+		return 0, err
+	}
+	multiplier := 1.0
+	number := text
+	if len(text) > 1 {
+		switch text[len(text)-1] {
+		case 's':
+			multiplier, number = 1.0/3600.0, text[:len(text)-1]
+		case 'm':
+			multiplier, number = 1.0/60.0, text[:len(text)-1]
+		case 'h':
+			number = text[:len(text)-1]
+		case 'd':
+			multiplier, number = 24, text[:len(text)-1]
+		}
+	}
+	value, err := strconv.ParseFloat(number, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("invalid forecast step %q", text)
+	}
+	return value * multiplier, nil
 }
 
 func InterpretMetadata(field Field, run time.Time, metadata GRIBMetadata) (Semantics, time.Time, time.Time, error) {
