@@ -1,6 +1,8 @@
 package update
 
 import (
+	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,7 +173,7 @@ func testWindSeriesAt(spec delivery.GridSpec, times []time.Time) pipeline.Series
 		}{{pipeline.WindU, float32(index + 2)}, {pipeline.WindV, float32(-index - 1)}} {
 			series[item.field] = append(series[item.field], pipeline.Frame{
 				Field: item.field, Start: validAt, End: validAt, Semantics: pipeline.Instant,
-				Units: "m/s", NativeResolutionKM: 7,
+				Units: "km/h", NativeResolutionKM: 7,
 				Grid: pipeline.FloatGrid{Spec: spec, Values: []float32{item.value}},
 			})
 		}
@@ -269,14 +271,69 @@ func TestWriteWindFramesRejectsNonCanonicalUnits(t *testing.T) {
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
 	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
-	series[pipeline.WindU][0].Units = "km/h"
+	series[pipeline.WindU][0].Units = "m/s"
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
 	writer, err := newReleaseWriter(t.TempDir(), "wrong-wind-units", date)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writer.writeWindFrames("2026-07-18", series, source); err == nil || !strings.Contains(err.Error(), "must use m/s") {
+	if _, err := writer.writeWindFrames("2026-07-18", series, source); err == nil || !strings.Contains(err.Error(), "canonical km/h") {
 		t.Fatalf("non-canonical unit error = %v", err)
+	}
+}
+
+func TestWriteWindFramesConvertsCanonicalKmhToMps(t *testing.T) {
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
+	series[pipeline.WindU][0].Grid.Values[0] = 10.8
+	series[pipeline.WindV][0].Grid.Values[0] = -16.2
+	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
+	writer, err := newReleaseWriter(t.TempDir(), "wind-unit-conversion", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets, err := writer.writeWindFrames("2026-07-18", series, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compressed, err := os.Open(filepath.Join(writer.dir, filepath.FromSlash(assets[0].URL)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decompressed, err := gzip.NewReader(compressed)
+	if err != nil {
+		_ = compressed.Close()
+		t.Fatal(err)
+	}
+	rawPath := filepath.Join(t.TempDir(), "frame.nww")
+	raw, err := os.Create(rawPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(raw, decompressed); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := decompressed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := delivery.OpenWindGrid(rawPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	vector, err := reader.Vector(0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vector != (delivery.WindVector{U: 3, V: -4.5, Valid: true}) {
+		t.Fatalf("published wind vector = %+v; want 3.0,-4.5 m/s", vector)
 	}
 }
 

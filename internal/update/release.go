@@ -161,8 +161,8 @@ func (writer *releaseWriter) writeWindFrames(periodID string, series pipeline.Se
 		if uFrame.Semantics != pipeline.Instant || vFrame.Semantics != pipeline.Instant || uFrame.Start != validAt || vFrame.Start != validAt {
 			return nil, fmt.Errorf("wind frame at %s is not instantaneous", validAt.Format(time.RFC3339))
 		}
-		if uFrame.Units != "m/s" || vFrame.Units != "m/s" {
-			return nil, fmt.Errorf("wind frame at %s must use m/s components", validAt.Format(time.RFC3339))
+		if uFrame.Units != "km/h" || vFrame.Units != "km/h" {
+			return nil, fmt.Errorf("wind frame at %s must use canonical km/h components", validAt.Format(time.RFC3339))
 		}
 		if uFrame.Grid.Spec != vFrame.Grid.Spec || len(uFrame.Grid.Values) != len(vFrame.Grid.Values) {
 			return nil, fmt.Errorf("wind frame at %s has mismatched u/v geometry", validAt.Format(time.RFC3339))
@@ -175,7 +175,7 @@ func (writer *releaseWriter) writeWindFrames(periodID string, series pipeline.Se
 				return nil, fmt.Errorf("wind frame at %s cell %d has partial u/v support", validAt.Format(time.RFC3339), index)
 			}
 			if !uMissing {
-				vectors[index] = delivery.WindVector{U: u, V: v, Valid: true}
+				vectors[index] = delivery.WindVector{U: u / 3.6, V: v / 3.6, Valid: true}
 			}
 		}
 		directory := filepath.Join(writer.dir, "wind", periodID)
