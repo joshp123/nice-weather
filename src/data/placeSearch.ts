@@ -112,8 +112,8 @@ export class EuropePlaceSearch {
       if (this.isCurrent(request)) this.active = undefined;
       return [];
     }
-    const normalized = normalizePlaceQuery(query);
-    if (normalized.length < 3 || normalized.length > MAX_NORMALIZED_QUERY_LENGTH || looksLikeCoordinates(query)) {
+    const parsed = parseSearchQuery(query);
+    if (!parsed || parsed.name.length < 3 || parsed.name.length > MAX_NORMALIZED_QUERY_LENGTH || looksLikeCoordinates(query)) {
       if (this.isCurrent(request)) this.active = undefined;
       return [];
     }
@@ -124,10 +124,10 @@ export class EuropePlaceSearch {
       if (!this.isCurrent(request)) return [];
       const manifest = await this.loadManifest(pointer, controller.signal, request);
       if (!this.isCurrent(request)) return [];
-      const prefix = shardPrefix(normalized);
+      const prefix = shardPrefix(parsed.name);
       const records = await this.loadShard(manifest, prefix, controller.signal, request);
       if (!this.isCurrent(request)) return [];
-      return rank(records, normalized, manifest, viewport).slice(0, 8);
+      return rank(records, parsed.name, manifest, viewport, parsed.country).slice(0, 8);
     } catch (error) {
       if (!this.isCurrent(request) || controller.signal.aborted) return [];
       throw error;
@@ -331,10 +331,19 @@ function parseRecord(value: unknown, index: number, prefix: string, manifest: Ma
   };
 }
 
-function rank(records: readonly PlaceRecord[], query: string, manifest: Manifest, viewport?: PlaceSearchViewport): PlaceSearchResult[] {
+function parseSearchQuery(value: string): { name: string; country?: string } | undefined {
+  const comma = value.indexOf(',');
+  const name = normalizePlaceQuery(comma < 0 ? value : value.slice(0, comma));
+  const country = comma < 0 ? '' : normalizePlaceQuery(value.slice(comma + 1));
+  if (!name || country.length > MAX_NORMALIZED_QUERY_LENGTH) return undefined;
+  return { name, country: country || undefined };
+}
+
+function rank(records: readonly PlaceRecord[], query: string, manifest: Manifest, viewport?: PlaceSearchViewport, country?: string): PlaceSearchResult[] {
+  const countryCodes = country === undefined ? undefined : matchingCountryCodes(manifest, country);
   const bestById = new Map<number, PlaceRecord>();
   for (const record of records) {
-    if (!record.key.startsWith(query)) continue;
+    if (!record.key.startsWith(query) || countryCodes && !countryCodes.has(record.countryCode)) continue;
     const previous = bestById.get(record.geonameId);
     if (!previous || compareMatches(record, previous, query, viewport) < 0) bestById.set(record.geonameId, record);
   }
@@ -355,17 +364,39 @@ function rank(records: readonly PlaceRecord[], query: string, manifest: Manifest
 function compareMatches(left: PlaceRecord, right: PlaceRecord, query: string, viewport?: PlaceSearchViewport): number {
   const exact = Number(right.key === query) - Number(left.key === query);
   if (exact !== 0) return exact;
+  if (left.featureRank !== right.featureRank) return right.featureRank - left.featureRank;
+  const populationImportance = populationBand(right.population) - populationBand(left.population);
+  if (populationImportance !== 0) return populationImportance;
   if (viewport) {
     const distance = distanceSquared(left, viewport) - distanceSquared(right, viewport);
     if (distance !== 0) return distance;
   }
-  if (left.featureRank !== right.featureRank) return right.featureRank - left.featureRank;
   if (left.population !== right.population) return right.population - left.population;
   const normalizedName = lexical(normalizePlaceQuery(left.name), normalizePlaceQuery(right.name));
   if (normalizedName !== 0) return normalizedName;
   const name = lexical(left.name, right.name);
   if (name !== 0) return name;
   return left.geonameId - right.geonameId;
+}
+
+function matchingCountryCodes(manifest: Manifest, qualifier: string): ReadonlySet<string> {
+  const matches = new Set<string>();
+  for (const [code, label] of Object.entries(manifest.countries)) {
+    const normalizedLabel = normalizePlaceQuery(label);
+    if (qualifier === code.toLowerCase() || qualifier === normalizedLabel || normalizedLabel.startsWith('the ') && qualifier === normalizedLabel.slice(4)) {
+      matches.add(code);
+    }
+  }
+  return matches;
+}
+
+function populationBand(population: number): number {
+  if (population >= 1_000_000) return 5;
+  if (population >= 100_000) return 4;
+  if (population >= 10_000) return 3;
+  if (population >= 1_000) return 2;
+  if (population > 0) return 1;
+  return 0;
 }
 
 function compareBuilderOrder(left: PlaceRecord, right: PlaceRecord): number {

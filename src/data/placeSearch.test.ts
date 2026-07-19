@@ -75,6 +75,7 @@ describe('EuropePlaceSearch', () => {
     expect((await harness.client.search('Cádiz'))[0]).toMatchObject({ geonameId: 2520600, name: 'Cádiz' });
     expect((await harness.client.search('Lodz'))[0]).toMatchObject({ geonameId: 3093133, name: 'Łódź' });
     expect((await harness.client.search('Málaga'))[0]).toMatchObject({ geonameId: 2514256, name: 'Málaga' });
+    expect((await harness.client.search('Málaga, Spain'))[0]).toMatchObject({ geonameId: 2514256, name: 'Málaga', country: 'Spain' });
   });
 
   it('keeps a non-Latin display name when its GeoNames search key is Latin', async () => {
@@ -99,10 +100,38 @@ describe('EuropePlaceSearch', () => {
     expect(results.map((place) => place.geonameId)).toEqual([1, 2]);
   });
 
-  it('uses viewport proximity before feature rank and population for equally matching names', async () => {
+  it('ranks major exact places before obscure namesakes even when the viewport is closer to the obscure result', async () => {
+    const harness = await searchHarness({
+      far: sorted([
+        row('faro', 'Faro', 'PT', '09', 37.01869, -7.92716, 70347, 4, 2268339),
+        row('faro', 'Faro', 'IT', '20', 45.21609, 11.36913, 47, 2, 8963362),
+      ]),
+      val: sorted([
+        row('valletta', 'Valletta', 'MT', '60', 35.89968, 14.5148, 6794, 5, 2562305),
+        row('valletta', 'Valletta', 'IT', '20', 45.62423, 11.21772, 137, 2, 8954459),
+      ]),
+    });
+
+    expect((await harness.client.search('Faro', { viewport: { latitude: 45.2, longitude: 11.4 } }))[0]).toMatchObject({ geonameId: 2268339, country: 'Portugal' });
+    expect((await harness.client.search('Valletta', { viewport: { latitude: 45.6, longitude: 11.2 } }))[0]).toMatchObject({ geonameId: 2562305, country: 'Malta' });
+  });
+
+  it('supports a country-qualified place query through the same name shard', async () => {
+    const harness = await searchHarness({ far: sorted([
+      row('faro', 'Faro', 'PT', '09', 37.01869, -7.92716, 70347, 4, 2268339),
+      row('faro', 'Faro', 'IT', '20', 45.21609, 11.36913, 47, 2, 8963362),
+    ]) });
+
+    await expect(harness.client.search('Faro, Portugal')).resolves.toEqual([
+      expect.objectContaining({ geonameId: 2268339, name: 'Faro', country: 'Portugal' }),
+    ]);
+    expect(harness.count('/shards/far.json')).toBe(1);
+  });
+
+  it('keeps viewport relevance for equally important ambiguous names', async () => {
     const harness = await searchHarness({ sai: sorted([
       row('saint julian', 'Saint Julian', 'MT', '01', 35.918, 14.49, 13000, 2, 20),
-      row('saint julian', 'Saint Julian', 'GB', 'WLS', 51.60, -2.90, 500000, 5, 10),
+      row('saint julian', 'Saint Julian', 'GB', 'WLS', 51.60, -2.90, 18000, 2, 10),
     ]) });
 
     const withoutViewport = await harness.client.search('Saint Julian');
@@ -298,8 +327,8 @@ function manifestFixture(shards: Record<string, unknown[][]>) {
     minimumQueryLength: 3,
     normalization: 'nice-latin-fold-v1',
     record: ['key', 'name', 'country', 'admin1', 'latE5', 'lonE5', 'population', 'featureRank', 'geonameId'],
-    countries: { ES: 'Spain', GB: 'United Kingdom', PL: 'Poland', MT: 'Malta', GE: 'Georgia' },
-    admins: { 'ES.51': 'Andalusia', 'GB.ENG': 'England', 'GB.WLS': 'Wales', 'PL.10': 'Łódź Voivodeship', 'MT.01': 'Attard', 'GE.TB': 'Tbilisi' },
+    countries: { ES: 'Spain', GB: 'United Kingdom', PL: 'Poland', MT: 'Malta', GE: 'Georgia', PT: 'Portugal', IT: 'Italy' },
+    admins: { 'ES.51': 'Andalusia', 'GB.ENG': 'England', 'GB.WLS': 'Wales', 'PL.10': 'Łódź Voivodeship', 'MT.01': 'Attard', 'MT.60': 'Valletta', 'GE.TB': 'Tbilisi', 'PT.09': 'Faro', 'IT.20': 'Veneto' },
     shards: shardDigests,
     summary: {
       placeCount: 6,
