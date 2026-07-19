@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
 import { forecastRunStatus, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
 import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
@@ -89,7 +89,7 @@ export default function App() {
     }
     const controller = new AbortController();
     setPointState({ status: 'loading' });
-    loadPoint({ ...selectedPoint, releaseId: manifest.releaseId, period: activePeriodId, profile }, controller.signal, manifest.forecast.window)
+    loadPoint({ ...selectedPoint, releaseId: manifest.releaseId, period: activePeriodId, profile }, controller.signal, manifest.forecast.window, manifest.legend)
       .then((data) => setPointState({ status: 'ready', data }))
       .catch((error: Error) => {
         if (controller.signal.aborted) return;
@@ -463,6 +463,7 @@ function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'r
         <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
         <div><dd>{data.window.longestPoorRun}<small> days</small></dd><dt>Longest poor run</dt></div>
       </dl>
+      <ForecastFingerprint days={data.days} legend={legend} />
       <ComponentRows data={data} legend={legend} />
       <p className="sourceLine">{pointSourceLabel(data.source)}</p>
     </>
@@ -516,6 +517,22 @@ function PointSkeleton({ label }: { label?: string }) { return <div className="p
 function periodsFor(manifest: WeatherManifest | undefined, view: View): Period[] {
   if (!manifest || view === 'range') return [];
   return view === 'climate' ? manifest.climate?.months ?? [] : manifest.forecast.days;
+}
+
+function forecastDayLabel(value: string): string {
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
+}
+
+export function ForecastFingerprint({ days, legend }: { days: Extract<PointWeather, { kind: 'range' }>['days']; legend: WeatherManifest['legend'] }) {
+  return <section className="forecastFingerprint" aria-labelledby="forecast-fingerprint-title">
+    <h3 id="forecast-fingerprint-title">Day by day</h3>
+    <ol>{days.map((day) => {
+      const colour = legend.find((band) => band.label === day.category)?.color;
+      return <li key={day.date} style={{ '--day-colour': colour } as CSSProperties} aria-label={`${forecastDayLabel(day.date)}, ${day.score}, ${day.category}`}>
+        <time dateTime={day.date}>{forecastDayLabel(day.date)}</time><strong>{day.score}</strong>
+      </li>;
+    })}</ol>
+  </section>;
 }
 
 function lensAsset(period: Period, profile: Profile, lens: Lens) {

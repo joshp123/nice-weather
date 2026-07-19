@@ -28,7 +28,7 @@ type testApplication struct {
 	manifest delivery.Manifest
 }
 
-func newTestApplication(t *testing.T) testApplication {
+func newTestApplication(t testing.TB) testApplication {
 	t.Helper()
 	root, web := filepath.Join(t.TempDir(), "artifacts"), filepath.Join(t.TempDir(), "web")
 	if err := os.MkdirAll(filepath.Join(web, "assets"), 0o755); err != nil {
@@ -378,6 +378,7 @@ func TestForecastWindowPointReturnsCanonicalRangeWithoutFakeDailyWeather(t *test
 		PeriodID string                    `json:"periodId"`
 		Score    pointScore                `json:"score"`
 		Window   pointForecastWindow       `json:"window"`
+		Days     []pointForecastDay        `json:"days"`
 		Source   pointForecastWindowSource `json:"source"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -411,11 +412,42 @@ func TestForecastWindowPointReturnsCanonicalRangeWithoutFakeDailyWeather(t *test
 	}) {
 		t.Fatalf("range evidence = %+v; want %+v", payload.Window, want)
 	}
+	if len(payload.Days) != len(app.manifest.Forecast.Days) {
+		t.Fatalf("forecast fingerprint has %d days; want %d", len(payload.Days), len(app.manifest.Forecast.Days))
+	}
+	for index, day := range app.manifest.Forecast.Days {
+		dailyRecord, dailyValid, lookupErr := catalog.Lookup(day.ID, 4.9041, 52.3676)
+		if lookupErr != nil || !dailyValid {
+			t.Fatalf("day %d lookup valid=%t err=%v", index, dailyValid, lookupErr)
+		}
+		metrics, metricsErr := dailyRecord.WeatherMetrics(day.NativeResolutionKM)
+		if metricsErr != nil {
+			t.Fatalf("day %d metrics: %v", index, metricsErr)
+		}
+		dailyScore := weather.Score(metrics, weather.ProfileNice)
+		if payload.Days[index] != (pointForecastDay{Date: day.Date, Score: dailyScore.Score, Category: dailyScore.Rating}) {
+			t.Fatalf("forecast fingerprint day %d = %+v; want date=%s score=%d category=%s", index, payload.Days[index], day.Date, dailyScore.Score, dailyScore.Rating)
+		}
+	}
 	if payload.Source.Basis != "forecast-window" || payload.Source.DetailLabel != "14-day forecast" || payload.Source.ResolutionKM != 28 || payload.Source.ArtifactGeneratedAt != app.manifest.GeneratedAt {
 		t.Fatalf("range source = %+v", payload.Source)
 	}
 	if strings.Contains(string(body), `"weather"`) || strings.Contains(string(body), `"temperatureC"`) || strings.Contains(string(body), `"summary"`) {
 		t.Fatalf("range response pretends to be one physical day: %s", body)
+	}
+}
+
+func BenchmarkForecastWindowPoint(b *testing.B) {
+	app := newTestApplication(b)
+	path := "/api/point?release=" + app.manifest.ReleaseID + "&period=" + app.manifest.Forecast.Window.ID + "&profile=nice&lat=52.3676&lon=4.9041"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		response := httptest.NewRecorder()
+		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK {
+			b.Fatalf("point returned %d: %s", response.Code, response.Body.String())
+		}
 	}
 }
 

@@ -116,6 +116,12 @@ type pointForecastWindow struct {
 	LongestPoorRun int    `json:"longestPoorRun"`
 }
 
+type pointForecastDay struct {
+	Date     string `json:"date"`
+	Score    int    `json:"score"`
+	Category string `json:"category"`
+}
+
 type pointForecastWindowSource struct {
 	Basis               string  `json:"basis"`
 	DetailLabel         string  `json:"detailLabel"`
@@ -125,7 +131,7 @@ type pointForecastWindowSource struct {
 
 func Serve(config Config) error {
 	if config.Listen == "" {
-		config.Listen = "127.0.0.1:5173"
+		config.Listen = "127.0.0.1:5198"
 	}
 	handler, err := NewHandler(config)
 	if err != nil {
@@ -392,6 +398,11 @@ func (app *application) serveForecastWindowPoint(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "decode_failed", "The forecast window could not be decoded.")
 		return
 	}
+	days, err := snapshot.forecastFingerprint(profileID, lon, lat)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "read_failed", "The daily forecast could not be read.")
+		return
+	}
 	window := snapshot.manifest.Forecast.Window
 	response := struct {
 		ReleaseID string                    `json:"releaseId"`
@@ -401,6 +412,7 @@ func (app *application) serveForecastWindowPoint(w http.ResponseWriter, r *http.
 		Location  map[string]float64        `json:"location"`
 		Score     pointScore                `json:"score"`
 		Window    pointForecastWindow       `json:"window"`
+		Days      []pointForecastDay        `json:"days"`
 		Source    pointForecastWindowSource `json:"source"`
 	}{
 		ReleaseID: snapshot.manifest.ReleaseID, PeriodID: window.ID, Label: window.Label, Profile: profileID,
@@ -414,12 +426,40 @@ func (app *application) serveForecastWindowPoint(w http.ResponseWriter, r *http.
 			NiceDays: summary.NiceDays, AwfulDays: summary.AwfulDays, MedianScore: summary.MedianScore,
 			LongestPoorRun: summary.LongestPoorRun,
 		},
+		Days: days,
 		Source: pointForecastWindowSource{
 			Basis: "forecast-window", DetailLabel: "14-day forecast", ResolutionKM: window.GridResolutionKM,
 			ArtifactGeneratedAt: snapshot.manifest.GeneratedAt,
 		},
 	}
 	writeJSON(w, r, http.StatusOK, response, "no-store")
+}
+
+// forecastFingerprint reads the exact daily records used by the day-by-day
+// map at this coordinate. It performs no aggregation and owns no scoring
+// policy: weather.Score remains the one canonical evaluation path.
+func (snapshot *releaseSnapshot) forecastFingerprint(profileID string, lon, lat float64) ([]pointForecastDay, error) {
+	profile := weather.Profile(profileID)
+	days := make([]pointForecastDay, len(snapshot.manifest.Forecast.Days))
+	for index, day := range snapshot.manifest.Forecast.Days {
+		record, valid, err := snapshot.catalog.Lookup(day.ID, lon, lat)
+		if err != nil {
+			return nil, fmt.Errorf("lookup forecast day %s: %w", day.ID, err)
+		}
+		if !valid {
+			return nil, fmt.Errorf("forecast day %s is unavailable at the selected point", day.ID)
+		}
+		metrics, err := record.WeatherMetrics(day.NativeResolutionKM)
+		if err != nil {
+			return nil, fmt.Errorf("decode forecast day %s: %w", day.ID, err)
+		}
+		result := weather.Score(metrics, profile)
+		if !result.Available {
+			return nil, fmt.Errorf("score forecast day %s", day.ID)
+		}
+		days[index] = pointForecastDay{Date: day.Date, Score: result.Score, Category: result.Rating}
+	}
+	return days, nil
 }
 
 func componentResponse(value int) pointComponent {

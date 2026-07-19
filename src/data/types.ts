@@ -121,12 +121,19 @@ export type ForecastWindowPoint = PointBase & {
     medianScore: number;
     longestPoorRun: number;
   };
+  days: ForecastDayScore[];
   source: {
     basis: 'forecast-window';
     detailLabel: string;
     resolutionKm: number;
     artifactGeneratedAt: string;
   };
+};
+
+export type ForecastDayScore = {
+  date: string;
+  score: number;
+  category: string;
 };
 
 export type DailyPoint = PointBase & {

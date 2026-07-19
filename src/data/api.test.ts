@@ -95,11 +95,32 @@ describe('weather delivery client', () => {
       location: { lat: 39.47, lon: -0.38 },
       score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
       window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
+      days: forecastFingerprintFixture(),
       source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
     }), { status: 200 })));
-    const point = await loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' });
+    const point = await loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' }, undefined, undefined, POINT_LEGEND);
     expect(point).toMatchObject({ kind: 'range', score: 82, window: { niceDays: 10, awfulDays: 1, longestPoorRun: 2 } });
     expect('metrics' in point).toBe(false);
+  });
+
+  it('rejects missing, out-of-order or mislabelled forecast fingerprint days', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = () => ({
+      releaseId: 'release-20260718', periodId: 'next-14-days', periodLabel: 'Next 14 days', profile: 'nice',
+      location: { lat: 39.47, lon: -0.38 },
+      score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
+      window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
+      days: forecastFingerprintFixture(),
+      source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
+    });
+    const broken = [response(), response(), response()];
+    broken[0].days.pop();
+    [broken[1].days[5], broken[1].days[6]] = [broken[1].days[6], broken[1].days[5]];
+    broken[2].days[0].category = 'Awful';
+    for (const payload of broken) {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })));
+      await expect(loadPoint({ releaseId: 'release-20260718', lat: 39.47, lon: -0.38, period: 'next-14-days', profile: 'nice' }, undefined, undefined, POINT_LEGEND)).rejects.toThrow('could not be read');
+    }
   });
 
   it('rejects a range point whose dates do not match the loaded manifest', async () => {
@@ -109,6 +130,7 @@ describe('weather delivery client', () => {
       location: { lat: 39.47, lon: -0.38 },
       score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
       window: { startDate: '2026-07-19', endDate: '2026-08-01', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
+      days: forecastFingerprintFixture('2026-07-19'),
       source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
     }), { status: 200 })));
     const expected = { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14 } as const;
@@ -152,6 +174,7 @@ describe('weather delivery client', () => {
       location: { lat: 39.47, lon: -0.38 },
       score: { value: 82, category: 'Very good', components: componentFixture(84, 91, 77, 74) },
       window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 10, awfulDays: 1, medianScore: 85, longestPoorRun: 2 },
+      days: forecastFingerprintFixture(),
       source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
     }), { status: 200 })));
 
@@ -165,6 +188,7 @@ describe('weather delivery client', () => {
       location: { lat: 39.47, lon: -0.38 },
       score: { value: 22, category: 'Awful', components: componentFixture(20, 20, 20, 20) },
       window: { startDate: '2026-07-18', endDate: '2026-07-31', dayCount: 14, niceDays: 0, awfulDays: 14, medianScore: 20, longestPoorRun: 1 },
+      days: forecastFingerprintFixture(),
       source: { basis: 'forecast-window', detailLabel: '14-day forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-18T10:00:00Z' },
     }), { status: 200 })));
 
@@ -207,11 +231,7 @@ function manifestFixture(): Record<string, any> {
     version: 5, releaseId: 'release-20260718', productContract: 'nice-weather-v13', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
-    legend: [
-      { label: 'Awful', color: '#343B53', min: 0, max: 24 }, { label: 'Poor', color: '#5E6382', min: 25, max: 39 },
-      { label: 'Mixed', color: '#97949C', min: 40, max: 54 }, { label: 'Good', color: '#C9A47F', min: 55, max: 69 },
-      { label: 'Very good', color: '#E18952', min: 70, max: 84 }, { label: 'Excellent', color: '#F06031', min: 85, max: 100 },
-    ],
+    legend: POINT_LEGEND,
     palette: Array.from({ length: 12 }, (_, index) => ({ score: index === 11 ? 100 : index * 9, color: `#${String(index + 1).repeat(6).slice(0, 6)}` })),
     forecast: {
       updatedAt: '2026-07-18T09:30:00Z', staleAfterHours: 12,
@@ -231,3 +251,19 @@ function componentFixture(comfort: number, dryness: number, sun: number, wind: n
   const score = (value: number) => ({ value, category: value >= 85 ? 'Excellent' : value >= 70 ? 'Very good' : value >= 55 ? 'Good' : value >= 40 ? 'Mixed' : value >= 25 ? 'Poor' : 'Awful' });
   return { comfort: score(comfort), dryness: score(dryness), sun: score(sun), wind: score(wind) };
 }
+
+function forecastFingerprintFixture(startDate = '2026-07-18') {
+  const scores = [91, 88, 84, 77, 72, 68, 61, 55, 48, 42, 36, 29, 20, 12];
+  const category = (score: number) => score >= 85 ? 'Excellent' : score >= 70 ? 'Very good' : score >= 55 ? 'Good' : score >= 40 ? 'Mixed' : score >= 25 ? 'Poor' : 'Awful';
+  return scores.map((score, index) => {
+    const day = new Date(`${startDate}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + index);
+    return { date: day.toISOString().slice(0, 10), score, category: category(score) };
+  });
+}
+
+const POINT_LEGEND = [
+  { label: 'Awful', color: '#343B53', min: 0, max: 24 }, { label: 'Poor', color: '#5E6382', min: 25, max: 39 },
+  { label: 'Mixed', color: '#97949C', min: 40, max: 54 }, { label: 'Good', color: '#C9A47F', min: 55, max: 69 },
+  { label: 'Very good', color: '#E18952', min: 70, max: 84 }, { label: 'Excellent', color: '#F06031', min: 85, max: 100 },
+];

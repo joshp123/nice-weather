@@ -26,7 +26,7 @@ export async function loadManifest(signal?: AbortSignal): Promise<WeatherManifes
   }
 }
 
-export async function loadPoint(request: PointRequest, signal?: AbortSignal, expectedWindow?: Pick<ForecastWindow, 'startDate' | 'endDate' | 'dayCount'>): Promise<PointWeather> {
+export async function loadPoint(request: PointRequest, signal?: AbortSignal, expectedWindow?: Pick<ForecastWindow, 'startDate' | 'endDate' | 'dayCount'>, legend?: LegendCategory[]): Promise<PointWeather> {
   const params = new URLSearchParams({
     release: request.releaseId,
     lat: request.lat.toFixed(5),
@@ -45,7 +45,7 @@ export async function loadPoint(request: PointRequest, signal?: AbortSignal, exp
     const payload = await response.json();
     const envelope = object(payload, 'point response');
     if (envelope.periodId !== request.period || envelope.profile !== request.profile) throw new Error('Point response does not match its request.');
-    point = parsePoint(payload);
+    point = parsePoint(payload, legend);
     if (point.kind === 'range' && expectedWindow && (point.window.startDate !== expectedWindow.startDate || point.window.endDate !== expectedWindow.endDate || point.window.dayCount !== expectedWindow.dayCount)) {
       throw new Error('Forecast-window point does not match the manifest.');
     }
@@ -252,9 +252,9 @@ function legendList(value: unknown): LegendCategory[] {
   });
 }
 
-function parsePoint(value: unknown): PointWeather {
+function parsePoint(value: unknown, legend?: LegendCategory[]): PointWeather {
   const raw = object(value, 'point weather');
-  return raw.window === undefined ? parseDailyPoint(value) : parseRangePoint(value);
+  return raw.window === undefined ? parseDailyPoint(value) : parseRangePoint(value, legend);
 }
 
 function pointBase(data: Record<string, unknown>) {
@@ -272,8 +272,8 @@ function pointBase(data: Record<string, unknown>) {
   };
 }
 
-function parseRangePoint(value: unknown): ForecastWindowPoint {
-  const data = exactObject(value, ['releaseId', 'periodId', 'periodLabel', 'profile', 'location', 'score', 'window', 'source'], 'forecast-window point');
+function parseRangePoint(value: unknown, legend?: LegendCategory[]): ForecastWindowPoint {
+  const data = exactObject(value, ['releaseId', 'periodId', 'periodLabel', 'profile', 'location', 'score', 'window', 'days', 'source'], 'forecast-window point');
   if (data.periodId !== 'next-14-days') throw new Error('Invalid forecast-window period.');
   const window = exactObject(data.window, ['startDate', 'endDate', 'dayCount', 'niceDays', 'awfulDays', 'medianScore', 'longestPoorRun'], 'forecast-window evidence');
   const dayCount = positiveInteger(window.dayCount, 'window day count');
@@ -285,17 +285,39 @@ function parseRangePoint(value: unknown): ForecastWindowPoint {
   if (niceDays < 0 || awfulDays < 0 || niceDays + awfulDays > dayCount || longestPoorRun < minimumPoorRun || longestPoorRun > dayCount - niceDays) throw new Error('Invalid forecast-window evidence.');
   const source = exactObject(data.source, ['basis', 'detailLabel', 'resolutionKm', 'artifactGeneratedAt'], 'forecast-window source');
   if (source.basis !== 'forecast-window') throw new Error('Invalid forecast-window source.');
+  const startDate = date(window.startDate, 'window startDate');
+  const endDate = date(window.endDate, 'window endDate');
+  const days = array(data.days, 'forecast fingerprint').map((value, index) => {
+    const row = exactObject(value, ['date', 'score', 'category'], `forecast fingerprint day ${index + 1}`);
+    const score = boundedScore(row.score, 'forecast day score');
+    const category = text(row.category, 'forecast day category');
+    validateRating(score, category, legend);
+    return { date: date(row.date, 'forecast day date'), score, category };
+  });
+  if (days.length !== dayCount || days.some((day, index) => day.date !== addUtcDays(startDate, index)) || days[days.length - 1]?.date !== endDate) {
+    throw new Error('Forecast fingerprint dates do not match its window.');
+  }
   return {
     ...pointBase(data), kind: 'range',
     window: {
-      startDate: date(window.startDate, 'window startDate'), endDate: date(window.endDate, 'window endDate'), dayCount,
+      startDate, endDate, dayCount,
       niceDays, awfulDays, medianScore: boundedScore(window.medianScore, 'median score'), longestPoorRun,
     },
+    days,
     source: {
       basis: 'forecast-window', detailLabel: text(source.detailLabel, 'source detail label'),
       resolutionKm: positiveNumber(source.resolutionKm, 'source resolution'), artifactGeneratedAt: timestamp(source.artifactGeneratedAt, 'source generatedAt'),
     },
   };
+}
+
+function validateRating(score: number, category: string, legend?: LegendCategory[]): void {
+  if (legend) {
+    const band = legend.find((item) => score >= item.min && score <= item.max);
+    if (!band || band.label !== category) throw new Error('Forecast day category does not match its score.');
+    return;
+  }
+  if (!['Awful', 'Poor', 'Mixed', 'Good', 'Very good', 'Excellent'].includes(category)) throw new Error('Invalid forecast day category.');
 }
 
 function parseDailyPoint(value: unknown): DailyPoint {
