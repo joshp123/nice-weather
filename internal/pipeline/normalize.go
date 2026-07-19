@@ -191,7 +191,14 @@ func NormalizeSeries(frames []Frame) ([]Frame, error) {
 				}
 				delta := current - prior
 				if delta < 0 {
-					tolerance := cumulativePackingTolerance(field, frame.PackingError, effectivePackingError[cell], frame.PackingQuantum, effectivePackingQuantum[cell]) + float32Roundoff(delta)
+					roundoff := float32Roundoff(delta)
+					if field == Rain || field == Solar {
+						// These packed run-totals are materialised as Float32 before
+						// differencing. Bound that representation error at the two
+						// operands; the tiny delta's own ULP does not describe it.
+						roundoff = float32RepresentationError(current) + float32RepresentationError(prior)
+					}
+					tolerance := cumulativePackingTolerance(field, frame.PackingError, effectivePackingError[cell], frame.PackingQuantum, effectivePackingQuantum[cell]) + roundoff
 					if isDWDSolarComponent(field) {
 						if tolerance > solarCumulativeArtifactToleranceMJm2 {
 							values[cell] = float32(math.NaN())
@@ -228,21 +235,27 @@ func NormalizeSeries(frames []Frame) ([]Frame, error) {
 }
 
 // The strict bound between two packed samples is the sum of their declared
-// maximum absolute errors. Full frozen-run audits found that cumulative rain can
-// regress by one exact packing quantum: ICON-EU 2026071800 did so at steps
-// 111..117, and AIFS 2026071718 did so after its scale coarsened at step 276.
-// These are quantization artifacts, not negative rainfall. Keep the exact-scale
-// exception rain-only; solar and every other cumulative field retain the strict
-// error bound.
+// maximum absolute errors. Full frozen-run audits found that AIFS cumulative
+// rain and aggregate solar can regress by one exact packing quantum when their
+// scale coarsens: rain in run 2026071718 at step 276 and ssrd in run
+// 2026071818 at step 102. The source messages contain no missing values; these
+// are quantization artifacts rather than negative rain or radiation. DWD's
+// direct/diffuse run-average solar uses its separately audited physical-artifact
+// ceiling below.
 func cumulativePackingTolerance(field Field, currentError, highWaterError, currentQuantum, highWaterQuantum float64) float64 {
 	tolerance := currentError + highWaterError
-	if field == Rain {
-		// Production GRIB rain must provide exact scale metadata. The fallback
-		// keeps hand-built non-GRIB unit fixtures useful without weakening live
+	if field == Rain || field == Solar {
+		// Production AIFS rain and solar provide exact scale metadata. The
+		// fallback keeps hand-built unit fixtures useful without weakening live
 		// decoding, which fails closed when either scale key is absent.
 		quantum := math.Max(currentQuantum, highWaterQuantum)
 		if quantum == 0 {
 			quantum = 2 * math.Max(currentError, highWaterError)
+		}
+		if field == Solar {
+			// Aggregate solar's audited exception is one exact encoded
+			// quantum, never a larger inconsistent error declaration.
+			return quantum
 		}
 		tolerance = math.Max(tolerance, quantum)
 	}
@@ -255,4 +268,22 @@ func float32Roundoff(value float32) float64 {
 	}
 	next := math.Nextafter32(value, float32(math.Inf(1)))
 	return math.Abs(float64(next - value))
+}
+
+// float32RepresentationError bounds the error introduced when one exact
+// packed source value is materialised as Float32. Round-to-nearest contributes
+// at most half the wider adjacent spacing; infinities never widen the bound.
+func float32RepresentationError(value float32) float64 {
+	if !finite32(value) {
+		return 0
+	}
+	up := math.Abs(float64(math.Nextafter32(value, float32(math.Inf(1))) - value))
+	down := math.Abs(float64(value - math.Nextafter32(value, float32(math.Inf(-1)))))
+	if math.IsInf(up, 0) {
+		up = 0
+	}
+	if math.IsInf(down, 0) {
+		down = 0
+	}
+	return .5 * math.Max(up, down)
 }

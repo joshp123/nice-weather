@@ -448,6 +448,25 @@ func TestGenericSolarDoesNotUseDWDSolarArtifactTolerance(t *testing.T) {
 	}
 }
 
+func TestCumulativeAIFSSolarExactQuantumOverridesInconsistentPackingError(t *testing.T) {
+	run := time.Date(2026, 7, 18, 18, 0, 0, 0, time.UTC)
+	frames := []Frame{
+		frameAt(Solar, run, run.Add(96*time.Hour), CumulativeAccumulation, 10),
+		frameAt(Solar, run, run.Add(102*time.Hour), CumulativeAccumulation, 9.98),
+	}
+	for index := range frames {
+		frames[index].PackingError = .1
+		frames[index].PackingQuantum = .004096
+	}
+	normalized, err := NormalizeSeries(frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized) != 2 || !float32NaN(normalized[1].Grid.Values[0]) {
+		t.Fatalf("inconsistent error metadata widened AIFS solar beyond one exact quantum: %+v", normalized)
+	}
+}
+
 func TestDWDSolarRejectsPackingUncertaintyAboveAuditedCeiling(t *testing.T) {
 	run := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
@@ -732,7 +751,7 @@ func TestCumulativeRainUsesDeclaredPackingPrecision(t *testing.T) {
 	}
 }
 
-func TestCumulativeRainUsesOneCoarserQuantumAcrossPackingScaleChange(t *testing.T) {
+func TestCumulativeAIFSFieldsUseOneCoarserQuantumAcrossPackingScaleChange(t *testing.T) {
 	run := time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC)
 	base := []Frame{
 		frameAt(Rain, run, run.Add(264*time.Hour), CumulativeAccumulation, 42.28125),
@@ -754,13 +773,14 @@ func TestCumulativeRainUsesOneCoarserQuantumAcrossPackingScaleChange(t *testing.
 	}
 
 	beyond := append([]Frame(nil), base...)
-	beyond[2].Grid.Values = []float32{math.Nextafter32(42.265625, float32(math.Inf(-1)))}
+	representationBound := float32RepresentationError(base[1].Grid.Values[0]) + float32RepresentationError(base[2].Grid.Values[0])
+	beyond[2].Grid.Values = []float32{base[2].Grid.Values[0] - float32(4*representationBound)}
 	normalized, err = NormalizeSeries(beyond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !float32NaN(normalized[2].Grid.Values[0]) {
-		t.Fatalf("rain decline one float32 ULP beyond the coarser quantum was accepted: %+v", normalized)
+		t.Fatalf("rain decline beyond the coarser quantum and Float32 representation bound was accepted: %+v", normalized)
 	}
 
 	solar := append([]Frame(nil), base...)
@@ -772,8 +792,17 @@ func TestCumulativeRainUsesOneCoarserQuantumAcrossPackingScaleChange(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	if normalized[1].Grid.Values[0] != 0 || normalized[2].Grid.Values[0] != 0 {
+		t.Fatalf("AIFS solar packing-scale transition was not bounded to one coarser quantum: %+v", normalized)
+	}
+	solarBeyond := append([]Frame(nil), solar...)
+	solarBeyond[2].Grid.Values = []float32{solar[2].Grid.Values[0] - float32(4*representationBound)}
+	normalized, err = NormalizeSeries(solarBeyond)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !float32NaN(normalized[2].Grid.Values[0]) {
-		t.Fatalf("AIFS rain accumulator exception leaked into generic solar: %+v", normalized)
+		t.Fatalf("AIFS solar decline beyond the coarser quantum and Float32 representation bound was accepted: %+v", normalized)
 	}
 }
 
@@ -782,7 +811,7 @@ func TestCumulativeRainUsesExactScaleQuantumWhenPackingErrorIsTruncated(t *testi
 	frames := []Frame{
 		frameAt(Rain, run, run.Add(108*time.Hour), CumulativeAccumulation, 1.0078125),
 		frameAt(Rain, run, run.Add(111*time.Hour), CumulativeAccumulation, 1.00390625),
-		frameAt(Rain, run, run.Add(114*time.Hour), CumulativeAccumulation, math.Nextafter32(1.00390625, float32(math.Inf(-1)))),
+		frameAt(Rain, run, run.Add(114*time.Hour), CumulativeAccumulation, 1.003905),
 	}
 	for index := range frames {
 		// ecCodes JSON renders the half-quantum with eight significant decimal
