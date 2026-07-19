@@ -124,11 +124,14 @@ func niceWindScore(wind float64, gust OptionalFloat) int {
 }
 
 func cyclingWindScore(wind float64, gust OptionalFloat) int {
-	sustained := piecewise(wind, cyclingWindCurve)
-	if !gust.Available {
-		return rounded(sustained)
+	cycling := piecewise(wind, cyclingWindCurve)
+	if gust.Available {
+		cycling = math.Min(cycling, piecewise(gust.Value, cyclingGustCurve))
 	}
-	return rounded(math.Min(sustained, piecewise(gust.Value, cyclingGustCurve)))
+	// Cycling is the stricter wind judgement. Keep that relationship explicit
+	// even if either policy curve changes: choosing Cycling must never make an
+	// identical sustained wind or gust look calmer than Nice.
+	return min(rounded(cycling), niceWindScore(wind, gust))
 }
 
 func sunScore(m DailyMetrics) int {

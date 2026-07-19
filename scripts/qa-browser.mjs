@@ -25,7 +25,7 @@ try {
   await page.waitForTimeout(1_000);
 
   const manifest = await page.evaluate(async () => (await fetch('/manifest.json')).json());
-  if (manifest.version !== 5 || manifest.productContract !== 'nice-weather-v11' || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
+  if (manifest.version !== 5 || manifest.productContract !== 'nice-weather-v13' || !manifest.releaseId || manifest.forecast?.days?.length !== 14 || manifest.climate?.months?.length !== 12) {
     throw new Error(`unexpected production manifest: v${manifest.version}, ${manifest.forecast?.days?.length} days, ${manifest.climate?.months?.length} months`);
   }
   const sampleWarnings = await page.locator('.sampleWarning').count();

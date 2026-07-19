@@ -215,6 +215,46 @@ func TestCyclingIsMoreSensitiveToRainAndWind(t *testing.T) {
 	}
 }
 
+func TestCyclingDoesNotMakeOrdinaryWindLookCalmer(t *testing.T) {
+	day := idealDay()
+	day.WindSpeedKPH = 15
+	day.GustKPH = OptionalFloat{}
+	nice, cycling := Score(day, ProfileNice), Score(day, ProfileCycling)
+	if nice.Components.Wind != 93 || cycling.Components.Wind != 93 {
+		t.Fatalf("15 km/h Calm: Nice %d, Cycling %d; want 93 for both", nice.Components.Wind, cycling.Components.Wind)
+	}
+}
+
+func TestCyclingRainAndWindComponentsNeverOutrankNice(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*DailyMetrics)
+	}{
+		{"ordinary sustained wind", func(day *DailyMetrics) { day.WindSpeedKPH = 15; day.GustKPH = OptionalFloat{} }},
+		{"moderate sustained wind", func(day *DailyMetrics) { day.WindSpeedKPH = 20; day.GustKPH = OptionalFloat{} }},
+		{"strong sustained wind", func(day *DailyMetrics) { day.WindSpeedKPH = 35; day.GustKPH = OptionalFloat{} }},
+		{"moderate gusts", func(day *DailyMetrics) { day.WindSpeedKPH = 10; day.GustKPH = known(30) }},
+		{"strong gusts", func(day *DailyMetrics) { day.WindSpeedKPH = 10; day.GustKPH = known(40) }},
+		{"light rain", func(day *DailyMetrics) { day.RainMM = 1 }},
+		{"ride-ending rain", func(day *DailyMetrics) { day.RainMM = 3 }},
+		{"persistent rain", func(day *DailyMetrics) { day.WetTimeFraction = known(.65) }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			day := idealDay()
+			test.edit(&day)
+			nice, cycling := Score(day, ProfileNice), Score(day, ProfileCycling)
+			if cycling.Components.Wind > nice.Components.Wind {
+				t.Fatalf("Cycling Calm %d outranks Nice Calm %d: nice=%+v cycling=%+v", cycling.Components.Wind, nice.Components.Wind, nice, cycling)
+			}
+			if cycling.Components.Dryness != nice.Components.Dryness {
+				t.Fatalf("profile changed the shared Dry fact: Nice %d, Cycling %d", nice.Components.Dryness, cycling.Components.Dryness)
+			}
+		})
+	}
+}
+
 func TestGeneralDealbreakers(t *testing.T) {
 	tests := []struct {
 		name string
