@@ -212,6 +212,7 @@ export default function App() {
         <PointPanel
           state={pointState}
           point={selectedPoint}
+          legend={manifest?.legend ?? []}
           lens={lens}
           focusIntent={detailsFocusIntent}
           onLensChange={(next) => { if (view !== 'range') setLens(next); }}
@@ -311,7 +312,7 @@ function LayerLegend({ manifest, period, view, lens, open, windEnabled, windFram
             {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={lens === item.id} onClick={() => { onChange(item.id); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><b aria-hidden="true">{lens === item.id ? '✓' : ''}</b></button>)}
           </div>}
           {view === 'daily' && <button type="button" className="windToggle" role="switch" aria-checked={windEnabled} onClick={() => onWindEnabledChange(!windEnabled)}><span>Wind direction</span><b aria-hidden="true">{windEnabled ? 'On' : 'Off'}</b></button>}
-          <ScoreGuide manifest={manifest} />
+          <ScoreGuide manifest={manifest} defaultOpen={view === 'range'} />
         </div>
       )}
       {windEnabled && view === 'daily' && <WindTimeControl frames={frames} index={windFrameIndex} status={windStatus} onChange={onWindFrameChange} />}
@@ -330,15 +331,18 @@ function WindTimeControl({ frames, index, status, onChange }: { frames: NonNulla
   );
 }
 
-function ScoreGuide({ manifest }: { manifest: WeatherManifest }) {
+function ScoreGuide({ manifest, defaultOpen }: { manifest: WeatherManifest; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="scoreGuide" aria-label="How scores work">
-      <h2>How scores work</h2>
-      <p>Scores combine Comfort, Dry, Bright and Calm. Higher is better.</p>
-      <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
-      <p><strong>Nice</strong> favours warm, bright, dry and calm weather. <strong>Cycling</strong> is stricter about rain, wind and gusts.</p>
-      <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
-    </section>
+    <details className="scoreGuide" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>How scores work</summary>
+      <div className="scoreGuideBody">
+        <p>Scores combine Comfort, Dry, Bright and Calm. Higher is better.</p>
+        <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
+        <p><strong>Nice</strong> favours warm, bright, dry and calm weather. <strong>Cycling</strong> is stricter about rain, wind and gusts.</p>
+        <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
+      </div>
+    </details>
   );
 }
 
@@ -416,7 +420,7 @@ function PlaceSearch({ viewport, onFound }: { viewport: PlaceSearchViewport; onF
   );
 }
 
-function PointPanel({ state, point, lens, focusIntent, onLensChange, escapeEnabled, onClose }: { state: PointState; point: MapPoint; lens: Lens; focusIntent: DetailsFocusIntent; onLensChange: (lens: Lens) => void; escapeEnabled: boolean; onClose: () => void }) {
+function PointPanel({ state, point, legend, lens, focusIntent, onLensChange, escapeEnabled, onClose }: { state: PointState; point: MapPoint; legend: WeatherManifest['legend']; lens: Lens; focusIntent: DetailsFocusIntent; onLensChange: (lens: Lens) => void; escapeEnabled: boolean; onClose: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const close = useRef<HTMLButtonElement>(null);
@@ -434,8 +438,8 @@ function PointPanel({ state, point, lens, focusIntent, onLensChange, escapeEnabl
         {state.status === 'loading' && <PointSkeleton label={point.label} />}
         {state.status === 'error' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><strong>Weather unavailable</strong><p>{state.message}</p></div>}
         {state.status === 'ready' && state.data && (state.data.kind === 'range'
-          ? <RangeDetails data={state.data} />
-          : <DailyDetails data={state.data} lens={lens} onLensChange={onLensChange} />)}
+          ? <RangeDetails data={state.data} legend={legend} />
+          : <DailyDetails data={state.data} legend={legend} lens={lens} onLensChange={onLensChange} />)}
         {state.status === 'idle' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}°</p></div>}
         {state.status === 'ready' && <button className="sheetExpand" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show all details'}</button>}
       </div>
@@ -450,7 +454,7 @@ function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint 
   return <PointHeading point={point} eyebrow={eyebrow} score={data.score} category={data.category} />;
 }
 
-function RangeDetails({ data }: { data: Extract<PointWeather, { kind: 'range' }> }) {
+function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'range' }>; legend: WeatherManifest['legend'] }) {
   return (
     <>
       <p className="phonePointSummary">{data.window.niceDays} nice {data.window.niceDays === 1 ? 'day' : 'days'} · {data.window.awfulDays} awful · longest poor spell {data.window.longestPoorRun} {data.window.longestPoorRun === 1 ? 'day' : 'days'}</p>
@@ -459,13 +463,13 @@ function RangeDetails({ data }: { data: Extract<PointWeather, { kind: 'range' }>
         <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
         <div><dd>{data.window.longestPoorRun}<small> days</small></dd><dt>Longest poor run</dt></div>
       </dl>
-      <ComponentRows data={data} />
+      <ComponentRows data={data} legend={legend} />
       <p className="sourceLine">{pointSourceLabel(data.source)}</p>
     </>
   );
 }
 
-function DailyDetails({ data, lens, onLensChange }: { data: DailyPoint; lens: Lens; onLensChange: (lens: Lens) => void }) {
+function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; legend: WeatherManifest['legend']; lens: Lens; onLensChange: (lens: Lens) => void }) {
   return (
     <>
       <p className="pointSummary">{data.summary}</p>
@@ -476,7 +480,7 @@ function DailyDetails({ data, lens, onLensChange }: { data: DailyPoint; lens: Le
         <div><dt>{data.metrics.cloudPct !== undefined ? 'Cloud' : 'Sun energy'}</dt><dd>{data.metrics.cloudPct !== undefined ? `${format(data.metrics.cloudPct, 0)}%` : data.metrics.solarEnergyMJm2 !== undefined ? `${format(data.metrics.solarEnergyMJm2, 1)} MJ/m²` : '—'}</dd></div>
         <div><dt>Wind</dt><dd>{format(data.metrics.windKmh, 0)} km/h</dd></div>
       </dl>
-      <ComponentRows data={data} active={lens} onChange={onLensChange} />
+      <ComponentRows data={data} legend={legend} active={lens} onChange={onLensChange} />
       <details className="sourceDetails">
         <summary>Weather and source</summary>
         <dl>
@@ -495,12 +499,13 @@ function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; ey
   return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{Math.round(score)}</strong><span>{category}</span></div></div>;
 }
 
-function ComponentRows({ data, active, onChange }: { data: PointWeather; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
+function ComponentRows({ data, legend, active, onChange }: { data: PointWeather; legend: WeatherManifest['legend']; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
   const rows = [
     ['comfort', 'Comfort', data.components.comfort], ['dry', 'Dry', data.components.dryness], ['bright', 'Bright', data.components.sun], ['wind', 'Calm', data.components.wind],
   ] as const;
   return <div className="componentRows" aria-label="Weather score parts">{rows.map(([id, label, score]) => {
-    const content = <><span><strong>{label}</strong><small>{score.category}</small></span><i><b style={{ width: `${score.value}%` }} /></i><em>{score.value}</em></>;
+    const colour = legend.find((band) => band.label === score.category)?.color;
+    const content = <><span><strong>{label}</strong><small>{score.category}</small></span><i><b style={{ width: `${score.value}%`, backgroundColor: colour }} /></i><em>{score.value}</em></>;
     return onChange ? <button key={id} type="button" aria-pressed={active === id} onClick={() => onChange(id)}>{content}</button> : <div key={id}>{content}</div>;
   })}</div>;
 }

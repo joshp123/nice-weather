@@ -95,8 +95,10 @@ button:disabled { cursor: default; }
 .windTime button:disabled { color: #aaa8a2; }
 .windTime span { overflow: hidden; color: #4f585e; font-size: 10px; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .windTime i { margin-left: 3px; font-style: normal; }
-.scoreGuide { padding: 13px 14px 14px; }
-.scoreGuide h2 { margin: 0; font: 600 18px/1.1 "Iowan Old Style", Baskerville, Georgia, serif; }
+.scoreGuide { margin: 0; }
+.scoreGuide summary { display: flex; align-items: center; min-height: 40px; padding: 0 13px; color: #525b62; font-size: 12px; font-weight: 700; cursor: pointer; }
+.scoreGuide[open] summary { border-bottom: 1px solid var(--line); }
+.scoreGuideBody { padding: 6px 14px 14px; }
 .scoreGuide p { margin: 7px 0 0; color: #555e64; font-size: 11px; line-height: 1.42; }
 .scoreGuide dl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 10px 0; }
 .scoreGuide dl div { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
