@@ -123,8 +123,9 @@ button:disabled { cursor: default; }
 .dockMessage button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--paper-strong); cursor: pointer; }
 
 .pointPanel { position: absolute; z-index: 11; top: 76px; right: 62px; width: 356px; max-height: calc(100% - 186px); padding: 18px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 253, 247, .98); box-shadow: var(--shadow); scrollbar-width: thin; }
+.pointPanelHeader { position: relative; }
 .sheetHandle, .sheetExpand { display: none; }
-.closeButton { position: absolute; z-index: 2; top: 8px; right: 8px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #606970; font-size: 24px; line-height: 1; cursor: pointer; }
+.closeButton { position: absolute; z-index: 2; top: -10px; right: -10px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #606970; font-size: 24px; line-height: 1; cursor: pointer; }
 .pointHeading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px; padding-right: 24px; }
 .pointHeading p { margin: 0 0 3px; color: #6e767a; font-size: 10px; font-weight: 700; letter-spacing: .075em; text-transform: uppercase; }
 .pointHeading h2 { margin: 0; font: 600 24px/1.08 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.025em; }
@@ -231,8 +232,10 @@ button:disabled { cursor: default; }
 
   .pointPanel { top: auto; right: 8px; bottom: 70px; left: 8px; width: auto; max-height: 27dvh; padding: 15px 15px 12px; overflow: hidden; border-radius: 10px 10px 8px 8px; overscroll-behavior: contain; transition: max-height 160ms ease-out; }
   .hasRail .pointPanel { bottom: 127px; max-height: 26dvh; }
-  .pointPanel.expanded { max-height: 58dvh; overflow: auto; }
+  .pointPanel.expanded { display: flex; max-height: 58dvh; overflow: hidden; flex-direction: column; }
   .hasRail .pointPanel.expanded { max-height: 54dvh; }
+  .pointPanel.expanded .pointPanelHeader { flex: 0 0 auto; }
+  .pointPanel.expanded .pointPanelBody { min-height: 0; margin: 0 -15px -12px; padding: 0 15px 12px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
   .pointPanel:not(.expanded) .rangeFacts,
   .pointPanel:not(.expanded) .weatherFacts,
   .pointPanel:not(.expanded) .componentRows,
@@ -242,6 +245,7 @@ button:disabled { cursor: default; }
   .phonePointSummary { display: block; margin: 10px 28px 0 0; color: #555e64; font-size: 11px; line-height: 1.35; }
   .pointPanel.expanded .phonePointSummary { display: none; }
   .sheetHandle { display: block; width: 34px; height: 4px; margin: -8px auto 9px; border-radius: 2px; background: #c1bbb1; }
+  .closeButton { top: -7px; right: -7px; }
   .sheetExpand { display: block; width: 100%; min-height: 40px; margin-top: 9px; border: 0; border-top: 1px solid var(--line); background: transparent; color: #3f5f6d; font-size: 11px; font-weight: 700; cursor: pointer; }
   .pointHeading h2 { font-size: 22px; }
   .score strong { font-size: 36px; }

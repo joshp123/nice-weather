@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
-import { forecastRunStatus, freshnessLabel, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
+import { forecastRunStatus, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
 import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
 import { StaleWindReleaseError, WindFrameLoader, type WindGrid } from './data/wind';
 import type { MapPoint, OverlayState } from './map/WeatherMap';
+import { pointSourceLabel } from './presentation';
 import { forecastDetailNote, ratingBandLabel } from './scoreGuide';
 import { reportResourceSummary, telemetry } from './telemetry';
 import './styles.css';
@@ -424,23 +425,34 @@ function PointPanel({ state, point, lens, focusIntent, onLensChange, escapeEnabl
   useEscape(escapeEnabled, onClose);
   return (
     <aside ref={panel} tabIndex={-1} className={`pointPanel${expanded ? ' expanded' : ''}`} aria-live="polite" aria-label="Weather at selected place">
-      <div className="sheetHandle" aria-hidden="true" />
-      <button ref={close} className="closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
-      {state.status === 'loading' && <PointSkeleton label={point.label} />}
-      {state.status === 'error' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><strong>Weather unavailable</strong><p>{state.message}</p></div>}
-      {state.status === 'ready' && state.data && (state.data.kind === 'range'
-        ? <RangeDetails data={state.data} point={point} />
-        : <DailyDetails data={state.data} point={point} lens={lens} onLensChange={onLensChange} />)}
-      {state.status === 'idle' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}°</p></div>}
-      {state.status === 'ready' && <button className="sheetExpand" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show all details'}</button>}
+      <div className="pointPanelHeader">
+        <div className="sheetHandle" aria-hidden="true" />
+        <button ref={close} className="closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
+        {state.status === 'ready' && state.data && <PointHeadingFor data={state.data} point={point} />}
+      </div>
+      <div className="pointPanelBody">
+        {state.status === 'loading' && <PointSkeleton label={point.label} />}
+        {state.status === 'error' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><strong>Weather unavailable</strong><p>{state.message}</p></div>}
+        {state.status === 'ready' && state.data && (state.data.kind === 'range'
+          ? <RangeDetails data={state.data} />
+          : <DailyDetails data={state.data} lens={lens} onLensChange={onLensChange} />)}
+        {state.status === 'idle' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}°</p></div>}
+        {state.status === 'ready' && <button className="sheetExpand" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show all details'}</button>}
+      </div>
     </aside>
   );
 }
 
-function RangeDetails({ data, point }: { data: Extract<PointWeather, { kind: 'range' }>; point: MapPoint }) {
+function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint }) {
+  const eyebrow = data.kind === 'range'
+    ? `${shortRange(data.window.startDate, data.window.endDate)} · ${data.window.dayCount} days`
+    : data.source.basis === 'climate' ? `${data.periodLabel} · monthly average` : data.periodLabel;
+  return <PointHeading point={point} eyebrow={eyebrow} score={data.score} category={data.category} />;
+}
+
+function RangeDetails({ data }: { data: Extract<PointWeather, { kind: 'range' }> }) {
   return (
     <>
-      <PointHeading point={point} eyebrow={`${shortRange(data.window.startDate, data.window.endDate)} · ${data.window.dayCount} days`} score={data.score} category={data.category} />
       <p className="phonePointSummary">{data.window.niceDays} nice {data.window.niceDays === 1 ? 'day' : 'days'} · {data.window.awfulDays} awful · longest poor spell {data.window.longestPoorRun} {data.window.longestPoorRun === 1 ? 'day' : 'days'}</p>
       <dl className="rangeFacts">
         <div><dd>{data.window.niceDays}</dd><dt>Nice days</dt></div>
@@ -448,15 +460,14 @@ function RangeDetails({ data, point }: { data: Extract<PointWeather, { kind: 'ra
         <div><dd>{data.window.longestPoorRun}<small> days</small></dd><dt>Longest poor run</dt></div>
       </dl>
       <ComponentRows data={data} />
-      <p className="sourceLine">{data.source.detailLabel} · about {Math.round(data.source.resolutionKm)} km · built {humanDate(data.source.artifactGeneratedAt)}</p>
+      <p className="sourceLine">{pointSourceLabel(data.source)}</p>
     </>
   );
 }
 
-function DailyDetails({ data, point, lens, onLensChange }: { data: DailyPoint; point: MapPoint; lens: Lens; onLensChange: (lens: Lens) => void }) {
+function DailyDetails({ data, lens, onLensChange }: { data: DailyPoint; lens: Lens; onLensChange: (lens: Lens) => void }) {
   return (
     <>
-      <PointHeading point={point} eyebrow={data.source.basis === 'climate' ? `${data.periodLabel} · monthly average` : data.periodLabel} score={data.score} category={data.category} />
       <p className="pointSummary">{data.summary}</p>
       {data.source.basis === 'climate' && <p className="climateNote">Monthly average from {data.source.referencePeriod}; not the chance of a nice day.</p>}
       <dl className="weatherFacts">
@@ -475,7 +486,7 @@ function DailyDetails({ data, point, lens, onLensChange }: { data: DailyPoint; p
           <div><dt>Humidity</dt><dd>{optional(data.metrics.humidityPct, (value) => `${format(value, 0)}%`)}</dd></div>
         </dl>
       </details>
-      <p className="sourceLine">{sourceLabel(data)}</p>
+      <p className="sourceLine">{pointSourceLabel(data.source)}</p>
     </>
   );
 }
@@ -513,12 +524,6 @@ function periodStatus(manifest: WeatherManifest, view: View, period?: Period): s
   const status = forecastRunStatus(view === 'daily' && period ? period.sourceRunAt : manifest.forecast.updatedAt, manifest.forecast.staleAfterHours);
   if (view === 'range') return `${status.label} · ${shortRange(manifest.forecast.window.startDate, manifest.forecast.window.endDate)}`;
   return `${status.label} · ${period?.kind === 'outlook' ? 'Outlook' : 'Detailed'} · about ${Math.round(period?.resolutionKm ?? 0)} km`;
-}
-
-function sourceLabel(data: DailyPoint): string {
-  if (data.source.basis === 'climate') return `Typical month · ${data.source.referencePeriod} · ${data.source.providerLabel} · about ${Math.round(data.source.resolutionKm)} km`;
-  const detail = data.source.temporalResolutionHours === 1 ? 'hourly detail' : `up to ${data.source.temporalResolutionHours}-hour detail`;
-  return `${data.source.detailLabel} · ${data.source.providerLabel} · about ${Math.round(data.source.resolutionKm)} km · ${detail}`;
 }
 
 function comfortContext(data: DailyPoint) {
@@ -565,7 +570,6 @@ function defaultWindFrameIndex(frames: Period['windFrames']): number {
   });
   return closest;
 }
-function humanDate(value: string): string { return freshnessLabel(value).replace(/^Updated /, ''); }
 function format(value: number, digits: number): string { return new Intl.NumberFormat('en-GB', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value); }
 function optional(value: number | undefined, present: (value: number) => string): string { return value === undefined ? 'Not available' : present(value); }
 
