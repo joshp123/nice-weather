@@ -259,6 +259,10 @@ func Run(ctx context.Context, config Config) error {
 		if err != nil {
 			return err
 		}
+		period.WindFrames, err = writer.writeWindFrames(id, series, source)
+		if err != nil {
+			return fmt.Errorf("publish %s wind frames: %w", id, err)
+		}
 		rangeMetrics, err := pipeline.SampleMetricsAtRepresentativeCells(aggregatedSpec, quantized, rangeTargetSpec)
 		if err != nil {
 			return fmt.Errorf("sample %s onto 14-day grid: %w", day.Date.Format("2006-01-02"), err)

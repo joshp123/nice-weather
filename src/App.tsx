@@ -3,6 +3,7 @@ import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsF
 import { forecastRunStatus, freshnessLabel, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
 import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
+import { StaleWindReleaseError, WindFrameLoader, type WindGrid } from './data/wind';
 import type { MapPoint, OverlayState } from './map/WeatherMap';
 import { forecastDetailNote, ratingBandLabel } from './scoreGuide';
 import { reportResourceSummary, telemetry } from './telemetry';
@@ -16,6 +17,7 @@ type LoadState =
   | { status: 'error' };
 
 type PointState = { status: 'idle' | 'loading' | 'ready' | 'error'; data?: PointWeather; message?: string };
+type WindState = { status: 'idle' | 'loading' | 'ready' | 'error'; grid?: WindGrid };
 
 export default function App() {
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
@@ -30,10 +32,14 @@ export default function App() {
   const [mapNotice, setMapNotice] = useState('');
   const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const [windEnabled, setWindEnabled] = useState(false);
+  const [windFrameSelection, setWindFrameSelection] = useState({ periodId: '', index: 0 });
+  const [windState, setWindState] = useState<WindState>({ status: 'idle' });
   const [pointState, setPointState] = useState<PointState>({ status: 'idle' });
   const [detailsFocusIntent, setDetailsFocusIntent] = useState<DetailsFocusIntent>({ token: 0, requested: false });
   const pointFocusOrigin = useRef<HTMLElement | null>(null);
   const staleReloadedRelease = useRef<string | undefined>(undefined);
+  const windLoader = useRef(new WindFrameLoader());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -56,6 +62,9 @@ export default function App() {
   const manifest = loadState.status === 'ready' ? loadState.manifest : undefined;
   const periods = useMemo(() => periodsFor(manifest, view), [manifest, view]);
   const period = periods.find((item) => item.id === periodId) ?? periods[0];
+  const windFrameIndex = windFrameSelection.periodId === period?.id
+    ? Math.min(windFrameSelection.index, Math.max(0, (period?.windFrames?.length ?? 1) - 1))
+    : defaultWindFrameIndex(period?.windFrames);
   const activePeriodId = view === 'range' ? manifest?.forecast.window.id : period?.id;
 
   useEffect(() => {
@@ -89,6 +98,30 @@ export default function App() {
     return () => controller.abort();
   }, [activePeriodId, manifest, profile, refreshStaleRelease, selectedPoint]);
 
+  useEffect(() => {
+    const frames = period?.windFrames;
+    const asset = frames?.[windFrameIndex];
+    if (!windEnabled || view !== 'daily' || !manifest || !asset) {
+      windLoader.current.clear();
+      setWindState({ status: 'idle' });
+      return;
+    }
+    const startedAt = performance.now();
+    setWindState({ status: 'loading' });
+    windLoader.current.load(manifest.releaseId, asset, manifest.bounds)
+      .then((grid) => {
+        if (!grid) return;
+        setWindState({ status: 'ready', grid });
+        telemetry('wind-frame-ready', { elapsedMs: Math.round(performance.now() - startedAt), validAt: grid.validAt, rows: grid.rows, cols: grid.cols });
+      })
+      .catch((error: Error) => {
+        if (error instanceof StaleWindReleaseError && refreshStaleRelease(manifest.releaseId)) return;
+        console.error('[nice-weather] Wind direction load failed.', error);
+        setWindState({ status: 'error' });
+      });
+    return () => windLoader.current.clear();
+  }, [manifest, period, refreshStaleRelease, view, windEnabled, windFrameIndex]);
+
   const overlayUrl = useMemo(() => {
     if (!manifest) return undefined;
     if (view === 'range') return imageAssetUrl(manifest.releaseId, manifest.forecast.window.profiles[profile].image);
@@ -101,6 +134,7 @@ export default function App() {
     telemetry('view-changed', { view: next });
     setView(next);
     setLayerMenuOpen(false);
+    if (next !== 'daily') setWindEnabled(false);
     if (next === 'range') setLens('overall');
     setPeriodId('');
   };
@@ -118,6 +152,7 @@ export default function App() {
       <Suspense fallback={<div className="mapCanvas mapLoading" aria-label="Loading map" />}>
         <WeatherMap
           overlayUrl={overlayUrl}
+          windGrid={windState.status === 'ready' ? windState.grid : undefined}
           bounds={manifest?.bounds}
           selectedPoint={selectedPoint}
           focusPoint={focusPoint}
@@ -158,11 +193,17 @@ export default function App() {
       {manifest && (
         <LayerLegend
           manifest={manifest}
+          period={period}
           view={view}
           lens={lens}
           open={layerMenuOpen}
+          windEnabled={windEnabled}
+          windFrameIndex={windFrameIndex}
+          windStatus={windState.status}
           onOpenChange={setLayerMenuOpen}
           onChange={(next) => { setLens(next); setLayerMenuOpen(false); telemetry('lens-changed', { lens: next }); }}
+          onWindEnabledChange={(enabled) => { setWindEnabled(enabled); telemetry('wind-direction-changed', { enabled }); }}
+          onWindFrameChange={(index) => setWindFrameSelection({ periodId: period?.id ?? '', index })}
         />
       )}
 
@@ -233,13 +274,29 @@ function PeriodRail({ periods, selectedId, view, onChange }: { periods: Period[]
 }
 
 const LENSES: Array<{ id: Lens; label: string }> = [
-  { id: 'overall', label: 'Overall' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Bright' }, { id: 'wind', label: 'Wind' },
+  { id: 'overall', label: 'Overall' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Bright' }, { id: 'wind', label: 'Calm' },
 ];
 
-function LayerLegend({ manifest, view, lens, open, onOpenChange, onChange }: { manifest: WeatherManifest; view: View; lens: Lens; open: boolean; onOpenChange: (open: boolean) => void; onChange: (lens: Lens) => void }) {
+type LayerLegendProps = {
+  manifest: WeatherManifest;
+  period?: Period;
+  view: View;
+  lens: Lens;
+  open: boolean;
+  windEnabled: boolean;
+  windFrameIndex: number;
+  windStatus: WindState['status'];
+  onOpenChange: (open: boolean) => void;
+  onChange: (lens: Lens) => void;
+  onWindEnabledChange: (enabled: boolean) => void;
+  onWindFrameChange: (index: number) => void;
+};
+
+function LayerLegend({ manifest, period, view, lens, open, windEnabled, windFrameIndex, windStatus, onOpenChange, onChange, onWindEnabledChange, onWindFrameChange }: LayerLegendProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   useEscape(open, () => { onOpenChange(false); restoreFocus(trigger.current); });
   const active = view === 'range' ? 'Overall' : LENSES.find((item) => item.id === lens)?.label ?? 'Overall';
+  const frames = view === 'daily' ? period?.windFrames ?? [] : [];
   return (
     <div className="legendControl">
       <button ref={trigger} type="button" className="legendTrigger" aria-haspopup="dialog" aria-expanded={open} onClick={() => onOpenChange(!open)}>
@@ -252,9 +309,22 @@ function LayerLegend({ manifest, view, lens, open, onOpenChange, onChange }: { m
           {view !== 'range' && <div className="layerMenu" role="radiogroup" aria-label="Map layer">
             {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={lens === item.id} onClick={() => { onChange(item.id); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><b aria-hidden="true">{lens === item.id ? '✓' : ''}</b></button>)}
           </div>}
+          {view === 'daily' && <button type="button" className="windToggle" role="switch" aria-checked={windEnabled} onClick={() => onWindEnabledChange(!windEnabled)}><span>Wind direction</span><b aria-hidden="true">{windEnabled ? 'On' : 'Off'}</b></button>}
           <ScoreGuide manifest={manifest} />
         </div>
       )}
+      {windEnabled && view === 'daily' && <WindTimeControl frames={frames} index={windFrameIndex} status={windStatus} onChange={onWindFrameChange} />}
+    </div>
+  );
+}
+
+function WindTimeControl({ frames, index, status, onChange }: { frames: NonNullable<Period['windFrames']>; index: number; status: WindState['status']; onChange: (index: number) => void }) {
+  const frame = frames[index];
+  return (
+    <div className="windTime" aria-label="Wind direction time">
+      <button type="button" aria-label="Earlier wind direction" disabled={index <= 0} onClick={() => onChange(index - 1)}>‹</button>
+      <span>{status === 'error' ? 'Direction unavailable' : frame ? timeLabel(frame.validAt) : 'No direction data'}{status === 'loading' && <i aria-label="Loading">…</i>}</span>
+      <button type="button" aria-label="Later wind direction" disabled={index >= frames.length - 1} onClick={() => onChange(index + 1)}>›</button>
     </div>
   );
 }
@@ -263,7 +333,7 @@ function ScoreGuide({ manifest }: { manifest: WeatherManifest }) {
   return (
     <section className="scoreGuide" aria-label="How scores work">
       <h2>How scores work</h2>
-      <p>Scores combine Comfort, Dry, Bright and Wind. Higher is better.</p>
+      <p>Scores combine Comfort, Dry, Bright and Calm. Higher is better.</p>
       <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
       <p><strong>Nice</strong> favours warm, bright, dry and calm weather. <strong>Cycling</strong> is stricter about rain, wind and gusts.</p>
       <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
@@ -416,7 +486,7 @@ function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; ey
 
 function ComponentRows({ data, active, onChange }: { data: PointWeather; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
   const rows = [
-    ['comfort', 'Comfort', data.components.comfort], ['dry', 'Dry', data.components.dryness], ['bright', 'Bright', data.components.sun], ['wind', 'Wind', data.components.wind],
+    ['comfort', 'Comfort', data.components.comfort], ['dry', 'Dry', data.components.dryness], ['bright', 'Bright', data.components.sun], ['wind', 'Calm', data.components.wind],
   ] as const;
   return <div className="componentRows" aria-label="Weather score parts">{rows.map(([id, label, score]) => {
     const content = <><span><strong>{label}</strong><small>{score.category}</small></span><i><b style={{ width: `${score.value}%` }} /></i><em>{score.value}</em></>;
@@ -447,7 +517,7 @@ function periodStatus(manifest: WeatherManifest, view: View, period?: Period): s
 
 function sourceLabel(data: DailyPoint): string {
   if (data.source.basis === 'climate') return `Typical month · ${data.source.referencePeriod} · ${data.source.providerLabel} · about ${Math.round(data.source.resolutionKm)} km`;
-  const detail = data.source.temporalResolutionHours === 1 ? 'hourly detail' : `${data.source.temporalResolutionHours}-hour detail`;
+  const detail = data.source.temporalResolutionHours === 1 ? 'hourly detail' : `up to ${data.source.temporalResolutionHours}-hour detail`;
   return `${data.source.detailLabel} · ${data.source.providerLabel} · about ${Math.round(data.source.resolutionKm)} km · ${detail}`;
 }
 
@@ -483,6 +553,18 @@ function locate(success: (point: MapPoint) => void, error: (message: string) => 
 
 function shortRange(start: string, end: string): string { return `${dateLabel(start)}–${dateLabel(end)}`; }
 function dateLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)); }
+function timeLabel(value: string): string { return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' }).format(new Date(value)) + ' UTC'; }
+function defaultWindFrameIndex(frames: Period['windFrames']): number {
+  if (!frames?.length) return 0;
+  let closest = 0;
+  let distance = Number.POSITIVE_INFINITY;
+  frames.forEach((frame, index) => {
+    const date = new Date(frame.validAt);
+    const fromNoon = Math.abs(date.getUTCHours() * 60 + date.getUTCMinutes() - 12 * 60);
+    if (fromNoon < distance) { closest = index; distance = fromNoon; }
+  });
+  return closest;
+}
 function humanDate(value: string): string { return freshnessLabel(value).replace(/^Updated /, ''); }
 function format(value: number, digits: number): string { return new Intl.NumberFormat('en-GB', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value); }
 function optional(value: number | undefined, present: (value: number) => string): string { return value === undefined ? 'Not available' : present(value); }

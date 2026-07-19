@@ -18,7 +18,7 @@ const ManifestVersion = 5
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v11"
+const ProductContract = "nice-weather-v12"
 
 const ImageProjectionWebMercator = "web-mercator"
 
@@ -138,6 +138,16 @@ type Period struct {
 	Lenses                  map[string]ImageAsset `json:"lenses"`
 	GridURL                 string                `json:"gridUrl"`
 	GridSHA256              string                `json:"gridSha256"`
+	WindFrames              []WindFrameAsset      `json:"windFrames,omitempty"`
+}
+
+// WindFrameAsset is one immutable instantaneous u/v field. Its binary format
+// fixes component units and quantisation; the manifest owns time and identity.
+type WindFrameAsset struct {
+	ValidAt           string `json:"validAt"`
+	URL               string `json:"url"`
+	SHA256            string `json:"sha256"`
+	ClippedComponents uint32 `json:"clippedComponents"`
 }
 
 const (
@@ -257,11 +267,15 @@ func ValidateManifest(manifest Manifest) error {
 	}
 	seen := make(map[string]struct{})
 	seenDates := make(map[string]struct{})
+	seenWindPaths := make(map[string]string)
 	for _, day := range manifest.Forecast.Days {
 		if !datePattern.MatchString(day.Date) || !validDate(day.Date) || (day.Kind != "detailed" && day.Kind != "outlook") {
 			return fmt.Errorf("invalid forecast day %q", day.ID)
 		}
 		if err := validatePeriod(day.Period, profiles, seen); err != nil {
+			return fmt.Errorf("forecast day %q: %w", day.ID, err)
+		}
+		if err := validateWindFrames(day.Period, seenWindPaths); err != nil {
 			return fmt.Errorf("forecast day %q: %w", day.ID, err)
 		}
 		if _, exists := seenDates[day.Date]; exists {
@@ -287,6 +301,9 @@ func ValidateManifest(manifest Manifest) error {
 			seenMonths[month.Month] = struct{}{}
 			if err := validatePeriod(month.Period, profiles, seen); err != nil {
 				return fmt.Errorf("climate month %q: %w", month.ID, err)
+			}
+			if len(month.WindFrames) != 0 {
+				return fmt.Errorf("climate month %q must not contain forecast wind frames", month.ID)
 			}
 		}
 	}
@@ -434,6 +451,42 @@ func validatePeriod(period Period, profiles map[string]struct{}, seen map[string
 		if err := validateImageAsset(asset); err != nil {
 			return fmt.Errorf("component lens %q: %w", lens, err)
 		}
+	}
+	return nil
+}
+
+func validateWindFrames(period Period, seenPaths map[string]string) error {
+	if len(period.WindFrames) < 2 {
+		return errors.New("forecast period needs at least two wind frames")
+	}
+	validFrom, _ := time.Parse(time.RFC3339, period.Source.ValidFrom)
+	validTo, _ := time.Parse(time.RFC3339, period.Source.ValidTo)
+	var previous time.Time
+	for index, asset := range period.WindFrames {
+		validAt, err := time.Parse(time.RFC3339, asset.ValidAt)
+		if err != nil {
+			return fmt.Errorf("wind frame %d validAt must be RFC3339", index)
+		}
+		if validAt.Before(validFrom) || validAt.After(validTo) {
+			return fmt.Errorf("wind frame %d is outside the period validity window", index)
+		}
+		if index > 0 && !validAt.After(previous) {
+			return fmt.Errorf("wind frame %d must follow the previous source timestamp", index)
+		}
+		if err := validateAssetPath(asset.URL); err != nil || !strings.HasPrefix(asset.URL, "wind/") || !strings.HasSuffix(asset.URL, ".nww.gz") {
+			return fmt.Errorf("wind frame %d URL must be a clean wind asset path", index)
+		}
+		if !validSHA256(asset.SHA256) {
+			return fmt.Errorf("wind frame %d needs SHA-256", index)
+		}
+		if !strings.Contains(asset.URL, strings.ToLower(asset.SHA256)) {
+			return fmt.Errorf("wind frame %d URL must contain its SHA-256", index)
+		}
+		if owner, exists := seenPaths[asset.URL]; exists {
+			return fmt.Errorf("wind frame %d duplicates asset path owned by %s", index, owner)
+		}
+		seenPaths[asset.URL] = period.ID
+		previous = validAt
 	}
 	return nil
 }

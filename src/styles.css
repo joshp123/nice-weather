@@ -85,6 +85,16 @@ button:disabled { cursor: default; }
 .layerMenu button { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 40px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; font-size: 13px; cursor: pointer; }
 .layerMenu button:hover, .layerMenu button[aria-checked="true"] { background: #eee8dc; }
 .layerMenu b { color: var(--accent); }
+.windToggle { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 42px; padding: 0 13px; border: 0; border-bottom: 1px solid var(--line); background: transparent; font-size: 13px; cursor: pointer; }
+.windToggle:hover { background: #eee8dc; }
+.windToggle b { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.windToggle[aria-checked="true"] b { color: var(--focus); }
+.windTime { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: center; width: 194px; min-height: 34px; margin-top: 5px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 253, 247, .96); box-shadow: 0 3px 12px rgba(25, 34, 42, .12); }
+.windTime button { height: 34px; padding: 0; border: 0; background: transparent; font-size: 21px; cursor: pointer; }
+.windTime button:hover:not(:disabled) { background: #eee8dc; }
+.windTime button:disabled { color: #aaa8a2; }
+.windTime span { overflow: hidden; color: #4f585e; font-size: 10px; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.windTime i { margin-left: 3px; font-style: normal; }
 .scoreGuide { padding: 13px 14px 14px; }
 .scoreGuide h2 { margin: 0; font: 600 18px/1.1 "Iowan Old Style", Baskerville, Georgia, serif; }
 .scoreGuide p { margin: 7px 0 0; color: #555e64; font-size: 11px; line-height: 1.42; }
@@ -213,6 +223,7 @@ button:disabled { cursor: default; }
   .legendControl { left: 9px; bottom: 72px; }
   .hasRail .legendControl { bottom: 125px; }
   .legendTrigger { width: 154px; padding: 7px 8px 6px; }
+  .windTime { width: 154px; }
   .legendTop { margin-bottom: 4px; }
   .legendRamp { height: 6px; }
   .legendPopover { width: min(294px, calc(100vw - 18px)); }

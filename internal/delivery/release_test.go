@@ -522,6 +522,20 @@ func makeRelease(t *testing.T, root, name string, temperature int16) string {
 	manifest.Climate = nil
 	manifest.Forecast.Days[0].Images = assets
 	manifest.Forecast.Days[0].Lenses = lenses
+	for index := range manifest.Forecast.Days[0].WindFrames {
+		temporary := filepath.Join(release, "wind", ".frame-"+string(rune('a'+index))+".nww.gz")
+		windMeta, err := WriteWindGridGzip(temporary, GridSpec{Bounds: manifest.Region.Bounds, Rows: 1, Cols: 1}, []WindVector{{U: float32(index + 2), V: -1, Valid: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(release, "wind", "frame-"+string(rune('a'+index))+"-"+windMeta.SHA256+".nww.gz")
+		if err := os.Rename(temporary, path); err != nil {
+			t.Fatal(err)
+		}
+		manifest.Forecast.Days[0].WindFrames[index].URL = filepath.ToSlash(strings.TrimPrefix(path, release+string(filepath.Separator)))
+		manifest.Forecast.Days[0].WindFrames[index].SHA256 = windMeta.SHA256
+		manifest.Forecast.Days[0].WindFrames[index].ClippedComponents = windMeta.ClippedComponents
+	}
 	manifest.Forecast.Window.Profiles = make(map[string]ForecastRangeAsset, 2)
 	for _, profile := range []string{ProfileNice, ProfileCycling} {
 		gridPath := filepath.Join(release, "grids", "range-"+profile+".nwr")

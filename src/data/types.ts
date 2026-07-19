@@ -12,6 +12,13 @@ export type WeatherImage = {
   projection: 'web-mercator';
 };
 
+export type WindFrameAsset = {
+  validAt: string;
+  url: string;
+  sha256: string;
+  clippedComponents: number;
+};
+
 export type Period = {
   id: string;
   label: string;
@@ -25,6 +32,7 @@ export type Period = {
   providerLabel: string;
   sourceRunAt: string;
   temporalResolutionHours: number;
+  windFrames?: WindFrameAsset[];
 };
 
 export type ForecastWindow = {
@@ -50,7 +58,7 @@ export type PaletteStop = { score: number; color: string };
 export type WeatherManifest = {
   version: 5;
   releaseId: string;
-  productContract: 'nice-weather-v11';
+  productContract: 'nice-weather-v12';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];

@@ -18,7 +18,7 @@ import (
 
 var fixtureTime = time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 
-const fixtureRelease = "fixture-20260718-v12"
+const fixtureRelease = "fixture-20260718-v13"
 
 var fixtureLegend = delivery.CanonicalLegend()
 var fixturePalette = delivery.CanonicalPalette()
@@ -174,11 +174,54 @@ func writeFixturePeriod(releaseDir string, spec delivery.GridSpec, landMask []by
 		lenses[item.id] = asset
 	}
 	source := fixtureSource(group, id, sourceKind)
-	return delivery.Period{
+	period := delivery.Period{
 		ID: id, Label: id, Source: source,
 		NativeResolutionKM: resolution, TemporalResolutionHours: temporal,
 		Images: images, Lenses: lenses, GridURL: gridURL, GridSHA256: metadata.SHA256,
-	}, metrics, nil
+	}
+	if group == "forecast" {
+		period.WindFrames, err = writeFixtureWindFrames(releaseDir, id, spec, source, temporal, phase)
+		if err != nil {
+			return delivery.Period{}, nil, err
+		}
+	}
+	return period, metrics, nil
+}
+
+func writeFixtureWindFrames(releaseDir, periodID string, spec delivery.GridSpec, source delivery.Source, temporalHours, phase int) ([]delivery.WindFrameAsset, error) {
+	validFrom, err := time.Parse(time.RFC3339, source.ValidFrom)
+	if err != nil {
+		return nil, err
+	}
+	validTo, err := time.Parse(time.RFC3339, source.ValidTo)
+	if err != nil {
+		return nil, err
+	}
+	directory := filepath.Join(releaseDir, "wind", periodID)
+	assets := make([]delivery.WindFrameAsset, 0)
+	for validAt := validFrom; !validAt.After(validTo); validAt = validAt.Add(time.Duration(temporalHours) * time.Hour) {
+		vectors := make([]delivery.WindVector, int(spec.Rows*spec.Cols))
+		for row := uint32(0); row < spec.Rows; row++ {
+			lat := spec.Bounds.North - (float64(row)+.5)/float64(spec.Rows)*(spec.Bounds.North-spec.Bounds.South)
+			for col := uint32(0); col < spec.Cols; col++ {
+				lon := spec.Bounds.West + (float64(col)+.5)/float64(spec.Cols)*(spec.Bounds.East-spec.Bounds.West)
+				angle := lon*.08 + lat*.05 + float64(phase)*.3 + float64(validAt.Hour())*.09
+				speed := 3.5 + 2.5*math.Abs(math.Sin(lat*.11-lon*.07+float64(phase)))
+				vectors[int(row*spec.Cols+col)] = delivery.WindVector{U: float32(math.Sin(angle) * speed), V: float32(math.Cos(angle) * speed), Valid: true}
+			}
+		}
+		temporary := filepath.Join(directory, fmt.Sprintf(".%s.building.nww.gz", validAt.Format("1504")))
+		metadata, err := delivery.WriteWindGridGzip(temporary, spec, vectors)
+		if err != nil {
+			return nil, err
+		}
+		url := filepath.ToSlash(filepath.Join("wind", periodID, fmt.Sprintf("%s-%s.nww.gz", validAt.Format("1504"), metadata.SHA256)))
+		if err := os.Rename(temporary, filepath.Join(releaseDir, filepath.FromSlash(url))); err != nil {
+			return nil, err
+		}
+		assets = append(assets, delivery.WindFrameAsset{ValidAt: validAt.Format(time.RFC3339), URL: url, SHA256: metadata.SHA256, ClippedComponents: metadata.ClippedComponents})
+	}
+	return assets, nil
 }
 
 func writeFixtureForecastWindow(releaseDir string, spec delivery.GridSpec, days [][]weather.DailyMetrics) (delivery.ForecastWindow, error) {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -115,6 +116,91 @@ func (writer *releaseWriter) writePeriod(group, id, label string, spec delivery.
 		ID: id, Label: label, Source: source, NativeResolutionKM: resolution,
 		TemporalResolutionHours: temporalHours, Images: images, Lenses: lenses, GridURL: gridURL, GridSHA256: meta.SHA256,
 	}, quantized, nil
+}
+
+func (writer *releaseWriter) writeWindFrames(periodID string, series pipeline.Series, source delivery.Source) ([]delivery.WindFrameAsset, error) {
+	validFrom, err := time.Parse(time.RFC3339, source.ValidFrom)
+	if err != nil {
+		return nil, fmt.Errorf("parse wind validity start: %w", err)
+	}
+	validTo, err := time.Parse(time.RFC3339, source.ValidTo)
+	if err != nil {
+		return nil, fmt.Errorf("parse wind validity end: %w", err)
+	}
+	uFrames, vFrames := series[pipeline.WindU], series[pipeline.WindV]
+	if len(uFrames) == 0 || len(vFrames) == 0 {
+		return nil, fmt.Errorf("complete u/v wind series is required")
+	}
+	for _, component := range []struct {
+		label  string
+		frames []pipeline.Frame
+	}{{"u", uFrames}, {"v", vFrames}} {
+		for index := 1; index < len(component.frames); index++ {
+			if !component.frames[index].End.After(component.frames[index-1].End) {
+				return nil, fmt.Errorf("%s wind source timestamps are not strictly increasing at %s", component.label, component.frames[index].End.Format(time.RFC3339))
+			}
+		}
+	}
+	vByTime := make(map[time.Time]pipeline.Frame, len(vFrames))
+	for _, frame := range vFrames {
+		if _, duplicate := vByTime[frame.End]; duplicate {
+			return nil, fmt.Errorf("duplicate v wind frame at %s", frame.End.Format(time.RFC3339))
+		}
+		vByTime[frame.End] = frame
+	}
+	assets := make([]delivery.WindFrameAsset, 0)
+	for _, uFrame := range uFrames {
+		validAt := uFrame.End
+		if validAt.Before(validFrom) || validAt.After(validTo) {
+			continue
+		}
+		vFrame, ok := vByTime[validAt]
+		if !ok {
+			return nil, fmt.Errorf("u wind frame at %s has no matching v frame", validAt.Format(time.RFC3339))
+		}
+		if uFrame.Semantics != pipeline.Instant || vFrame.Semantics != pipeline.Instant || uFrame.Start != validAt || vFrame.Start != validAt {
+			return nil, fmt.Errorf("wind frame at %s is not instantaneous", validAt.Format(time.RFC3339))
+		}
+		if uFrame.Units != "m/s" || vFrame.Units != "m/s" {
+			return nil, fmt.Errorf("wind frame at %s must use m/s components", validAt.Format(time.RFC3339))
+		}
+		if uFrame.Grid.Spec != vFrame.Grid.Spec || len(uFrame.Grid.Values) != len(vFrame.Grid.Values) {
+			return nil, fmt.Errorf("wind frame at %s has mismatched u/v geometry", validAt.Format(time.RFC3339))
+		}
+		vectors := make([]delivery.WindVector, len(uFrame.Grid.Values))
+		for index := range vectors {
+			u, v := uFrame.Grid.Values[index], vFrame.Grid.Values[index]
+			uMissing, vMissing := math.IsNaN(float64(u)), math.IsNaN(float64(v))
+			if uMissing != vMissing {
+				return nil, fmt.Errorf("wind frame at %s cell %d has partial u/v support", validAt.Format(time.RFC3339), index)
+			}
+			if !uMissing {
+				vectors[index] = delivery.WindVector{U: u, V: v, Valid: true}
+			}
+		}
+		directory := filepath.Join(writer.dir, "wind", periodID)
+		temporary := filepath.Join(directory, fmt.Sprintf(".%s.building.nww.gz", validAt.Format("1504")))
+		metadata, err := delivery.WriteWindGridGzip(temporary, uFrame.Grid.Spec, vectors)
+		if err != nil {
+			return nil, fmt.Errorf("write %s: %w", validAt.Format(time.RFC3339), err)
+		}
+		url := filepath.ToSlash(filepath.Join("wind", periodID, fmt.Sprintf("%s-%s.nww.gz", validAt.Format("1504"), metadata.SHA256)))
+		if err := os.Rename(temporary, filepath.Join(writer.dir, filepath.FromSlash(url))); err != nil {
+			return nil, err
+		}
+		assets = append(assets, delivery.WindFrameAsset{ValidAt: validAt.Format(time.RFC3339), URL: url, SHA256: metadata.SHA256, ClippedComponents: metadata.ClippedComponents})
+	}
+	if len(assets) < 2 {
+		return nil, fmt.Errorf("period has %d in-window wind frames; want at least 2", len(assets))
+	}
+	for index := 1; index < len(assets); index++ {
+		previous, _ := time.Parse(time.RFC3339, assets[index-1].ValidAt)
+		current, _ := time.Parse(time.RFC3339, assets[index].ValidAt)
+		if !current.After(previous) {
+			return nil, fmt.Errorf("wind source timestamps are not strictly increasing at %s", assets[index].ValidAt)
+		}
+	}
+	return assets, nil
 }
 
 func (writer *releaseWriter) renderOverlay(group, periodID, assetID string, spec delivery.GridSpec, records []delivery.DailyRecord, metrics []weather.DailyMetrics, profile weather.Profile, lens weather.Lens, width, height int) (delivery.ImageAsset, error) {

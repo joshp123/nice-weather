@@ -7,10 +7,36 @@ describe('weather delivery client', () => {
   it('parses manifest v5 with the canonical 14-day window', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v11');
+    expect(manifest.productContract).toBe('nice-weather-v12');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
     expect(manifest.forecast.days).toHaveLength(14);
     expect(manifest.climate?.months).toHaveLength(12);
+  });
+
+  it('accepts strictly increasing mixed wind source times', async () => {
+    const fixture = manifestFixture();
+    fixture.forecast.days[0].windFrames = [0, 1, 2, 5, 8, 10].map((index) => fixture.forecast.days[0].windFrames[index]);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+    const manifest = await loadManifest();
+    expect(manifest.forecast.days[0].windFrames?.map((frame) => frame.validAt)).toEqual([
+      '2026-07-18T10:00:00Z', '2026-07-18T11:00:00Z', '2026-07-18T12:00:00Z',
+      '2026-07-18T15:00:00Z', '2026-07-18T18:00:00Z', '2026-07-18T20:00:00Z',
+    ]);
+  });
+
+  it('rejects duplicate and out-of-order wind source times', async () => {
+    for (const times of [
+      ['2026-07-18T10:00:00Z', '2026-07-18T10:00:00Z'],
+      ['2026-07-18T11:00:00Z', '2026-07-18T10:00:00Z'],
+    ]) {
+      const fixture = manifestFixture();
+      fixture.forecast.days[0].windFrames[0].validAt = times[0];
+      fixture.forecast.days[0].windFrames[1].validAt = times[1];
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+      await expect(loadManifest()).rejects.toThrow('forecast could not be read');
+      vi.restoreAllMocks();
+    }
   });
 
   it('rejects old contracts behind one human-facing error and logs the technical cause', async () => {
@@ -169,10 +195,16 @@ function manifestFixture(): Record<string, any> {
   });
   const days = Array.from({ length: 14 }, (_, index) => {
     const date = `2026-07-${String(18 + index).padStart(2, '0')}`;
-    return period(date, { date, kind: index < 5 ? 'detailed' : 'outlook' });
+    const windFrames = Array.from({ length: 11 }, (_, hour) => ({
+      validAt: `2026-07-18T${String(10 + hour).padStart(2, '0')}:00:00Z`,
+      url: `wind/${date}-${String(hour).padStart(2, '0')}-${digest(`${date}-${hour}`)}.nww.gz`,
+      sha256: digest(`${date}-${hour}`),
+      clippedComponents: 0,
+    }));
+    return period(date, { date, kind: index < 5 ? 'detailed' : 'outlook', windFrames });
   });
   return {
-    version: 5, releaseId: 'release-20260718', productContract: 'nice-weather-v11', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 5, releaseId: 'release-20260718', productContract: 'nice-weather-v12', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: [

@@ -4,7 +4,7 @@ import type {
 } from './types';
 
 const MANIFEST_VERSION = 5;
-const PRODUCT_CONTRACT = 'nice-weather-v11';
+const PRODUCT_CONTRACT = 'nice-weather-v12';
 
 export class StaleReleaseError extends Error {
   readonly code = 'stale_release';
@@ -82,6 +82,8 @@ function parseManifest(value: unknown): WeatherManifest {
   const days = periodList(forecast.days, 'forecast');
   if (days.length !== 14) throw new Error('The forecast must contain 14 days.');
   if (new Set(days.map((day) => day.id)).size !== days.length) throw new Error('Forecast period IDs must be unique.');
+  const windURLs = days.flatMap((day) => day.windFrames?.map((frame) => frame.url) ?? []);
+  if (new Set(windURLs).size !== windURLs.length) throw new Error('Forecast wind asset paths must be unique.');
   if (days.some((day, index) => day.date !== addUtcDays(days[0].date!, index))) throw new Error('Forecast days must be consecutive.');
   const window = forecastWindow(forecast.window, days);
   let climate: WeatherManifest['climate'];
@@ -153,7 +155,7 @@ function paletteList(value: unknown): Array<{ score: number; color: string }> {
 
 function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
   return array(value, `${basis} periods`).map((item, index) => {
-    const allowed = ['id', 'label', 'source', 'nativeResolutionKm', 'temporalResolutionHours', 'images', 'lenses', 'gridUrl', 'gridSha256', basis === 'forecast' ? 'date' : 'month', basis === 'forecast' ? 'kind' : 'month'];
+    const allowed = ['id', 'label', 'source', 'nativeResolutionKm', 'temporalResolutionHours', 'images', 'lenses', 'gridUrl', 'gridSha256', basis === 'forecast' ? 'date' : 'month', basis === 'forecast' ? 'kind' : 'month', ...(basis === 'forecast' ? ['windFrames'] : [])];
     const row = exactObject(item, [...new Set(allowed)], `${basis} period ${index + 1}`);
     const source = exactObject(row.source, ['providerId', 'providerLabel', 'runAt', 'validFrom', 'validTo'], `${basis} source`);
     const images = exactObject(row.images, ['nice', 'cycling'], `${basis} images`);
@@ -161,12 +163,15 @@ function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
     assetPath(text(row.gridUrl, `${basis} grid URL`), `${basis} grid URL`, 'grids');
     checksum(row.gridSha256, `${basis} grid checksum`);
     const label = text(row.label, `${basis} label`);
+    const temporalResolutionHours = positiveInteger(row.temporalResolutionHours, 'temporalResolutionHours');
+    const sourceValidFrom = timestamp(source.validFrom, 'source validFrom');
+    const sourceValidTo = timestamp(source.validTo, 'source validTo');
     const period: Period = {
       id: text(row.id, `${basis} id`),
       label,
       shortLabel: basis === 'forecast' ? shortDate(date(row.date, 'forecast date')) : label.slice(0, 3),
       resolutionKm: positiveNumber(row.nativeResolutionKm, 'nativeResolutionKm'),
-      temporalResolutionHours: positiveInteger(row.temporalResolutionHours, 'temporalResolutionHours'),
+      temporalResolutionHours,
       providerLabel: text(source.providerLabel, 'providerLabel'),
       sourceRunAt: timestamp(source.runAt, 'source runAt'),
       images: { nice: weatherImage(images.nice, `${basis} nice image`), cycling: weatherImage(images.cycling, `${basis} cycling image`) },
@@ -182,6 +187,7 @@ function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
       period.date = date(row.date, 'forecast date');
       if (row.kind !== 'detailed' && row.kind !== 'outlook') throw new Error('Invalid forecast kind.');
       period.kind = row.kind;
+      period.windFrames = windFrames(row.windFrames, sourceValidFrom, sourceValidTo);
     } else {
       const month = positiveInteger(row.month, 'climate month');
       if (month > 12) throw new Error('Invalid climate month.');
@@ -189,6 +195,29 @@ function periodList(value: unknown, basis: 'forecast' | 'climate'): Period[] {
     }
     return period;
   });
+}
+
+function windFrames(value: unknown, validFrom: string, validTo: string): Period['windFrames'] {
+  const frames = array(value, 'wind frames').map((item, index) => {
+    const row = exactObject(item, ['validAt', 'url', 'sha256', 'clippedComponents'], `wind frame ${index + 1}`);
+    const url = assetPath(text(row.url, 'wind URL'), 'wind URL', 'wind');
+    const sha256 = checksum(row.sha256, 'wind checksum');
+    if (!url.endsWith('.nww.gz')) throw new Error('Invalid wind asset format.');
+    if (!url.includes(sha256)) throw new Error('Wind asset URL does not contain its checksum.');
+    return {
+      validAt: timestamp(row.validAt, 'wind validAt'),
+      url,
+      sha256,
+      clippedComponents: nonNegativeInteger(row.clippedComponents, 'wind clipped components'),
+    };
+  });
+  if (frames.length < 2 || new Set(frames.map((frame) => frame.url)).size !== frames.length) throw new Error('Invalid wind frame catalogue.');
+  const first = Date.parse(validFrom); const last = Date.parse(validTo);
+  frames.forEach((frame, index) => {
+    const current = Date.parse(frame.validAt);
+    if (current < first || current > last || (index > 0 && current <= Date.parse(frames[index - 1].validAt))) throw new Error('Invalid wind frame timing.');
+  });
+  return frames;
 }
 
 function addUtcDays(value: string, offset: number): string {
@@ -343,6 +372,7 @@ function text(value: unknown, label: string): string { if (typeof value !== 'str
 function number(value: unknown, label: string): number { if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Invalid ${label}.`); return value; }
 function integer(value: unknown, label: string): number { const parsed = number(value, label); if (!Number.isSafeInteger(parsed)) throw new Error(`Invalid ${label}.`); return parsed; }
 function positiveInteger(value: unknown, label: string): number { const parsed = integer(value, label); if (parsed < 1) throw new Error(`Invalid ${label}.`); return parsed; }
+function nonNegativeInteger(value: unknown, label: string): number { const parsed = integer(value, label); if (parsed < 0) throw new Error(`Invalid ${label}.`); return parsed; }
 function positiveNumber(value: unknown, label: string): number { const parsed = number(value, label); if (parsed <= 0) throw new Error(`Invalid ${label}.`); return parsed; }
 function boundedScore(value: unknown, label: string): number { const parsed = integer(value, label); if (parsed < 0 || parsed > 100) throw new Error(`Invalid ${label}.`); return parsed; }
 function optionalNumber(value: unknown, label: string): number | undefined { return value === undefined ? undefined : number(value, label); }
@@ -354,7 +384,7 @@ function color(value: unknown, label: string): string { const parsed = text(valu
 function checksum(value: unknown, label: string): string { const parsed = text(value, label); if (!/^[0-9a-f]{64}$/.test(parsed)) throw new Error(`Invalid ${label}.`); return parsed; }
 function releaseId(value: unknown, label: string): string { const parsed = text(value, label); if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(parsed)) throw new Error(`Invalid ${label}.`); return parsed; }
 
-function assetPath(value: string, label: string, root: 'images' | 'grids'): string {
+function assetPath(value: string, label: string, root: 'images' | 'grids' | 'wind'): string {
   const path = value.replace(/^\//, '');
   let decoded: string;
   try { decoded = decodeURIComponent(path); } catch { throw new Error(`Invalid ${label}.`); }

@@ -272,6 +272,25 @@ func openReleaseCatalog(releaseDir string, production bool) (*ReleaseCatalog, er
 				return nil, fmt.Errorf("image %q geometry does not match its grid", asset.URL)
 			}
 		}
+		for _, asset := range period.WindFrames {
+			path, err := releaseAsset(releaseDir, asset.URL)
+			if err != nil {
+				return nil, err
+			}
+			metadata, err := ValidateWindGridGzip(path)
+			if err != nil {
+				return nil, fmt.Errorf("validate wind frame %q: %w", asset.URL, err)
+			}
+			if metadata.SHA256 != strings.ToLower(asset.SHA256) {
+				return nil, fmt.Errorf("wind frame %q checksum does not match manifest", asset.URL)
+			}
+			if metadata.Grid.Bounds != reader.Metadata().Bounds || metadata.Grid.Rows != reader.Metadata().Rows || metadata.Grid.Cols != reader.Metadata().Cols {
+				return nil, fmt.Errorf("wind frame %q geometry does not match its forecast period", asset.URL)
+			}
+			if uint64(asset.ClippedComponents) > uint64(metadata.Grid.Rows)*uint64(metadata.Grid.Cols)*2 {
+				return nil, fmt.Errorf("wind frame %q clipped-component count exceeds its grid", asset.URL)
+			}
+		}
 	}
 	var forecastWindowSpec GridSpec
 	coarsestGridFound := false

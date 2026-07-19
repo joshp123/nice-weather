@@ -624,7 +624,7 @@ func releaseAssetPath(requestPath string) (releaseID, assetPath string, matched 
 		return "", "", false, nil
 	}
 	parts := strings.SplitN(strings.TrimPrefix(requestPath, "releases/"), "/", 2)
-	if len(parts) != 2 || !validReleaseID(parts[0]) || !strings.HasPrefix(parts[1], "images/") {
+	if len(parts) != 2 || !validReleaseID(parts[0]) || (!strings.HasPrefix(parts[1], "images/") && !strings.HasPrefix(parts[1], "wind/")) {
 		return "", "", true, errors.New("unsafe release asset path")
 	}
 	if _, joinErr := safeJoin(".", parts[1]); joinErr != nil {

@@ -6,7 +6,7 @@ written_by: ai
 
 Nice Weather Finder answers one question: where in Europe will the weather be warm, bright, dry and calm enough to enjoy?
 
-The map shows 14 forecast days and 12 typical months. Select a day, choose **Nice** or **Cycling**, then click anywhere on land for the score and weather behind the colour. Switch the map between **Overall**, **Comfort**, **Dry**, **Bright** and **Wind** to see which part of the judgement drives a place.
+The map shows 14 forecast days and 12 typical months. Select a day, choose **Nice** or **Cycling**, then click anywhere on land for the score and weather behind the colour. Switch the map between **Overall**, **Comfort**, **Dry**, **Bright** and **Calm** to see which part of the judgement drives a place. Day-by-day view can also show wind direction at the forecast source's exact available times.
 
 ## Data
 
@@ -82,7 +82,7 @@ Go owns source retrieval, normalisation, scoring, release generation and HTTP se
 source field -> DailyMetrics -> component scores -> profile score -> grid and PNG
 ```
 
-Daily forecasts and climate months contain compact EPSG:4326 binary grids for constant-time point lookup, two overall Web Mercator PNGs and five component PNGs. The forecast window has its own evaluated range grid and map image per profile. Overall and wind differ by profile; comfort, dryness and brightness are shared facts. PNG pixels hold the canonical 0–100 judgement through a continuous colour ramp, which MapLibre interpolates without inventing another scoring model. The manifest binds every asset to its source, projection, hash, dimensions and resolution. The browser requests images through `/releases/<release-id>/...` with the image checksum, so a tab cannot mix assets from different publications.
+Daily forecasts and climate months contain compact EPSG:4326 binary grids for constant-time point lookup, two overall Web Mercator PNGs and five component PNGs. Forecast days also contain checked, compressed u/v wind frames. The forecast window has its own evaluated range grid and map image per profile. Overall and calm differ by profile; comfort, dryness and brightness are shared facts. PNG pixels hold the canonical 0–100 judgement through a continuous colour ramp, which MapLibre interpolates without inventing another scoring model. The manifest binds every asset to its source, projection, hash, dimensions and resolution. The browser requests release-scoped, checksummed assets, so a tab cannot mix data from different publications.
 
 Place search is a separate static index. Publication installs immutable `places/releases/<id>` files and writes `places/current.json` last. The browser fetches one three-character shard for a query and verifies manifest and shard checksums. There is no runtime search endpoint.
 

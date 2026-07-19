@@ -463,6 +463,25 @@ func TestCompressionCachingAndSPA(t *testing.T) {
 	if image.Code != http.StatusOK || image.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || image.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("image response: %d %+v", image.Code, image.Header())
 	}
+	windAsset := app.manifest.Forecast.Days[0].WindFrames[0]
+	windURL := "/releases/" + app.manifest.ReleaseID + "/" + windAsset.URL
+	windRequest := httptest.NewRequest(http.MethodGet, windURL, nil)
+	windRequest.Header.Set("Accept-Encoding", "gzip")
+	wind := httptest.NewRecorder()
+	app.handler.ServeHTTP(wind, windRequest)
+	if wind.Code != http.StatusOK || wind.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || wind.Header().Get("Content-Type") != "application/gzip" || wind.Header().Get("Content-Encoding") != "" || !strings.HasPrefix(wind.Body.String(), "\x1f\x8b") {
+		t.Fatalf("wind response: %d %+v body prefix=%x", wind.Code, wind.Header(), wind.Body.Bytes()[:min(2, wind.Body.Len())])
+	}
+	windHead := httptest.NewRecorder()
+	app.handler.ServeHTTP(windHead, httptest.NewRequest(http.MethodHead, windURL, nil))
+	if windHead.Code != http.StatusOK || windHead.Body.Len() != 0 || windHead.Header().Get("Content-Length") != fmt.Sprint(wind.Body.Len()) || windHead.Header().Get("Content-Encoding") != "" || windHead.Header().Get("Content-Type") != "application/gzip" {
+		t.Fatalf("wind HEAD: %d %+v body=%q", windHead.Code, windHead.Header(), windHead.Body.String())
+	}
+	staleWind := httptest.NewRecorder()
+	app.handler.ServeHTTP(staleWind, httptest.NewRequest(http.MethodGet, "/releases/old-release/"+windAsset.URL, nil))
+	if staleWind.Code != http.StatusConflict {
+		t.Fatalf("stale wind release returned %d: %s", staleWind.Code, staleWind.Body.String())
+	}
 	unsafeImage := httptest.NewRecorder()
 	app.handler.ServeHTTP(unsafeImage, httptest.NewRequest(http.MethodGet, "/releases/../images/forecast/nope.png", nil))
 	if unsafeImage.Code != http.StatusBadRequest {

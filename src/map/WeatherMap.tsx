@@ -1,8 +1,10 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
-import maplibregl, { type Map, type MapSourceDataEvent } from 'maplibre-gl';
+import maplibregl, { type GeoJSONSource, type Map, type MapSourceDataEvent } from 'maplibre-gl';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { WindGrid } from '../data/wind';
 import { telemetry } from '../telemetry';
 import { recordFailure } from './failureWindow';
+import { baseOverlayBefore, scoreOverlayBefore, windFeatures, windLayerLayout } from './windLayer';
 
 const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
 
@@ -15,6 +17,7 @@ type MapCommand = { type: 'select' | 'left' | 'right' | 'up' | 'down' | 'zoom-in
 
 type Props = {
   overlayUrl?: string;
+  windGrid?: WindGrid;
   bounds?: [number, number, number, number];
   selectedPoint?: MapPoint;
   focusPoint?: MapPoint & { token: number };
@@ -115,7 +118,7 @@ type RendererProps = Props & {
   onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => void;
 };
 
-function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
+function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -284,6 +287,30 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, bounds = DEFAULT_BOUNDS, se
     return cleanup;
   }, [bounds, overlayUrl, styleLoaded, targetOverlayUrl]);
 
+  useLayoutEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+    removeWindDirection(map);
+    if (!windGrid) return;
+    if (!map.hasImage('weather-wind-arrow')) map.addImage('weather-wind-arrow', windArrowImage(), { pixelRatio: 2 });
+    map.addSource('weather-wind-direction', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    const layers = map.getStyle().layers ?? [];
+    map.addLayer({
+      id: 'weather-wind-direction', type: 'symbol', source: 'weather-wind-direction',
+      layout: windLayerLayout(),
+      paint: { 'icon-opacity': 0.78 },
+    }, baseOverlayBefore(layers));
+    const update = () => {
+      const visible = map.getBounds();
+      const data = windFeatures(windGrid, { west: visible.getWest(), east: visible.getEast(), south: visible.getSouth(), north: visible.getNorth() }, (coordinate) => map.project(coordinate));
+      (map.getSource('weather-wind-direction') as GeoJSONSource | undefined)?.setData(data);
+    };
+    update();
+    map.on('moveend', update);
+    telemetry('wind-frame-rendered', { validAt: windGrid.validAt, rows: windGrid.rows, cols: windGrid.cols });
+    return () => { map.off('moveend', update); removeWindDirection(map); };
+  }, [styleLoaded, windGrid]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
@@ -325,9 +352,25 @@ function installOverlay(map: Map, url: string, bounds: [number, number, number, 
   // Keep administrative boundaries and labels above the score field without
   // pulling the basemap's complete road network above it at larger screens.
   const layers = map.getStyle().layers ?? [];
-  const beforeId = layers.find((layer) => layer.type === 'line' && /boundary|border|admin/i.test(layer.id))?.id
-    ?? layers.find((layer) => layer.type === 'symbol')?.id;
+  const beforeId = scoreOverlayBefore(layers);
   map.addLayer({ id: 'weather-score', type: 'raster', source: sourceId, paint: { 'raster-opacity': 1, 'raster-resampling': 'linear' } }, beforeId);
+}
+
+function removeWindDirection(map: Map) {
+  if (map.getLayer('weather-wind-direction')) map.removeLayer('weather-wind-direction');
+  if (map.getSource('weather-wind-direction')) map.removeSource('weather-wind-direction');
+}
+
+function windArrowImage(): ImageData {
+  const canvas = document.createElement('canvas');
+  canvas.width = 36; canvas.height = 36;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Wind direction marker could not be drawn.');
+  context.lineCap = 'round'; context.lineJoin = 'round';
+  const path = () => { context.beginPath(); context.moveTo(18, 29); context.lineTo(18, 8); context.moveTo(10, 16); context.lineTo(18, 8); context.lineTo(26, 16); };
+  path(); context.strokeStyle = 'rgba(255,255,255,.9)'; context.lineWidth = 6; context.stroke();
+  path(); context.strokeStyle = 'rgba(24,31,39,.88)'; context.lineWidth = 2.5; context.stroke();
+  return context.getImageData(0, 0, 36, 36);
 }
 
 function removeOverlay(map: Map) {

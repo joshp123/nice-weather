@@ -23,6 +23,22 @@ func TestManifestRoundTripAndValidation(t *testing.T) {
 	}
 }
 
+func TestManifestAcceptsStrictlyIncreasingMixedWindSourceTimes(t *testing.T) {
+	manifest := validManifest(strings.Repeat("a", 64))
+	start := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
+	manifest.Forecast.Days[0].WindFrames = nil
+	for index, offset := range []int{0, 1, 2, 5, 8, 10} {
+		checksum := strings.Repeat(string(rune('1'+index)), 64)
+		manifest.Forecast.Days[0].WindFrames = append(manifest.Forecast.Days[0].WindFrames, WindFrameAsset{
+			ValidAt: start.Add(time.Duration(offset) * time.Hour).Format(time.RFC3339),
+			URL:     "wind/mixed-" + checksum + ".nww.gz", SHA256: checksum,
+		})
+	}
+	if err := ValidateManifest(manifest); err != nil {
+		t.Fatalf("mixed exact source times rejected: %v", err)
+	}
+}
+
 func TestManifestRejectsBrokenContracts(t *testing.T) {
 	cases := map[string]func(*Manifest){
 		"version":    func(m *Manifest) { m.Version++ },
@@ -30,16 +46,17 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 		"product contract invalid": func(m *Manifest) {
 			m.ProductContract = "Nice Weather"
 		},
-		"product contract v8 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v8" },
-		"product contract v9 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v9" },
+		"product contract v8 mismatch":  func(m *Manifest) { m.ProductContract = "nice-weather-v8" },
+		"product contract v9 mismatch":  func(m *Manifest) { m.ProductContract = "nice-weather-v9" },
 		"product contract v10 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v10" },
-		"data status":                  func(m *Manifest) { m.DataStatus = "preview" },
-		"timestamp":                    func(m *Manifest) { m.GeneratedAt = "today" },
-		"profile":                      func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
-		"legend gap":                   func(m *Manifest) { m.Legend[2].Min++ },
-		"legend color":                 func(m *Manifest) { m.Legend[0].Color = "orange" },
-		"palette order":                func(m *Manifest) { m.Palette[1].Score = 0 },
-		"source time":                  func(m *Manifest) { m.Forecast.Days[0].Source.ValidTo = "2026-07-18T07:00:00Z" },
+		"product contract v11 mismatch": func(m *Manifest) { m.ProductContract = "nice-weather-v11" },
+		"data status":                   func(m *Manifest) { m.DataStatus = "preview" },
+		"timestamp":                     func(m *Manifest) { m.GeneratedAt = "today" },
+		"profile":                       func(m *Manifest) { m.Profiles[0].ID = "Nice Weather" },
+		"legend gap":                    func(m *Manifest) { m.Legend[2].Min++ },
+		"legend color":                  func(m *Manifest) { m.Legend[0].Color = "orange" },
+		"palette order":                 func(m *Manifest) { m.Palette[1].Score = 0 },
+		"source time":                   func(m *Manifest) { m.Forecast.Days[0].Source.ValidTo = "2026-07-18T07:00:00Z" },
 		"image checksum": func(m *Manifest) {
 			asset := m.Forecast.Days[0].Images["nice"]
 			asset.SHA256 = "bad"
@@ -55,14 +72,21 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 			asset.Projection = "epsg-4326"
 			m.Forecast.Days[0].Images["nice"] = asset
 		},
-		"date":                    func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
-		"kind":                    func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
-		"resolution":              func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
-		"checksum":                func(m *Manifest) { m.Forecast.Days[0].GridSHA256 = "abc" },
-		"path escape":             func(m *Manifest) { m.Forecast.Days[0].GridURL = "../secret" },
-		"missing profile image":   func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
-		"missing lens image":      func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
-		"unexpected lens image":   func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
+		"date":                  func(m *Manifest) { m.Forecast.Days[0].Date = "2026-02-30" },
+		"kind":                  func(m *Manifest) { m.Forecast.Days[0].Kind = "maybe" },
+		"resolution":            func(m *Manifest) { m.Forecast.Days[0].NativeResolutionKM = 0 },
+		"checksum":              func(m *Manifest) { m.Forecast.Days[0].GridSHA256 = "abc" },
+		"path escape":           func(m *Manifest) { m.Forecast.Days[0].GridURL = "../secret" },
+		"missing profile image": func(m *Manifest) { delete(m.Forecast.Days[0].Images, "cycling") },
+		"missing lens image":    func(m *Manifest) { delete(m.Forecast.Days[0].Lenses, LensComfort) },
+		"unexpected lens image": func(m *Manifest) { m.Forecast.Days[0].Lenses["humidity"] = m.Forecast.Days[0].Lenses[LensComfort] },
+		"missing wind frames":   func(m *Manifest) { m.Forecast.Days[0].WindFrames = nil },
+		"duplicate wind time":   func(m *Manifest) { m.Forecast.Days[0].WindFrames[1].ValidAt = "2026-07-18T08:00:00Z" },
+		"out-of-order wind times": func(m *Manifest) {
+			m.Forecast.Days[0].WindFrames[0].ValidAt, m.Forecast.Days[0].WindFrames[1].ValidAt = "2026-07-18T09:00:00Z", "2026-07-18T08:00:00Z"
+		},
+		"wind path":               func(m *Manifest) { m.Forecast.Days[0].WindFrames[0].URL = "images/not-wind.nww" },
+		"wind checksum":           func(m *Manifest) { m.Forecast.Days[0].WindFrames[0].SHA256 = "bad" },
 		"missing forecast window": func(m *Manifest) { m.Forecast.Window = ForecastWindow{} },
 		"window day count":        func(m *Manifest) { m.Forecast.Window.DayCount++ },
 		"window date":             func(m *Manifest) { m.Forecast.Window.EndDate = "2026-07-19" },
@@ -146,11 +170,13 @@ func TestValidateProductionManifestRequiresCompleteOrderedPeriods(t *testing.T) 
 		date := time.Date(2026, 7, 18+index, 0, 0, 0, 0, time.UTC)
 		day.ID, day.Date = date.Format("2006-01-02"), date.Format("2006-01-02")
 		day.Source.ValidFrom, day.Source.ValidTo = date.Format(time.RFC3339), date.Add(12*time.Hour).Format(time.RFC3339)
+		day.WindFrames = testWindFrames(date, 1)
 		manifest.Forecast.Days = append(manifest.Forecast.Days, day)
 	}
 	manifest.Forecast.Window.DayCount = 14
 	manifest.Forecast.Window.EndDate = manifest.Forecast.Days[13].Date
 	climate := first.Period
+	climate.WindFrames = nil
 	for month := 1; month <= 12; month++ {
 		period := climate
 		period.ID = fmt.Sprintf("m%02d", month)
@@ -194,9 +220,11 @@ func validManifest(checksum string) Manifest {
 			"wind-cycling": {URL: "images/wind-cycling.png", SHA256: strings.Repeat("2", 64), Width: 1, Height: 1, Projection: ImageProjectionWebMercator},
 		},
 		GridURL: "grids/day.nwg", GridSHA256: checksum,
+		WindFrames: testWindFrames(time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC), 1),
 	}
 	climate := period
 	climate.ID, climate.Label, climate.Source.ProviderLabel = "07", "July", "Typical weather"
+	climate.WindFrames = nil
 	return Manifest{
 		Version: ManifestVersion, ReleaseID: "test-release", ProductContract: ProductContract, DataStatus: DataStatusLive, GeneratedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
 		Region:   Region{ID: "europe", Label: "Europe", Bounds: GridBounds{West: -25, East: 45, South: 30, North: 72}},
@@ -215,5 +243,15 @@ func validManifest(checksum string) Manifest {
 			Days: []ForecastPeriod{{Period: period, Date: "2026-07-18", Kind: "detailed"}},
 		},
 		Climate: &ClimateCatalog{Label: "Typical year", ReferencePeriod: "1991–2020", Months: []ClimatePeriod{{Period: climate, Month: 7}}},
+	}
+}
+
+func testWindFrames(start time.Time, cadenceHours int) []WindFrameAsset {
+	prefix := start.UTC().Format("20060102-1504")
+	firstSHA := strings.Repeat("7", 64)
+	secondSHA := strings.Repeat("8", 64)
+	return []WindFrameAsset{
+		{ValidAt: start.Format(time.RFC3339), URL: "wind/" + prefix + "-" + firstSHA + ".nww.gz", SHA256: firstSHA},
+		{ValidAt: start.Add(time.Duration(cadenceHours) * time.Hour).Format(time.RFC3339), URL: "wind/" + prefix + "-" + secondSHA + ".nww.gz", SHA256: secondSHA},
 	}
 }

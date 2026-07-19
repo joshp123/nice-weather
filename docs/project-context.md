@@ -53,7 +53,7 @@ provider fields
 
 Map pixels and point details use the same score. The frontend only selects a period and profile; client-side scoring is forbidden. The 14-day product keeps a coastal target cell when its centre is water but a complete finer detailed-forecast cell exists inside that same honest 28 km target cell; it never reaches into a neighbouring target cell.
 
-The score has four orthogonal components: thermal comfort, dryness, brightness and wind. Thermal comfort combines temperature with moisture: hot-dry and hot-humid conditions are deliberately different, as are cold-dry and cold-damp conditions. Deal-breaker rules stop cold, oppressive, very wet or very windy days from winning through averages alone.
+The score has four orthogonal components: thermal comfort, dryness, brightness and calm. Thermal comfort combines temperature with moisture: hot-dry and hot-humid conditions are deliberately different, as are cold-dry and cold-damp conditions. Deal-breaker rules stop cold, oppressive, very wet or very windy days from winning through averages alone.
 
 ## Backend boundaries
 
@@ -76,6 +76,7 @@ dist/                         Vite application
 artifacts/current/manifest.json
 artifacts/current/images/     overall and component map PNGs per period
 artifacts/current/grids/      one compact point-lookup grid per period
+artifacts/current/wind/       immutable gzip-compressed u/v frames per forecast day
 artifacts/.building/           unpublished release under construction
 artifacts/releases/           validated release directories
 artifacts/places/current.json  revalidated place-index pointer
@@ -87,7 +88,7 @@ artifacts/places/releases/     immutable place manifests and shards
 
 A live update starts in `artifacts/.building`. After the forecast window, daily forecasts, climate months, images, grids, hashes and dimensions validate, the updater atomically moves that directory into `artifacts/releases` and changes `artifacts/current`. The running server detects the new target, validates and opens the complete release, then swaps its immutable snapshot between requests. No restart is required, and an in-flight request continues to use one coherent release.
 
-Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v11` binds forecast-window scoring, coastal-cell reduction, component lenses, rating semantics, colours, masks, grid and display projection. Image requests include both the release ID and image SHA-256; the server exposes only the current and published previous release.
+Manifest `dataStatus` is a required `live` or `sample` value. The fixture publishes `sample`; the updater publishes `live`. The interface shows a clear sample-data warning. Product contract `nice-weather-v12` adds exact native-time wind-vector frames to the v11 forecast-window, coastal reduction, component-lens, rating, colour, mask, grid and projection contract. Each frame is an immutable content-addressed `.nww.gz` file containing signed 8-bit u/v components at 0.5 m/s. The browser verifies the compressed file and checked inner grid before use. Image and wind requests include the release ID and SHA-256; the server exposes only the current and published previous release.
 
 Runtime routes:
 
@@ -95,6 +96,7 @@ Runtime routes:
 GET /                         React application
 GET /manifest.json            release catalogue
 GET /releases/<id>/images/... immutable score overlay for that release
+GET /releases/<id>/wind/...   immutable compressed wind-vector frame
 GET /api/point?...            score and weather at a coordinate
 GET /places/current.json      revalidated place-index pointer
 GET /places/releases/<id>/... immutable place manifest and search shards
@@ -104,7 +106,9 @@ The place builder consumes pinned GeoNames extracts, validates the complete inde
 
 ## Frontend boundaries
 
-React owns product state, controls, loading and disclosure. MapLibre owns geographic interaction and compositing. The overlay is a single Web Mercator image source whose release-scoped URL changes without rebuilding the map. The old raster is removed before a new selection loads and remains hidden until the exact new source has rendered; failed or stale assets cannot remain under new controls.
+React owns product state, controls, loading and disclosure. MapLibre owns geographic interaction and compositing. The scalar overlay is a single Web Mercator image source whose release-scoped URL changes without rebuilding the map. The old raster is removed before a new selection loads and remains hidden until the exact new source has rendered; failed or stale assets cannot remain under new controls.
+
+Day-by-day view can add a static wind-direction layer from the existing layer menu. It is off by default and causes no wind-file request until enabled. Only the selected exact provider frame is fetched. The catalogue preserves every strictly increasing source timestamp; ICON can change from hourly to three-hourly output within one day, while AIFS supplies its available six-hourly frames. No timestamp is inferred or interpolated. Sparse direction marks are sampled from the decoded grid in the viewport and sit above the scalar score but below borders and labels. They do not reserve symbol-collision space, so place and country labels remain visible. There is no particle animation or second scoring path.
 
 WebGL is required for the decision map. If it is unavailable, the interface shows a clear unavailable state instead of presenting simplified or potentially misleading geography.
 

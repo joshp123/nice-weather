@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/weather"
 )
 
@@ -94,6 +95,10 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 		if err != nil {
 			t.Fatal(err)
 		}
+		period.WindFrames, err = writer.writeWindFrames(id, testWindSeries(spec, date.Add(6*time.Hour), temporal), source)
+		if err != nil {
+			t.Fatal(err)
+		}
 		writer.manifest.Forecast.Days = append(writer.manifest.Forecast.Days, delivery.ForecastPeriod{Period: period, Date: id, Kind: kind})
 		rangeDays = append(rangeDays, quantized)
 	}
@@ -142,6 +147,136 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 	}
 	if !currentUsesRuns(root, dwdRun, aifsRun) || currentUsesRuns(root, dwdRun.Add(-6*time.Hour), aifsRun) {
 		t.Fatal("idempotence run matching failed")
+	}
+}
+
+func testWindSeries(spec delivery.GridSpec, start time.Time, cadenceHours int) pipeline.Series {
+	return testWindSeriesCount(spec, start, cadenceHours, 3)
+}
+
+func testWindSeriesCount(spec delivery.GridSpec, start time.Time, cadenceHours, count int) pipeline.Series {
+	times := make([]time.Time, count)
+	for index := 0; index < count; index++ {
+		times[index] = start.Add(time.Duration(index*cadenceHours) * time.Hour)
+	}
+	return testWindSeriesAt(spec, times)
+}
+
+func testWindSeriesAt(spec delivery.GridSpec, times []time.Time) pipeline.Series {
+	series := pipeline.Series{pipeline.WindU: nil, pipeline.WindV: nil}
+	for index, validAt := range times {
+		for _, item := range []struct {
+			field pipeline.Field
+			value float32
+		}{{pipeline.WindU, float32(index + 2)}, {pipeline.WindV, float32(-index - 1)}} {
+			series[item.field] = append(series[item.field], pipeline.Frame{
+				Field: item.field, Start: validAt, End: validAt, Semantics: pipeline.Instant,
+				Units: "m/s", NativeResolutionKM: 7,
+				Grid: pipeline.FloatGrid{Spec: spec, Values: []float32{item.value}},
+			})
+		}
+	}
+	return series
+}
+
+func TestWriteWindFramesPreservesMixedNativeSourceTimes(t *testing.T) {
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	times := []time.Time{
+		date.Add(6 * time.Hour), date.Add(7 * time.Hour), date.Add(8 * time.Hour), date.Add(9 * time.Hour),
+		date.Add(10 * time.Hour), date.Add(11 * time.Hour), date.Add(12 * time.Hour),
+		date.Add(15 * time.Hour), date.Add(18 * time.Hour), date.Add(21 * time.Hour),
+	}
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Add(-66 * time.Hour).Format(time.RFC3339), ValidFrom: times[0].Format(time.RFC3339), ValidTo: times[len(times)-1].Format(time.RFC3339)}
+	writer, err := newReleaseWriter(t.TempDir(), "mixed-wind-times", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets, err := writer.writeWindFrames("2026-07-18", testWindSeriesAt(spec, times), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != len(times) {
+		t.Fatalf("wind frame count = %d; want %d", len(assets), len(times))
+	}
+	for index := range assets {
+		if assets[index].ValidAt != times[index].Format(time.RFC3339) {
+			t.Fatalf("wind frame %d = %s; want %s", index, assets[index].ValidAt, times[index].Format(time.RFC3339))
+		}
+	}
+}
+
+func TestWriteWindFramesRejectsOutOfOrderSourceCatalogue(t *testing.T) {
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
+	series[pipeline.WindU][0], series[pipeline.WindU][1] = series[pipeline.WindU][1], series[pipeline.WindU][0]
+	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
+	writer, err := newReleaseWriter(t.TempDir(), "out-of-order-wind", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.writeWindFrames("2026-07-18", series, source); err == nil || !strings.Contains(err.Error(), "not strictly increasing") {
+		t.Fatalf("out-of-order source error = %v", err)
+	}
+}
+
+func TestWriteWindFramesPublishesExactNativeTimesAcrossForecastSources(t *testing.T) {
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name, provider string
+		first, last    int
+		cadence, count int
+	}{
+		{name: "first ICON day hourly", provider: "dwd-icon-eu", first: 6, last: 21, cadence: 1, count: 16},
+		{name: "late ICON day three-hourly", provider: "dwd-icon-eu", first: 6, last: 21, cadence: 3, count: 6},
+		{name: "AIFS outlook six-hourly", provider: "ecmwf-aifs", first: 6, last: 18, cadence: 6, count: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			writer, err := newReleaseWriter(t.TempDir(), strings.ReplaceAll(test.name, " ", "-"), date)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := delivery.Source{ProviderID: test.provider, ProviderLabel: test.provider, RunAt: date.Add(-6 * time.Hour).Format(time.RFC3339), ValidFrom: date.Add(time.Duration(test.first) * time.Hour).Format(time.RFC3339), ValidTo: date.Add(time.Duration(test.last) * time.Hour).Format(time.RFC3339)}
+			assets, err := writer.writeWindFrames("2026-07-18", testWindSeriesCount(spec, date.Add(time.Duration(test.first)*time.Hour), test.cadence, test.count), source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(assets) != test.count || assets[0].ValidAt != source.ValidFrom || assets[len(assets)-1].ValidAt != source.ValidTo {
+				t.Fatalf("wind assets = %d %s..%s; want %d %s..%s", len(assets), assets[0].ValidAt, assets[len(assets)-1].ValidAt, test.count, source.ValidFrom, source.ValidTo)
+			}
+		})
+	}
+}
+
+func TestWriteWindFramesRejectsMissingNativeTime(t *testing.T) {
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	series := testWindSeriesCount(spec, date.Add(6*time.Hour), 1, 3)
+	series[pipeline.WindV] = append(series[pipeline.WindV][:1], series[pipeline.WindV][2:]...)
+	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
+	writer, err := newReleaseWriter(t.TempDir(), "missing-wind-time", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.writeWindFrames("2026-07-18", series, source); err == nil || !strings.Contains(err.Error(), "no matching v frame") {
+		t.Fatalf("missing native frame error = %v", err)
+	}
+}
+
+func TestWriteWindFramesRejectsNonCanonicalUnits(t *testing.T) {
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
+	series[pipeline.WindU][0].Units = "km/h"
+	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
+	writer, err := newReleaseWriter(t.TempDir(), "wrong-wind-units", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.writeWindFrames("2026-07-18", series, source); err == nil || !strings.Contains(err.Error(), "must use m/s") {
+		t.Fatalf("non-canonical unit error = %v", err)
 	}
 }
 
