@@ -148,7 +148,7 @@ func makePreparedSeries(tb testing.TB, raw Series) PreparedSeries {
 				tb.Fatal(err)
 			}
 			prepared := &PreparedFrame{
-				path: path, directory: directory, metadata: metadataFromFrame(frame),
+				path: path, directory: directory, metadata: metadataFromFrame(frame, "test-source", frame.Start.UTC().Truncate(24*time.Hour)),
 				wraps: frame.Grid.Spec.Bounds.West == -180 && frame.Grid.Spec.Bounds.East == 180,
 			}
 			tb.Cleanup(func() { _ = prepared.Close() })

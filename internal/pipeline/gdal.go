@@ -47,7 +47,11 @@ func NewDecoder(runner CommandRunner, bounds delivery.GridBounds) (*Decoder, err
 }
 
 type DecodeRequest struct {
-	Path               string
+	Path string
+	// SourceID identifies one provider/model product. PrepareFrame preserves it
+	// with the exact Run so downstream tier builders can reject field-level
+	// mixtures. Decode callers that do not assemble tiers may leave it empty.
+	SourceID           string
 	Field              Field
 	Run                time.Time
 	NativeResolutionKM float64

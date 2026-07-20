@@ -20,6 +20,8 @@ import (
 // in source physical units until ReadNormalizedWindowSeries applies the one
 // canonical series normalizer.
 type PreparedFrameMetadata struct {
+	SourceID           string
+	Run                time.Time
 	Field              Field
 	Start              time.Time
 	End                time.Time
@@ -158,7 +160,7 @@ func (decoder *Decoder) PrepareFrame(ctx context.Context, request DecodeRequest)
 	cleanup = false
 	return &PreparedFrame{
 		path: preparedPath, directory: directory,
-		metadata: metadataFromFrame(raw),
+		metadata: metadataFromFrame(raw, request.SourceID, request.Run),
 		wraps:    decoder.bounds.West == -180 && decoder.bounds.East == 180,
 	}, nil
 }
@@ -196,8 +198,9 @@ func alignedDimensions(bounds delivery.GridBounds, cellDegrees float64) (uint32,
 	return cols, rows, nil
 }
 
-func metadataFromFrame(frame Frame) PreparedFrameMetadata {
+func metadataFromFrame(frame Frame, sourceID string, run time.Time) PreparedFrameMetadata {
 	return PreparedFrameMetadata{
+		SourceID: sourceID, Run: run.UTC(),
 		Field: frame.Field, Start: frame.Start, End: frame.End, Semantics: frame.Semantics,
 		Units: frame.Units, PackingError: frame.PackingError, PackingQuantum: frame.PackingQuantum,
 		NativeResolutionKM: frame.NativeResolutionKM, Grid: frame.Grid.Spec,
