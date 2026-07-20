@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
@@ -223,23 +224,31 @@ func globalCanaryPrepareRequest(frame stagedFrame, scratch string) pipeline.Deco
 }
 
 func prepareGlobalCanaryFrames(ctx context.Context, decoder *pipeline.Decoder, staged []stagedFrame, scratch string) (pipeline.PreparedSeries, []*pipeline.PreparedFrame, error) {
-	series := make(pipeline.PreparedSeries)
-	frames := make([]*pipeline.PreparedFrame, 0, len(staged))
-	for index, item := range staged {
-		if err := ctx.Err(); err != nil {
-			closePreparedFrames(frames)
-			return nil, nil, err
-		}
-		prepared, err := decoder.PrepareFrame(ctx, globalCanaryPrepareRequest(item, scratch))
+	frames := make([]*pipeline.PreparedFrame, len(staged))
+	var completed atomic.Int64
+	err := runWorkers(ctx, len(staged), func(workerCtx context.Context, index int) error {
+		item := staged[index]
+		prepared, err := decoder.PrepareFrame(workerCtx, globalCanaryPrepareRequest(item, scratch))
 		if err != nil {
-			closePreparedFrames(frames)
-			return nil, nil, fmt.Errorf("prepare %s step %d: %w", item.field, item.step, err)
+			return fmt.Errorf("prepare %s step %d: %w", item.field, item.step, err)
 		}
-		series[item.field] = append(series[item.field], prepared)
-		frames = append(frames, prepared)
-		if (index+1)%25 == 0 || index+1 == len(staged) {
-			fmt.Printf("prepared %d/%d worldwide IFS fields\n", index+1, len(staged))
+		frames[index] = prepared
+		count := completed.Add(1)
+		if count%25 == 0 || count == int64(len(staged)) {
+			fmt.Printf("prepared %d/%d worldwide IFS fields\n", count, len(staged))
 		}
+		return nil
+	})
+	if err != nil {
+		closePreparedFrames(frames)
+		return nil, nil, err
+	}
+
+	// Workers write fixed indexes. Assemble only after every conversion
+	// succeeds so each field retains the provider's deterministic input order.
+	series := make(pipeline.PreparedSeries)
+	for index, item := range staged {
+		series[item.field] = append(series[item.field], frames[index])
 	}
 	return series, frames, nil
 }
