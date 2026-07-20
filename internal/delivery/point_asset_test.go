@@ -135,6 +135,30 @@ func TestDisplayScoreAssetRangeRecordAndCorruptionValidation(t *testing.T) {
 	}
 }
 
+func TestDisplayScoreRecordCodecIsCanonical(t *testing.T) {
+	record := DisplayScoreRecord{Thermal: 10, Dryness: 20, Sun: 30, NiceScore: 40, NiceWind: 50, CyclingScore: 60, CyclingWind: 70, Valid: true}
+	encoded := make([]byte, DisplayScoreRecordBytes)
+	if err := EncodeDisplayScoreRecord(encoded, record); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeDisplayScoreRecord(encoded)
+	if err != nil || decoded != record {
+		t.Fatalf("display-score round trip = %+v, %v", decoded, err)
+	}
+	for index := range encoded {
+		encoded[index] = 0xff
+	}
+	if err := EncodeDisplayScoreRecord(encoded, DisplayScoreRecord{}); err != nil {
+		t.Fatal(err)
+	}
+	if !allZero(encoded) {
+		t.Fatalf("invalid display-score encoding retained data: %x", encoded)
+	}
+	if err := EncodeDisplayScoreRecord(encoded[:len(encoded)-1], record); err == nil {
+		t.Fatal("accepted wrong destination size")
+	}
+}
+
 func TestPointAssetRejectsNonCanonicalZeroReservedAndHostileGeometry(t *testing.T) {
 	geometry := canonicalTestPointGeometry(GridBounds{West: -25, East: 45, South: 30, North: 72}, 1, 1)
 	alteredGeometry := geometry
