@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
+    "build:canary": "npm run build && NICE_WEATHER_CANARY_BUILD=1 vite build",
     "test": "vitest run",
     "qa:browser": "node scripts/qa-browser.mjs"
   },

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/tiledelivery"
 )
 
 type Config struct {
@@ -270,10 +271,7 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 		return
 	}
 	w.Header().Set("Cache-Control", cache)
-	contentType := mime.TypeByExtension(filepath.Ext(path))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	contentType := contentTypeForPath(path)
 	if isCompressible(contentType) {
 		if acceptsEncoding(r.Header.Get("Accept-Encoding"), "br") {
 			compressedPath, resolveErr := resolveWithin(root, path+".br")
@@ -318,10 +316,7 @@ func (app *application) serveStaticArtifact(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
 		return
 	}
-	contentType := mime.TypeByExtension(filepath.Ext(requestPath))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	contentType := contentTypeForPath(requestPath)
 	w.Header().Set("Cache-Control", cache)
 	w.Header().Set("Content-Type", contentType)
 	modTime := info.ModTime()
@@ -498,7 +493,18 @@ func acceptsEncoding(header, wanted string) bool {
 }
 
 func isCompressible(contentType string) bool {
-	return strings.HasPrefix(contentType, "text/") || strings.Contains(contentType, "javascript") || strings.Contains(contentType, "json") || strings.Contains(contentType, "svg")
+	return strings.HasPrefix(contentType, "text/") || strings.Contains(contentType, "javascript") || strings.Contains(contentType, "json") || strings.Contains(contentType, "svg") || contentType == tiledelivery.ScalarMediaType
+}
+
+func contentTypeForPath(path string) string {
+	if filepath.Ext(path) == ".nws" {
+		return tiledelivery.ScalarMediaType
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	return contentType
 }
 
 func writeJSON(w http.ResponseWriter, r *http.Request, status int, value any, cache string) {

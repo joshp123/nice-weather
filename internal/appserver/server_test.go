@@ -17,6 +17,7 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/places"
+	"nice-weather-finder/internal/tiledelivery"
 )
 
 type testApplication struct {
@@ -366,6 +367,49 @@ func TestCompressionCachingAndSPA(t *testing.T) {
 	app.handler.ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "/some/map/route", nil))
 	if spa.Code != http.StatusOK || !strings.Contains(spa.Body.String(), "Nice Weather Finder") || spa.Header().Get("Cache-Control") != "no-cache" {
 		t.Fatalf("SPA response: %d %s %+v", spa.Code, spa.Body.String(), spa.Header())
+	}
+}
+
+func TestScalarCanaryTilesUseBinaryMediaTypeAndCompression(t *testing.T) {
+	if got := contentTypeForPath("assets/scalar-canary/nice-weather-scalar-canary-v2/5/16/10.nws"); got != tiledelivery.ScalarMediaType {
+		t.Fatalf("scalar tile content type = %q; want %q", got, tiledelivery.ScalarMediaType)
+	}
+	if !isCompressible(tiledelivery.ScalarMediaType) {
+		t.Fatal("scalar tile media type is not eligible for HTTP compression")
+	}
+	web := t.TempDir()
+	web, err := filepath.EvalSymlinks(web)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(web, "assets", "scalar-canary", "nice-weather-scalar-canary-v2", "tile.nws")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := make([]byte, tiledelivery.ScalarTileBytes)
+	for index := range body {
+		body[index] = tiledelivery.ScalarNoData
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/assets/scalar-canary/nice-weather-scalar-canary-v2/tile.nws", nil)
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	(&application{webRoot: web}).serveFile(response, request, &releaseSnapshot{})
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != tiledelivery.ScalarMediaType || response.Header().Get("Content-Encoding") != "gzip" || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("scalar tile response: code=%d headers=%v", response.Code, response.Header())
+	}
+	compressed, err := gzip.NewReader(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := io.ReadAll(compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded) != string(body) {
+		t.Fatal("HTTP compression changed the decoded scalar tile")
 	}
 }
 
