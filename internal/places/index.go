@@ -76,12 +76,11 @@ type requiredPlace struct {
 }
 
 type limits struct {
-	minPlaces        int
-	maxPlaces        int
-	maxShards        int
-	maxShardGzip     int64
-	required         []requiredPlace
-	requireCountries bool
+	minPlaces    int
+	maxPlaces    int
+	maxShards    int
+	maxShardGzip int64
+	required     []requiredPlace
 }
 
 type buildConfig struct {
@@ -92,7 +91,6 @@ type buildConfig struct {
 	coverage                     bounds
 	retainAllWithin              *bounds
 	minimumPopulationOutsideArea int64
-	globalSource                 bool
 	sourceBundleSHA256           string
 	limits                       limits
 }
@@ -146,7 +144,7 @@ func BuildGlobal(ctx context.Context, sourceDir, outputDir, sourceDate string, r
 		sourceDir: sourceDir, outputDir: outputDir, sourceDate: sourceDate,
 		countries: countryCodes, coverage: bounds{West: -180, East: 180, South: -90, North: 90},
 		retainAllWithin: &refinementBounds, minimumPopulationOutsideArea: 1_500,
-		globalSource: true, sourceBundleSHA256: bundleSHA256, limits: globalLimits,
+		sourceBundleSHA256: bundleSHA256, limits: globalLimits,
 	})
 }
 
@@ -259,40 +257,11 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 	}
 
 	places := make(map[int64]*place, config.limits.minPlaces)
-	seenCountries := make(map[string]bool, len(config.countries))
-	if config.globalSource {
-		err = readGlobalPlaces(ctx, filepath.Join(config.sourceDir, "allCountries.zip"), config, countries, places, seenCountries)
-		if err != nil {
-			return Summary{}, err
-		}
-		if err := readGlobalPreferredNames(ctx, filepath.Join(config.sourceDir, "alternateNamesV2.zip"), countries, config.retainAllWithin, places); err != nil {
-			return Summary{}, err
-		}
-	} else {
-		for _, countryCode := range config.countries {
-			if err := ctx.Err(); err != nil {
-				return Summary{}, err
-			}
-			country, ok := countries[countryCode]
-			if !ok {
-				return Summary{}, fmt.Errorf("country metadata missing %s", countryCode)
-			}
-			path := filepath.Join(config.sourceDir, "countries", countryCode+".zip")
-			countryPlaceCount, err := readPlaces(path, countryCode, config.coverage, places)
-			if err != nil {
-				return Summary{}, err
-			}
-			if countryPlaceCount > 0 {
-				seenCountries[countryCode] = true
-			}
-			alternatePath := filepath.Join(config.sourceDir, "alternatenames", countryCode+".zip")
-			if err := readPreferredNames(ctx, alternatePath, countryCode, country.languages, places); err != nil {
-				return Summary{}, err
-			}
-		}
+	if err := readPlaces(ctx, filepath.Join(config.sourceDir, "allCountries.zip"), config, countries, places); err != nil {
+		return Summary{}, err
 	}
-	if config.limits.requireCountries && len(seenCountries) != len(config.countries) {
-		return Summary{}, fmt.Errorf("only %d of %d countries contain places inside coverage", len(seenCountries), len(config.countries))
+	if err := readPreferredNames(ctx, filepath.Join(config.sourceDir, "alternateNamesV2.zip"), countries, config.retainAllWithin, places); err != nil {
+		return Summary{}, err
 	}
 	if len(places) < config.limits.minPlaces || len(places) > config.limits.maxPlaces {
 		return Summary{}, fmt.Errorf("place count %d is outside gate %d..%d", len(places), config.limits.minPlaces, config.limits.maxPlaces)
@@ -300,8 +269,10 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 
 	shards := make(map[string][]record)
 	ids := make([]int64, 0, len(places))
+	includedCountries := make(map[string]bool)
 	for id := range places {
 		ids = append(ids, id)
+		includedCountries[places[id].country] = true
 	}
 	slices.Sort(ids)
 	searchKeyCount := 0
@@ -383,15 +354,15 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 		summary.LargestShardGzip = max(summary.LargestShardGzip, compressedBytes)
 	}
 
-	countryLabels := make(map[string]string, len(seenCountries))
+	countryLabels := make(map[string]string, len(includedCountries))
 	for _, code := range config.countries {
-		if seenCountries[code] {
+		if includedCountries[code] {
 			countryLabels[code] = countries[code].name
 		}
 	}
 	includedAdmins := make(map[string]string)
 	for code, label := range admins {
-		if len(code) >= 3 && seenCountries[code[:2]] {
+		if len(code) >= 3 && includedCountries[code[:2]] {
 			includedAdmins[code] = label
 		}
 	}
@@ -420,14 +391,12 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 	if err := os.WriteFile(filepath.Join(staging, "manifest.json"), manifestPayload, 0o644); err != nil {
 		return Summary{}, err
 	}
-	if config.globalSource {
-		bundleSHA256, err := validateGlobalSource(ctx, config.sourceDir, config.sourceDate)
-		if err != nil {
-			return Summary{}, err
-		}
-		if bundleSHA256 != config.sourceBundleSHA256 {
-			return Summary{}, errors.New("GeoNames source bundle changed during build")
-		}
+	bundleSHA256, err := validateGlobalSource(ctx, config.sourceDir, config.sourceDate)
+	if err != nil {
+		return Summary{}, err
+	}
+	if bundleSHA256 != config.sourceBundleSHA256 {
+		return Summary{}, errors.New("GeoNames source bundle changed during build")
 	}
 	if err := validateOutput(staging, config, summary); err != nil {
 		return Summary{}, err
@@ -604,66 +573,7 @@ func readAdmins(path string, countries []string) (map[string]string, error) {
 	return result, err
 }
 
-func readPlaces(path, countryCode string, coverage bounds, places map[int64]*place) (int, error) {
-	count := 0
-	err := readZipLines(path, countryCode+".txt", func(line int, fields []string) error {
-		if len(fields) != 19 {
-			return fmt.Errorf("line %d: place row has %d fields", line, len(fields))
-		}
-		if fields[6] != "P" {
-			return nil
-		}
-		featureRank, include := includedFeatureCodes[fields[7]]
-		if fields[7] == "" || excludedFeatureCodes[fields[7]] {
-			return nil
-		}
-		if !include {
-			return fmt.Errorf("line %d: unknown populated-place feature code %q", line, fields[7])
-		}
-		if fields[8] != countryCode {
-			return fmt.Errorf("line %d: country %q does not match archive %s", line, fields[8], countryCode)
-		}
-		id, err := strconv.ParseInt(fields[0], 10, 64)
-		if err != nil || id <= 0 {
-			return fmt.Errorf("line %d: invalid geoname id %q", line, fields[0])
-		}
-		latitude, err := strconv.ParseFloat(fields[4], 64)
-		if err != nil || math.IsNaN(latitude) || math.IsInf(latitude, 0) || latitude < -90 || latitude > 90 {
-			return fmt.Errorf("line %d: invalid latitude %q", line, fields[4])
-		}
-		longitude, err := strconv.ParseFloat(fields[5], 64)
-		if err != nil || math.IsNaN(longitude) || math.IsInf(longitude, 0) || longitude < -180 || longitude > 180 {
-			return fmt.Errorf("line %d: invalid longitude %q", line, fields[5])
-		}
-		if longitude < coverage.West || longitude >= coverage.East || latitude <= coverage.South || latitude > coverage.North {
-			return nil
-		}
-		population := int64(0)
-		if fields[14] != "" {
-			population, err = strconv.ParseInt(fields[14], 10, 64)
-			if err != nil || population < 0 {
-				return fmt.Errorf("line %d: invalid population %q", line, fields[14])
-			}
-		}
-		if normalize(fields[2]) == "" && normalize(fields[1]) == "" {
-			return fmt.Errorf("line %d: place %d has no searchable name", line, id)
-		}
-		if _, exists := places[id]; exists {
-			return fmt.Errorf("line %d: duplicate geoname id %d", line, id)
-		}
-		places[id] = &place{
-			id: id, name: fields[1], asciiName: fields[2], country: countryCode,
-			admin1: fields[10], latitudeE5: int32(math.Round(latitude * 100_000)),
-			longitudeE5: int32(math.Round(longitude * 100_000)), population: population,
-			featureRank: featureRank, localPriority: math.MaxInt,
-		}
-		count++
-		return nil
-	})
-	return count, err
-}
-
-func readGlobalPlaces(ctx context.Context, path string, config buildConfig, countries map[string]country, places map[int64]*place, seenCountries map[string]bool) error {
+func readPlaces(ctx context.Context, path string, config buildConfig, countries map[string]country, places map[int64]*place) error {
 	return readZipLines(path, "allCountries.txt", func(line int, fields []string) error {
 		if line%4096 == 0 {
 			if err := ctx.Err(); err != nil {
@@ -691,7 +601,7 @@ func readGlobalPlaces(ctx context.Context, path string, config buildConfig, coun
 		if err != nil {
 			return err
 		}
-		if !contains(config.coverage, latitude, longitude) || !retainGlobalPlace(config, countries[countryCode], latitude, longitude, population, featureRank) {
+		if !contains(config.coverage, latitude, longitude) || !retainPlace(config, countries[countryCode], latitude, longitude, population, featureRank) {
 			return nil
 		}
 		if normalize(fields[2]) == "" && normalize(fields[1]) == "" {
@@ -706,7 +616,6 @@ func readGlobalPlaces(ctx context.Context, path string, config buildConfig, coun
 			longitudeE5: int32(math.Round(longitude * 100_000)), population: population,
 			featureRank: featureRank, localPriority: math.MaxInt,
 		}
-		seenCountries[countryCode] = true
 		return nil
 	})
 }
@@ -741,16 +650,12 @@ func contains(area bounds, latitude, longitude float64) bool {
 	return longitude >= area.West && longitude < area.East && latitude > area.South && latitude <= area.North
 }
 
-func retainGlobalPlace(config buildConfig, country country, latitude, longitude float64, population int64, featureRank uint8) bool {
+func retainPlace(config buildConfig, country country, latitude, longitude float64, population int64, featureRank uint8) bool {
 	return country.continent != "AF" && config.retainAllWithin != nil && contains(*config.retainAllWithin, latitude, longitude) ||
 		population >= config.minimumPopulationOutsideArea || featureRank >= 4
 }
 
-func readPreferredNames(ctx context.Context, path, countryCode string, languages []string, places map[int64]*place) error {
-	return readPreferredNameRows(path, countryCode+".txt", ctx, nil, func(place *place) []string { return languages }, places)
-}
-
-func readGlobalPreferredNames(ctx context.Context, path string, countries map[string]country, refinement *bounds, places map[int64]*place) error {
+func readPreferredNames(ctx context.Context, path string, countries map[string]country, refinement *bounds, places map[int64]*place) error {
 	include := func(place *place) bool {
 		return countries[place.country].continent != "AF" && refinement != nil && contains(*refinement, float64(place.latitudeE5)/100_000, float64(place.longitudeE5)/100_000)
 	}

@@ -49,14 +49,14 @@ func TestGlobalBuildPreservesEuropeanDetailAndCoversTheWorld(t *testing.T) {
 		{id: 9000004, name: "Dateline West", country: "NZ", latitude: "-21", longitude: "-180", code: "PPL", population: "2000"},
 		{id: 9000001, name: "Tiny Outside", country: "US", latitude: "20", longitude: "-80", code: "PPL", population: "1499"},
 		{id: 9000002, name: "Small Admin", country: "US", latitude: "21", longitude: "-81", code: "PPLA", population: "0"},
-	})
+	}, nil)
 	output := filepath.Join(t.TempDir(), "release")
 	refinement := bounds{West: -24, East: 45, South: 29, North: 71.5}
 	config := buildConfig{
 		sourceDir: source, outputDir: output, sourceDate: "2026-07-20",
 		countries:       []string{"AU", "BR", "GB", "NL", "NZ", "RU", "SG", "US", "ZA"},
 		coverage:        bounds{West: -180, East: 180, South: -90, North: 90},
-		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500, globalSource: true,
+		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500,
 		limits: limits{minPlaces: 1, maxPlaces: 20, maxShards: 30, maxShardGzip: 256 * 1024},
 	}
 	bundleSHA256, err := validateGlobalSource(context.Background(), source, config.sourceDate)
@@ -106,7 +106,7 @@ func TestGlobalBuildPreservesEuropeanDetailAndCoversTheWorld(t *testing.T) {
 
 func TestGlobalSourceManifestBindsEveryInput(t *testing.T) {
 	t.Parallel()
-	source := makeGlobalSource(t, nil)
+	source := makeGlobalSource(t, nil, nil)
 	if _, err := validateGlobalSource(context.Background(), source, "2026-07-20"); err != nil {
 		t.Fatal(err)
 	}
@@ -129,13 +129,13 @@ func TestGlobalBuildRejectsNonFiniteCoordinates(t *testing.T) {
 	t.Parallel()
 	source := makeGlobalSource(t, []globalSourcePlace{
 		{id: 1, name: "Invalid", country: "US", latitude: "NaN", longitude: "-80", code: "PPL", population: "2000"},
-	})
+	}, nil)
 	output := filepath.Join(t.TempDir(), "release")
 	refinement := bounds{West: -24, East: 45, South: 29, North: 71.5}
 	config := buildConfig{
 		sourceDir: source, outputDir: output, sourceDate: "2026-07-20",
 		countries: []string{"US"}, coverage: bounds{West: -180, East: 180, South: -90, North: 90},
-		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500, globalSource: true,
+		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500,
 		limits: limits{minPlaces: 1, maxPlaces: 20, maxShards: 30, maxShardGzip: 256 * 1024},
 	}
 	bundleSHA256, err := validateGlobalSource(context.Background(), source, config.sourceDate)
@@ -150,7 +150,7 @@ func TestGlobalBuildRejectsNonFiniteCoordinates(t *testing.T) {
 
 func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 	t.Parallel()
-	source := makeSource(t, []sourcePlace{
+	source := makeGlobalSource(t, []globalSourcePlace{
 		{id: 2520600, name: "Cadiz", ascii: "Cadiz", latitude: "36.52672", longitude: "-6.2891", code: "PPLA2", population: "116979"},
 		{id: 2514256, name: "Málaga", ascii: "Malaga", latitude: "36.72016", longitude: "-4.42034", code: "PPLA2", population: "592346"},
 		{id: 9990001, name: "Old Cádiz", ascii: "Old Cadiz", latitude: "36.5", longitude: "-6.2", code: "PPLQ", population: "0"},
@@ -163,7 +163,7 @@ func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 	})
 
 	firstParent := t.TempDir()
-	config := fixtureConfig(source, filepath.Join(firstParent, "release"))
+	config := fixtureConfig(t, source, filepath.Join(firstParent, "release"))
 	config.limits.required = []requiredPlace{
 		{id: 2520600, queries: []string{"Cádiz", "Cadiz"}},
 		{id: 2514256, queries: []string{"Málaga", "Malaga"}},
@@ -195,7 +195,7 @@ func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 	if err := json.Unmarshal(manifestPayload, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata.Schema != schema || metadata.Source.License != "CC BY 4.0" || !metadata.Source.Modified || metadata.Source.ExtractDate != "2026-07-18" {
+	if metadata.Schema != schema || metadata.Source.License != "CC BY 4.0" || !metadata.Source.Modified || metadata.Source.ExtractDate != "2026-07-20" {
 		t.Fatalf("source contract missing from manifest: %+v", metadata.Source)
 	}
 	if metadata.ProductBounds != config.coverage || metadata.Normalization != normalization || metadata.MinimumQueryLength != 3 {
@@ -222,11 +222,11 @@ func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 
 func TestValidateOutputRejectsStructurallyValidAlteredShard(t *testing.T) {
 	t.Parallel()
-	source := makeSource(t, []sourcePlace{
+	source := makeGlobalSource(t, []globalSourcePlace{
 		{id: 1, name: "Málaga", ascii: "Malaga", latitude: "36.7", longitude: "-4.4", code: "PPL", population: "100"},
 	}, nil)
 	output := filepath.Join(t.TempDir(), "release")
-	config := fixtureConfig(source, output)
+	config := fixtureConfig(t, source, output)
 	config.limits.required = nil
 	summary, err := build(context.Background(), config)
 	if err != nil {
@@ -257,17 +257,17 @@ func TestValidateOutputRejectsStructurallyValidAlteredShard(t *testing.T) {
 
 func TestGlobalShardHeadroomFitsManifestBound(t *testing.T) {
 	const currentShardCount = maximumShardCount
-	places := make([]sourcePlace, 0, currentShardCount)
+	places := make([]globalSourcePlace, 0, currentShardCount)
 	for index := range currentShardCount {
 		name := base36ShardName(index)
-		places = append(places, sourcePlace{
+		places = append(places, globalSourcePlace{
 			id: int64(index + 1), name: name, ascii: name,
 			latitude: "36.7", longitude: "-4.4", code: "PPL", population: "1",
 		})
 	}
-	source := makeSource(t, places, nil)
+	source := makeGlobalSource(t, places, nil)
 	output := filepath.Join(t.TempDir(), "release")
-	config := fixtureConfig(source, output)
+	config := fixtureConfig(t, source, output)
 	config.limits.maxPlaces = currentShardCount
 	config.limits.maxShards = currentShardCount
 	config.limits.required = nil
@@ -304,11 +304,11 @@ func TestMarshalManifestRejectsBrowserOverflow(t *testing.T) {
 
 func TestBuildRejectsShardSizeAndLeavesNoRelease(t *testing.T) {
 	t.Parallel()
-	source := makeSource(t, []sourcePlace{
+	source := makeGlobalSource(t, []globalSourcePlace{
 		{id: 1, name: "Málaga", ascii: "Malaga", latitude: "36.7", longitude: "-4.4", code: "PPL", population: "100"},
 	}, nil)
 	output := filepath.Join(t.TempDir(), "release")
-	config := fixtureConfig(source, output)
+	config := fixtureConfig(t, source, output)
 	config.limits.maxShardGzip = 1
 	config.limits.required = nil
 	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), "gzip size") {
@@ -325,11 +325,11 @@ func TestBuildRejectsShardSizeAndLeavesNoRelease(t *testing.T) {
 
 func TestBuildRejectsShardCount(t *testing.T) {
 	t.Parallel()
-	source := makeSource(t, []sourcePlace{
+	source := makeGlobalSource(t, []globalSourcePlace{
 		{id: 1, name: "Málaga", ascii: "Malaga", latitude: "36.7", longitude: "-4.4", code: "PPL", population: "100"},
 		{id: 2, name: "Cádiz", ascii: "Cadiz", latitude: "36.5", longitude: "-6.2", code: "PPL", population: "100"},
 	}, nil)
-	config := fixtureConfig(source, filepath.Join(t.TempDir(), "release"))
+	config := fixtureConfig(t, source, filepath.Join(t.TempDir(), "release"))
 	config.limits.maxShards = 1
 	config.limits.required = nil
 	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), "shard count 2") {
@@ -339,19 +339,13 @@ func TestBuildRejectsShardCount(t *testing.T) {
 
 func TestBuildRejectsMalformedGeoNamesRows(t *testing.T) {
 	t.Parallel()
-	source := makeSource(t, nil, nil)
-	writeZip(t, filepath.Join(source, "countries", "ES.zip"), "ES.txt", "1\tshort\n")
-	config := fixtureConfig(source, filepath.Join(t.TempDir(), "release"))
+	source := makeGlobalSource(t, nil, nil)
+	config := fixtureConfig(t, source, filepath.Join(t.TempDir(), "release"))
+	writeZip(t, filepath.Join(source, "allCountries.zip"), "allCountries.txt", "1\tshort\n")
 	config.limits.required = nil
 	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), "place row has 2 fields") {
 		t.Fatalf("malformed source error = %v", err)
 	}
-}
-
-type sourcePlace struct {
-	id                               int64
-	name, ascii, latitude, longitude string
-	code, population                 string
 }
 
 type globalSourcePlace struct {
@@ -359,53 +353,32 @@ type globalSourcePlace struct {
 	name, ascii, country, latitude, longitude, code, population string
 }
 
-func fixtureConfig(source, output string) buildConfig {
-	return buildConfig{
-		sourceDir: source, outputDir: output, sourceDate: "2026-07-18",
-		countries: []string{"ES"}, coverage: bounds{West: -24, East: 45, South: 29, North: 71.5},
-		limits: limits{minPlaces: 1, maxPlaces: 20, maxShards: 20, maxShardGzip: 256 * 1024, requireCountries: true},
-	}
-}
-
-func makeSource(t *testing.T, places []sourcePlace, alternates []string) string {
+func fixtureConfig(t *testing.T, source, output string) buildConfig {
 	t.Helper()
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "countries"), 0o755); err != nil {
+	bundleSHA256, err := validateGlobalSource(context.Background(), source, "2026-07-20")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "alternatenames"), 0o755); err != nil {
-		t.Fatal(err)
+	return buildConfig{
+		sourceDir: source, outputDir: output, sourceDate: "2026-07-20",
+		countries: []string{"ES"}, coverage: bounds{West: -24, East: 45, South: 29, North: 71.5},
+		retainAllWithin:    &bounds{West: -24, East: 45, South: 29, North: 71.5},
+		sourceBundleSHA256: bundleSHA256,
+		limits:             limits{minPlaces: 1, maxPlaces: 20, maxShards: 20, maxShardGzip: 256 * 1024},
 	}
-	countryFields := []string{"ES", "ESP", "724", "SP", "Spain", "Madrid", "504782", "46723749", "EU", ".es", "EUR", "Euro", "34", "#####", "^(\\d{5})$", "es-ES,ca,gl,eu,oc", "2510769", "AD,PT,GI,FR,MA", ""}
-	if err := os.WriteFile(filepath.Join(root, "countryInfo.txt"), []byte(strings.Join(countryFields, "\t")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "admin1CodesASCII.txt"), []byte("ES.51\tAndalusia\tAndalusia\t2593109\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rows := make([]string, 0, len(places))
-	for _, place := range places {
-		fields := []string{
-			strconvFormat(place.id), place.name, place.ascii, "", place.latitude, place.longitude,
-			"P", place.code, "ES", "", "51", "", "", "", place.population, "", "10", "Europe/Madrid", "2026-07-18",
-		}
-		rows = append(rows, strings.Join(fields, "\t"))
-	}
-	writeZip(t, filepath.Join(root, "countries", "ES.zip"), "ES.txt", strings.Join(rows, "\n")+"\n")
-	writeZip(t, filepath.Join(root, "alternatenames", "ES.zip"), "ES.txt", strings.Join(alternates, "\n")+"\n")
-	return root
 }
 
-func makeGlobalSource(t *testing.T, places []globalSourcePlace) string {
+func makeGlobalSource(t *testing.T, places []globalSourcePlace, alternates []string) string {
 	t.Helper()
 	root := t.TempDir()
 	countryNames := map[string]string{
 		"AU": "Australia", "BR": "Brazil", "GB": "United Kingdom", "NL": "Netherlands",
 		"NZ": "New Zealand", "RU": "Russia", "SG": "Singapore", "US": "United States", "ZA": "South Africa",
+		"ES": "Spain",
 	}
 	continents := map[string]string{
 		"GB": "EU", "NL": "EU", "RU": "EU", "AU": "OC", "BR": "SA",
-		"NZ": "OC", "SG": "AS", "US": "NA", "ZA": "AF",
+		"NZ": "OC", "SG": "AS", "US": "NA", "ZA": "AF", "ES": "EU",
 	}
 	codes := make([]string, 0, len(countryNames))
 	for code := range countryNames {
@@ -416,7 +389,11 @@ func makeGlobalSource(t *testing.T, places []globalSourcePlace) string {
 	adminRows := make([]string, 0, len(codes))
 	for _, code := range codes {
 		fields := make([]string, 19)
-		fields[0], fields[4], fields[8], fields[15] = code, countryNames[code], continents[code], "en"
+		languages := "en"
+		if code == "ES" {
+			languages = "es-ES,ca,gl,eu,oc"
+		}
+		fields[0], fields[4], fields[8], fields[15] = code, countryNames[code], continents[code], languages
 		countryRows = append(countryRows, strings.Join(fields, "\t"))
 		adminRows = append(adminRows, code+".01\tAdmin\tAdmin\t1")
 	}
@@ -428,18 +405,22 @@ func makeGlobalSource(t *testing.T, places []globalSourcePlace) string {
 	}
 	rows := make([]string, 0, len(places))
 	for _, place := range places {
+		countryCode := place.country
+		if countryCode == "" {
+			countryCode = "ES"
+		}
 		ascii := place.ascii
 		if ascii == "" {
 			ascii = place.name
 		}
 		fields := []string{
 			strconvFormat(place.id), place.name, ascii, "", place.latitude, place.longitude,
-			"P", place.code, place.country, "", "01", "", "", "", place.population, "", "10", "UTC", "2026-07-20",
+			"P", place.code, countryCode, "", "01", "", "", "", place.population, "", "10", "UTC", "2026-07-20",
 		}
 		rows = append(rows, strings.Join(fields, "\t"))
 	}
 	writeZip(t, filepath.Join(root, "allCountries.zip"), "allCountries.txt", strings.Join(rows, "\n")+"\n")
-	writeZip(t, filepath.Join(root, "alternateNamesV2.zip"), "alternateNamesV2.txt", "")
+	writeZip(t, filepath.Join(root, "alternateNamesV2.zip"), "alternateNamesV2.txt", strings.Join(alternates, "\n")+"\n")
 	files := make(map[string]string, len(globalSourceFiles))
 	for _, name := range globalSourceFiles {
 		digest, err := hashRegularFile(context.Background(), filepath.Join(root, name))
