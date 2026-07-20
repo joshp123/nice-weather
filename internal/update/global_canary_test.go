@@ -3,41 +3,211 @@ package update
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/ifs"
 )
 
-func TestGlobalCanaryUsesTheExistingWorldwideStepEnvelope(t *testing.T) {
+func TestGlobalCanaryUsesExactlyFourteenCompleteWorldwideDays(t *testing.T) {
 	run := ifs.Run{Time: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}
-	date, steps, err := globalCanaryDayAndSteps(time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC), run)
+	days, steps, err := globalCanaryDaysAndSteps(time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC), run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := date.Format("2006-01-02"); got != "2026-07-19" {
-		t.Fatalf("canary date = %s, want first complete worldwide date", got)
+	if len(days) != 14 || days[0].Date.Format("2006-01-02") != "2026-07-19" || days[13].Date.Format("2006-01-02") != "2026-08-01" {
+		t.Fatalf("canary days = %+v", days)
 	}
-	want := []int{6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48}
-	if !reflect.DeepEqual(steps, want) {
-		t.Fatalf("canary steps = %v, want %v", steps, want)
+	available, err := ifs.ForecastSteps(run)
+	if err != nil {
+		t.Fatal(err)
 	}
-	firstWindow := globalOutlookDecodeWindow.start(date)
+	want := stepsForDays(run.Time, days, globalOutlookDecodeWindow, available)
+	if !reflect.DeepEqual(steps, want) || steps[0] != 6 || steps[len(steps)-1] != 360 {
+		t.Fatalf("canary steps = %v, want exact 6..360 envelope", steps)
+	}
+	firstWindow := globalOutlookDecodeWindow.start(days[0].Date)
 	if valid := run.Time.Add(time.Duration(steps[0]) * time.Hour); !valid.Before(firstWindow) {
 		t.Fatalf("step %d is not the one preceding worldwide window %s", steps[0], firstWindow)
 	}
 	if valid := run.Time.Add(time.Duration(steps[1]) * time.Hour); valid.Before(firstWindow) {
 		t.Fatalf("step %d still precedes worldwide window %s", steps[1], firstWindow)
 	}
-	lastWindow := globalOutlookDecodeWindow.end(date)
-	if valid := run.Time.Add(time.Duration(steps[len(steps)-1]) * time.Hour); valid.After(lastWindow) {
-		t.Fatalf("last step %d exceeds worldwide window %s", steps[len(steps)-1], lastWindow)
+	lastProductBoundary := globalProductWindow.end(days[len(days)-1].Date)
+	if valid := run.Time.Add(time.Duration(steps[len(steps)-1]) * time.Hour); valid.Before(lastProductBoundary) {
+		t.Fatalf("last step %d ends before worldwide product boundary %s", steps[len(steps)-1], lastProductBoundary)
+	}
+}
+
+func TestAssembleGlobalCanaryDaysIsTransactionalOrderedAndDayBounded(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "out")
+	preparedRoot := filepath.Join(root, "prepared")
+	if err := os.MkdirAll(filepath.Join(out, ".global-canary-abandoned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "unrelated.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(preparedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	days, steps, err := globalCanaryDaysAndSteps(run.Add(time.Hour), ifs.Run{Time: run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := syntheticGlobalCanaryStaged(run, steps)
+	var preparedDates, builtDates []string
+	maxScratchFiles := 0
+	firstFile := filepath.Join(preparedRoot, "first.f32")
+	if err := os.WriteFile(firstFile, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := &globalCanaryPreparedDay{
+		series: pipeline.PreparedSeries{pipeline.Temperature: {}}, files: 1, bytes: 5,
+		close: func() error { return os.Remove(firstFile) },
+	}
+	assembler := globalCanaryAssembler{
+		prepare: func(_ context.Context, selected []stagedFrame, scratch string) (pipeline.PreparedSeries, func() error, error) {
+			date := selectedDayDate(t, days, staged, selected)
+			preparedDates = append(preparedDates, date)
+			path := filepath.Join(scratch, date+".f32")
+			if err := os.WriteFile(path, []byte(date), 0o600); err != nil {
+				return nil, nil, err
+			}
+			files, _, err := treeStats(scratch)
+			if err != nil {
+				return nil, nil, err
+			}
+			maxScratchFiles = max(maxScratchFiles, files)
+			return pipeline.PreparedSeries{pipeline.Temperature: {}}, func() error { return os.Remove(path) }, nil
+		},
+		build: func(_ context.Context, config forecasttiles.Config) (forecasttiles.Catalog, error) {
+			builtDates = append(builtDates, config.Period)
+			path := filepath.Join(config.Root, "forecast-days", config.Period, config.Tier, "forecast-tiles.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return forecasttiles.Catalog{}, err
+			}
+			if err := os.WriteFile(path, []byte(config.Period), 0o644); err != nil {
+				return forecasttiles.Catalog{}, err
+			}
+			return syntheticGlobalCatalog(config), nil
+		},
+	}
+	summaries, installed, err := assembleGlobalCanaryDays(context.Background(), out, "run-14-days", run, days, staged, preparedRoot, timeZoneUTC, landEverywhere, first, assembler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 14 || len(preparedDates) != 13 || len(builtDates) != 14 {
+		t.Fatalf("assembled=%d prepared=%d built=%d", len(summaries), len(preparedDates), len(builtDates))
+	}
+	for index, day := range days {
+		want := day.Date.Format("2006-01-02")
+		if builtDates[index] != want || (index > 0 && preparedDates[index-1] != want) {
+			t.Fatalf("day %d order: prepared=%v built=%v", index, preparedDates, builtDates)
+		}
+		if _, err := os.Stat(filepath.Join(installed, "forecast-days", want, "global", "forecast-tiles.json")); err != nil {
+			t.Fatalf("installed day %s: %v", want, err)
+		}
+		wantMessages := len(stagedForDayWindow(staged, day.Date, globalOutlookDecodeWindow))
+		if summaries[index].Messages != wantMessages || summaries[index].PreparedFiles != 1 || len(summaries[index].Catalog.Points) != 1 || len(summaries[index].Catalog.Scalars) != 1 {
+			t.Fatalf("day %s summary = %+v; want %d messages and one bounded synthetic asset", want, summaries[index], wantMessages)
+		}
+	}
+	files, bytes, err := treeStats(installed)
+	if err != nil || files != productDays || bytes != productDays*int64(len("2006-01-02")) {
+		t.Fatalf("installed aggregate = %d files/%d bytes, %v", files, bytes, err)
+	}
+	if maxScratchFiles != 1 {
+		t.Fatalf("max prepared scratch files = %d, want one synthetic day", maxScratchFiles)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(out, ".global-canary-*")); len(matches) != 0 {
+		t.Fatalf("transaction staging remains: %v", matches)
+	}
+	if payload, err := os.ReadFile(filepath.Join(out, "unrelated.txt")); err != nil || string(payload) != "keep" {
+		t.Fatalf("transaction cleanup touched unrelated output: %q, %v", payload, err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "current")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canary published current: %v", err)
+	}
+}
+
+func TestAssembleGlobalCanaryDaysCancellationRemovesIncompleteRunAndScratch(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "out")
+	preparedRoot := filepath.Join(root, "prepared")
+	if err := os.MkdirAll(preparedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	days, steps, err := globalCanaryDaysAndSteps(run.Add(time.Hour), ifs.Run{Time: run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := syntheticGlobalCanaryStaged(run, steps)
+	first := &globalCanaryPreparedDay{series: pipeline.PreparedSeries{pipeline.Temperature: {}}, close: func() error { return nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	built := 0
+	assembler := globalCanaryAssembler{
+		prepare: func(_ context.Context, _ []stagedFrame, scratch string) (pipeline.PreparedSeries, func() error, error) {
+			path := filepath.Join(scratch, "day.f32")
+			if err := os.WriteFile(path, []byte("day"), 0o600); err != nil {
+				return nil, nil, err
+			}
+			return pipeline.PreparedSeries{pipeline.Temperature: {}}, func() error { return os.Remove(path) }, nil
+		},
+		build: func(_ context.Context, config forecasttiles.Config) (forecasttiles.Catalog, error) {
+			built++
+			if built == 3 {
+				cancel()
+				return forecasttiles.Catalog{}, context.Canceled
+			}
+			path := filepath.Join(config.Root, "forecast-days", config.Period, config.Tier, "forecast-tiles.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return forecasttiles.Catalog{}, err
+			}
+			if err := os.WriteFile(path, []byte(config.Period), 0o644); err != nil {
+				return forecasttiles.Catalog{}, err
+			}
+			return syntheticGlobalCatalog(config), nil
+		},
+	}
+	_, _, err = assembleGlobalCanaryDays(ctx, out, "cancelled-run", run, days, staged, preparedRoot, timeZoneUTC, landEverywhere, first, assembler)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled assembly error = %v", err)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(out, ".global-canary-*")); len(matches) != 0 {
+		t.Fatalf("cancelled transaction staging remains: %v", matches)
+	}
+	if _, err := os.Stat(filepath.Join(out, "canary-runs", "cancelled-run")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cancelled run installed: %v", err)
+	}
+	files, _, err := treeStats(preparedRoot)
+	if err != nil || files != 0 {
+		t.Fatalf("cancelled prepared scratch = %d files, %v", files, err)
+	}
+}
+
+func TestValidateGlobalCanaryStagedRejectsProviderRunMixing(t *testing.T) {
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	days, steps, err := globalCanaryDaysAndSteps(run.Add(time.Hour), ifs.Run{Time: run})
+	if err != nil || len(days) != 14 {
+		t.Fatal(err)
+	}
+	staged := syntheticGlobalCanaryStaged(run, steps)
+	staged[len(staged)/2].run = run.Add(-24 * time.Hour)
+	if err := validateGlobalCanaryStaged(run, steps, staged); err == nil || !strings.Contains(err.Error(), "uses run") {
+		t.Fatalf("mixed-run validation error = %v", err)
 	}
 }
 
@@ -130,3 +300,52 @@ func TestCancelledGlobalCanaryCleansScratchAndDoesNotPublish(t *testing.T) {
 		t.Fatalf("cancelled canary published current: %v", err)
 	}
 }
+
+func syntheticGlobalCanaryStaged(run time.Time, steps []int) []stagedFrame {
+	result := make([]stagedFrame, 0, len(steps)*len(ifs.RequiredSurfaceFields()))
+	for _, step := range steps {
+		for _, parameter := range ifs.RequiredSurfaceFields() {
+			field, err := ifsPipelineField(parameter)
+			if err != nil {
+				panic(err)
+			}
+			result = append(result, stagedFrame{
+				path: fmt.Sprintf("/%s-%03d.grib2", parameter, step), field: field, step: step,
+				run: run, resolution: 28, spacing: .25,
+			})
+		}
+	}
+	return result
+}
+
+func selectedDayDate(t *testing.T, days []dayPlan, staged, selected []stagedFrame) string {
+	t.Helper()
+	selectedSet := stagedFrameSet(selected)
+	for _, day := range days {
+		want := stagedFrameSet(stagedForDayWindow(staged, day.Date, globalOutlookDecodeWindow))
+		if reflect.DeepEqual(selectedSet, want) {
+			return day.Date.Format("2006-01-02")
+		}
+	}
+	t.Fatalf("selected frame window does not match one planned day: %v", selectedSet)
+	return ""
+}
+
+func stagedFrameSet(frames []stagedFrame) map[string]bool {
+	result := make(map[string]bool, len(frames))
+	for _, frame := range frames {
+		result[fmt.Sprintf("%s/%d", frame.field, frame.step)] = true
+	}
+	return result
+}
+
+func syntheticGlobalCatalog(config forecasttiles.Config) forecasttiles.Catalog {
+	return forecasttiles.Catalog{
+		Version: 1, ReleaseID: config.ReleaseID, Period: config.Period, Tier: config.Tier,
+		Date: config.Date.Format("2006-01-02"), MaxZoom: config.MaxZoom,
+		Points: []forecasttiles.PointTile{{Zoom: 3}}, Scalars: []forecasttiles.ScalarTile{{Zoom: 3}},
+	}
+}
+
+func timeZoneUTC(_, _ float64) (*time.Location, error) { return time.UTC, nil }
+func landEverywhere(_, _ float64) (bool, error)        { return true, nil }

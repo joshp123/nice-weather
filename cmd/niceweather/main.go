@@ -60,11 +60,12 @@ func main() {
 			var summary weatherupdate.GlobalCanarySummary
 			summary, err = weatherupdate.RunGlobalCanary(ctx, weatherupdate.GlobalCanaryConfig{Out: *out, Cache: *cache})
 			if err == nil {
-				fmt.Printf("global canary: IFS %s; local date %s; %d messages; source %d bytes; staging %d files/%d bytes; prepared %d files/%d bytes; output %d point tiles + %d scalar tiles, %d files/%d bytes; bounded maxima metrics=%d records=%d scalar=%d bytes; %s\n",
-					summary.Run.Format(time.RFC3339), summary.Date.Format("2006-01-02"), summary.MessageCount, summary.SourceBytes,
-					summary.StagedFiles, summary.StagedBytes, summary.PreparedFiles, summary.PreparedBytes,
+				fmt.Printf("global canary: IFS %s; %d worldwide days %s through %s; %d messages; source %d bytes; staging %d files/%d bytes; max prepared %d files/%d bytes; output %d point tiles + %d scalar tiles, %d files/%d bytes; max working bytes=%d; bounded maxima metrics=%d records=%d scalar=%d bytes; stage=%s prepare=%s tiles=%s total=%s\n",
+					summary.Run.Format(time.RFC3339), summary.DayCount, summary.FirstDate.Format("2006-01-02"), summary.LastDate.Format("2006-01-02"), summary.MessageCount, summary.SourceBytes,
+					summary.StagedFiles, summary.StagedBytes, summary.MaxPreparedFiles, summary.MaxPreparedBytes,
 					summary.PointTiles, summary.ScalarTiles, summary.OutputFiles, summary.OutputBytes,
-					summary.MaxMetricCells, summary.MaxDisplayRecords, summary.MaxScalarBytes, summary.Elapsed.Round(time.Millisecond))
+					summary.MaxWorkingBytes, summary.MaxMetricCells, summary.MaxDisplayRecords, summary.MaxScalarBytes,
+					summary.StageElapsed.Round(time.Millisecond), summary.PrepareElapsed.Round(time.Millisecond), summary.TileElapsed.Round(time.Millisecond), summary.Elapsed.Round(time.Millisecond))
 			}
 		}
 	case "places":

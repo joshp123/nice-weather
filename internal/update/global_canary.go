@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -33,27 +34,59 @@ type GlobalCanaryConfig struct {
 	Now   func() time.Time
 }
 
-// GlobalCanarySummary is the exact evidence emitted by one worldwide IFS day.
+// GlobalCanarySummary is the exact evidence emitted by one complete
+// fourteen-day worldwide IFS canary.
 type GlobalCanarySummary struct {
 	Run               time.Time
-	Date              time.Time
+	FirstDate         time.Time
+	LastDate          time.Time
+	DayCount          int
 	MessageCount      int
 	SourceBytes       int64
 	StagedFiles       int
 	StagedBytes       int64
-	PreparedFiles     int
-	PreparedBytes     int64
+	MaxPreparedFiles  int
+	MaxPreparedBytes  int64
 	PointTiles        int
 	ScalarTiles       int
 	OutputFiles       int
 	OutputBytes       int64
+	MaxWorkingBytes   int64
 	MaxMetricCells    uint64
 	MaxDisplayRecords uint64
 	MaxScalarBytes    uint64
+	StageElapsed      time.Duration
+	PrepareElapsed    time.Duration
+	TileElapsed       time.Duration
 	Elapsed           time.Duration
 }
 
-// RunGlobalCanary builds one real worldwide IFS day without publication.
+type globalCanaryDaySummary struct {
+	Date          time.Time
+	Messages      int
+	PreparedFiles int
+	PreparedBytes int64
+	Catalog       forecasttiles.Catalog
+	PrepareTime   time.Duration
+	TileTime      time.Duration
+}
+
+type globalCanaryAssembler struct {
+	prepare func(context.Context, []stagedFrame, string) (pipeline.PreparedSeries, func() error, error)
+	build   func(context.Context, forecasttiles.Config) (forecasttiles.Catalog, error)
+}
+
+type globalCanaryPreparedDay struct {
+	series  pipeline.PreparedSeries
+	close   func() error
+	files   int
+	bytes   int64
+	elapsed time.Duration
+}
+
+// RunGlobalCanary builds exactly fourteen worldwide IFS days without
+// publication. Downloads are shared by the run. Prepared frames are bounded
+// to one day and removed before the next day starts.
 func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary GlobalCanarySummary, resultErr error) {
 	started := time.Now()
 	if config.Out == "" || config.Cache == "" {
@@ -115,17 +148,22 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 	if err != nil {
 		return summary, err
 	}
-	date, steps, err := globalCanaryDayAndSteps(now, run)
+	days, steps, err := globalCanaryDaysAndSteps(now, run)
 	if err != nil {
 		return summary, err
 	}
-	summary.Run, summary.Date = run.Time.UTC(), date
+	summary.Run = run.Time.UTC()
+	summary.FirstDate = days[0].Date
+	summary.LastDate = days[len(days)-1].Date
+	summary.DayCount = len(days)
 
 	downloadRoot := filepath.Join(scratch, "downloads")
+	stageStarted := time.Now()
 	staged, err := stageIFS(ctx, ifsClient, run, steps, downloadRoot)
 	if err != nil {
 		return summary, err
 	}
+	summary.StageElapsed = time.Since(stageStarted)
 	summary.MessageCount = len(staged)
 	summary.StagedFiles, summary.StagedBytes, err = treeStats(downloadRoot)
 	if err != nil {
@@ -143,20 +181,25 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 	if err := os.MkdirAll(preparedRoot, 0o755); err != nil {
 		return summary, err
 	}
-	series, frames, err := prepareGlobalCanaryFrames(ctx, decoder, staged, preparedRoot)
-	defer func() {
-		for _, frame := range frames {
-			resultErr = errors.Join(resultErr, frame.Close())
-		}
-	}()
+	if err := validateGlobalCanaryStaged(run.Time, steps, staged); err != nil {
+		return summary, err
+	}
+	// Every selected message uses the same IFS grid. Keep the first bounded day
+	// alive through land-mask creation, then consume it as day one. It must not
+	// be converted twice merely to discover geometry.
+	firstSelected := stagedForDayWindow(staged, days[0].Date, globalOutlookDecodeWindow)
+	firstStarted := time.Now()
+	firstSeries, closeFirst, err := prepareGlobalCanaryDay(ctx, decoder, firstSelected, preparedRoot)
 	if err != nil {
 		return summary, err
 	}
-	summary.PreparedFiles, summary.PreparedBytes, err = treeStats(preparedRoot)
+	firstPrepareElapsed := time.Since(firstStarted)
+	defer func() { resultErr = errors.Join(resultErr, closeFirst()) }()
+	firstFiles, firstBytes, err := treeStats(preparedRoot)
 	if err != nil {
-		return summary, fmt.Errorf("measure prepared IFS frames: %w", err)
+		return summary, fmt.Errorf("measure first prepared IFS day: %w", err)
 	}
-	sourceSpec, err := globalCanarySeriesSpec(series)
+	sourceSpec, err := globalCanarySeriesSpec(firstSeries)
 	if err != nil {
 		return summary, err
 	}
@@ -173,43 +216,261 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 	if err != nil {
 		return summary, err
 	}
-	releaseID := fmt.Sprintf("ifs-control-%s-%s", run.Time.UTC().Format("2006010215"), date.Format("20060102"))
-	catalog, err := forecasttiles.BuildDay(ctx, forecasttiles.Config{
-		Root: out, ReleaseID: releaseID, Period: date.Format("2006-01-02"), Tier: "global",
-		Date: date, MaxZoom: 3, Series: series, Locate: locate, Land: isLand,
-	})
+	releaseID := fmt.Sprintf("ifs-control-%s-%s-%s", run.Time.UTC().Format("2006010215"), summary.FirstDate.Format("20060102"), summary.LastDate.Format("20060102"))
+	assembler := globalCanaryAssembler{
+		prepare: func(ctx context.Context, selected []stagedFrame, root string) (pipeline.PreparedSeries, func() error, error) {
+			return prepareGlobalCanaryDay(ctx, decoder, selected, root)
+		},
+		build: forecasttiles.BuildDay,
+	}
+	firstPrepared := &globalCanaryPreparedDay{
+		series: firstSeries, close: closeFirst, files: firstFiles, bytes: firstBytes, elapsed: firstPrepareElapsed,
+	}
+	daySummaries, installed, err := assembleGlobalCanaryDays(ctx, out, releaseID, run.Time, days, staged, preparedRoot, locate, isLand, firstPrepared, assembler)
 	if err != nil {
 		return summary, err
 	}
-	summary.PointTiles, summary.ScalarTiles = len(catalog.Points), len(catalog.Scalars)
-	summary.MaxMetricCells = catalog.Stats.MaxMetricCells
-	summary.MaxDisplayRecords = catalog.Stats.MaxDisplayRecords
-	summary.MaxScalarBytes = catalog.Stats.MaxScalarBytes
-	artifactRoot := filepath.Join(out, "forecast-days", date.Format("2006-01-02"), "global")
-	summary.OutputFiles, summary.OutputBytes, err = treeStats(artifactRoot)
+	for _, day := range daySummaries {
+		summary.MaxPreparedFiles = max(summary.MaxPreparedFiles, day.PreparedFiles)
+		summary.MaxPreparedBytes = max(summary.MaxPreparedBytes, day.PreparedBytes)
+		summary.PointTiles += len(day.Catalog.Points)
+		summary.ScalarTiles += len(day.Catalog.Scalars)
+		summary.MaxMetricCells = max(summary.MaxMetricCells, day.Catalog.Stats.MaxMetricCells)
+		summary.MaxDisplayRecords = max(summary.MaxDisplayRecords, day.Catalog.Stats.MaxDisplayRecords)
+		summary.MaxScalarBytes = max(summary.MaxScalarBytes, day.Catalog.Stats.MaxScalarBytes)
+		summary.PrepareElapsed += day.PrepareTime
+		summary.TileElapsed += day.TileTime
+	}
+	summary.OutputFiles, summary.OutputBytes, err = treeStats(installed)
 	if err != nil {
 		return summary, fmt.Errorf("measure global canary output: %w", err)
 	}
+	// The assembly tree grows monotonically. Its final size plus the retained
+	// downloads and largest one-day prepared set is the conservative peak.
+	summary.MaxWorkingBytes = summary.StagedBytes + summary.MaxPreparedBytes + summary.OutputBytes
 	summary.Elapsed = time.Since(started)
 	return summary, nil
 }
 
-func globalCanaryDayAndSteps(now time.Time, run ifs.Run) (time.Time, []int, error) {
+func globalCanaryDaysAndSteps(now time.Time, run ifs.Run) ([]dayPlan, []int, error) {
 	available, err := ifs.ForecastSteps(run)
 	if err != nil {
-		return time.Time{}, nil, err
+		return nil, nil, err
 	}
 	days, err := planDaysForCoverageCount(now, forecastCoverage{}, forecastCoverage{
 		provider: "IFS", run: run.Time, maxForecastHours: available[len(available)-1],
-	}, worldwideForecastPolicy, 1)
+	}, worldwideForecastPolicy, productDays)
 	if err != nil {
-		return time.Time{}, nil, err
+		return nil, nil, err
 	}
-	steps := stepsForDays(run.Time, days[:1], globalOutlookDecodeWindow, available)
+	steps := stepsForDays(run.Time, days, globalOutlookDecodeWindow, available)
 	if len(steps) == 0 {
-		return time.Time{}, nil, errors.New("worldwide IFS canary has no source steps")
+		return nil, nil, errors.New("worldwide IFS canary has no source steps")
 	}
-	return days[0].Date, steps, nil
+	return days, steps, nil
+}
+
+func validateGlobalCanaryStaged(run time.Time, steps []int, staged []stagedFrame) error {
+	want := make(map[pipeline.Field]map[int]bool)
+	for _, parameter := range ifs.RequiredSurfaceFields() {
+		field, err := ifsPipelineField(parameter)
+		if err != nil {
+			return err
+		}
+		want[field] = make(map[int]bool, len(steps))
+		for _, step := range steps {
+			want[field][step] = true
+		}
+	}
+	seen := make(map[pipeline.Field]map[int]bool, len(want))
+	for _, frame := range staged {
+		if !frame.run.Equal(run.UTC()) {
+			return fmt.Errorf("staged IFS frame uses run %s; want %s", frame.run.Format(time.RFC3339), run.UTC().Format(time.RFC3339))
+		}
+		if frame.resolution != 28 || frame.spacing != .25 {
+			return errors.New("staged worldwide IFS frame changed source resolution")
+		}
+		stepsForField, ok := want[frame.field]
+		if !ok || !stepsForField[frame.step] {
+			return fmt.Errorf("unexpected staged IFS %s step %d", frame.field, frame.step)
+		}
+		if seen[frame.field] == nil {
+			seen[frame.field] = make(map[int]bool)
+		}
+		if seen[frame.field][frame.step] {
+			return fmt.Errorf("duplicate staged IFS %s step %d", frame.field, frame.step)
+		}
+		seen[frame.field][frame.step] = true
+	}
+	for field, fieldSteps := range want {
+		for step := range fieldSteps {
+			if !seen[field][step] {
+				return fmt.Errorf("missing staged IFS %s step %d", field, step)
+			}
+		}
+	}
+	return nil
+}
+
+func prepareGlobalCanaryDay(ctx context.Context, decoder *pipeline.Decoder, selected []stagedFrame, scratch string) (pipeline.PreparedSeries, func() error, error) {
+	series, frames, err := prepareGlobalCanaryFrames(ctx, decoder, selected, scratch)
+	if err != nil {
+		return nil, nil, err
+	}
+	return series, func() error {
+		var closeErr error
+		for _, frame := range frames {
+			closeErr = errors.Join(closeErr, frame.Close())
+		}
+		return closeErr
+	}, nil
+}
+
+func assembleGlobalCanaryDays(
+	ctx context.Context,
+	out, releaseID string,
+	run time.Time,
+	days []dayPlan,
+	staged []stagedFrame,
+	preparedRoot string,
+	locate forecasttiles.LocateTimezone,
+	land forecasttiles.IsLand,
+	first *globalCanaryPreparedDay,
+	assembler globalCanaryAssembler,
+) (summaries []globalCanaryDaySummary, installed string, resultErr error) {
+	if len(days) != productDays {
+		return nil, "", fmt.Errorf("global canary requires exactly %d days; got %d", productDays, len(days))
+	}
+	if run.Location() != time.UTC || run.Hour() != 12 || run.Minute() != 0 || run.Second() != 0 || run.Nanosecond() != 0 {
+		return nil, "", errors.New("global canary requires one exact 12 UTC IFS run")
+	}
+	if out == "" || !filepath.IsAbs(out) || releaseID == "" || preparedRoot == "" || !filepath.IsAbs(preparedRoot) || locate == nil || land == nil || first == nil || first.series == nil || first.close == nil || assembler.prepare == nil || assembler.build == nil {
+		return nil, "", errors.New("global canary assembly is incomplete")
+	}
+	for index, day := range days {
+		if !day.Date.Equal(productDate(day.Date)) {
+			return nil, "", fmt.Errorf("global canary day %d is not a UTC calendar date", index+1)
+		}
+		if index > 0 && !day.Date.Equal(days[index-1].Date.AddDate(0, 0, 1)) {
+			return nil, "", errors.New("global canary dates must be consecutive and ordered")
+		}
+	}
+
+	final := filepath.Join(out, "canary-runs", releaseID)
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return nil, "", err
+	}
+	if err := cleanGlobalCanaryTransactions(out); err != nil {
+		return nil, "", err
+	}
+	if _, err := os.Stat(final); err == nil {
+		return nil, "", fmt.Errorf("immutable global canary run already exists: %s", final)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, "", err
+	}
+	staging, err := os.MkdirTemp(out, ".global-canary-")
+	if err != nil {
+		return nil, "", err
+	}
+	installedOK := false
+	defer func() {
+		if !installedOK {
+			resultErr = errors.Join(resultErr, os.RemoveAll(staging))
+		}
+	}()
+
+	summaries = make([]globalCanaryDaySummary, 0, productDays)
+	for index, day := range days {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		selected := stagedForDayWindow(staged, day.Date, globalOutlookDecodeWindow)
+		if len(selected) == 0 {
+			return nil, "", fmt.Errorf("global canary day %s has no staged messages", day.Date.Format("2006-01-02"))
+		}
+
+		prepared := first
+		if index > 0 {
+			prepareStarted := time.Now()
+			series, closeDay, err := assembler.prepare(ctx, selected, preparedRoot)
+			if err != nil {
+				return nil, "", fmt.Errorf("prepare global canary day %s: %w", day.Date.Format("2006-01-02"), err)
+			}
+			preparedFiles, preparedBytes, statErr := treeStats(preparedRoot)
+			if statErr != nil {
+				return nil, "", errors.Join(fmt.Errorf("measure prepared global canary day %s: %w", day.Date.Format("2006-01-02"), statErr), closeDay())
+			}
+			prepared = &globalCanaryPreparedDay{
+				series: series, close: closeDay, files: preparedFiles, bytes: preparedBytes, elapsed: time.Since(prepareStarted),
+			}
+		}
+
+		buildStarted := time.Now()
+		catalog, buildErr := assembler.build(ctx, forecasttiles.Config{
+			Root: staging, ReleaseID: releaseID, Period: day.Date.Format("2006-01-02"), Tier: "global",
+			Date: day.Date, MaxZoom: 3, Series: prepared.series, Locate: locate, Land: land,
+		})
+		buildElapsed := time.Since(buildStarted)
+		closeErr := prepared.close()
+		remainingFiles, _, statErr := treeStats(preparedRoot)
+		if buildErr != nil {
+			return nil, "", errors.Join(fmt.Errorf("build global canary day %s: %w", day.Date.Format("2006-01-02"), buildErr), closeErr, statErr)
+		}
+		if closeErr != nil {
+			return nil, "", fmt.Errorf("close prepared global canary day %s: %w", day.Date.Format("2006-01-02"), closeErr)
+		}
+		if statErr != nil {
+			return nil, "", fmt.Errorf("inspect cleaned global canary scratch: %w", statErr)
+		}
+		if remainingFiles != 0 {
+			return nil, "", fmt.Errorf("global canary day %s left %d prepared files", day.Date.Format("2006-01-02"), remainingFiles)
+		}
+		if catalog.ReleaseID != releaseID || catalog.Period != day.Date.Format("2006-01-02") || catalog.Date != catalog.Period || catalog.Tier != "global" || catalog.MaxZoom != 3 {
+			return nil, "", fmt.Errorf("global canary day %s returned mismatched catalog identity", day.Date.Format("2006-01-02"))
+		}
+		catalogPath := filepath.Join(staging, "forecast-days", catalog.Period, catalog.Tier, "forecast-tiles.json")
+		info, err := os.Stat(catalogPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("global canary day %s did not install its catalog: %w", day.Date.Format("2006-01-02"), err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, "", fmt.Errorf("global canary day %s catalog is not a regular file", day.Date.Format("2006-01-02"))
+		}
+		summaries = append(summaries, globalCanaryDaySummary{
+			Date: day.Date, Messages: len(selected), PreparedFiles: prepared.files, PreparedBytes: prepared.bytes,
+			Catalog: catalog, PrepareTime: prepared.elapsed, TileTime: buildElapsed,
+		})
+		fmt.Printf("global canary day %d/%d %s: %d messages; prepared %d files/%d bytes in %s; tiles %d point + %d scalar in %s\n",
+			index+1, len(days), day.Date.Format("2006-01-02"), len(selected), prepared.files, prepared.bytes,
+			prepared.elapsed.Round(time.Millisecond), len(catalog.Points), len(catalog.Scalars), buildElapsed.Round(time.Millisecond))
+	}
+	if len(summaries) != productDays {
+		return nil, "", fmt.Errorf("global canary assembled %d/%d days", len(summaries), productDays)
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return nil, "", err
+	}
+	if err := os.Rename(staging, final); err != nil {
+		return nil, "", fmt.Errorf("install complete global canary run: %w", err)
+	}
+	installedOK = true
+	return summaries, final, nil
+}
+
+func cleanGlobalCanaryTransactions(out string) error {
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".global-canary-") {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(out, entry.Name())); err != nil {
+			return fmt.Errorf("remove abandoned global canary transaction: %w", err)
+		}
+	}
+	return nil
 }
 
 func globalCanaryPrepareRequest(frame stagedFrame, scratch string) pipeline.DecodeRequest {

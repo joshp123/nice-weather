@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecasttiles"
@@ -20,11 +21,35 @@ func TestLiveGlobalCanaryArtifact(t *testing.T) {
 	if root == "" {
 		t.Skip("set NICE_WEATHER_GLOBAL_CANARY to an isolated completed canary root")
 	}
-	catalogs, err := filepath.Glob(filepath.Join(root, "forecast-days", "*", "global", "forecast-tiles.json"))
-	if err != nil || len(catalogs) != 1 {
-		t.Fatalf("find one global canary catalog: %v, %v", catalogs, err)
+	catalogs, err := filepath.Glob(filepath.Join(root, "canary-runs", "*", "forecast-days", "*", "global", "forecast-tiles.json"))
+	if err != nil || len(catalogs) != productDays {
+		t.Fatalf("find %d global canary catalogs: %v, %v", productDays, catalogs, err)
 	}
-	catalogPath := catalogs[0]
+	var releaseID string
+	var priorDate time.Time
+	for index, catalogPath := range catalogs {
+		catalog := auditLiveGlobalCanaryDay(t, catalogPath)
+		date, err := time.Parse("2006-01-02", catalog.Date)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if index > 0 && !date.Equal(priorDate.AddDate(0, 0, 1)) {
+			t.Fatalf("live canary dates are not consecutive: %s after %s", date, priorDate)
+		}
+		if releaseID == "" {
+			releaseID = catalog.ReleaseID
+		} else if catalog.ReleaseID != releaseID {
+			t.Fatalf("live canary mixed release IDs %q and %q", releaseID, catalog.ReleaseID)
+		}
+		priorDate = date
+	}
+	if _, err := os.Stat(filepath.Join(root, "current")); !os.IsNotExist(err) {
+		t.Fatalf("isolated canary unexpectedly has a current publication pointer: %v", err)
+	}
+}
+
+func auditLiveGlobalCanaryDay(t *testing.T, catalogPath string) forecasttiles.Catalog {
+	t.Helper()
 	data, err := os.ReadFile(catalogPath)
 	if err != nil {
 		t.Fatal(err)
@@ -103,9 +128,7 @@ func TestLiveGlobalCanaryArtifact(t *testing.T) {
 	if missing != 4 {
 		t.Fatalf("omitted max-zoom ocean tiles = %d, want 4", missing)
 	}
-	if _, err := os.Stat(filepath.Join(root, "current")); !os.IsNotExist(err) {
-		t.Fatalf("isolated canary unexpectedly has a current publication pointer: %v", err)
-	}
+	return catalog
 }
 
 func liveCanaryPointAndScalar(t *testing.T, base string, catalog forecasttiles.Catalog, longitude, latitude float64) (delivery.DisplayScoreRecord, uint8, bool) {
