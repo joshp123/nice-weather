@@ -328,11 +328,7 @@ func WriteRangePointAsset(path, releaseID string, geometry PointGeometry, record
 
 func WriteDisplayScoreAsset(path, releaseID string, geometry PointGeometry, records []DisplayScoreRecord) (PointMetadata, error) {
 	return writePointAsset(path, releaseID, PointKindDisplayScore, geometry, len(records), func(dst []byte, index int) error {
-		if err := validateDisplayScoreRecord(records[index]); err != nil {
-			return err
-		}
-		encodeDisplayScoreRecord(dst, records[index])
-		return nil
+		return EncodeDisplayScoreRecord(dst, records[index])
 	})
 }
 
@@ -460,7 +456,7 @@ func ValidatePointAssetRecords(path string) (PointMetadata, error) {
 		case PointKindForecastWindow:
 			_, err = decodeRangePointRecord(encoded)
 		case PointKindDisplayScore:
-			_, err = decodeDisplayScoreRecord(encoded)
+			_, err = DecodeDisplayScoreRecord(encoded)
 		default:
 			err = errors.New("unsupported point asset kind")
 		}
@@ -483,7 +479,7 @@ func (reader *PointAssetReader) DisplayScoreAt(lon, lat float64) (DisplayScoreRe
 	if _, err := reader.file.ReadAt(encoded, int64(PointAssetHeaderBytes)+int64(index)*int64(reader.meta.RecordBytes)); err != nil {
 		return DisplayScoreRecord{}, false, err
 	}
-	record, err := decodeDisplayScoreRecord(encoded)
+	record, err := DecodeDisplayScoreRecord(encoded)
 	return record, record.Valid, err
 }
 
@@ -720,16 +716,27 @@ func validateDisplayScoreRecord(record DisplayScoreRecord) error {
 	return nil
 }
 
-func encodeDisplayScoreRecord(dst []byte, record DisplayScoreRecord) {
+// EncodeDisplayScoreRecord is the one fixed-record encoder shared by point
+// assets and viewport tiles.
+func EncodeDisplayScoreRecord(dst []byte, record DisplayScoreRecord) error {
+	if len(dst) != DisplayScoreRecordBytes {
+		return errors.New("invalid display-score record size")
+	}
+	if err := validateDisplayScoreRecord(record); err != nil {
+		return err
+	}
+	clear(dst)
 	if !record.Valid {
-		return
+		return nil
 	}
 	dst[0], dst[1], dst[2] = record.Thermal, record.Dryness, record.Sun
 	dst[3], dst[4] = record.NiceScore, record.NiceWind
 	dst[5], dst[6], dst[7] = record.CyclingScore, record.CyclingWind, 1
+	return nil
 }
 
-func decodeDisplayScoreRecord(src []byte) (DisplayScoreRecord, error) {
+// DecodeDisplayScoreRecord decodes the canonical fixed display record.
+func DecodeDisplayScoreRecord(src []byte) (DisplayScoreRecord, error) {
 	if len(src) != DisplayScoreRecordBytes {
 		return DisplayScoreRecord{}, errors.New("invalid display-score record size")
 	}
