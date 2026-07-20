@@ -40,12 +40,16 @@ type stagedFrame struct {
 // is retained so cumulative precipitation and interval fields can be
 // normalized at the first product-window boundary.
 func stagedForDay(staged []stagedFrame, date time.Time, detailed bool) []stagedFrame {
-	start := date.Add(-6 * time.Hour)
-	end := date.Add(24 * time.Hour)
+	window := europeOutlookDecodeWindow
 	if detailed {
-		start = date.Add(3 * time.Hour)
-		end = date.Add(21 * time.Hour)
+		window = europeDetailedDecodeWindow
 	}
+	return stagedForDayWindow(staged, date, window)
+}
+
+func stagedForDayWindow(staged []stagedFrame, date time.Time, window utcDayWindow) []stagedFrame {
+	start := window.start(date)
+	end := window.end(date)
 	selected := make([]stagedFrame, 0, len(staged))
 	preceding := make(map[pipeline.Field]stagedFrame)
 	for _, frame := range staged {

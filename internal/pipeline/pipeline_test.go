@@ -978,6 +978,65 @@ func TestAggregateDayDoesNotShiftWesternCalendarDate(t *testing.T) {
 	}
 }
 
+func TestLocalDaytimeUTCWindowCoversWorldwideCivilTimeExtremes(t *testing.T) {
+	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	plus14 := time.FixedZone("UTC+14", 14*60*60)
+	minus12 := time.FixedZone("UTC-12", -12*60*60)
+
+	start, end := LocalDaytimeUTCWindow(date, plus14)
+	if !start.Equal(time.Date(2026, 7, 17, 20, 0, 0, 0, time.UTC)) || !end.Equal(time.Date(2026, 7, 18, 6, 0, 0, 0, time.UTC)) {
+		t.Fatalf("UTC+14 window = %s..%s", start, end)
+	}
+	start, end = LocalDaytimeUTCWindow(date, minus12)
+	if !start.Equal(time.Date(2026, 7, 18, 22, 0, 0, 0, time.UTC)) || !end.Equal(time.Date(2026, 7, 19, 8, 0, 0, 0, time.UTC)) {
+		t.Fatalf("UTC-12 window = %s..%s", start, end)
+	}
+}
+
+func TestLocalDaytimeUTCWindowUsesCivilDSTOnTheLabelledDate(t *testing.T) {
+	london, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Fatal(err)
+	}
+	winterStart, winterEnd := LocalDaytimeUTCWindow(time.Date(2026, 3, 28, 0, 0, 0, 0, time.UTC), london)
+	summerStart, summerEnd := LocalDaytimeUTCWindow(time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC), london)
+	if winterStart.Hour() != 10 || winterEnd.Hour() != 20 || summerStart.Hour() != 9 || summerEnd.Hour() != 19 {
+		t.Fatalf("London DST windows = %s..%s then %s..%s", winterStart, winterEnd, summerStart, summerEnd)
+	}
+}
+
+func TestSixHourlyPointAndCumulativeFramesCoverBothWorldwideDayExtremes(t *testing.T) {
+	date := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	series := Series{}
+	for step := 6; step <= 48; step += 6 {
+		end := run.Add(time.Duration(step) * time.Hour)
+		for field, value := range map[Field]float32{
+			Temperature: 22,
+			DewPoint:    12,
+			CloudCover:  20,
+			WindU:       5,
+			WindV:       0,
+		} {
+			series[field] = append(series[field], frameAt(field, run, end, Instant, value))
+		}
+		series[Rain] = append(series[Rain], frameAt(Rain, run, end, CumulativeAccumulation, float32(step)))
+	}
+
+	for _, location := range []*time.Location{
+		time.FixedZone("UTC+14", 14*60*60),
+		time.FixedZone("UTC-12", -12*60*60),
+	} {
+		_, metrics, err := AggregateDay(date, []*time.Location{location}, series, 28)
+		if err != nil {
+			t.Fatalf("%s aggregation: %v", location, err)
+		}
+		if len(metrics) != 1 || !metrics[0].Valid || math.Abs(metrics[0].RainMM-10) > 1e-9 {
+			t.Fatalf("%s worldwide boundary metric = %+v", location, metrics)
+		}
+	}
+}
+
 func TestDeliveryAndOverlayShareCanonicalMetricsAndLegend(t *testing.T) {
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 22, MaxTempC: 26,

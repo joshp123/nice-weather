@@ -42,6 +42,19 @@ type accumulator struct {
 
 type utcWindow struct{ start, end time.Time }
 
+// LocalDaytimeUTCWindow returns the exact UTC instants for the product's
+// 10:00-20:00 window on a labelled local calendar date. The date is treated as
+// a label, not converted into the location, which keeps western cells on the
+// intended day and lets time.Location apply historical and DST offsets.
+func LocalDaytimeUTCWindow(date time.Time, location *time.Location) (time.Time, time.Time) {
+	if location == nil {
+		location = time.UTC
+	}
+	year, month, day := date.UTC().Date()
+	return time.Date(year, month, day, daytimeStartHour, 0, 0, 0, location).UTC(),
+		time.Date(year, month, day, daytimeEndHour, 0, 0, 0, location).UTC()
+}
+
 // CellLocations resolves the fixed timezone once for each cell centre. The
 // caller may retain the result across every forecast day in one build.
 func CellLocations(spec delivery.GridSpec, locate func(lon, lat float64) (*time.Location, error)) ([]*time.Location, error) {
@@ -85,16 +98,7 @@ func AggregateDay(date time.Time, locations []*time.Location, input Series, nati
 	}
 	windows := make([]utcWindow, count)
 	for cell, location := range locations {
-		if location == nil {
-			location = time.UTC
-		}
-		// date is a product calendar date, not an instant to translate into
-		// every cell's zone (which would move western cells to yesterday).
-		year, month, day := date.UTC().Date()
-		windows[cell] = utcWindow{
-			start: time.Date(year, month, day, daytimeStartHour, 0, 0, 0, location).UTC(),
-			end:   time.Date(year, month, day, daytimeEndHour, 0, 0, 0, location).UTC(),
-		}
+		windows[cell].start, windows[cell].end = LocalDaytimeUTCWindow(date, location)
 	}
 	accumulators := make([]accumulator, count)
 	for index := range accumulators {

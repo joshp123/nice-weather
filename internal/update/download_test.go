@@ -73,6 +73,23 @@ func TestStagedForDayRetainsOnePrecedingFramePerField(t *testing.T) {
 	}
 }
 
+func TestStagedForWorldwideDayCrossesBothUTCDates(t *testing.T) {
+	date := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	var staged []stagedFrame
+	for step := 0; step <= 48; step += 6 {
+		staged = append(staged, stagedFrame{path: fmt.Sprint(step), field: pipeline.Temperature, run: run, step: step})
+	}
+	selected := stagedForDayWindow(staged, date, globalOutlookDecodeWindow)
+	var steps []int
+	for _, frame := range selected {
+		steps = append(steps, frame.step)
+	}
+	if fmt.Sprint(steps) != "[6 12 18 24 30 36 42 48]" {
+		t.Fatalf("worldwide day staged steps %v", steps)
+	}
+}
+
 func TestStageDWDPublishesRequiredFieldsWhenPreferredGroupsFail(t *testing.T) {
 	payload, err := hex.DecodeString("425a6839314159265359774bb01400000000800040200021184682ee48a70a120ee9760280")
 	if err != nil {
