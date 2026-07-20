@@ -9,12 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-func TestNormalizeEuropeanNames(t *testing.T) {
+func TestNormalizePlaceNames(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
 		"Cádiz":                   "cadiz",
@@ -29,6 +30,121 @@ func TestNormalizeEuropeanNames(t *testing.T) {
 		if got := normalize(input); got != want {
 			t.Errorf("normalize(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestGlobalBuildPreservesEuropeanDetailAndCoversTheWorld(t *testing.T) {
+	t.Parallel()
+	source := makeGlobalSource(t, []globalSourcePlace{
+		{id: 2750053, name: "Nijmegen", country: "NL", latitude: "51.8425", longitude: "5.8528", code: "PPLA2", population: "177659"},
+		{id: 2655710, name: "Biddestone", country: "GB", latitude: "51.4608", longitude: "-2.1983", code: "PPL", population: "498"},
+		{id: 5128581, name: "New York City", country: "US", latitude: "40.7143", longitude: "-74.006", code: "PPLA", population: "8804190"},
+		{id: 3448439, name: "São Paulo", ascii: "Sao Paulo", country: "BR", latitude: "-23.5475", longitude: "-46.6361", code: "PPLA", population: "12400232"},
+		{id: 3369157, name: "Cape Town", country: "ZA", latitude: "-33.9258", longitude: "18.4232", code: "PPLA", population: "3433441"},
+		{id: 1880252, name: "Singapore", country: "SG", latitude: "1.2897", longitude: "103.8501", code: "PPLC", population: "5638700"},
+		{id: 2147714, name: "Sydney", country: "AU", latitude: "-33.8679", longitude: "151.2073", code: "PPLA", population: "4627345"},
+		{id: 2193733, name: "Auckland", country: "NZ", latitude: "-36.8485", longitude: "174.7635", code: "PPLA", population: "417910"},
+		{id: 2127202, name: "Anadyr", country: "RU", latitude: "64.7342", longitude: "177.5103", code: "PPLA", population: "10332"},
+		{id: 9000003, name: "Dateline East", country: "NZ", latitude: "-20", longitude: "180", code: "PPL", population: "2000"},
+		{id: 9000004, name: "Dateline West", country: "NZ", latitude: "-21", longitude: "-180", code: "PPL", population: "2000"},
+		{id: 9000001, name: "Tiny Outside", country: "US", latitude: "20", longitude: "-80", code: "PPL", population: "1499"},
+		{id: 9000002, name: "Small Admin", country: "US", latitude: "21", longitude: "-81", code: "PPLA", population: "0"},
+	})
+	output := filepath.Join(t.TempDir(), "release")
+	refinement := bounds{West: -24, East: 45, South: 29, North: 71.5}
+	config := buildConfig{
+		sourceDir: source, outputDir: output, sourceDate: "2026-07-20",
+		countries:       []string{"AU", "BR", "GB", "NL", "NZ", "RU", "SG", "US", "ZA"},
+		coverage:        bounds{West: -180, East: 180, South: -90, North: 90},
+		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500, globalSource: true,
+		limits: limits{minPlaces: 1, maxPlaces: 20, maxShards: 30, maxShardGzip: 256 * 1024},
+	}
+	bundleSHA256, err := validateGlobalSource(context.Background(), source, config.sourceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.sourceBundleSHA256 = bundleSHA256
+	summary, err := build(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.PlaceCount != 12 {
+		t.Fatalf("global place count = %d, want 12", summary.PlaceCount)
+	}
+	files := readTree(t, filepath.Dir(output), filepath.Base(output))
+	for query, id := range map[string]int64{
+		"Biddestone": 2655710, "New York City": 5128581, "Sao Paulo": 3448439,
+		"Cape Town": 3369157, "Singapore": 1880252, "Sydney": 2147714,
+		"Auckland": 2193733, "Anadyr": 2127202, "Small Admin": 9000002,
+		"Dateline East": 9000003, "Dateline West": 9000004,
+	} {
+		assertShardResolves(t, files, query, id)
+	}
+	if _, exists := files["shards/tin.json"]; exists {
+		t.Fatal("sub-1,500 settlement outside the European refinement was indexed")
+	}
+	var metadata manifest
+	if err := json.Unmarshal(files["manifest.json"], &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.ProductBounds != config.coverage || len(metadata.Countries) != len(config.countries) {
+		t.Fatalf("global manifest coverage is incomplete: bounds=%+v countries=%d", metadata.ProductBounds, len(metadata.Countries))
+	}
+	for _, query := range []string{"Dateline East", "Dateline West"} {
+		key := normalize(query)
+		var decoded shard
+		if err := json.Unmarshal(files["shards/"+shardName(key)+".json"], &decoded); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range decoded.Records {
+			if item.Key == key && item.LongitudeE5 != -18_000_000 {
+				t.Fatalf("%s longitude = %d, want canonical -180 degrees", query, item.LongitudeE5)
+			}
+		}
+	}
+}
+
+func TestGlobalSourceManifestBindsEveryInput(t *testing.T) {
+	t.Parallel()
+	source := makeGlobalSource(t, nil)
+	if _, err := validateGlobalSource(context.Background(), source, "2026-07-20"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(filepath.Join(source, "countryInfo.txt"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("tampered\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateGlobalSource(context.Background(), source, "2026-07-20"); err == nil || !strings.Contains(err.Error(), "checksum does not match") {
+		t.Fatalf("tampered source error = %v", err)
+	}
+}
+
+func TestGlobalBuildRejectsNonFiniteCoordinates(t *testing.T) {
+	t.Parallel()
+	source := makeGlobalSource(t, []globalSourcePlace{
+		{id: 1, name: "Invalid", country: "US", latitude: "NaN", longitude: "-80", code: "PPL", population: "2000"},
+	})
+	output := filepath.Join(t.TempDir(), "release")
+	refinement := bounds{West: -24, East: 45, South: 29, North: 71.5}
+	config := buildConfig{
+		sourceDir: source, outputDir: output, sourceDate: "2026-07-20",
+		countries: []string{"US"}, coverage: bounds{West: -180, East: 180, South: -90, North: 90},
+		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500, globalSource: true,
+		limits: limits{minPlaces: 1, maxPlaces: 20, maxShards: 30, maxShardGzip: 256 * 1024},
+	}
+	bundleSHA256, err := validateGlobalSource(context.Background(), source, config.sourceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.sourceBundleSHA256 = bundleSHA256
+	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), `invalid latitude "NaN"`) {
+		t.Fatalf("non-finite coordinate error = %v", err)
 	}
 }
 
@@ -139,8 +255,8 @@ func TestValidateOutputRejectsStructurallyValidAlteredShard(t *testing.T) {
 	}
 }
 
-func TestCurrentScaleGeneratedManifestFitsBrowserBound(t *testing.T) {
-	const currentShardCount = 6_643
+func TestGlobalShardHeadroomFitsManifestBound(t *testing.T) {
+	const currentShardCount = maximumShardCount
 	places := make([]sourcePlace, 0, currentShardCount)
 	for index := range currentShardCount {
 		name := base36ShardName(index)
@@ -238,6 +354,11 @@ type sourcePlace struct {
 	code, population                 string
 }
 
+type globalSourcePlace struct {
+	id                                                          int64
+	name, ascii, country, latitude, longitude, code, population string
+}
+
 func fixtureConfig(source, output string) buildConfig {
 	return buildConfig{
 		sourceDir: source, outputDir: output, sourceDate: "2026-07-18",
@@ -273,6 +394,83 @@ func makeSource(t *testing.T, places []sourcePlace, alternates []string) string 
 	writeZip(t, filepath.Join(root, "countries", "ES.zip"), "ES.txt", strings.Join(rows, "\n")+"\n")
 	writeZip(t, filepath.Join(root, "alternatenames", "ES.zip"), "ES.txt", strings.Join(alternates, "\n")+"\n")
 	return root
+}
+
+func makeGlobalSource(t *testing.T, places []globalSourcePlace) string {
+	t.Helper()
+	root := t.TempDir()
+	countryNames := map[string]string{
+		"AU": "Australia", "BR": "Brazil", "GB": "United Kingdom", "NL": "Netherlands",
+		"NZ": "New Zealand", "RU": "Russia", "SG": "Singapore", "US": "United States", "ZA": "South Africa",
+	}
+	continents := map[string]string{
+		"GB": "EU", "NL": "EU", "RU": "EU", "AU": "OC", "BR": "SA",
+		"NZ": "OC", "SG": "AS", "US": "NA", "ZA": "AF",
+	}
+	codes := make([]string, 0, len(countryNames))
+	for code := range countryNames {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	countryRows := make([]string, 0, len(codes))
+	adminRows := make([]string, 0, len(codes))
+	for _, code := range codes {
+		fields := make([]string, 19)
+		fields[0], fields[4], fields[8], fields[15] = code, countryNames[code], continents[code], "en"
+		countryRows = append(countryRows, strings.Join(fields, "\t"))
+		adminRows = append(adminRows, code+".01\tAdmin\tAdmin\t1")
+	}
+	if err := os.WriteFile(filepath.Join(root, "countryInfo.txt"), []byte(strings.Join(countryRows, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "admin1CodesASCII.txt"), []byte(strings.Join(adminRows, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows := make([]string, 0, len(places))
+	for _, place := range places {
+		ascii := place.ascii
+		if ascii == "" {
+			ascii = place.name
+		}
+		fields := []string{
+			strconvFormat(place.id), place.name, ascii, "", place.latitude, place.longitude,
+			"P", place.code, place.country, "", "01", "", "", "", place.population, "", "10", "UTC", "2026-07-20",
+		}
+		rows = append(rows, strings.Join(fields, "\t"))
+	}
+	writeZip(t, filepath.Join(root, "allCountries.zip"), "allCountries.txt", strings.Join(rows, "\n")+"\n")
+	writeZip(t, filepath.Join(root, "alternateNamesV2.zip"), "alternateNamesV2.txt", "")
+	files := make(map[string]string, len(globalSourceFiles))
+	for _, name := range globalSourceFiles {
+		digest, err := hashRegularFile(context.Background(), filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[name] = digest
+	}
+	payload, err := json.Marshal(globalSourceManifest{Schema: globalSourceSchema, ExtractDate: "2026-07-20", Files: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, globalSourceManifestName), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func assertShardResolves(t *testing.T, files map[string][]byte, query string, id int64) {
+	t.Helper()
+	key := normalize(query)
+	var decoded shard
+	if err := json.Unmarshal(files["shards/"+shardName(key)+".json"], &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range decoded.Records {
+		if item.Key == key && item.GeoNameID == id {
+			return
+		}
+	}
+	t.Fatalf("query %q does not resolve GeoNames ID %d", query, id)
 }
 
 func alternateRow(id int64, language, name string, preferred, colloquial, historic bool) string {

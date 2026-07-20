@@ -8,6 +8,8 @@ const MAX_NORMALIZED_QUERY_LENGTH = 160;
 const POINTER_BYTES = 1_024;
 const MANIFEST_BYTES = 2 * 1024 * 1024;
 const SHARD_BYTES = 4 * 1024 * 1024;
+const MAX_SHARD_COUNT = 8_000;
+const MAX_SHARD_GZIP_BYTES = 320 * 1024;
 const RECORD_FIELDS = [
   'key', 'name', 'country', 'admin1', 'latE5', 'lonE5',
   'population', 'featureRank', 'geonameId',
@@ -249,7 +251,7 @@ function parseManifest(value: unknown, pointer: Pointer): Manifest {
   }
   const placeCount = integer(data.placeCount, 'placeCount', 1, 1_100_000);
   const searchKeyCount = integer(data.searchKeyCount, 'searchKeyCount', placeCount, 5_000_000);
-  const shardCount = integer(data.shardCount, 'shardCount', 1, 7_500);
+  const shardCount = integer(data.shardCount, 'shardCount', 1, MAX_SHARD_COUNT);
   const source = exactObject(data.source, [
     'name', 'extractDate', 'dataUrl', 'license', 'licenseUrl', 'attribution', 'modified', 'warranty',
   ], 'place source');
@@ -271,12 +273,12 @@ function parseManifest(value: unknown, pointer: Pointer): Manifest {
   ], 'place summary');
   if (integer(summary.placeCount, 'summary placeCount', 1, 1_100_000) !== placeCount ||
       integer(summary.searchKeyCount, 'summary searchKeyCount', placeCount, 5_000_000) !== searchKeyCount ||
-      integer(summary.shardCount, 'summary shardCount', 1, 7_500) !== shardCount) {
+      integer(summary.shardCount, 'summary shardCount', 1, MAX_SHARD_COUNT) !== shardCount) {
     throw new Error('Place index summary counts do not match its manifest.');
   }
   integer(summary.uncompressedBytes, 'summary uncompressedBytes', 1, Number.MAX_SAFE_INTEGER);
   const gzipBytes = integer(summary.gzipBytes, 'summary gzipBytes', 1, Number.MAX_SAFE_INTEGER);
-  const largestShardGzipBytes = integer(summary.largestShardGzipBytes, 'summary largestShardGzipBytes', 1, 256 * 1024);
+  const largestShardGzipBytes = integer(summary.largestShardGzipBytes, 'summary largestShardGzipBytes', 1, MAX_SHARD_GZIP_BYTES);
   if (gzipBytes < largestShardGzipBytes) throw new Error('Place index byte summary is inconsistent.');
 
   return {
@@ -413,7 +415,8 @@ function distanceSquared(record: PlaceRecord, viewport: PlaceSearchViewport): nu
   const latitude = record.latitudeE5 / 100_000;
   const longitude = record.longitudeE5 / 100_000;
   const latitudeDelta = latitude - viewport.latitude;
-  const longitudeDelta = (longitude - viewport.longitude) * Math.cos(viewport.latitude * Math.PI / 180);
+  const rawLongitudeDelta = Math.abs(longitude - viewport.longitude);
+  const longitudeDelta = Math.min(rawLongitudeDelta, 360 - rawLongitudeDelta) * Math.cos(viewport.latitude * Math.PI / 180);
   return latitudeDelta * latitudeDelta + longitudeDelta * longitudeDelta;
 }
 

@@ -1,6 +1,7 @@
 package places
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,7 +9,66 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestCancelledInstallDoesNotPublishReleaseOrPointer(t *testing.T) {
+	artifactRoot := filepath.Join(t.TempDir(), "artifacts")
+	placeRoot, err := publicationRoot(artifactRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(placeRoot, "cancelled-source")
+	if err := writeSampleRelease(source); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := installRelease(ctx, placeRoot, source, "places-cancelled"); err != context.Canceled {
+		t.Fatalf("cancelled install error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(placeRoot, "releases", "places-cancelled")); !os.IsNotExist(err) {
+		t.Fatalf("cancelled release was installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(placeRoot, "current.json")); !os.IsNotExist(err) {
+		t.Fatalf("cancelled pointer was published: %v", err)
+	}
+}
+
+func TestCancellationAfterInstallDoesNotRotatePointer(t *testing.T) {
+	artifactRoot := filepath.Join(t.TempDir(), "artifacts")
+	placeRoot, err := publicationRoot(artifactRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(placeRoot, "cancel-after-install")
+	if err := writeSampleRelease(source); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &cancelOnSecondCheck{}
+	if _, err := installRelease(ctx, placeRoot, source, "places-installed-not-current"); err != context.Canceled {
+		t.Fatalf("post-install cancellation error = %v", err)
+	}
+	if _, err := ValidateRelease(filepath.Join(placeRoot, "releases", "places-installed-not-current")); err != nil {
+		t.Fatalf("installed immutable release is invalid: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(placeRoot, "current.json")); !os.IsNotExist(err) {
+		t.Fatalf("cancelled pointer was published: %v", err)
+	}
+}
+
+type cancelOnSecondCheck struct{ checks int }
+
+func (state *cancelOnSecondCheck) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (state *cancelOnSecondCheck) Done() <-chan struct{}       { return nil }
+func (state *cancelOnSecondCheck) Value(any) any               { return nil }
+func (state *cancelOnSecondCheck) Err() error {
+	state.checks++
+	if state.checks >= 2 {
+		return context.Canceled
+	}
+	return nil
+}
 
 func TestPublishInstallsImmutableReleaseAndRotatesPointerLast(t *testing.T) {
 	artifactRoot := filepath.Join(t.TempDir(), "artifacts")

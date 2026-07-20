@@ -63,7 +63,7 @@ func main() {
 				*releaseID = "places-" + strings.ReplaceAll(*sourceDate, "-", "")
 			}
 			var summary places.Summary
-			summary, err = places.BuildAndPublishEurope(ctx, *source, *out, *sourceDate, *releaseID, domain.Bounds())
+			summary, err = places.BuildAndPublishGlobal(ctx, *source, *out, *sourceDate, *releaseID, domain.Bounds())
 			if err == nil {
 				fmt.Printf("places: %d places, %d keys, %d shards, %.1f MiB gzip\n", summary.PlaceCount, summary.SearchKeyCount, summary.ShardCount, float64(summary.GzipBytes)/(1024*1024))
 				var best destinations.BuildSummary

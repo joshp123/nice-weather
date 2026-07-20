@@ -65,10 +65,10 @@ type Candidate struct {
 	FeatureRank uint8
 }
 
-// BuildAndPublishEurope builds a complete release and installs it below
+// BuildAndPublishGlobal builds a complete release and installs it below
 // <artifactRoot>/places. The pointer changes only after the installed release
 // has passed the same validation used for an independently built release.
-func BuildAndPublishEurope(ctx context.Context, sourceDir, artifactRoot, sourceDate, releaseID string, coverage delivery.GridBounds) (Summary, error) {
+func BuildAndPublishGlobal(ctx context.Context, sourceDir, artifactRoot, sourceDate, releaseID string, refinement delivery.GridBounds) (Summary, error) {
 	if !validReleaseID(releaseID) {
 		return Summary{}, fmt.Errorf("invalid place release id %q", releaseID)
 	}
@@ -85,11 +85,14 @@ func BuildAndPublishEurope(ctx context.Context, sourceDir, artifactRoot, sourceD
 	}
 	defer os.RemoveAll(staging)
 	unpublished := filepath.Join(staging, "release")
-	summary, err := BuildEurope(ctx, sourceDir, unpublished, sourceDate, coverage)
+	summary, err := BuildGlobal(ctx, sourceDir, unpublished, sourceDate, refinement)
 	if err != nil {
 		return Summary{}, err
 	}
-	if _, err := installRelease(placeRoot, unpublished, releaseID); err != nil {
+	if err := ctx.Err(); err != nil {
+		return Summary{}, err
+	}
+	if _, err := installRelease(ctx, placeRoot, unpublished, releaseID); err != nil {
 		return Summary{}, err
 	}
 	return summary, nil
@@ -124,7 +127,7 @@ func Publish(artifactRoot, sourceRelease, releaseID string) (Pointer, error) {
 	if err := copyRelease(resolvedSource, copyRoot); err != nil {
 		return Pointer{}, err
 	}
-	return installRelease(placeRoot, copyRoot, releaseID)
+	return installRelease(context.Background(), placeRoot, copyRoot, releaseID)
 }
 
 // ValidateCurrent verifies the pointer, its manifest checksum and the complete
@@ -283,7 +286,7 @@ func validateReleaseRoot(rootFS *os.Root, visit func(Candidate) error) (Summary,
 	return actual, nil
 }
 
-func installRelease(placeRoot, source, releaseID string) (Pointer, error) {
+func installRelease(ctx context.Context, placeRoot, source, releaseID string) (Pointer, error) {
 	placeFS, err := os.OpenRoot(placeRoot)
 	if err != nil {
 		return Pointer{}, err
@@ -322,11 +325,17 @@ func installRelease(placeRoot, source, releaseID string) (Pointer, error) {
 		if existing != candidate {
 			return Pointer{}, fmt.Errorf("place release already exists with different content: %s", releaseID)
 		}
+		if err := ctx.Err(); err != nil {
+			return Pointer{}, err
+		}
 		if err := writePointerRoot(placeFS, existing); err != nil {
 			return Pointer{}, err
 		}
 		return existing, nil
 	} else if !os.IsNotExist(err) {
+		return Pointer{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return Pointer{}, err
 	}
 	if err := placeFS.Rename(filepath.ToSlash(sourceRelative), targetRelative); err != nil {
@@ -344,6 +353,9 @@ func installRelease(placeRoot, source, releaseID string) (Pointer, error) {
 	installed := Pointer{ReleaseID: releaseID, ManifestSHA256: installedDigest}
 	if installed != candidate {
 		return Pointer{}, errors.New("installed place release changed after validation")
+	}
+	if err := ctx.Err(); err != nil {
+		return Pointer{}, err
 	}
 	if err := writePointerRoot(placeFS, candidate); err != nil {
 		return Pointer{}, err
@@ -752,10 +764,10 @@ func validateManifest(got manifest) error {
 	if !slices.Equal(got.Record, wantRecord) {
 		return errors.New("unsupported place record contract")
 	}
-	if got.PlaceCount < 1 || got.PlaceCount > 1_100_000 || got.SearchKeyCount < got.PlaceCount || got.SearchKeyCount > 5_000_000 || got.ShardCount < 1 || got.ShardCount > 7_500 || len(got.Shards) != got.ShardCount {
+	if got.PlaceCount < 1 || got.PlaceCount > 1_100_000 || got.SearchKeyCount < got.PlaceCount || got.SearchKeyCount > 5_000_000 || got.ShardCount < 1 || got.ShardCount > maximumShardCount || len(got.Shards) != got.ShardCount {
 		return errors.New("place manifest counts are invalid")
 	}
-	if got.Summary.PlaceCount != got.PlaceCount || got.Summary.SearchKeyCount != got.SearchKeyCount || got.Summary.ShardCount != got.ShardCount || got.Summary.UncompressedBytes < 1 || got.Summary.GzipBytes < 1 || got.Summary.LargestShardGzip < 1 || got.Summary.LargestShardGzip > 256*1024 || got.Summary.GzipBytes < got.Summary.LargestShardGzip {
+	if got.Summary.PlaceCount != got.PlaceCount || got.Summary.SearchKeyCount != got.SearchKeyCount || got.Summary.ShardCount != got.ShardCount || got.Summary.UncompressedBytes < 1 || got.Summary.GzipBytes < 1 || got.Summary.LargestShardGzip < 1 || got.Summary.LargestShardGzip > maximumShardGzipBytes || got.Summary.GzipBytes < got.Summary.LargestShardGzip {
 		return errors.New("place summary is invalid")
 	}
 	if len(got.Countries) == 0 {

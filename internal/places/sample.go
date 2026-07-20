@@ -1,6 +1,7 @@
 package places
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -47,7 +48,7 @@ func PublishSample(artifactRoot string) (Pointer, error) {
 	if err := writeSampleRelease(release); err != nil {
 		return Pointer{}, err
 	}
-	return installRelease(placeRoot, release, SampleReleaseID)
+	return installRelease(context.Background(), placeRoot, release, SampleReleaseID)
 }
 
 func writeSampleRelease(root string) error {

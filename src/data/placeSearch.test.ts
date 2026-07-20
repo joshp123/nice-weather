@@ -141,6 +141,20 @@ describe('EuropePlaceSearch', () => {
     expect(nearMalta.map((place) => place.geonameId)).toEqual([20, 10]);
   });
 
+  it('ranks across the antimeridian by the short wrapped distance', async () => {
+    const shards = { dat: sorted([
+      row('dateline', 'Dateline West', 'NZ', '01', -20, -179, 2_000, 2, 20),
+      row('dateline', 'Dateline East', 'NZ', '01', -20, 170, 2_000, 2, 10),
+    ]) };
+    const manifest = manifestFixture(shards);
+    manifest.productBounds = { west: -180, east: 180, south: -90, north: 90 };
+    const harness = await searchHarness(shards, 6, { manifest });
+
+    const results = await harness.client.search('Dateline', { viewport: { latitude: -20, longitude: 179 } });
+
+    expect(results.map((place) => place.geonameId)).toEqual([20, 10]);
+  });
+
   it('suppresses stale results even when a fetch implementation ignores abort', async () => {
     let resolveFirst!: (response: Response) => void;
     let pointerCalls = 0;
@@ -327,8 +341,8 @@ function manifestFixture(shards: Record<string, unknown[][]>) {
     minimumQueryLength: 3,
     normalization: 'nice-latin-fold-v1',
     record: ['key', 'name', 'country', 'admin1', 'latE5', 'lonE5', 'population', 'featureRank', 'geonameId'],
-    countries: { ES: 'Spain', GB: 'United Kingdom', PL: 'Poland', MT: 'Malta', GE: 'Georgia', PT: 'Portugal', IT: 'Italy' },
-    admins: { 'ES.51': 'Andalusia', 'GB.ENG': 'England', 'GB.WLS': 'Wales', 'PL.10': 'Łódź Voivodeship', 'MT.01': 'Attard', 'MT.60': 'Valletta', 'GE.TB': 'Tbilisi', 'PT.09': 'Faro', 'IT.20': 'Veneto' },
+    countries: { ES: 'Spain', GB: 'United Kingdom', PL: 'Poland', MT: 'Malta', GE: 'Georgia', PT: 'Portugal', IT: 'Italy', NZ: 'New Zealand' },
+    admins: { 'ES.51': 'Andalusia', 'GB.ENG': 'England', 'GB.WLS': 'Wales', 'PL.10': 'Łódź Voivodeship', 'MT.01': 'Attard', 'MT.60': 'Valletta', 'GE.TB': 'Tbilisi', 'PT.09': 'Faro', 'IT.20': 'Veneto', 'NZ.01': 'Auckland' },
     shards: shardDigests,
     summary: {
       placeCount: 6,
