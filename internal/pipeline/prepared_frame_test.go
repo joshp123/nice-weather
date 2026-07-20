@@ -256,6 +256,13 @@ func TestPreparedFrameWithRealGDALSyntheticGRIB(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer prepared.Close()
+	entries, err := os.ReadDir(prepared.directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "field.f32" {
+		t.Fatalf("prepared directory contains non-canonical scratch: %v", entries)
+	}
 	window, err := prepared.ReadWindow(context.Background(), GridWindow{Row: 0, Column: 0, Rows: 2, Cols: 4})
 	if err != nil {
 		t.Fatal(err)

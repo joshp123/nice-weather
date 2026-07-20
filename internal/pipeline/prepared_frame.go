@@ -153,9 +153,11 @@ func (decoder *Decoder) PrepareFrame(ctx context.Context, request DecodeRequest)
 		return nil, fmt.Errorf("close prepared frame after validation: %w", err)
 	}
 	// Only the canonical backing file remains after preparation.
-	_ = os.Remove(decoded)
-	_ = os.Remove(rawPath)
-	_ = os.Remove(filepath.Join(directory, "field.hdr"))
+	for _, intermediate := range []string{decoded, rawPath, filepath.Join(directory, "field.hdr"), rawPath + ".aux.xml"} {
+		if err := os.Remove(intermediate); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove prepared-frame intermediate: %w", err)
+		}
+	}
 
 	cleanup = false
 	return &PreparedFrame{

@@ -50,6 +50,23 @@ func main() {
 			defer stop()
 			err = weatherupdate.Run(ctx, weatherupdate.Config{Out: *out, Cache: *cache, Domain: domain, Smoke: *smoke, Refresh: *refresh})
 		}
+	case "global-canary":
+		flags := flag.NewFlagSet("global-canary", flag.ContinueOnError)
+		out := flags.String("out", "./.cache/global-canary-output", "isolated canary output directory")
+		cache := flags.String("cache", "./.cache/weather", "weather and Natural Earth cache directory")
+		if err = flags.Parse(os.Args[2:]); err == nil {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			var summary weatherupdate.GlobalCanarySummary
+			summary, err = weatherupdate.RunGlobalCanary(ctx, weatherupdate.GlobalCanaryConfig{Out: *out, Cache: *cache})
+			if err == nil {
+				fmt.Printf("global canary: IFS %s; local date %s; %d messages; source %d bytes; staging %d files/%d bytes; prepared %d files/%d bytes; output %d point tiles + %d scalar tiles, %d files/%d bytes; bounded maxima metrics=%d records=%d scalar=%d bytes; %s\n",
+					summary.Run.Format(time.RFC3339), summary.Date.Format("2006-01-02"), summary.MessageCount, summary.SourceBytes,
+					summary.StagedFiles, summary.StagedBytes, summary.PreparedFiles, summary.PreparedBytes,
+					summary.PointTiles, summary.ScalarTiles, summary.OutputFiles, summary.OutputBytes,
+					summary.MaxMetricCells, summary.MaxDisplayRecords, summary.MaxScalarBytes, summary.Elapsed.Round(time.Millisecond))
+			}
+		}
 	case "places":
 		flags := flag.NewFlagSet("places", flag.ContinueOnError)
 		source := flags.String("source", "", "directory containing pinned GeoNames extracts")
@@ -101,5 +118,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|serve|places|best-weather> [options]")
+	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|serve|places|best-weather> [options]")
 }

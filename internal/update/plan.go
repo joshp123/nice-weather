@@ -146,11 +146,18 @@ func planDays(now, dwdRun, ifsRun time.Time) ([]dayPlan, error) {
 }
 
 func planDaysForCoverage(now time.Time, detailed, baseline forecastCoverage, policy forecastPlanPolicy) ([]dayPlan, error) {
+	return planDaysForCoverageCount(now, detailed, baseline, policy, productDays)
+}
+
+func planDaysForCoverageCount(now time.Time, detailed, baseline forecastCoverage, policy forecastPlanPolicy, dayCount int) ([]dayPlan, error) {
 	now = now.UTC()
 	detailed.run = detailed.run.UTC()
 	baseline.run = baseline.run.UTC()
 	if policy.name == "" {
 		return nil, fmt.Errorf("forecast planning policy name is required")
+	}
+	if dayCount <= 0 {
+		return nil, fmt.Errorf("forecast day count must be positive")
 	}
 	if err := policy.productWindow.validate(); err != nil {
 		return nil, fmt.Errorf("%s product window: %w", policy.name, err)
@@ -184,22 +191,22 @@ func planDaysForCoverage(now time.Time, detailed, baseline forecastCoverage, pol
 		(detailRequired && policy.detailedWindow.start(first).Before(detailed.run)) {
 		first = first.AddDate(0, 0, 1)
 	}
-	requiredUntil := policy.productWindow.end(first.AddDate(0, 0, productDays-1))
+	requiredUntil := policy.productWindow.end(first.AddDate(0, 0, dayCount-1))
 	availableUntil := baseline.availableUntil()
 	if requiredUntil.After(availableUntil) {
 		completeDays := 0
-		for index := 0; index < productDays; index++ {
+		for index := 0; index < dayCount; index++ {
 			if policy.productWindow.end(first.AddDate(0, 0, index)).After(availableUntil) {
 				break
 			}
 			completeDays++
 		}
 		return nil, fmt.Errorf(
-			"latest %s run provides %d/%d complete %s local days; UTC coverage ends %s, but day 14 requires %s (%s short)",
-			baseline.provider, completeDays, productDays, policy.name, availableUntil.Format(time.RFC3339), requiredUntil.Format(time.RFC3339), requiredUntil.Sub(availableUntil),
+			"latest %s run provides %d/%d complete %s local days; UTC coverage ends %s, but day %d requires %s (%s short)",
+			baseline.provider, completeDays, dayCount, policy.name, availableUntil.Format(time.RFC3339), dayCount, requiredUntil.Format(time.RFC3339), requiredUntil.Sub(availableUntil),
 		)
 	}
-	days := make([]dayPlan, productDays)
+	days := make([]dayPlan, dayCount)
 	for index := range days {
 		date := first.AddDate(0, 0, index)
 		days[index].Date = date
