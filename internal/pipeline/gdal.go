@@ -52,6 +52,9 @@ type DecodeRequest struct {
 	Run                time.Time
 	NativeResolutionKM float64
 	CellDegrees        float64
+	// ScratchDirectory is required only by PrepareFrame. It must be an
+	// absolute caller-owned directory on durable local storage.
+	ScratchDirectory string
 }
 
 // Decode crops before loading values into Go. gdalwarp emits a binary float32
@@ -176,9 +179,38 @@ func shortNameMatches(field Field, shortName string) bool {
 func formatCoordinate(value float64) string { return strconv.FormatFloat(value, 'f', -1, 64) }
 
 func readEHdr(path string, bounds delivery.GridBounds) (FloatGrid, error) {
+	layout, err := inspectEHdr(path)
+	if err != nil {
+		return FloatGrid{}, err
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return FloatGrid{}, fmt.Errorf("read EHdr payload: %w", err)
+	}
+	decoded := make([]float32, layout.count)
+	for index := range decoded {
+		value := math.Float32frombits(layout.order.Uint32(payload[index*4 : index*4+4]))
+		if !finite32(value) || (layout.hasNoData && value == layout.noData) {
+			value = float32(math.NaN())
+		}
+		decoded[index] = value
+	}
+	return FloatGrid{Spec: delivery.GridSpec{Bounds: bounds, Rows: layout.rows, Cols: layout.cols}, Values: decoded}, nil
+}
+
+type ehdrLayout struct {
+	rows      uint32
+	cols      uint32
+	count     int
+	order     binary.ByteOrder
+	noData    float32
+	hasNoData bool
+}
+
+func inspectEHdr(path string) (ehdrLayout, error) {
 	header, err := os.Open(strings.TrimSuffix(path, filepath.Ext(path)) + ".hdr")
 	if err != nil {
-		return FloatGrid{}, fmt.Errorf("open EHdr header: %w", err)
+		return ehdrLayout{}, fmt.Errorf("open EHdr header: %w", err)
 	}
 	defer header.Close()
 	values := map[string]string{}
@@ -190,29 +222,29 @@ func readEHdr(path string, bounds delivery.GridBounds) (FloatGrid, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return FloatGrid{}, fmt.Errorf("read EHdr header: %w", err)
+		return ehdrLayout{}, fmt.Errorf("read EHdr header: %w", err)
 	}
 	rows, err := strconv.ParseUint(values["NROWS"], 10, 32)
 	if err != nil || rows == 0 {
-		return FloatGrid{}, errors.New("EHdr NROWS is missing or invalid")
+		return ehdrLayout{}, errors.New("EHdr NROWS is missing or invalid")
 	}
 	cols, err := strconv.ParseUint(values["NCOLS"], 10, 32)
 	if err != nil || cols == 0 {
-		return FloatGrid{}, errors.New("EHdr NCOLS is missing or invalid")
+		return ehdrLayout{}, errors.New("EHdr NCOLS is missing or invalid")
 	}
 	if bands := values["NBANDS"]; bands != "" && bands != "1" {
-		return FloatGrid{}, fmt.Errorf("EHdr has %s bands; want 1", bands)
+		return ehdrLayout{}, fmt.Errorf("EHdr has %s bands; want 1", bands)
 	}
 	if bits := values["NBITS"]; bits != "32" {
-		return FloatGrid{}, fmt.Errorf("EHdr has %q bits; want 32", bits)
+		return ehdrLayout{}, fmt.Errorf("EHdr has %q bits; want 32", bits)
 	}
-	payload, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
-		return FloatGrid{}, fmt.Errorf("read EHdr payload: %w", err)
+		return ehdrLayout{}, fmt.Errorf("stat EHdr payload: %w", err)
 	}
 	count := uint64(rows) * uint64(cols)
-	if uint64(len(payload)) != count*4 {
-		return FloatGrid{}, fmt.Errorf("EHdr payload has %d bytes; want %d", len(payload), count*4)
+	if count > uint64(^uint(0)>>1) || count > uint64(math.MaxInt64/4) || uint64(info.Size()) != count*4 {
+		return ehdrLayout{}, fmt.Errorf("EHdr payload has %d bytes; want %d", info.Size(), count*4)
 	}
 	var order binary.ByteOrder = binary.LittleEndian
 	if byteOrder := strings.ToUpper(values["BYTEORDER"]); byteOrder == "M" || byteOrder == "MSBFIRST" {
@@ -226,17 +258,9 @@ func readEHdr(path string, bounds delivery.GridBounds) (FloatGrid, error) {
 	if text := noDataText; text != "" {
 		parsed, parseErr := strconv.ParseFloat(text, 32)
 		if parseErr != nil {
-			return FloatGrid{}, fmt.Errorf("invalid EHdr NODATA %q", text)
+			return ehdrLayout{}, fmt.Errorf("invalid EHdr NODATA %q", text)
 		}
 		nodata, hasNoData = float32(parsed), true
 	}
-	decoded := make([]float32, count)
-	for index := range decoded {
-		value := math.Float32frombits(order.Uint32(payload[index*4 : index*4+4]))
-		if !finite32(value) || (hasNoData && value == nodata) {
-			value = float32(math.NaN())
-		}
-		decoded[index] = value
-	}
-	return FloatGrid{Spec: delivery.GridSpec{Bounds: bounds, Rows: uint32(rows), Cols: uint32(cols)}, Values: decoded}, nil
+	return ehdrLayout{rows: uint32(rows), cols: uint32(cols), count: int(count), order: order, noData: nodata, hasNoData: hasNoData}, nil
 }

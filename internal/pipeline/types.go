@@ -77,6 +77,13 @@ type Frame struct {
 }
 
 func (f Frame) validate() error {
+	if err := f.validateMetadata(); err != nil {
+		return err
+	}
+	return f.Grid.Validate()
+}
+
+func (f Frame) validateMetadata() error {
 	if f.Field == "" || f.Start.IsZero() || f.End.IsZero() || f.End.Before(f.Start) {
 		return errors.New("forecast frame identity or interval is invalid")
 	}
@@ -89,7 +96,7 @@ func (f Frame) validate() error {
 	if f.PackingQuantum < 0 || math.IsNaN(f.PackingQuantum) || math.IsInf(f.PackingQuantum, 0) {
 		return errors.New("forecast frame packing quantum must be finite and non-negative")
 	}
-	return f.Grid.Validate()
+	return nil
 }
 
 func sameSpec(left, right delivery.GridSpec) bool {

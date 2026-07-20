@@ -19,10 +19,29 @@ func isDWDSolarComponent(field Field) bool {
 	return field == SolarDirect || field == SolarDiffuse
 }
 
+type valueNormalization struct {
+	factor float64
+	offset float64
+}
+
 func normalizeFrame(frame Frame) (Frame, error) {
 	if err := frame.validate(); err != nil {
 		return Frame{}, err
 	}
+	frame, normalization, err := normalizationForFrame(frame)
+	if err != nil {
+		return Frame{}, err
+	}
+	for index, value := range frame.Grid.Values {
+		frame.Grid.Values[index] = normalizeValue(value, frame, normalization)
+	}
+	return frame, nil
+}
+
+// normalizationForFrame validates the physical unit and interval contract and
+// returns canonical frame metadata without touching grid values. Disk-backed
+// decoders use the same operation once while preparing a message.
+func normalizationForFrame(frame Frame) (Frame, valueNormalization, error) {
 	unit := normalizedUnit(frame.Units)
 	factor, offset := 1.0, 0.0
 	switch frame.Field {
@@ -32,7 +51,7 @@ func normalizeFrame(frame Frame) (Frame, error) {
 			offset = -273.15
 		case "c", "celsius", "degc", "°c":
 		default:
-			return Frame{}, fmt.Errorf("unsupported temperature unit %q", frame.Units)
+			return Frame{}, valueNormalization{}, fmt.Errorf("unsupported temperature unit %q", frame.Units)
 		}
 		frame.Units = "C"
 	case WindU, WindV, Gust:
@@ -41,7 +60,7 @@ func normalizeFrame(frame Frame) (Frame, error) {
 			factor = 3.6
 		case "km/h", "kmh-1", "km h-1":
 		default:
-			return Frame{}, fmt.Errorf("unsupported wind unit %q", frame.Units)
+			return Frame{}, valueNormalization{}, fmt.Errorf("unsupported wind unit %q", frame.Units)
 		}
 		frame.Units = "km/h"
 	case CloudCover:
@@ -50,7 +69,7 @@ func normalizeFrame(frame Frame) (Frame, error) {
 		case "0-1", "fraction", "(0-1)", "(0 - 1)", "1":
 			factor = 100
 		default:
-			return Frame{}, fmt.Errorf("unsupported cloud-cover unit %q", frame.Units)
+			return Frame{}, valueNormalization{}, fmt.Errorf("unsupported cloud-cover unit %q", frame.Units)
 		}
 		frame.Units = "%"
 	case Rain:
@@ -59,7 +78,7 @@ func normalizeFrame(frame Frame) (Frame, error) {
 		case "m":
 			factor = 1000
 		default:
-			return Frame{}, fmt.Errorf("unsupported precipitation unit %q", frame.Units)
+			return Frame{}, valueNormalization{}, fmt.Errorf("unsupported precipitation unit %q", frame.Units)
 		}
 		frame.Units = "mm"
 	case Solar, SolarDirect, SolarDiffuse:
@@ -69,11 +88,11 @@ func normalizeFrame(frame Frame) (Frame, error) {
 		case "mj m-2", "mj m**-2", "mjm-2", "mj/m2":
 		case "w m-2", "w m**-2", "wm-2":
 			if frame.Semantics != IntervalMean && frame.Semantics != CumulativeMean {
-				return Frame{}, fmt.Errorf("solar flux requires average semantics")
+				return Frame{}, valueNormalization{}, fmt.Errorf("solar flux requires average semantics")
 			}
 			elapsed := frame.End.Sub(frame.Start)
 			if elapsed < 0 || (elapsed == 0 && frame.Semantics != CumulativeMean) {
-				return Frame{}, fmt.Errorf("solar flux requires a valid average interval")
+				return Frame{}, valueNormalization{}, fmt.Errorf("solar flux requires a valid average interval")
 			}
 			factor = elapsed.Seconds() / 1e6
 			if frame.Semantics == CumulativeMean {
@@ -82,42 +101,41 @@ func normalizeFrame(frame Frame) (Frame, error) {
 				frame.Semantics = IntervalAccumulation
 			}
 		default:
-			return Frame{}, fmt.Errorf("unsupported solar unit %q", frame.Units)
+			return Frame{}, valueNormalization{}, fmt.Errorf("unsupported solar unit %q", frame.Units)
 		}
 		frame.Units = "MJ/m2"
 	default:
-		return Frame{}, fmt.Errorf("unsupported pipeline field %q", frame.Field)
-	}
-	for index, value := range frame.Grid.Values {
-		// Energy accumulated over the zero-length model baseline is exactly zero;
-		// the average flux value at that instant is undefined and irrelevant.
-		if isSolarField(frame.Field) && frame.Semantics == CumulativeAccumulation && frame.End.Equal(frame.Start) {
-			frame.Grid.Values[index] = 0
-			continue
-		}
-		if finite32(value) {
-			normalized := float32(float64(value)*factor + offset)
-			if isSolarField(frame.Field) && normalized < 0 {
-				tolerance := math.Abs(factor)*frame.PackingError + float32Roundoff(normalized)
-				if isDWDSolarComponent(frame.Field) {
-					if tolerance > solarCumulativeArtifactToleranceMJm2 {
-						frame.Grid.Values[index] = float32(math.NaN())
-						continue
-					}
-					tolerance = solarCumulativeArtifactToleranceMJm2
-				}
-				if float64(-normalized) <= tolerance {
-					normalized = 0
-				} else {
-					normalized = float32(math.NaN())
-				}
-			}
-			frame.Grid.Values[index] = normalized
-		}
+		return Frame{}, valueNormalization{}, fmt.Errorf("unsupported pipeline field %q", frame.Field)
 	}
 	frame.PackingError *= math.Abs(factor)
 	frame.PackingQuantum *= math.Abs(factor)
-	return frame, nil
+	return frame, valueNormalization{factor: factor, offset: offset}, nil
+}
+
+func normalizeValue(value float32, frame Frame, normalization valueNormalization) float32 {
+	// Energy accumulated over the zero-length model baseline is exactly zero;
+	// the average flux value at that instant is undefined and irrelevant.
+	if isSolarField(frame.Field) && frame.Semantics == CumulativeAccumulation && frame.End.Equal(frame.Start) {
+		return 0
+	}
+	if !finite32(value) {
+		return value
+	}
+	normalized := float32(float64(value)*normalization.factor + normalization.offset)
+	if isSolarField(frame.Field) && normalized < 0 {
+		tolerance := frame.PackingError + float32Roundoff(normalized)
+		if isDWDSolarComponent(frame.Field) {
+			if tolerance > solarCumulativeArtifactToleranceMJm2 {
+				return float32(math.NaN())
+			}
+			tolerance = solarCumulativeArtifactToleranceMJm2
+		}
+		if float64(-normalized) <= tolerance {
+			return 0
+		}
+		return float32(math.NaN())
+	}
+	return normalized
 }
 
 func normalizedUnit(unit string) string {
