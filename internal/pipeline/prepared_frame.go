@@ -55,15 +55,17 @@ type PreparedWindow struct {
 	metadata     PreparedFrameMetadata
 }
 
-// PreparedFrame owns one physical Float32 backing file and its temporary
-// directory. Concurrent reads are safe. Close waits for active reads, removes
-// all prepared data and is idempotent.
+// PreparedFrame owns one physical Float32 backing path and its temporary
+// directory. Each read opens the path only for its duration, so idle prepared
+// messages consume no file descriptors. Concurrent reads are safe. Close waits
+// for active reads, removes all prepared data and is idempotent.
 type PreparedFrame struct {
 	mu        sync.RWMutex
-	file      *os.File
+	path      string
 	directory string
 	metadata  PreparedFrameMetadata
 	wraps     bool
+	closed    bool
 }
 
 // PrepareFrame inspects and converts a validated GRIB message exactly once,
@@ -145,6 +147,9 @@ func (decoder *Decoder) PrepareFrame(ctx context.Context, request DecodeRequest)
 	if err != nil {
 		return nil, fmt.Errorf("open prepared frame: %w", err)
 	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("close prepared frame after validation: %w", err)
+	}
 	// Only the canonical backing file remains after preparation.
 	_ = os.Remove(decoded)
 	_ = os.Remove(rawPath)
@@ -152,7 +157,7 @@ func (decoder *Decoder) PrepareFrame(ctx context.Context, request DecodeRequest)
 
 	cleanup = false
 	return &PreparedFrame{
-		file: file, directory: directory,
+		path: preparedPath, directory: directory,
 		metadata: metadataFromFrame(raw),
 		wraps:    decoder.bounds.West == -180 && decoder.bounds.East == 180,
 	}, nil
@@ -261,7 +266,7 @@ func (frame *PreparedFrame) Metadata() (PreparedFrameMetadata, error) {
 	}
 	frame.mu.RLock()
 	defer frame.mu.RUnlock()
-	if frame.file == nil {
+	if frame.closed || frame.path == "" {
 		return PreparedFrameMetadata{}, errors.New("prepared frame is closed")
 	}
 	return frame.metadata, nil
@@ -269,13 +274,13 @@ func (frame *PreparedFrame) Metadata() (PreparedFrameMetadata, error) {
 
 // ReadWindow reads one half-open core plus its one-cell halo without invoking
 // an external command or loading the prepared frame into memory.
-func (frame *PreparedFrame) ReadWindow(ctx context.Context, window GridWindow) (PreparedWindow, error) {
+func (frame *PreparedFrame) ReadWindow(ctx context.Context, window GridWindow) (result PreparedWindow, resultErr error) {
 	if frame == nil {
 		return PreparedWindow{}, errors.New("prepared frame is nil")
 	}
 	frame.mu.RLock()
 	defer frame.mu.RUnlock()
-	if frame.file == nil {
+	if frame.closed || frame.path == "" {
 		return PreparedWindow{}, errors.New("prepared frame is closed")
 	}
 	if err := ctx.Err(); err != nil {
@@ -300,10 +305,17 @@ func (frame *PreparedFrame) ReadWindow(ctx context.Context, window GridWindow) (
 	for index := range values {
 		values[index] = float32(math.NaN())
 	}
-	result := PreparedWindow{
+	result = PreparedWindow{
 		OriginRow: int64(window.Row) - 1, OriginColumn: int64(window.Column) - 1,
 		Rows: uint32(rows64), Cols: uint32(cols64), Values: values, metadata: frame.metadata,
 	}
+	file, err := os.Open(frame.path)
+	if err != nil {
+		return PreparedWindow{}, fmt.Errorf("open prepared frame for reading: %w", err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, file.Close())
+	}()
 	scratch := make([]byte, int(result.Cols)*4)
 	for destinationRow := uint32(0); destinationRow < result.Rows; destinationRow++ {
 		if err := ctx.Err(); err != nil {
@@ -314,7 +326,7 @@ func (frame *PreparedFrame) ReadWindow(ctx context.Context, window GridWindow) (
 			continue
 		}
 		destination := values[int(destinationRow)*int(result.Cols) : int(destinationRow+1)*int(result.Cols)]
-		if err := frame.readRow(sourceRow, result.OriginColumn, destination, scratch); err != nil {
+		if err := frame.readRow(file, sourceRow, result.OriginColumn, destination, scratch); err != nil {
 			return PreparedWindow{}, err
 		}
 	}
@@ -359,7 +371,7 @@ func preparedWindowSpec(source delivery.GridSpec, window PreparedWindow) deliver
 	}
 }
 
-func (frame *PreparedFrame) readRow(row, firstColumn int64, destination []float32, scratch []byte) error {
+func (frame *PreparedFrame) readRow(file *os.File, row, firstColumn int64, destination []float32, scratch []byte) error {
 	columns := int64(frame.metadata.Grid.Cols)
 	for destinationStart := 0; destinationStart < len(destination); {
 		sourceColumn := firstColumn + int64(destinationStart)
@@ -375,7 +387,7 @@ func (frame *PreparedFrame) readRow(row, firstColumn int64, destination []float3
 		}
 		bytes := scratch[:run*4]
 		offset := (row*columns + sourceColumn) * 4
-		read, err := frame.file.ReadAt(bytes, offset)
+		read, err := file.ReadAt(bytes, offset)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return fmt.Errorf("read prepared frame: %w", err)
 		}
@@ -390,19 +402,19 @@ func (frame *PreparedFrame) readRow(row, firstColumn int64, destination []float3
 	return nil
 }
 
-// Close releases the backing file and removes the owned temporary directory.
+// Close waits for active reads and removes the owned temporary directory.
 func (frame *PreparedFrame) Close() error {
 	if frame == nil {
 		return nil
 	}
 	frame.mu.Lock()
 	defer frame.mu.Unlock()
-	if frame.file == nil {
+	if frame.closed || frame.path == "" {
 		return nil
 	}
-	closeErr := frame.file.Close()
-	frame.file = nil
+	frame.closed = true
+	frame.path = ""
 	removeErr := os.RemoveAll(frame.directory)
 	frame.directory = ""
-	return errors.Join(closeErr, removeErr)
+	return removeErr
 }

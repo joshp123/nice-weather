@@ -284,12 +284,7 @@ func BenchmarkPreparedFrameRead256Window(b *testing.B) {
 	if err := os.WriteFile(path, values, 0o600); err != nil {
 		b.Fatal(err)
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer file.Close()
-	prepared := &PreparedFrame{file: file, metadata: PreparedFrameMetadata{Grid: delivery.GridSpec{Bounds: delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}, Rows: rows, Cols: cols}}, wraps: true}
+	prepared := &PreparedFrame{path: path, metadata: PreparedFrameMetadata{Grid: delivery.GridSpec{Bounds: delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}, Rows: rows, Cols: cols}}, wraps: true}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
