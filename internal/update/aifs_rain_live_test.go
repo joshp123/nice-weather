@@ -38,7 +38,7 @@ func TestLiveAIFSLateHorizonRain(t *testing.T) {
 	}
 	client := aifs.NewClient(&http.Client{Timeout: 45 * time.Second})
 	directory := t.TempDir()
-	decoder := pipeline.NewDecoder(nil)
+	decoder := testDecoder(t)
 	frames := make([]pipeline.Frame, 0, len(steps))
 	paths := make([]string, 0, len(steps))
 	for _, step := range steps {
@@ -179,7 +179,7 @@ func TestLiveAIFSLateHorizonRain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		support, err := expectedForecastSupport(mask, false)
+		support, err := expectedForecastSupport(mask, testProductDomain().Bounds(), false)
 		if err != nil {
 			t.Fatal(err)
 		}

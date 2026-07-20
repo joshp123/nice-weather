@@ -16,6 +16,7 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/pipeline"
+	"nice-weather-finder/internal/product"
 	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
 	"nice-weather-finder/internal/weather"
@@ -26,6 +27,7 @@ import (
 type Config struct {
 	Out     string
 	Cache   string
+	Domain  product.Domain
 	Now     func() time.Time
 	Smoke   bool
 	Refresh bool
@@ -35,6 +37,9 @@ func Run(ctx context.Context, config Config) error {
 	started := time.Now()
 	if config.Out == "" || config.Cache == "" {
 		return fmt.Errorf("output and cache directories are required")
+	}
+	if err := config.Domain.Validate(); err != nil {
+		return fmt.Errorf("product domain: %w", err)
 	}
 	lock, err := acquireUpdateLock(config.Cache)
 	if err != nil {
@@ -88,15 +93,18 @@ func Run(ctx context.Context, config Config) error {
 	if err != nil {
 		return err
 	}
-	decoder := pipeline.NewDecoder(nil)
+	decoder, err := pipeline.NewDecoder(nil, config.Domain.Bounds())
+	if err != nil {
+		return err
+	}
 	land := NewLandAuthority(config.Cache, httpClient, decoder.Runner)
 	if config.Smoke {
 		if _, err := land.Prepare(ctx); err != nil {
 			return fmt.Errorf("prepare Natural Earth land authority: %w", err)
 		}
-		return smokeSources(ctx, stage, httpClient, aifsClient, land, dwdRun, aifsRun)
+		return smokeSources(ctx, stage, httpClient, aifsClient, land, decoder, dwdRun, aifsRun)
 	}
-	if !config.Refresh && currentUsesRuns(config.Out, dwdRun.StartedAt, aifsRun.Time) {
+	if !config.Refresh && currentUsesRuns(config.Out, config.Domain, dwdRun.StartedAt, aifsRun.Time) {
 		fmt.Printf("current release already uses ICON-EU %s and AIFS %s; refreshing best-weather companion\n", dwdRun.ID(), aifsRun.Time.Format(time.RFC3339))
 		_, err := finishCurrentProduct(ctx, config.Out, nil)
 		return err
@@ -115,13 +123,13 @@ func Run(ctx context.Context, config Config) error {
 		freshness = aifsRun.Time
 	}
 	name := fmt.Sprintf("live-%s-%s", dwdRun.ID(), now.Format("20060102T150405Z"))
-	writer, err := newReleaseWriter(config.Out, name, now)
+	writer, err := newReleaseWriter(config.Out, name, now, config.Domain)
 	if err != nil {
 		return err
 	}
 	defer writer.discardUncommitted()
 	writer.manifest.Forecast.UpdatedAt = freshness.Format(time.RFC3339)
-	denseForecastMask, err := land.Mask(ctx, pipeline.DenseForecastScoreSpec())
+	denseForecastMask, err := land.Mask(ctx, config.Domain.DenseForecastScoreSpec())
 	if err != nil {
 		return fmt.Errorf("Natural Earth dense forecast mask: %w", err)
 	}
@@ -222,7 +230,7 @@ func Run(ctx context.Context, config Config) error {
 		if err != nil {
 			return fmt.Errorf("Natural Earth forecast mask: %w", err)
 		}
-		expectedSupport, err := expectedForecastSupport(forecastMask, day.Detailed)
+		expectedSupport, err := expectedForecastSupport(forecastMask, config.Domain.Bounds(), day.Detailed)
 		if err != nil {
 			return fmt.Errorf("build %s expected provider support: %w", day.Date.Format("2006-01-02"), err)
 		}
@@ -355,8 +363,8 @@ func finishCurrentProduct(ctx context.Context, root string, publishWeather func(
 // its expected support is the complete Europe product grid.
 var iconEUElementDomain = delivery.GridBounds{West: -23.5, East: 45, South: 29.5, North: 70.5}
 
-func expectedForecastSupport(land pipeline.FloatGrid, detailed bool) (pipeline.FloatGrid, error) {
-	domain := pipeline.EuropeGridBounds()
+func expectedForecastSupport(land pipeline.FloatGrid, productBounds delivery.GridBounds, detailed bool) (pipeline.FloatGrid, error) {
+	domain := productBounds
 	if detailed {
 		domain = iconEUElementDomain
 	}
@@ -440,7 +448,7 @@ func requireForecastWindowCoverage(coverage pipeline.ForecastCoverage) error {
 	return nil
 }
 
-func currentUsesRuns(root string, dwdRun, aifsRun time.Time) bool {
+func currentUsesRuns(root string, domain product.Domain, dwdRun, aifsRun time.Time) bool {
 	current, ok := delivery.CurrentDir(root)
 	if !ok {
 		return false
@@ -450,7 +458,7 @@ func currentUsesRuns(root string, dwdRun, aifsRun time.Time) bool {
 		return false
 	}
 	manifest, err := delivery.ValidateProductionRelease(resolved)
-	if err != nil || manifest.ProductContract != delivery.ProductContract || manifest.DataStatus != delivery.DataStatusLive || len(manifest.Forecast.Days) != productDays {
+	if err != nil || manifest.ProductContract != delivery.ProductContract || manifest.DataStatus != delivery.DataStatusLive || manifest.Region != domain.Region() || len(manifest.Forecast.Days) != productDays {
 		return false
 	}
 	dwdText, aifsText := dwdRun.UTC().Format(time.RFC3339), aifsRun.UTC().Format(time.RFC3339)
@@ -474,8 +482,7 @@ func currentUsesRuns(root string, dwdRun, aifsRun time.Time) bool {
 	return seenDWD && seenAIFS
 }
 
-func smokeSources(ctx context.Context, stage string, httpClient *http.Client, aifsClient *aifs.Client, land *LandAuthority, dwdRun dwd.Run, aifsRun aifs.Run) error {
-	decoder := pipeline.NewDecoder(nil)
+func smokeSources(ctx context.Context, stage string, httpClient *http.Client, aifsClient *aifs.Client, land *LandAuthority, decoder *pipeline.Decoder, dwdRun dwd.Run, aifsRun aifs.Run) error {
 	dwdFrames, err := stageDWD(ctx, httpClient, dwdRun, []int{1, 2}, stage)
 	if err != nil {
 		return err

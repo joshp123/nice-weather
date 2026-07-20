@@ -11,6 +11,7 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
+	"nice-weather-finder/internal/product"
 	"nice-weather-finder/internal/weather"
 )
 
@@ -42,7 +43,11 @@ func cleanupAbandonedBuilds(root string) error {
 	return nil
 }
 
-func newReleaseWriter(root, name string, generated time.Time) (*releaseWriter, error) {
+func newReleaseWriter(root, name string, generated time.Time, domain product.Domain) (*releaseWriter, error) {
+	if err := domain.Validate(); err != nil {
+		return nil, fmt.Errorf("release product domain: %w", err)
+	}
+	region := domain.Region()
 	buildingRoot := filepath.Join(root, ".building")
 	if err := os.MkdirAll(buildingRoot, 0o755); err != nil {
 		return nil, err
@@ -53,7 +58,7 @@ func newReleaseWriter(root, name string, generated time.Time) (*releaseWriter, e
 	}
 	return &releaseWriter{dir: dir, name: name, root: root, manifest: delivery.Manifest{
 		Version: delivery.ManifestVersion, ReleaseID: name, ProductContract: delivery.ProductContract, DataStatus: delivery.DataStatusLive, GeneratedAt: generated.UTC().Format(time.RFC3339),
-		Region:   delivery.Region{ID: "europe", Label: "Europe", Bounds: pipeline.EuropeGridBounds()},
+		Region:   region,
 		Profiles: []delivery.Profile{{ID: delivery.ProfileNice, Label: "Nice"}, {ID: delivery.ProfileCycling, Label: "Cycling"}},
 		Legend:   delivery.CanonicalLegend(),
 		Palette:  delivery.CanonicalPalette(),

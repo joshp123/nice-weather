@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/product"
 	"nice-weather-finder/internal/weather"
 )
 
 func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	root, cache := t.TempDir(), t.TempDir()
-	writer, err := newReleaseWriter(root, "live-cache-source", time.Now())
+	writer, err := newReleaseWriter(root, "live-cache-source", time.Now(), product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 425, Cols: 690}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 425, Cols: 690}
 	metrics := make([]weather.DailyMetrics, int(spec.Rows*spec.Cols))
 	source := delivery.Source{ProviderID: "chelsa", ProviderLabel: "CHELSA 2.1 · CC0", RunAt: "1981-01-01T00:00:00Z", ValidFrom: "1981-01-01T00:00:00Z", ValidTo: "2011-01-01T00:00:00Z"}
 	period, _, err := writer.writePeriod("climate", "month-01", "January", spec, metrics, source, 11, 720, false)
@@ -29,7 +30,7 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	destination := filepath.Join(root, "copy")
-	loaded, ok, err := loadClimateCheckpoint(cache, destination, 1)
+	loaded, ok, err := loadClimateCheckpoint(cache, destination, product.Europe().Bounds(), 1)
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
@@ -48,7 +49,7 @@ func TestClimateCheckpointValidatesAndCopiesCanonicalAssets(t *testing.T) {
 	if err := os.WriteFile(checkpointPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := loadClimateCheckpoint(cache, filepath.Join(root, "obsolete-copy"), 1); err != nil || ok {
+	if _, ok, err := loadClimateCheckpoint(cache, filepath.Join(root, "obsolete-copy"), product.Europe().Bounds(), 1); err != nil || ok {
 		t.Fatalf("prior scoring checkpoint: ok=%v err=%v", ok, err)
 	}
 	for _, relative := range periodAssets(period) {
@@ -73,7 +74,7 @@ func TestClimateCheckpointRejectsPrePaletteContract(t *testing.T) {
 	if err := os.WriteFile(checkpointPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := loadClimateCheckpoint(cache, t.TempDir(), 1); err != nil || ok {
+	if _, ok, err := loadClimateCheckpoint(cache, t.TempDir(), product.Europe().Bounds(), 1); err != nil || ok {
 		t.Fatalf("obsolete v8 checkpoint: ok=%v err=%v", ok, err)
 	}
 	if _, err := os.Stat(checkpointPath + ".invalid"); err != nil {
@@ -89,7 +90,7 @@ func TestClimateCheckpointQuarantinesUnsafePath(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, ok, err := loadClimateCheckpoint(cache, t.TempDir(), 1)
+	_, ok, err := loadClimateCheckpoint(cache, t.TempDir(), product.Europe().Bounds(), 1)
 	if err != nil || ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
@@ -111,7 +112,7 @@ func TestClimateCheckpointRejectsTrailingJSONAndBoundsQuarantine(t *testing.T) {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok, err := loadClimateCheckpoint(cache, t.TempDir(), 1); err != nil || ok {
+		if _, ok, err := loadClimateCheckpoint(cache, t.TempDir(), product.Europe().Bounds(), 1); err != nil || ok {
 			t.Fatalf("attempt %d: ok=%v err=%v", attempt, ok, err)
 		}
 	}

@@ -114,7 +114,7 @@ func TestICONSupportUsesDocumentedDomainCellCentres(t *testing.T) {
 	for index := range land.Values {
 		land.Values[index] = 1
 	}
-	support, err := expectedForecastSupport(land, true)
+	support, err := expectedForecastSupport(land, testProductDomain().Bounds(), true)
 	if err != nil {
 		t.Fatal(err)
 	}

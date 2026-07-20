@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"nice-weather-finder/internal/delivery"
 )
 
 const (
@@ -66,7 +68,7 @@ type Candidate struct {
 // BuildAndPublishEurope builds a complete release and installs it below
 // <artifactRoot>/places. The pointer changes only after the installed release
 // has passed the same validation used for an independently built release.
-func BuildAndPublishEurope(ctx context.Context, sourceDir, artifactRoot, sourceDate, releaseID string) (Summary, error) {
+func BuildAndPublishEurope(ctx context.Context, sourceDir, artifactRoot, sourceDate, releaseID string, coverage delivery.GridBounds) (Summary, error) {
 	if !validReleaseID(releaseID) {
 		return Summary{}, fmt.Errorf("invalid place release id %q", releaseID)
 	}
@@ -83,7 +85,7 @@ func BuildAndPublishEurope(ctx context.Context, sourceDir, artifactRoot, sourceD
 	}
 	defer os.RemoveAll(staging)
 	unpublished := filepath.Join(staging, "release")
-	summary, err := BuildEurope(ctx, sourceDir, unpublished, sourceDate)
+	summary, err := BuildEurope(ctx, sourceDir, unpublished, sourceDate, coverage)
 	if err != nil {
 		return Summary{}, err
 	}

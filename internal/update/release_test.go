@@ -12,12 +12,23 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
+	"nice-weather-finder/internal/product"
 	"nice-weather-finder/internal/weather"
 )
 
+func TestReleaseWriterRejectsAnInvalidProductDomainBeforeBuilding(t *testing.T) {
+	root := t.TempDir()
+	if _, err := newReleaseWriter(root, "invalid-domain", time.Now(), product.Domain{}); err == nil {
+		t.Fatal("release writer accepted an invalid product domain")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".building")); !os.IsNotExist(err) {
+		t.Fatalf("invalid domain created build state: %v", err)
+	}
+}
+
 func TestReleaseBuildIsOutsideCleanupVisibleReleases(t *testing.T) {
 	root := t.TempDir()
-	writer, err := newReleaseWriter(root, "live-test", time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+	writer, err := newReleaseWriter(root, "live-test", time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +63,7 @@ func TestCleanupAbandonedBuildsDoesNotTouchPublishedReleases(t *testing.T) {
 
 func TestDiscardUncommittedPreservesReleaseMovedAcrossCommitBoundary(t *testing.T) {
 	root := t.TempDir()
-	writer, err := newReleaseWriter(root, "live-orphan", time.Now())
+	writer, err := newReleaseWriter(root, "live-orphan", time.Now(), product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,12 +84,12 @@ func TestDiscardUncommittedPreservesReleaseMovedAcrossCommitBoundary(t *testing.
 func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRuns(t *testing.T) {
 	root := t.TempDir()
 	generated := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	writer, err := newReleaseWriter(root, "live-finish-test", generated)
+	writer, err := newReleaseWriter(root, "live-finish-test", generated, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
-	setTestDenseMask(t, writer, pipeline.DenseForecastScoreSpec())
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
+	setTestDenseMask(t, writer, product.Europe().DenseForecastScoreSpec())
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 20, MaxTempC: 27, RainMM: 0,
 		WetTimeFraction: weather.OptionalFloat{Available: true}, CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
@@ -149,7 +160,7 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 			t.Fatalf("forecast window %s assets are mutable: %+v", profile, asset)
 		}
 	}
-	if !currentUsesRuns(root, dwdRun, aifsRun) || currentUsesRuns(root, dwdRun.Add(-6*time.Hour), aifsRun) {
+	if !currentUsesRuns(root, product.Europe(), dwdRun, aifsRun) || currentUsesRuns(root, product.Europe(), dwdRun.Add(-6*time.Hour), aifsRun) {
 		t.Fatal("idempotence run matching failed")
 	}
 }
@@ -190,9 +201,9 @@ func TestWriteWindFramesPreservesMixedNativeSourceTimes(t *testing.T) {
 		date.Add(10 * time.Hour), date.Add(11 * time.Hour), date.Add(12 * time.Hour),
 		date.Add(15 * time.Hour), date.Add(18 * time.Hour), date.Add(21 * time.Hour),
 	}
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Add(-66 * time.Hour).Format(time.RFC3339), ValidFrom: times[0].Format(time.RFC3339), ValidTo: times[len(times)-1].Format(time.RFC3339)}
-	writer, err := newReleaseWriter(t.TempDir(), "mixed-wind-times", date)
+	writer, err := newReleaseWriter(t.TempDir(), "mixed-wind-times", date, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,11 +223,11 @@ func TestWriteWindFramesPreservesMixedNativeSourceTimes(t *testing.T) {
 
 func TestWriteWindFramesRejectsOutOfOrderSourceCatalogue(t *testing.T) {
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
 	series[pipeline.WindU][0], series[pipeline.WindU][1] = series[pipeline.WindU][1], series[pipeline.WindU][0]
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
-	writer, err := newReleaseWriter(t.TempDir(), "out-of-order-wind", date)
+	writer, err := newReleaseWriter(t.TempDir(), "out-of-order-wind", date, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +237,7 @@ func TestWriteWindFramesRejectsOutOfOrderSourceCatalogue(t *testing.T) {
 }
 
 func TestWriteWindFramesPublishesExactNativeTimesAcrossForecastSources(t *testing.T) {
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
 		name, provider string
@@ -238,7 +249,7 @@ func TestWriteWindFramesPublishesExactNativeTimesAcrossForecastSources(t *testin
 		{name: "AIFS outlook six-hourly", provider: "ecmwf-aifs", first: 6, last: 18, cadence: 6, count: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			writer, err := newReleaseWriter(t.TempDir(), strings.ReplaceAll(test.name, " ", "-"), date)
+			writer, err := newReleaseWriter(t.TempDir(), strings.ReplaceAll(test.name, " ", "-"), date, product.Europe())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -256,11 +267,11 @@ func TestWriteWindFramesPublishesExactNativeTimesAcrossForecastSources(t *testin
 
 func TestWriteWindFramesRejectsMissingNativeTime(t *testing.T) {
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	series := testWindSeriesCount(spec, date.Add(6*time.Hour), 1, 3)
 	series[pipeline.WindV] = append(series[pipeline.WindV][:1], series[pipeline.WindV][2:]...)
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
-	writer, err := newReleaseWriter(t.TempDir(), "missing-wind-time", date)
+	writer, err := newReleaseWriter(t.TempDir(), "missing-wind-time", date, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,11 +282,11 @@ func TestWriteWindFramesRejectsMissingNativeTime(t *testing.T) {
 
 func TestWriteWindFramesRejectsNonCanonicalUnits(t *testing.T) {
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
 	series[pipeline.WindU][0].Units = "m/s"
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
-	writer, err := newReleaseWriter(t.TempDir(), "wrong-wind-units", date)
+	writer, err := newReleaseWriter(t.TempDir(), "wrong-wind-units", date, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,12 +297,12 @@ func TestWriteWindFramesRejectsNonCanonicalUnits(t *testing.T) {
 
 func TestWriteWindFramesConvertsCanonicalKmhToMps(t *testing.T) {
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	series := testWindSeries(spec, date.Add(6*time.Hour), 1)
 	series[pipeline.WindU][0].Grid.Values[0] = 10.8
 	series[pipeline.WindV][0].Grid.Values[0] = -16.2
 	source := delivery.Source{ProviderID: "dwd-icon-eu", ProviderLabel: "DWD ICON-EU", RunAt: date.Format(time.RFC3339), ValidFrom: date.Add(6 * time.Hour).Format(time.RFC3339), ValidTo: date.Add(8 * time.Hour).Format(time.RFC3339)}
-	writer, err := newReleaseWriter(t.TempDir(), "wind-unit-conversion", date)
+	writer, err := newReleaseWriter(t.TempDir(), "wind-unit-conversion", date, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,11 +352,11 @@ func TestWriteWindFramesConvertsCanonicalKmhToMps(t *testing.T) {
 
 func TestForecastWindowUsesThePublishedDailyQuantizationAtScoreThresholds(t *testing.T) {
 	root := t.TempDir()
-	writer, err := newReleaseWriter(root, "threshold-parity", time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC))
+	writer, err := newReleaseWriter(root, "threshold-parity", time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	setTestDenseMask(t, writer, spec)
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 19, MinTempC: 16, MaxTempC: 22, CloudCoverPercent: weather.OptionalFloat{Value: 30, Available: true},
@@ -410,11 +421,11 @@ func TestForecastWindowUsesThePublishedDailyQuantizationAtScoreThresholds(t *tes
 func TestForecastWindowImagesMatchThePublishedPointRecord(t *testing.T) {
 	root := t.TempDir()
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	writer, err := newReleaseWriter(root, "window-image-parity", date)
+	writer, err := newReleaseWriter(root, "window-image-parity", date, product.Europe())
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := delivery.GridSpec{Bounds: pipelineBounds(), Rows: 1, Cols: 1}
+	spec := delivery.GridSpec{Bounds: product.Europe().Bounds(), Rows: 1, Cols: 1}
 	setTestDenseMask(t, writer, spec)
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 19, MaxTempC: 29, RainMM: 1.2,

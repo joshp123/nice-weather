@@ -33,14 +33,17 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 
 type Decoder struct {
 	Runner CommandRunner
-	Bounds delivery.GridBounds
+	bounds delivery.GridBounds
 }
 
-func NewDecoder(runner CommandRunner) *Decoder {
+func NewDecoder(runner CommandRunner, bounds delivery.GridBounds) (*Decoder, error) {
+	if err := delivery.ValidateGridSpec(delivery.GridSpec{Bounds: bounds, Rows: 1, Cols: 1}); err != nil {
+		return nil, fmt.Errorf("decoder bounds: %w", err)
+	}
 	if runner == nil {
 		runner = ExecRunner{}
 	}
-	return &Decoder{Runner: runner, Bounds: EuropeGridBounds()}
+	return &Decoder{Runner: runner, bounds: bounds}, nil
 }
 
 type DecodeRequest struct {
@@ -95,10 +98,7 @@ func (decoder *Decoder) Decode(ctx context.Context, request DecodeRequest) (Fram
 	if _, err = decoder.Runner.Run(ctx, "grib_to_netcdf", "-D", "NC_FLOAT", "-o", decoded, request.Path); err != nil {
 		return Frame{}, fmt.Errorf("decode GRIB message: %w", err)
 	}
-	bounds := decoder.Bounds
-	if bounds == (delivery.GridBounds{}) {
-		bounds = EuropeGridBounds()
-	}
+	bounds := decoder.bounds
 	cols := int(math.Round((bounds.East - bounds.West) / request.CellDegrees))
 	rows := int(math.Round((bounds.North - bounds.South) / request.CellDegrees))
 	if err := cropPhysicalGrid(ctx, decoder.Runner, decoded, output, bounds, cols, rows); err != nil {
@@ -143,10 +143,7 @@ func (decoder *Decoder) DecodeRaster(ctx context.Context, path string, cellDegre
 	}
 	defer os.RemoveAll(temporary)
 	output := filepath.Join(temporary, "field.bil")
-	bounds := decoder.Bounds
-	if bounds == (delivery.GridBounds{}) {
-		bounds = EuropeGridBounds()
-	}
+	bounds := decoder.bounds
 	_, err = decoder.Runner.Run(ctx, "gdalwarp",
 		"-q", "-overwrite", "-of", "EHdr", "-ot", "Float32", "-r", "bilinear", "-dstnodata", "nan",
 		"-te", formatCoordinate(bounds.West), formatCoordinate(bounds.South), formatCoordinate(bounds.East), formatCoordinate(bounds.North),

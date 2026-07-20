@@ -21,8 +21,10 @@ import (
 
 func TestDecodeUsesBinaryCropAndExplicitMetadata(t *testing.T) {
 	runner := &fakeRunner{t: t}
-	decoder := NewDecoder(runner)
-	decoder.Bounds = delivery.GridBounds{West: 0, East: 2, South: 0, North: 1}
+	decoder, err := NewDecoder(runner, delivery.GridBounds{West: 150, East: 152, South: -35, North: -34})
+	if err != nil {
+		t.Fatal(err)
+	}
 	frame, err := decoder.Decode(context.Background(), DecodeRequest{
 		Path: "temperature.grib2", Field: Temperature,
 		Run: time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), NativeResolutionKM: 7, CellDegrees: 1,
@@ -46,14 +48,22 @@ func TestDecodeUsesBinaryCropAndExplicitMetadata(t *testing.T) {
 
 func TestDecodeRasterUsesAlignedBilinearCropWithoutGRIBMetadata(t *testing.T) {
 	runner := &fakeRunner{t: t}
-	decoder := NewDecoder(runner)
-	decoder.Bounds = delivery.GridBounds{West: 0, East: 2, South: 0, North: 1}
+	decoder, err := NewDecoder(runner, delivery.GridBounds{West: 150, East: 152, South: -35, North: -34})
+	if err != nil {
+		t.Fatal(err)
+	}
 	grid, err := decoder.DecodeRaster(context.Background(), "/vsicurl/https://example.test/climate.tif", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if grid.Spec.Rows != 1 || grid.Spec.Cols != 2 || len(grid.Values) != 2 || !runner.sawRaster {
 		t.Fatalf("unexpected raster crop: %+v", grid.Spec)
+	}
+}
+
+func TestDecoderRejectsImplicitBounds(t *testing.T) {
+	if _, err := NewDecoder(&fakeRunner{t: t}, delivery.GridBounds{}); err == nil {
+		t.Fatal("decoder accepted implicit zero bounds")
 	}
 }
 
@@ -126,8 +136,10 @@ func TestRealECCodesFloatDecodePreservesEqualCumulativeRain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoder := NewDecoder(runner)
-	decoder.Bounds = delivery.GridBounds{West: 0, East: 3, South: 0, North: 2}
+	decoder, err := NewDecoder(runner, delivery.GridBounds{West: 0, East: 3, South: 0, North: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
 	run := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	decode := func(path string) Frame {
 		t.Helper()
@@ -250,7 +262,7 @@ func (runner *fakeRunner) Run(_ context.Context, command string, args ...string)
 		return nil, nil
 	case "gdalwarp", "gdal_translate":
 		joined := strings.Join(args, " ")
-		runner.sawCrop = command == "gdal_translate" && !strings.Contains(joined, "-unscale") && strings.Contains(joined, "-projwin 0 1 2 0") && strings.Contains(joined, "-outsize 2 1")
+		runner.sawCrop = command == "gdal_translate" && !strings.Contains(joined, "-unscale") && strings.Contains(joined, "-projwin 150 -34 152 -35") && strings.Contains(joined, "-outsize 2 1")
 		runner.sawRaster = strings.Contains(joined, "-r bilinear") && strings.Contains(joined, "/vsicurl/https://example.test/climate.tif")
 		output := args[len(args)-1]
 		payload := make([]byte, 8)

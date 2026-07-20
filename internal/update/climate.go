@@ -86,7 +86,7 @@ func buildClimate(ctx context.Context, decoder *pipeline.Decoder, writer *releas
 		}
 	}
 	for month := 1; month <= 12; month++ {
-		cached, ok, err := loadClimateCheckpoint(cacheRoot, writer.dir, month)
+		cached, ok, err := loadClimateCheckpoint(cacheRoot, writer.dir, writer.manifest.Region.Bounds, month)
 		if err != nil {
 			return err
 		}

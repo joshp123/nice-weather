@@ -12,10 +12,6 @@ import (
 	"nice-weather-finder/internal/delivery"
 )
 
-func EuropeGridBounds() delivery.GridBounds {
-	return delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5}
-}
-
 type Field string
 
 const (

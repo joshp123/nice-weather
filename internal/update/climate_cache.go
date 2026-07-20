@@ -68,7 +68,7 @@ func saveClimateCheckpoint(cacheRoot, releaseDir string, period delivery.Climate
 	return nil
 }
 
-func loadClimateCheckpoint(cacheRoot, releaseDir string, month int) (delivery.ClimatePeriod, bool, error) {
+func loadClimateCheckpoint(cacheRoot, releaseDir string, productBounds delivery.GridBounds, month int) (delivery.ClimatePeriod, bool, error) {
 	data, err := os.ReadFile(filepath.Join(cacheRoot, fmt.Sprintf("month-%02d.json", month)))
 	if os.IsNotExist(err) {
 		return delivery.ClimatePeriod{}, false, nil
@@ -119,7 +119,7 @@ func loadClimateCheckpoint(cacheRoot, releaseDir string, month int) (delivery.Cl
 	}
 	pointPath := filepath.Join(cacheRoot, filepath.FromSlash(period.Point.URL))
 	metadata, err := delivery.ValidatePointAsset(pointPath)
-	if err != nil || metadata.SHA256 != period.Point.SHA256 || metadata.PayloadSHA256 != period.Point.PayloadSHA256 || metadata.Geometry != period.Point.Geometry || metadata.Kind != delivery.PointKindLegacyClimateMonth {
+	if err != nil || metadata.SHA256 != period.Point.SHA256 || metadata.PayloadSHA256 != period.Point.PayloadSHA256 || metadata.Geometry != period.Point.Geometry || metadata.Geometry.Bounds != productBounds || metadata.Kind != delivery.PointKindLegacyClimateMonth {
 		return invalidateClimateCheckpoint(cacheRoot, month, fmt.Errorf("climate month %02d cached point asset is invalid", month))
 	}
 	for _, image := range period.Images {
@@ -167,10 +167,6 @@ func invalidateClimateCheckpoint(cacheRoot string, month int, cause error) (deli
 	}
 	fmt.Printf("warning: rebuilding invalid climate month %02d checkpoint: %v\n", month, cause)
 	return delivery.ClimatePeriod{}, false, nil
-}
-
-func pipelineBounds() delivery.GridBounds {
-	return delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5}
 }
 
 func periodAssets(period delivery.Period) []string {

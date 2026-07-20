@@ -8,6 +8,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"nice-weather-finder/internal/delivery"
 )
 
 // TestLiveDWD2026071800SolarAudit reproduces the bounded source audit that
@@ -19,7 +21,10 @@ func TestLiveDWD2026071800SolarAudit(t *testing.T) {
 		t.Skip("set NICE_WEATHER_LIVE_DWD_SOLAR_DIR to the audited 2026071800 GRIB directory")
 	}
 	run := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	decoder := NewDecoder(nil)
+	decoder, err := NewDecoder(nil, delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, source := range []struct {
 		prefix             string
 		field              Field

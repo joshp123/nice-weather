@@ -11,7 +11,7 @@ import (
 )
 
 func TestDenseForecastScoreSpecMatchesDetailedEuropeGeometry(t *testing.T) {
-	spec := DenseForecastScoreSpec()
+	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5}, Rows: delivery.DenseForecastScoreRows, Cols: delivery.DenseForecastScoreCols}
 	geometry, err := delivery.NewPointGeometry(spec)
 	if err != nil {
 		t.Fatal(err)

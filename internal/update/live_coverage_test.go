@@ -82,7 +82,7 @@ func TestLiveRealDayCoverage(t *testing.T) {
 
 func assertLiveDayCoverage(ctx context.Context, t *testing.T, land *LandAuthority, day dayPlan, staged []stagedFrame, resolution float64, provider string) error {
 	t.Helper()
-	series, err := decodeFrames(ctx, pipeline.NewDecoder(nil), stagedForDay(staged, day.Date, day.Detailed))
+	series, err := decodeFrames(ctx, testDecoder(t), stagedForDay(staged, day.Date, day.Detailed))
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func assertLiveDayCoverage(ctx context.Context, t *testing.T, land *LandAuthorit
 	if err != nil {
 		return err
 	}
-	expectedSupport, err := expectedForecastSupport(mask, day.Detailed)
+	expectedSupport, err := expectedForecastSupport(mask, testProductDomain().Bounds(), day.Detailed)
 	if err != nil {
 		return err
 	}

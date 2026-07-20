@@ -24,6 +24,8 @@ import (
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
+
+	"nice-weather-finder/internal/delivery"
 )
 
 const (
@@ -106,13 +108,16 @@ var europeLimits = limits{
 
 // BuildEurope consumes pinned GeoNames country extracts and writes one complete
 // immutable release. It never downloads sources or updates a public pointer.
-func BuildEurope(ctx context.Context, sourceDir, outputDir, sourceDate string) (Summary, error) {
+func BuildEurope(ctx context.Context, sourceDir, outputDir, sourceDate string, coverage delivery.GridBounds) (Summary, error) {
+	if err := delivery.ValidateGridSpec(delivery.GridSpec{Bounds: coverage, Rows: 1, Cols: 1}); err != nil {
+		return Summary{}, fmt.Errorf("place coverage: %w", err)
+	}
 	return build(ctx, buildConfig{
 		sourceDir:  sourceDir,
 		outputDir:  outputDir,
 		sourceDate: sourceDate,
 		countries:  europeCountries,
-		coverage:   bounds{West: -24, East: 45, South: 29, North: 71.5},
+		coverage:   bounds{West: coverage.West, East: coverage.East, South: coverage.South, North: coverage.North},
 		limits:     europeLimits,
 	})
 }

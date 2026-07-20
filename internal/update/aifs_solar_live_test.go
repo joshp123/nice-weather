@@ -27,7 +27,7 @@ func TestLiveAIFS2026071818SolarAudit(t *testing.T) {
 	steps := []int{96, 102, 108, 114, 120, 126}
 	client := aifs.NewClient(&http.Client{Timeout: 45 * time.Second})
 	directory := t.TempDir()
-	decoder := pipeline.NewDecoder(nil)
+	decoder := testDecoder(t)
 	frames := make([]pipeline.Frame, 0, len(steps))
 	paths := make([]string, 0, len(steps))
 	for _, step := range steps {
@@ -132,7 +132,7 @@ func TestLiveAIFS2026071818SolarAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	support, err := expectedForecastSupport(mask, false)
+	support, err := expectedForecastSupport(mask, testProductDomain().Bounds(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

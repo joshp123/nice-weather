@@ -13,6 +13,7 @@ import (
 	"nice-weather-finder/internal/appserver"
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/places"
+	"nice-weather-finder/internal/product"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -21,6 +22,7 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	domain := product.Europe()
 	var err error
 	switch os.Args[1] {
 	case "fixture":
@@ -46,7 +48,7 @@ func main() {
 		if err = flags.Parse(os.Args[2:]); err == nil {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			err = weatherupdate.Run(ctx, weatherupdate.Config{Out: *out, Cache: *cache, Smoke: *smoke, Refresh: *refresh})
+			err = weatherupdate.Run(ctx, weatherupdate.Config{Out: *out, Cache: *cache, Domain: domain, Smoke: *smoke, Refresh: *refresh})
 		}
 	case "places":
 		flags := flag.NewFlagSet("places", flag.ContinueOnError)
@@ -61,7 +63,7 @@ func main() {
 				*releaseID = "places-" + strings.ReplaceAll(*sourceDate, "-", "")
 			}
 			var summary places.Summary
-			summary, err = places.BuildAndPublishEurope(ctx, *source, *out, *sourceDate, *releaseID)
+			summary, err = places.BuildAndPublishEurope(ctx, *source, *out, *sourceDate, *releaseID, domain.Bounds())
 			if err == nil {
 				fmt.Printf("places: %d places, %d keys, %d shards, %.1f MiB gzip\n", summary.PlaceCount, summary.SearchKeyCount, summary.ShardCount, float64(summary.GzipBytes)/(1024*1024))
 				var best destinations.BuildSummary

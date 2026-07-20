@@ -24,7 +24,7 @@ func TestLiveDWD2026071800DayTwoSolar(t *testing.T) {
 	ctx := context.Background()
 	run := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	series := make(pipeline.Series)
-	decoder := pipeline.NewDecoder(nil)
+	decoder := testDecoder(t)
 	for _, source := range []struct {
 		prefix string
 		field  pipeline.Field
@@ -51,7 +51,7 @@ func TestLiveDWD2026071800DayTwoSolar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	support, err := expectedForecastSupport(mask, true)
+	support, err := expectedForecastSupport(mask, testProductDomain().Bounds(), true)
 	if err != nil {
 		t.Fatal(err)
 	}

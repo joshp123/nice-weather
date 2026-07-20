@@ -46,7 +46,7 @@ func TestLiveDWDRequiredRainHorizon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	series, err := decodeFrames(ctx, pipeline.NewDecoder(nil), staged)
+	series, err := decodeFrames(ctx, testDecoder(t), staged)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestLiveDWDRequiredRainHorizon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	support, err := expectedForecastSupport(mask, true)
+	support, err := expectedForecastSupport(mask, testProductDomain().Bounds(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
