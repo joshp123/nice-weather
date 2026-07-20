@@ -282,7 +282,7 @@ func (runner *fakeRunner) Run(_ context.Context, command string, args ...string)
 	}
 }
 
-func TestNormalizeSeriesDifferencesCumulativeAIFSFields(t *testing.T) {
+func TestNormalizeSeriesDifferencesCumulativeIFSFields(t *testing.T) {
 	run := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	frames := []Frame{
 		frameAt(Rain, run, run, CumulativeAccumulation, 0),
@@ -456,11 +456,11 @@ func TestGenericSolarDoesNotUseDWDSolarArtifactTolerance(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(normalized) != 2 || !float32NaN(normalized[1].Grid.Values[0]) {
-		t.Fatalf("generic/AIFS solar incorrectly used DWD artifact tolerance: %+v", normalized)
+		t.Fatalf("generic/IFS solar incorrectly used DWD artifact tolerance: %+v", normalized)
 	}
 }
 
-func TestCumulativeAIFSSolarExactQuantumOverridesInconsistentPackingError(t *testing.T) {
+func TestCumulativeIFSSolarExactQuantumOverridesInconsistentPackingError(t *testing.T) {
 	run := time.Date(2026, 7, 18, 18, 0, 0, 0, time.UTC)
 	frames := []Frame{
 		frameAt(Solar, run, run.Add(96*time.Hour), CumulativeAccumulation, 10),
@@ -475,7 +475,7 @@ func TestCumulativeAIFSSolarExactQuantumOverridesInconsistentPackingError(t *tes
 		t.Fatal(err)
 	}
 	if len(normalized) != 2 || !float32NaN(normalized[1].Grid.Values[0]) {
-		t.Fatalf("inconsistent error metadata widened AIFS solar beyond one exact quantum: %+v", normalized)
+		t.Fatalf("inconsistent error metadata widened IFS solar beyond one exact quantum: %+v", normalized)
 	}
 }
 
@@ -834,7 +834,7 @@ func TestCumulativeRainUsesDeclaredPackingPrecision(t *testing.T) {
 	}
 }
 
-func TestCumulativeAIFSFieldsUseOneCoarserQuantumAcrossPackingScaleChange(t *testing.T) {
+func TestCumulativeIFSFieldsUseOneCoarserQuantumAcrossPackingScaleChange(t *testing.T) {
 	run := time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC)
 	base := []Frame{
 		frameAt(Rain, run, run.Add(264*time.Hour), CumulativeAccumulation, 42.28125),
@@ -876,7 +876,7 @@ func TestCumulativeAIFSFieldsUseOneCoarserQuantumAcrossPackingScaleChange(t *tes
 		t.Fatal(err)
 	}
 	if normalized[1].Grid.Values[0] != 0 || normalized[2].Grid.Values[0] != 0 {
-		t.Fatalf("AIFS solar packing-scale transition was not bounded to one coarser quantum: %+v", normalized)
+		t.Fatalf("IFS solar packing-scale transition was not bounded to one coarser quantum: %+v", normalized)
 	}
 	solarBeyond := append([]Frame(nil), solar...)
 	solarBeyond[2].Grid.Values = []float32{solar[2].Grid.Values[0] - float32(4*representationBound)}
@@ -885,7 +885,7 @@ func TestCumulativeAIFSFieldsUseOneCoarserQuantumAcrossPackingScaleChange(t *tes
 		t.Fatal(err)
 	}
 	if !float32NaN(normalized[2].Grid.Values[0]) {
-		t.Fatalf("AIFS solar decline beyond the coarser quantum and Float32 representation bound was accepted: %+v", normalized)
+		t.Fatalf("IFS solar decline beyond the coarser quantum and Float32 representation bound was accepted: %+v", normalized)
 	}
 }
 

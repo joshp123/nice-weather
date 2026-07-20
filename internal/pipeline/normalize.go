@@ -125,7 +125,7 @@ func normalizedUnit(unit string) string {
 }
 
 // NormalizeSeries turns point samples into explicit duration intervals and
-// cumulative AIFS fields into interval amounts. The returned frames are the
+// cumulative IFS fields into interval amounts. The returned frames are the
 // only representation accepted by AggregateDay.
 func NormalizeSeries(frames []Frame) ([]Frame, error) {
 	if len(frames) == 0 {
@@ -244,17 +244,16 @@ func NormalizeSeries(frames []Frame) ([]Frame, error) {
 }
 
 // The strict bound between two packed samples is the sum of their declared
-// maximum absolute errors. Full frozen-run audits found that AIFS cumulative
+// maximum absolute errors. Frozen ECMWF open-data audits found that cumulative
 // rain and aggregate solar can regress by one exact packing quantum when their
-// scale coarsens: rain in run 2026071718 at step 276 and ssrd in run
-// 2026071818 at step 102. The source messages contain no missing values; these
-// are quantization artifacts rather than negative rain or radiation. DWD's
-// direct/diffuse run-average solar uses its separately audited physical-artifact
-// ceiling below.
+// scale coarsens. The source messages contained no missing values; these are
+// encoding artifacts rather than negative rain or radiation. This bound is
+// expressed in GRIB packing metadata, so it remains model-independent. DWD's
+// direct/diffuse run-average solar uses its separate physical-artifact ceiling.
 func cumulativePackingTolerance(field Field, currentError, highWaterError, currentQuantum, highWaterQuantum float64) float64 {
 	tolerance := currentError + highWaterError
 	if field == Rain || field == Solar {
-		// Production AIFS rain and solar provide exact scale metadata. The
+		// ECMWF IFS rain and solar provide exact scale metadata. The
 		// fallback keeps hand-built unit fixtures useful without weakening live
 		// decoding, which fails closed when either scale key is absent.
 		quantum := math.Max(currentQuantum, highWaterQuantum)

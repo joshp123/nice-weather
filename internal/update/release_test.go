@@ -96,11 +96,11 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 		WindSpeedKPH: 8, RelativeHumidityPercent: weather.OptionalFloat{Value: 55, Available: true}, NativeResolutionKM: 7, Valid: true,
 	}
 	dwdRun := time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC)
-	aifsRun := time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC)
+	ifsRun := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	rangeDays := make([][]weather.DailyMetrics, 0, 14)
 	for index := 0; index < 14; index++ {
 		date := time.Date(2026, 7, 18+index, 0, 0, 0, 0, time.UTC)
-		provider, label, run, kind, resolution, temporal := "ecmwf-aifs", "ECMWF AIFS", aifsRun, "outlook", 28.0, 6
+		provider, label, run, kind, resolution, temporal := "ecmwf-ifs", "ECMWF IFS", ifsRun, "outlook", 28.0, 6
 		if index < 4 {
 			provider, label, run, kind, resolution, temporal = "dwd-icon-eu", "DWD ICON-EU", dwdRun, "detailed", 7, 1
 		}
@@ -160,7 +160,7 @@ func TestLiveWriterFinishesValidatedContentAddressedReleaseAndIdempotenceSeesRun
 			t.Fatalf("forecast window %s assets are mutable: %+v", profile, asset)
 		}
 	}
-	if !currentUsesRuns(root, product.Europe(), dwdRun, aifsRun) || currentUsesRuns(root, product.Europe(), dwdRun.Add(-6*time.Hour), aifsRun) {
+	if !currentUsesRuns(root, product.Europe(), dwdRun, ifsRun) || currentUsesRuns(root, product.Europe(), dwdRun.Add(-6*time.Hour), ifsRun) {
 		t.Fatal("idempotence run matching failed")
 	}
 }
@@ -246,7 +246,7 @@ func TestWriteWindFramesPublishesExactNativeTimesAcrossForecastSources(t *testin
 	}{
 		{name: "first ICON day hourly", provider: "dwd-icon-eu", first: 6, last: 21, cadence: 1, count: 16},
 		{name: "late ICON day three-hourly", provider: "dwd-icon-eu", first: 6, last: 21, cadence: 3, count: 6},
-		{name: "AIFS outlook six-hourly", provider: "ecmwf-aifs", first: 6, last: 18, cadence: 6, count: 3},
+		{name: "IFS outlook six-hourly", provider: "ecmwf-ifs", first: 6, last: 18, cadence: 6, count: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			writer, err := newReleaseWriter(t.TempDir(), strings.ReplaceAll(test.name, " ", "-"), date, product.Europe())

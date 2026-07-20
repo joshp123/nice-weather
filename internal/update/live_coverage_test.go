@@ -10,8 +10,8 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
-	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
+	"nice-weather-finder/internal/providers/ifs"
 	"nice-weather-finder/internal/weather"
 
 	"github.com/ringsaturn/tzf"
@@ -19,7 +19,7 @@ import (
 
 // This opt-in test is the bounded real-data regression for the publication
 // coverage gate. It downloads only one complete ICON-EU day and one complete
-// AIFS day into t.TempDir; the ordinary suite remains offline and deterministic.
+// IFS day into t.TempDir; the ordinary suite remains offline and deterministic.
 func TestLiveRealDayCoverage(t *testing.T) {
 	if os.Getenv("NWF_LIVE_COVERAGE") != "1" {
 		t.Skip("set NWF_LIVE_COVERAGE=1 for the bounded upstream regression")
@@ -32,13 +32,13 @@ func TestLiveRealDayCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aifsClient := aifs.NewClient(client)
-	aifsClient.Now = func() time.Time { return now }
-	aifsRun, err := aifsClient.DiscoverLatest(ctx)
+	ifsClient := ifs.NewClient(client)
+	ifsClient.Now = func() time.Time { return now }
+	ifsRun, err := ifsClient.DiscoverLatestLongRange(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	days, err := planDays(now, dwdRun.StartedAt, aifsRun.Time)
+	days, err := planDays(now, dwdRun.StartedAt, ifsRun.Time)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,12 +70,12 @@ func TestLiveRealDayCoverage(t *testing.T) {
 	if err := assertLiveDayCoverage(ctx, t, land, detailed, dwdFrames, 7, "DWD ICON-EU"); err != nil {
 		t.Fatal(err)
 	}
-	aifsStage := root + "/aifs-stage"
-	aifsFrames, err := stageAIFS(ctx, aifsClient, aifsRun, stepsForAIFS(aifsRun.Time, []dayPlan{outlook}), aifsStage)
+	ifsStage := root + "/ifs-stage"
+	ifsFrames, err := stageIFS(ctx, ifsClient, ifsRun, stepsForIFS(ifsRun.Time, []dayPlan{outlook}), ifsStage)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := assertLiveDayCoverage(ctx, t, land, outlook, aifsFrames, 28, "ECMWF AIFS"); err != nil {
+	if err := assertLiveDayCoverage(ctx, t, land, outlook, ifsFrames, 28, "ECMWF IFS"); err != nil {
 		t.Fatal(err)
 	}
 }

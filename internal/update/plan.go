@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
+	"nice-weather-finder/internal/providers/ifs"
 )
 
 const productDays = 14
@@ -129,11 +129,18 @@ type dayPlan struct {
 	Detailed bool
 }
 
-func planDays(now, dwdRun, aifsRun time.Time) ([]dayPlan, error) {
+func planDays(now, dwdRun, ifsRun time.Time) ([]dayPlan, error) {
+	steps, err := ifs.ForecastSteps(ifs.Run{Time: ifsRun})
+	if err != nil {
+		return nil, fmt.Errorf("IFS baseline run: %w", err)
+	}
+	if len(steps) == 0 || steps[len(steps)-1] != 360 {
+		return nil, fmt.Errorf("IFS baseline run ends before 360 hours")
+	}
 	return planDaysForCoverage(
 		now,
 		forecastCoverage{provider: "ICON-EU", run: dwdRun, maxForecastHours: dwd.MaxForecastHour},
-		forecastCoverage{provider: "AIFS", run: aifsRun, maxForecastHours: 360},
+		forecastCoverage{provider: "IFS", run: ifsRun, maxForecastHours: 360},
 		europeForecastPolicy,
 	)
 }
@@ -235,8 +242,21 @@ func stepsForDays(run time.Time, days []dayPlan, window utcDayWindow, available 
 	return selectSteps(run, first, last, available)
 }
 
-func stepsForAIFS(run time.Time, days []dayPlan) []int {
-	return stepsForProviderWindow(run, days, false, europeOutlookDecodeWindow, aifs.ForecastSteps())
+func stepsForIFS(run time.Time, days []dayPlan) []int {
+	available, err := ifs.ForecastSteps(ifs.Run{Time: run})
+	if err != nil {
+		return nil
+	}
+	// Keep the established six-hour outlook cadence. IFS also publishes
+	// three-hourly frames through hour 144, but mixing cadences would change the
+	// Europe product and its temporal label during this provider migration.
+	sixHourly := available[:0]
+	for _, step := range available {
+		if step%6 == 0 {
+			sixHourly = append(sixHourly, step)
+		}
+	}
+	return stepsForProviderWindow(run, days, false, europeOutlookDecodeWindow, sixHourly)
 }
 
 func selectSteps(run, first, last time.Time, available []int) []int {

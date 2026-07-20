@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/pipeline"
-	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
+	"nice-weather-finder/internal/providers/ifs"
 )
 
 const (
@@ -168,29 +168,29 @@ func stageDWDFields(ctx context.Context, client *http.Client, run dwd.Run, steps
 	return results, nil
 }
 
-func stageAIFS(ctx context.Context, client *aifs.Client, run aifs.Run, steps []int, stage string) ([]stagedFrame, error) {
-	destination := filepath.Join(stage, "aifs")
+func stageIFS(ctx context.Context, client *ifs.Client, run ifs.Run, steps []int, stage string) ([]stagedFrame, error) {
+	destination := filepath.Join(stage, "ifs")
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		return nil, err
 	}
 	type task struct {
 		step    int
-		message aifs.Message
+		message ifs.Message
 		field   pipeline.Field
 	}
 	var tasks []task
 	for _, step := range steps {
-		var messages map[string]aifs.Message
+		var messages map[string]ifs.Message
 		err := withRetry(ctx, func() error {
 			var fetchErr error
 			messages, fetchErr = client.FetchIndex(ctx, run, step)
 			return fetchErr
 		})
 		if err != nil {
-			return nil, fmt.Errorf("AIFS step %d index: %w", step, err)
+			return nil, fmt.Errorf("IFS step %d index: %w", step, err)
 		}
-		for _, parameter := range aifs.RequiredSurfaceFields() {
-			field, err := aifsPipelineField(parameter)
+		for _, parameter := range ifs.RequiredSurfaceFields() {
+			field, err := ifsPipelineField(parameter)
 			if err != nil {
 				return nil, err
 			}
@@ -200,7 +200,7 @@ func stageAIFS(ctx context.Context, client *aifs.Client, run aifs.Run, steps []i
 	results := make([]stagedFrame, len(tasks))
 	err := runWorkers(ctx, len(tasks), func(workerCtx context.Context, index int) error {
 		task := tasks[index]
-		path := filepath.Join(destination, fmt.Sprintf("%s-%03d.grib2", task.message.Parameter, task.step))
+		path := filepath.Join(destination, fmt.Sprintf("%s-%03d.grib2", task.message.Parameter(), task.step))
 		file, err := os.Create(path)
 		if err != nil {
 			return err
@@ -228,6 +228,11 @@ func stageAIFS(ctx context.Context, client *aifs.Client, run aifs.Run, steps []i
 		return nil
 	})
 	if err != nil {
+		// IFS is one required group. Do not leave successful siblings or a
+		// truncated failed download behind when any task fails.
+		for _, task := range tasks {
+			_ = os.Remove(filepath.Join(destination, fmt.Sprintf("%s-%03d.grib2", task.message.Parameter(), task.step)))
+		}
 		return nil, err
 	}
 	return results, nil
@@ -266,14 +271,14 @@ func dwdPipelineField(name string) (pipeline.Field, error) {
 	return field, nil
 }
 
-func aifsPipelineField(parameter string) (pipeline.Field, error) {
+func ifsPipelineField(parameter string) (pipeline.Field, error) {
 	fields := map[string]pipeline.Field{
 		"2t": pipeline.Temperature, "2d": pipeline.DewPoint, "tcc": pipeline.CloudCover,
 		"tp": pipeline.Rain, "10u": pipeline.WindU, "10v": pipeline.WindV, "ssrd": pipeline.Solar,
 	}
 	field, ok := fields[parameter]
 	if !ok {
-		return "", fmt.Errorf("unsupported required AIFS field %q", parameter)
+		return "", fmt.Errorf("unsupported required IFS field %q", parameter)
 	}
 	return field, nil
 }

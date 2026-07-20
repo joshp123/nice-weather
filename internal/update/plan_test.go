@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
+	"nice-weather-finder/internal/providers/ifs"
 )
 
 func TestPlanDaysUsesOnlyCompleteWindowsAndSwitchesProviderHonestly(t *testing.T) {
 	now := time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC)
 	dwdRun := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	aifsRun := time.Date(2026, 7, 18, 6, 0, 0, 0, time.UTC)
-	days, err := planDays(now, dwdRun, aifsRun)
+	ifsRun := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	days, err := planDays(now, dwdRun, ifsRun)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,6 +30,17 @@ func TestPlanDaysUsesOnlyCompleteWindowsAndSwitchesProviderHonestly(t *testing.T
 	}
 	if detailed != 4 {
 		t.Fatalf("detailed days = %d, want 4", detailed)
+	}
+}
+
+func TestPlanDaysRejectsShortIFSRun(t *testing.T) {
+	_, err := planDays(
+		time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 6, 0, 0, 0, time.UTC),
+	)
+	if err == nil || !strings.Contains(err.Error(), "00 or 12") {
+		t.Fatalf("short IFS run error = %v", err)
 	}
 }
 
@@ -108,20 +119,24 @@ func TestWorldwidePlanPublishesWithoutRegionalDetail(t *testing.T) {
 	}
 }
 
-func TestWorldwideAIFSStepsCoverBothDateLineExtremes(t *testing.T) {
+func TestWorldwideIFSStepsCoverBothDateLineExtremes(t *testing.T) {
 	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 	days, err := planDaysForCoverage(
 		time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC),
 		forecastCoverage{provider: "ICON-EU", run: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), maxForecastHours: dwd.MaxForecastHour},
-		forecastCoverage{provider: "AIFS", run: run, maxForecastHours: 360},
+		forecastCoverage{provider: "IFS", run: run, maxForecastHours: 360},
 		worldwideForecastPolicy,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	steps := stepsForDays(run, days, globalOutlookDecodeWindow, aifs.ForecastSteps())
+	available, err := ifs.ForecastSteps(ifs.Run{Time: run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := stepsForDays(run, days, globalOutlookDecodeWindow, available)
 	if steps[0] != 6 || steps[len(steps)-1] != 360 {
-		t.Fatalf("worldwide AIFS steps = %d..%d; want predecessor 6 through endpoint 360", steps[0], steps[len(steps)-1])
+		t.Fatalf("worldwide IFS steps = %d..%d; want predecessor 6 through endpoint 360", steps[0], steps[len(steps)-1])
 	}
 }
 
@@ -129,29 +144,29 @@ func TestEuropePlanningRemainsEquivalentToThePreviousPolicy(t *testing.T) {
 	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	for nowHour := 0; nowHour < 24; nowHour++ {
 		for _, dwdHour := range []int{0, 6, 12, 18} {
-			for _, aifsHour := range []int{0, 6, 12, 18} {
+			for _, ifsHour := range []int{0, 12} {
 				now := date.Add(time.Duration(nowHour) * time.Hour)
 				dwdRun := date.Add(time.Duration(dwdHour) * time.Hour)
-				aifsRun := date.Add(time.Duration(aifsHour) * time.Hour)
-				got, gotErr := planDays(now, dwdRun, aifsRun)
-				want, wantErr := legacyEuropePlan(now, dwdRun, aifsRun)
+				ifsRun := date.Add(time.Duration(ifsHour) * time.Hour)
+				got, gotErr := planDays(now, dwdRun, ifsRun)
+				want, wantErr := legacyEuropePlan(now, dwdRun, ifsRun)
 				if (gotErr != nil) != (wantErr != nil) || !reflect.DeepEqual(got, want) {
-					t.Fatalf("now=%s ICON=%s AIFS=%s: got %+v, %v; want %+v, %v", now, dwdRun, aifsRun, got, gotErr, want, wantErr)
+					t.Fatalf("now=%s ICON=%s IFS=%s: got %+v, %v; want %+v, %v", now, dwdRun, ifsRun, got, gotErr, want, wantErr)
 				}
 			}
 		}
 	}
 }
 
-func legacyEuropePlan(now, dwdRun, aifsRun time.Time) ([]dayPlan, error) {
-	now, dwdRun, aifsRun = now.UTC(), dwdRun.UTC(), aifsRun.UTC()
+func legacyEuropePlan(now, dwdRun, ifsRun time.Time) ([]dayPlan, error) {
+	now, dwdRun, ifsRun = now.UTC(), dwdRun.UTC(), ifsRun.UTC()
 	first := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	if first.Add(6*time.Hour).Before(dwdRun) || now.After(first.Add(20*time.Hour)) {
 		first = first.AddDate(0, 0, 1)
 	}
 	last := first.AddDate(0, 0, productDays-1).Add(21 * time.Hour)
-	if last.After(aifsRun.Add(360 * time.Hour)) {
-		return nil, fmt.Errorf("legacy AIFS horizon")
+	if last.After(ifsRun.Add(360 * time.Hour)) {
+		return nil, fmt.Errorf("legacy IFS horizon")
 	}
 	days := make([]dayPlan, productDays)
 	for index := range days {

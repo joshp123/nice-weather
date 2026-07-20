@@ -145,7 +145,7 @@ func TestProductionOverlaysRepresentEverySourceCellWithAtMostFourCandidates(t *t
 		rows, cols uint32
 	}{
 		{"ICON-EU", 680, 1104},
-		{"AIFS", 170, 276},
+		{"IFS", 170, 276},
 		{"CHELSA", 425, 690},
 	}
 	for _, test := range tests {

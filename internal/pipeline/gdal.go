@@ -57,7 +57,7 @@ type DecodeRequest struct {
 // Decode crops before loading values into Go. gdalwarp emits a binary float32
 // EHdr grid on the exact product bounds; ecCodes supplies interval semantics
 // and units. CellDegrees is the provider's native regular-grid spacing
-// (0.0625 for ICON-EU and 0.25 for AIFS).
+// (0.0625 for ICON-EU and 0.25 for IFS).
 func (decoder *Decoder) Decode(ctx context.Context, request DecodeRequest) (Frame, error) {
 	if decoder == nil || decoder.Runner == nil {
 		return Frame{}, errors.New("decoder command runner is required")

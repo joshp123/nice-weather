@@ -3,6 +3,7 @@ package update
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/dwd"
+	"nice-weather-finder/internal/providers/ifs"
 )
 
 func TestStagedForDayBoundsDecodedWorkingSet(t *testing.T) {
@@ -35,13 +37,13 @@ func TestStagedForDayBoundsDecodedWorkingSet(t *testing.T) {
 		t.Fatalf("detailed day retained %d frames; want 171 in-window frames plus one predecessor for the synthetic field", len(selected))
 	}
 
-	var aifsFrames []stagedFrame
+	var ifsFrames []stagedFrame
 	for step := 0; step <= 360; step += 6 {
 		for field := 0; field < 7; field++ {
-			aifsFrames = append(aifsFrames, stagedFrame{path: fmt.Sprintf("%d-%d", step, field), run: run, step: step})
+			ifsFrames = append(ifsFrames, stagedFrame{path: fmt.Sprintf("%d-%d", step, field), run: run, step: step})
 		}
 	}
-	selected = stagedForDay(aifsFrames, date, false)
+	selected = stagedForDay(ifsFrames, date, false)
 	if len(selected) != 43 {
 		t.Fatalf("outlook day retained %d frames; want 42 in-window frames plus one predecessor for the synthetic field", len(selected))
 	}
@@ -87,6 +89,53 @@ func TestStagedForWorldwideDayCrossesBothUTCDates(t *testing.T) {
 	}
 	if fmt.Sprint(steps) != "[6 12 18 24 30 36 42 48]" {
 		t.Fatalf("worldwide day staged steps %v", steps)
+	}
+}
+
+func TestIFSStepsRetainTheEstablishedSixHourlyOutlookCadence(t *testing.T) {
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	days := []dayPlan{{Date: time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)}}
+	steps := stepsForIFS(run, days)
+	if len(steps) == 0 {
+		t.Fatal("IFS outlook selected no steps")
+	}
+	for _, step := range steps {
+		if step%6 != 0 {
+			t.Fatalf("IFS outlook selected three-hour-only step %d", step)
+		}
+	}
+}
+
+func TestValidateIFSCumulativeSmokeRequiresRunTotalsAndProducesIntervals(t *testing.T) {
+	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 1, South: 0, North: 1}, Rows: 1, Cols: 1}
+	series := make(pipeline.Series)
+	for _, field := range []pipeline.Field{pipeline.Rain, pipeline.Solar} {
+		units := "m"
+		values := []float32{0, .001}
+		if field == pipeline.Solar {
+			units = "J m-2"
+			values = []float32{0, 2_000_000}
+		}
+		for index, value := range values {
+			series[field] = append(series[field], pipeline.Frame{
+				Field: field, Start: run, End: run.Add(time.Duration(index*6) * time.Hour),
+				Semantics: pipeline.CumulativeAccumulation, Units: units, NativeResolutionKM: 28,
+				Grid: pipeline.FloatGrid{Spec: spec, Values: []float32{value}},
+			})
+		}
+	}
+	if err := validateIFSCumulativeSmoke(series); err != nil {
+		t.Fatal(err)
+	}
+	series[pipeline.Rain][1].Semantics = pipeline.IntervalAccumulation
+	if err := validateIFSCumulativeSmoke(series); err == nil || !strings.Contains(err.Error(), "not a run-total") {
+		t.Fatalf("non-cumulative IFS rain error = %v", err)
+	}
+	series[pipeline.Rain][1].Semantics = pipeline.CumulativeAccumulation
+	series[pipeline.Rain][1].Grid.Values[0] = float32(math.NaN())
+	if err := validateIFSCumulativeSmoke(series); err == nil || !strings.Contains(err.Error(), "finite values") {
+		t.Fatalf("missing IFS rain support error = %v", err)
 	}
 }
 
@@ -155,6 +204,39 @@ func TestStageDWDRequiredFailureIsFatal(t *testing.T) {
 	}
 	if matches, err := filepath.Glob(filepath.Join(stage, "dwd", "*.grib2*")); err != nil || len(matches) != 0 {
 		t.Fatalf("failed required group left partial files %v: %v", matches, err)
+	}
+}
+
+func TestStageIFSFailureRemovesSuccessfulSiblings(t *testing.T) {
+	run := ifs.Run{Time: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}
+	fields := ifs.RequiredSurfaceFields()
+	var index strings.Builder
+	for fieldIndex, field := range fields {
+		fmt.Fprintf(&index, `{"domain":"g","date":"20260718","time":"1200","type":"fc","stream":"oper","step":"6","levtype":"sfc","param":"%s","_offset":%d,"_length":20}`+"\n", field, fieldIndex*20)
+	}
+	grib := make([]byte, 20)
+	copy(grib, "GRIB")
+	grib[7] = 2
+	binary.BigEndian.PutUint64(grib[8:16], uint64(len(grib)))
+	copy(grib[16:], "7777")
+	client := ifs.NewClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, ".index") {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(index.String())), Header: make(http.Header), ContentLength: int64(index.Len()), Request: request}, nil
+		}
+		requested := request.Header.Get("Range")
+		if requested == "bytes=80-99" {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+		}
+		header := http.Header{"Content-Range": {strings.Replace(requested, "=", " ", 1) + "/200"}}
+		return &http.Response{StatusCode: http.StatusPartialContent, Body: io.NopCloser(bytes.NewReader(grib)), Header: header, ContentLength: 20, Request: request}, nil
+	})})
+	client.Root = "https://example.test"
+	stage := t.TempDir()
+	if _, err := stageIFS(context.Background(), client, run, []int{6}, stage); err == nil {
+		t.Fatal("expected required IFS download failure")
+	}
+	if matches, err := filepath.Glob(filepath.Join(stage, "ifs", "*.grib2")); err != nil || len(matches) != 0 {
+		t.Fatalf("failed IFS group left partial files %v: %v", matches, err)
 	}
 }
 

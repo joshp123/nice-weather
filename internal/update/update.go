@@ -17,8 +17,8 @@ import (
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/product"
-	"nice-weather-finder/internal/providers/aifs"
 	"nice-weather-finder/internal/providers/dwd"
+	"nice-weather-finder/internal/providers/ifs"
 	"nice-weather-finder/internal/weather"
 
 	"github.com/ringsaturn/tzf"
@@ -82,12 +82,12 @@ func Run(ctx context.Context, config Config) error {
 	if err != nil {
 		return err
 	}
-	aifsClient := aifs.NewClient(httpClient)
-	aifsClient.Now = func() time.Time { return now }
-	var aifsRun aifs.Run
+	ifsClient := ifs.NewClient(httpClient)
+	ifsClient.Now = func() time.Time { return now }
+	var ifsRun ifs.Run
 	err = withRetry(ctx, func() error {
 		var discoverErr error
-		aifsRun, discoverErr = aifsClient.DiscoverLatest(ctx)
+		ifsRun, discoverErr = ifsClient.DiscoverLatestLongRange(ctx)
 		return discoverErr
 	})
 	if err != nil {
@@ -102,25 +102,25 @@ func Run(ctx context.Context, config Config) error {
 		if _, err := land.Prepare(ctx); err != nil {
 			return fmt.Errorf("prepare Natural Earth land authority: %w", err)
 		}
-		return smokeSources(ctx, stage, httpClient, aifsClient, land, decoder, dwdRun, aifsRun)
+		return smokeSources(ctx, stage, httpClient, ifsClient, land, decoder, dwdRun, ifsRun)
 	}
-	if !config.Refresh && currentUsesRuns(config.Out, config.Domain, dwdRun.StartedAt, aifsRun.Time) {
-		fmt.Printf("current release already uses ICON-EU %s and AIFS %s; refreshing best-weather companion\n", dwdRun.ID(), aifsRun.Time.Format(time.RFC3339))
+	if !config.Refresh && currentUsesRuns(config.Out, config.Domain, dwdRun.StartedAt, ifsRun.Time) {
+		fmt.Printf("current release already uses ICON-EU %s and IFS %s; refreshing best-weather companion\n", dwdRun.ID(), ifsRun.Time.Format(time.RFC3339))
 		_, err := finishCurrentProduct(ctx, config.Out, nil)
 		return err
 	}
 	if _, err := land.Prepare(ctx); err != nil {
 		return fmt.Errorf("prepare Natural Earth land authority: %w", err)
 	}
-	days, err := planDays(now, dwdRun.StartedAt, aifsRun.Time)
+	days, err := planDays(now, dwdRun.StartedAt, ifsRun.Time)
 	if err != nil {
 		return err
 	}
 	// The catalog freshness is only as strong as the oldest forecast source in
 	// the product. Individual periods retain their exact source run below.
 	freshness := dwdRun.StartedAt
-	if aifsRun.Time.Before(freshness) {
-		freshness = aifsRun.Time
+	if ifsRun.Time.Before(freshness) {
+		freshness = ifsRun.Time
 	}
 	name := fmt.Sprintf("live-%s-%s", dwdRun.ID(), now.Format("20060102T150405Z"))
 	writer, err := newReleaseWriter(config.Out, name, now, config.Domain)
@@ -144,13 +144,13 @@ func Run(ctx context.Context, config Config) error {
 	}
 
 	dwdSteps := stepsForDWD(dwdRun.StartedAt, days)
-	aifsSteps := stepsForAIFS(aifsRun.Time, days)
-	fmt.Printf("ICON-EU run %s: %d steps; AIFS run %s: %d steps\n", dwdRun.ID(), len(dwdSteps), aifsRun.Time.Format(time.RFC3339), len(aifsSteps))
+	ifsSteps := stepsForIFS(ifsRun.Time, days)
+	fmt.Printf("ICON-EU run %s: %d steps; IFS run %s: %d steps\n", dwdRun.ID(), len(dwdSteps), ifsRun.Time.Format(time.RFC3339), len(ifsSteps))
 	dwdStaged, err := stageDWD(ctx, httpClient, dwdRun, dwdSteps, stage)
 	if err != nil {
 		return err
 	}
-	aifsStaged, err := stageAIFS(ctx, aifsClient, aifsRun, aifsSteps, stage)
+	ifsStaged, err := stageIFS(ctx, ifsClient, ifsRun, ifsSteps, stage)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func Run(ctx context.Context, config Config) error {
 	if err != nil {
 		return fmt.Errorf("measure forecast staging: %w", err)
 	}
-	fmt.Printf("downloaded %d ICON-EU and %d AIFS field messages; staging %d files, %.1f MiB\n", len(dwdStaged), len(aifsStaged), stageFiles, float64(stageBytes)/(1<<20))
+	fmt.Printf("downloaded %d ICON-EU and %d IFS field messages; staging %d files, %.1f MiB\n", len(dwdStaged), len(ifsStaged), stageFiles, float64(stageBytes)/(1<<20))
 	finder, err := tzf.NewFullFinder()
 	if err != nil {
 		return err
@@ -173,7 +173,7 @@ func Run(ctx context.Context, config Config) error {
 			continue
 		}
 		cachedOutlookDate = day.Date
-		cachedOutlookSeries, err = decodeFrames(ctx, decoder, stagedForDay(aifsStaged, day.Date, false))
+		cachedOutlookSeries, err = decodeFrames(ctx, decoder, stagedForDay(ifsStaged, day.Date, false))
 		if err != nil {
 			return fmt.Errorf("decode forecast-window target grid: %w", err)
 		}
@@ -184,13 +184,13 @@ func Run(ctx context.Context, config Config) error {
 		break
 	}
 	if rangeTargetSpec.Rows == 0 {
-		return fmt.Errorf("14-day forecast requires at least one AIFS outlook day")
+		return fmt.Errorf("14-day forecast requires at least one IFS outlook day")
 	}
 	rangeDays := make([][]weather.DailyMetrics, 0, len(days))
 	var detailedRangeSupport pipeline.FloatGrid
 	var outlookRangeSupport pipeline.FloatGrid
 	for _, day := range days {
-		staged, run, resolution, temporal, kind, providerID, providerLabel := stagedForDay(aifsStaged, day.Date, false), aifsRun.Time, 28.0, 6, "outlook", "ecmwf-aifs", "ECMWF AIFS"
+		staged, run, resolution, temporal, kind, providerID, providerLabel := stagedForDay(ifsStaged, day.Date, false), ifsRun.Time, 28.0, 6, "outlook", "ecmwf-ifs", "ECMWF IFS"
 		if day.Detailed {
 			staged, run, resolution, temporal, kind, providerID, providerLabel = stagedForDay(dwdStaged, day.Date, true), dwdRun.StartedAt, 7, dwdTemporal(day.Date, dwdRun.StartedAt), "detailed", "dwd-icon-eu", "DWD ICON-EU"
 		}
@@ -359,7 +359,7 @@ func finishCurrentProduct(ctx context.Context, root string, publishWeather func(
 
 // DWD's regular ICON-EU element packages have this fixed documented domain:
 // https://www.dwd.de/EN/ourservices/nwp_forecast_data/nwp_forecast_data.html
-// Product bounds intentionally extend slightly beyond it. AIFS is global, so
+// Product bounds intentionally extend slightly beyond it. IFS is global, so
 // its expected support is the complete Europe product grid.
 var iconEUElementDomain = delivery.GridBounds{West: -23.5, East: 45, South: 29.5, North: 70.5}
 
@@ -448,7 +448,7 @@ func requireForecastWindowCoverage(coverage pipeline.ForecastCoverage) error {
 	return nil
 }
 
-func currentUsesRuns(root string, domain product.Domain, dwdRun, aifsRun time.Time) bool {
+func currentUsesRuns(root string, domain product.Domain, dwdRun, ifsRun time.Time) bool {
 	current, ok := delivery.CurrentDir(root)
 	if !ok {
 		return false
@@ -461,8 +461,8 @@ func currentUsesRuns(root string, domain product.Domain, dwdRun, aifsRun time.Ti
 	if err != nil || manifest.ProductContract != delivery.ProductContract || manifest.DataStatus != delivery.DataStatusLive || manifest.Region != domain.Region() || len(manifest.Forecast.Days) != productDays {
 		return false
 	}
-	dwdText, aifsText := dwdRun.UTC().Format(time.RFC3339), aifsRun.UTC().Format(time.RFC3339)
-	seenDWD, seenAIFS := false, false
+	dwdText, ifsText := dwdRun.UTC().Format(time.RFC3339), ifsRun.UTC().Format(time.RFC3339)
+	seenDWD, seenIFS := false, false
 	for _, day := range manifest.Forecast.Days {
 		switch day.Source.ProviderID {
 		case "dwd-icon-eu":
@@ -470,19 +470,19 @@ func currentUsesRuns(root string, domain product.Domain, dwdRun, aifsRun time.Ti
 				return false
 			}
 			seenDWD = true
-		case "ecmwf-aifs":
-			if day.Source.RunAt != aifsText {
+		case "ecmwf-ifs":
+			if day.Source.RunAt != ifsText {
 				return false
 			}
-			seenAIFS = true
+			seenIFS = true
 		default:
 			return false
 		}
 	}
-	return seenDWD && seenAIFS
+	return seenDWD && seenIFS
 }
 
-func smokeSources(ctx context.Context, stage string, httpClient *http.Client, aifsClient *aifs.Client, land *LandAuthority, decoder *pipeline.Decoder, dwdRun dwd.Run, aifsRun aifs.Run) error {
+func smokeSources(ctx context.Context, stage string, httpClient *http.Client, ifsClient *ifs.Client, land *LandAuthority, decoder *pipeline.Decoder, dwdRun dwd.Run, ifsRun ifs.Run) error {
 	dwdFrames, err := stageDWD(ctx, httpClient, dwdRun, []int{1, 2}, stage)
 	if err != nil {
 		return err
@@ -494,12 +494,15 @@ func smokeSources(ctx context.Context, stage string, httpClient *http.Client, ai
 	if err := validateDWDSolarSmoke(dwdSeries); err != nil {
 		return err
 	}
-	aifsFrames, err := stageAIFS(ctx, aifsClient, aifsRun, []int{6}, stage)
+	ifsFrames, err := stageIFS(ctx, ifsClient, ifsRun, []int{0, 6}, stage)
 	if err != nil {
 		return err
 	}
-	aifsSeries, err := decodeFrames(ctx, decoder, aifsFrames)
+	ifsSeries, err := decodeFrames(ctx, decoder, ifsFrames)
 	if err != nil {
+		return err
+	}
+	if err := validateIFSCumulativeSmoke(ifsSeries); err != nil {
 		return err
 	}
 	var climate pipeline.FloatGrid
@@ -562,7 +565,7 @@ func smokeSources(ctx context.Context, stage string, httpClient *http.Client, ai
 		}
 	}
 	dwdSpec, _ := seriesSpec(dwdSeries)
-	aifsSpec, _ := seriesSpec(aifsSeries)
+	ifsSpec, _ := seriesSpec(ifsSeries)
 	forecastMask, err := land.Mask(ctx, dwdSpec)
 	if err != nil {
 		return fmt.Errorf("Natural Earth forecast smoke mask: %w", err)
@@ -584,8 +587,8 @@ func smokeSources(ctx context.Context, stage string, httpClient *http.Client, ai
 			forecastLand++
 		}
 	}
-	fmt.Printf("smoke passed: ICON-EU %s %dx%d with %d/%d forecast land cells, AIFS %s %dx%d, CHELSA %dx%d, Natural Earth climate centre %d, all-touched %d/%d; units and GRIB intervals normalized\n",
-		dwdRun.ID(), dwdSpec.Cols, dwdSpec.Rows, forecastLand, len(forecastMetrics), aifsRun.Time.Format(time.RFC3339), aifsSpec.Cols, aifsSpec.Rows, climate.Spec.Cols, climate.Spec.Rows, coreCells, touchedCells, len(allTouched.Values))
+	fmt.Printf("smoke passed: ICON-EU %s %dx%d with %d/%d forecast land cells, IFS %s %dx%d, CHELSA %dx%d, Natural Earth climate centre %d, all-touched %d/%d; units and GRIB intervals normalized\n",
+		dwdRun.ID(), dwdSpec.Cols, dwdSpec.Rows, forecastLand, len(forecastMetrics), ifsRun.Time.Format(time.RFC3339), ifsSpec.Cols, ifsSpec.Rows, climate.Spec.Cols, climate.Spec.Rows, coreCells, touchedCells, len(allTouched.Values))
 	return nil
 }
 
@@ -622,6 +625,41 @@ func validateDWDSolarSmoke(series pipeline.Series) error {
 			if finite*2 < len(frame.Grid.Values) {
 				return fmt.Errorf("ICON-EU %s smoke interval %d has finite energy in only %d/%d cells", field, index, finite, len(frame.Grid.Values))
 			}
+		}
+	}
+	return nil
+}
+
+// validateIFSCumulativeSmoke proves the provider-to-pipeline contract that IFS
+// tp and ssrd are run-total fields. Publication depends on differencing those
+// totals into bounded intervals; treating either field as an instant or an
+// already-local accumulation would silently corrupt rain and sunshine.
+func validateIFSCumulativeSmoke(series pipeline.Series) error {
+	for _, field := range []pipeline.Field{pipeline.Rain, pipeline.Solar} {
+		frames := series[field]
+		if len(frames) != 2 {
+			return fmt.Errorf("IFS smoke requires two %s run-total frames; got %d", field, len(frames))
+		}
+		for index, frame := range frames {
+			if frame.Semantics != pipeline.CumulativeAccumulation || !frame.Start.Equal(frames[0].Start) {
+				return fmt.Errorf("IFS %s frame %d is not a run-total accumulation", field, index)
+			}
+		}
+		normalized, err := pipeline.NormalizeSeries(frames)
+		if err != nil {
+			return fmt.Errorf("normalize IFS %s smoke series: %w", field, err)
+		}
+		if len(normalized) != 1 || normalized[0].Semantics != pipeline.IntervalAccumulation || !normalized[0].End.After(normalized[0].Start) {
+			return fmt.Errorf("IFS %s smoke did not produce one bounded interval", field)
+		}
+		finite := 0
+		for _, value := range normalized[0].Grid.Values {
+			if !math.IsNaN(float64(value)) && !math.IsInf(float64(value), 0) {
+				finite++
+			}
+		}
+		if finite*2 < len(normalized[0].Grid.Values) {
+			return fmt.Errorf("IFS %s smoke interval has finite values in only %d/%d cells", field, finite, len(normalized[0].Grid.Values))
 		}
 	}
 	return nil
