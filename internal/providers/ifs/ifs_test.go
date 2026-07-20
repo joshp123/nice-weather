@@ -110,11 +110,11 @@ func TestFetchIndexBindsSelectedRowsToRequestedRunAndStep(t *testing.T) {
 	}
 }
 
-func TestDiscoverLatestLongRangeChecksOnlyTwelveHourlyCycles(t *testing.T) {
+func TestDiscoverLatestCompleteWorldwideUsesOnlyTwelveUTC(t *testing.T) {
 	var paths []string
 	client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
 		paths = append(paths, request.URL.Path)
-		if strings.Contains(request.URL.Path, "/12z/") {
+		if strings.Contains(request.URL.Path, "/20260719/12z/") {
 			return response(http.StatusNotFound, "", nil), nil
 		}
 		if request.Method == http.MethodHead {
@@ -122,23 +122,67 @@ func TestDiscoverLatestLongRangeChecksOnlyTwelveHourlyCycles(t *testing.T) {
 			resp.ContentLength = 200
 			return resp, nil
 		}
-		return response(http.StatusOK, completeIndex(runAt(0), 360, 0, 20), nil), nil
+		return response(http.StatusOK, completeIndex(Run{Time: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}, 360, 0, 20), nil), nil
 	}))
 	client.Root = "https://example.test"
 	client.Now = func() time.Time { return time.Date(2026, 7, 19, 18, 0, 0, 0, time.UTC) }
-	run, err := client.DiscoverLatestLongRange(context.Background())
+	run, err := client.DiscoverLatestCompleteWorldwide(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !run.Time.Equal(runAt(0).Time) {
+	want := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	if !run.Time.Equal(want) {
 		t.Fatalf("run = %s", run.Time)
 	}
-	if len(paths) != 3 || !strings.Contains(paths[0], "/12z/") || !strings.Contains(paths[1], "/00z/") || !strings.Contains(paths[2], "/00z/") {
+	if len(paths) != 3 || !strings.Contains(paths[0], "/20260719/12z/") || !strings.Contains(paths[1], "/20260718/12z/") || !strings.Contains(paths[2], "/20260718/12z/") {
 		t.Fatalf("paths = %v", paths)
 	}
 	for _, path := range paths {
-		if strings.Contains(path, "/06z/") || strings.Contains(path, "/18z/") {
-			t.Fatalf("short cycle probed: %s", path)
+		if strings.Contains(path, "/00z/") || strings.Contains(path, "/06z/") || strings.Contains(path, "/18z/") {
+			t.Fatalf("non-worldwide cycle probed: %s", path)
+		}
+	}
+}
+
+func TestLatestWorldwideCycleHandlesPublicationBoundaryAndCalendarRollover(t *testing.T) {
+	tests := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{name: "before publication", now: time.Date(2027, 1, 1, 11, 59, 59, 0, time.UTC), want: time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)},
+		{name: "at publication", now: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC), want: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)},
+		{name: "after publication", now: time.Date(2027, 1, 2, 3, 0, 0, 0, time.FixedZone("UTC+14", 14*60*60)), want: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := latestWorldwideCycle(test.now); !got.Equal(test.want) {
+				t.Fatalf("latest cycle = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestDiscoveryStopsAfterTheConfiguredTwelveUTCLookback(t *testing.T) {
+	var paths []string
+	client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
+		paths = append(paths, request.URL.Path)
+		return response(http.StatusNotFound, "", nil), nil
+	}))
+	client.Root = "https://example.test"
+	client.Now = func() time.Time { return time.Date(2026, 7, 19, 11, 0, 0, 0, time.UTC) }
+	client.RunLookback = 3
+	_, err := client.DiscoverLatestCompleteWorldwide(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "in 3 days") {
+		t.Fatalf("bounded discovery error = %v", err)
+	}
+	wantDates := []string{"/20260718/12z/", "/20260717/12z/", "/20260716/12z/"}
+	if len(paths) != len(wantDates) {
+		t.Fatalf("requests = %v", paths)
+	}
+	for index, want := range wantDates {
+		if !strings.Contains(paths[index], want) {
+			t.Fatalf("request %d = %s, want %s", index, paths[index], want)
 		}
 	}
 }
@@ -162,7 +206,7 @@ func TestDiscoveryFailsClosedOnFatalIndexErrors(t *testing.T) {
 			}))
 			client.Root = "https://example.test"
 			client.Now = func() time.Time { return runAt(12).Time }
-			if _, err := client.DiscoverLatestLongRange(context.Background()); err == nil {
+			if _, err := client.DiscoverLatestCompleteWorldwide(context.Background()); err == nil {
 				t.Fatal("expected error")
 			}
 			if requests != 1 {
@@ -188,8 +232,8 @@ func TestDiscoveryRequiresGRIBCoveringSelectedRanges(t *testing.T) {
 				calls++
 				if request.Method == http.MethodGet {
 					run := runAt(12)
-					if strings.Contains(request.URL.Path, "/00z/") {
-						run = runAt(0)
+					if strings.Contains(request.URL.Path, "/20260718/") {
+						run.Time = run.Time.AddDate(0, 0, -1)
 					}
 					return response(http.StatusOK, completeIndex(run, 360, 0, 20), nil), nil
 				}
@@ -200,7 +244,7 @@ func TestDiscoveryRequiresGRIBCoveringSelectedRanges(t *testing.T) {
 			client.Root = "https://example.test"
 			client.Now = func() time.Time { return runAt(12).Time }
 			client.RunLookback = 2
-			if _, err := client.DiscoverLatestLongRange(context.Background()); err == nil {
+			if _, err := client.DiscoverLatestCompleteWorldwide(context.Background()); err == nil {
 				t.Fatal("expected error")
 			}
 			if calls != test.wantCalls {
@@ -219,7 +263,7 @@ func TestDiscoveryPreservesTypedHeadStatus(t *testing.T) {
 	}))
 	client.Root = "https://example.test"
 	client.Now = func() time.Time { return runAt(12).Time }
-	_, err := client.DiscoverLatestLongRange(context.Background())
+	_, err := client.DiscoverLatestCompleteWorldwide(context.Background())
 	var status *HTTPStatusError
 	if !errors.As(err, &status) || status.StatusCode != http.StatusServiceUnavailable || status.RetryAfter != "11" {
 		t.Fatalf("status error = %#v (%v)", status, err)
@@ -444,7 +488,7 @@ func TestLiveOpenDataCanary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	client := NewClient(&http.Client{Timeout: 90 * time.Second})
-	run, err := client.DiscoverLatestLongRange(ctx)
+	run, err := client.DiscoverLatestCompleteWorldwide(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

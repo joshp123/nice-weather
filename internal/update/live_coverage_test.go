@@ -34,7 +34,7 @@ func TestLiveRealDayCoverage(t *testing.T) {
 	}
 	ifsClient := ifs.NewClient(client)
 	ifsClient.Now = func() time.Time { return now }
-	ifsRun, err := ifsClient.DiscoverLatestLongRange(ctx)
+	ifsRun, err := ifsClient.DiscoverLatestCompleteWorldwide(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

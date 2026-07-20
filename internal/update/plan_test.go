@@ -47,6 +47,7 @@ func TestPlanDaysRejectsShortIFSRun(t *testing.T) {
 func TestWorldwidePlanRequiresTheCompleteDateLineEnvelope(t *testing.T) {
 	now := time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC)
 	dwdRun := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	ifsRun := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 	detail := forecastCoverage{provider: "ICON-EU", run: dwdRun, maxForecastHours: dwd.MaxForecastHour}
 
 	// The 06 UTC baseline run ends two hours before UTC-12 reaches 20:00 on
@@ -58,16 +59,28 @@ func TestWorldwidePlanRequiresTheCompleteDateLineEnvelope(t *testing.T) {
 	}
 
 	// The 12 UTC run covers the exact same fourteen local dates completely.
-	days, err := planDaysForCoverage(now, detail, forecastCoverage{provider: "IFS", run: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), maxForecastHours: 360}, worldwideForecastPolicy)
+	days, err := planDaysForCoverage(now, detail, forecastCoverage{provider: "IFS", run: ifsRun, maxForecastHours: 360}, worldwideForecastPolicy)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(days) != 14 {
+		t.Fatalf("worldwide dates = %d, want 14", len(days))
 	}
 	if got := days[0].Date.Format("2006-01-02"); got != "2026-07-19" {
 		t.Fatalf("first worldwide date = %s", got)
 	}
+	for index, day := range days {
+		want := time.Date(2026, 7, 19+index, 0, 0, 0, 0, time.UTC)
+		if !day.Date.Equal(want) {
+			t.Fatalf("worldwide date %d = %s, want %s", index+1, day.Date, want)
+		}
+	}
 	wantEnd := time.Date(2026, 8, 2, 8, 0, 0, 0, time.UTC)
 	if got := globalProductWindow.end(days[13].Date); !got.Equal(wantEnd) {
 		t.Fatalf("worldwide day 14 ends %s; want %s", got, wantEnd)
+	}
+	if got := globalProductWindow.end(days[13].Date).Sub(ifsRun); got != 356*time.Hour {
+		t.Fatalf("worldwide day 14 requires T+%s, want T+356h with four hours of IFS margin", got)
 	}
 }
 

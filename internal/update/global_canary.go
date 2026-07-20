@@ -111,12 +111,8 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 	}}
 	ifsClient := ifs.NewClient(httpClient)
 	ifsClient.Now = func() time.Time { return now }
-	var run ifs.Run
-	if err := withRetry(ctx, func() error {
-		var discoverErr error
-		run, discoverErr = ifsClient.DiscoverLatestLongRange(ctx)
-		return discoverErr
-	}); err != nil {
+	run, err := ifsClient.DiscoverLatestCompleteWorldwide(ctx)
+	if err != nil {
 		return summary, err
 	}
 	date, steps, err := globalCanaryDayAndSteps(now, run)

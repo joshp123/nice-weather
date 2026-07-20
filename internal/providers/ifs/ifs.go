@@ -358,10 +358,14 @@ func (c *Client) FetchIndex(ctx context.Context, run Run, step int) (map[string]
 	return messages, nil
 }
 
-// DiscoverLatestLongRange finds the newest 00/12 UTC run with a complete
-// 360-hour index and a GRIB object covering all selected byte ranges. Only a
-// 404 permits fallback; transport, status, and content errors fail closed.
-func (c *Client) DiscoverLatestLongRange(ctx context.Context) (Run, error) {
+// DiscoverLatestCompleteWorldwide finds the newest published 12 UTC run with
+// a complete 360-hour index and a GRIB object covering all selected byte
+// ranges. The 12 UTC cycle is the only IFS long-range cycle whose horizon can
+// cover fourteen complete worldwide local dates. Explicit 00 UTC runs remain
+// valid for direct retrieval, but automatic discovery never selects them.
+// Only a 404 permits fallback; transport, status, and content errors fail
+// closed.
+func (c *Client) DiscoverLatestCompleteWorldwide(ctx context.Context) (Run, error) {
 	now := time.Now().UTC()
 	if c.Now != nil {
 		now = c.Now().UTC()
@@ -370,7 +374,7 @@ func (c *Client) DiscoverLatestLongRange(ctx context.Context) (Run, error) {
 	if lookback <= 0 {
 		lookback = defaultRunLookback
 	}
-	candidate := latestLongCycle(now)
+	candidate := latestWorldwideCycle(now)
 	var failures []string
 	for attempt := 0; attempt < lookback; attempt++ {
 		run := Run{Time: candidate}
@@ -386,9 +390,9 @@ func (c *Client) DiscoverLatestLongRange(ctx context.Context) (Run, error) {
 			}
 			failures = append(failures, fmt.Sprintf("%s: %v", candidate.Format(time.RFC3339), err))
 		}
-		candidate = candidate.Add(-12 * time.Hour)
+		candidate = candidate.AddDate(0, 0, -1)
 	}
-	return Run{}, fmt.Errorf("no complete long-range IFS run found in %d cycles: %s", lookback, strings.Join(failures, "; "))
+	return Run{}, fmt.Errorf("no complete worldwide IFS 12 UTC run found in %d days: %s", lookback, strings.Join(failures, "; "))
 }
 
 func (c *Client) validatePublishedLongRun(ctx context.Context, run Run) error {
@@ -433,12 +437,13 @@ func (c *Client) validatePublishedLongRun(ctx context.Context, run Run) error {
 	return nil
 }
 
-func latestLongCycle(now time.Time) time.Time {
-	hour := 0
-	if now.Hour() >= 12 {
-		hour = 12
+func latestWorldwideCycle(now time.Time) time.Time {
+	now = now.UTC()
+	candidate := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.UTC)
+	if candidate.After(now) {
+		candidate = candidate.AddDate(0, 0, -1)
 	}
-	return time.Date(now.Year(), now.Month(), now.Day(), hour, 0, 0, 0, time.UTC)
+	return candidate
 }
 
 func (c *Client) DownloadMessage(ctx context.Context, run Run, step int, parameter string, dst io.Writer) error {

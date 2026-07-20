@@ -84,12 +84,7 @@ func Run(ctx context.Context, config Config) error {
 	}
 	ifsClient := ifs.NewClient(httpClient)
 	ifsClient.Now = func() time.Time { return now }
-	var ifsRun ifs.Run
-	err = withRetry(ctx, func() error {
-		var discoverErr error
-		ifsRun, discoverErr = ifsClient.DiscoverLatestLongRange(ctx)
-		return discoverErr
-	})
+	ifsRun, err := ifsClient.DiscoverLatestCompleteWorldwide(ctx)
 	if err != nil {
 		return err
 	}
