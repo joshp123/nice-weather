@@ -149,7 +149,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 		Tier: config.Tier, Date: config.Date.Format("2006-01-02"), MaxZoom: config.MaxZoom,
 		Points: []PointTile{}, Scalars: []ScalarTile{},
 	}
-	maxAssets := make(map[scalarKey]tiledelivery.ScalarAsset)
+	maxAssets := make(map[tiledelivery.ID]tiledelivery.ScalarAsset)
 	count := uint32(1) << config.MaxZoom
 	for y := uint32(0); y < count; y++ {
 		for x := uint32(0); x < count; x++ {
@@ -195,7 +195,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 				if asset.Omitted {
 					return Catalog{}, fmt.Errorf("field %s unexpectedly omitted for data tile %d/%d/%d", field, id.Zoom, id.X, id.Y)
 				}
-				maxAssets[scalarKey{field: field, zoom: id.Zoom, x: id.X, y: id.Y}] = asset
+				maxAssets[scalarID] = asset
 				scalarCatalog, err := scalarEntry(staging, asset, field)
 				if err != nil {
 					return Catalog{}, err
@@ -208,7 +208,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 
 	levelAssets := maxAssets
 	for zoom := int(config.MaxZoom) - 1; zoom >= 0; zoom-- {
-		next := make(map[scalarKey]tiledelivery.ScalarAsset)
+		next := make(map[tiledelivery.ID]tiledelivery.ScalarAsset)
 		count := uint32(1) << uint8(zoom)
 		for y := uint32(0); y < count; y++ {
 			for x := uint32(0); x < count; x++ {
@@ -216,28 +216,34 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 					return Catalog{}, err
 				}
 				for _, field := range fields {
-					cache := newLevelSampler(levelAssets, field, uint8(zoom+1))
-					if !cache.parentHasData(x, y) {
-						continue
-					}
 					id, err := scalarID(config.Tier, field, uint8(zoom), x, y)
 					if err != nil {
 						return Catalog{}, err
 					}
-					asset, err := writer.WriteScalar(id, config.Period, cache.sample)
+					parent, err := tiledelivery.NewScalarParentSampler(id, func(id tiledelivery.ID) (tiledelivery.ScalarAsset, bool) {
+						asset, ok := levelAssets[id]
+						return asset, ok
+					})
+					if err != nil {
+						return Catalog{}, err
+					}
+					if !parent.HasInteriorData() {
+						continue
+					}
+					asset, err := writer.WriteScalar(id, config.Period, parent.Sample)
 					if err != nil {
 						return Catalog{}, err
 					}
 					if asset.Omitted {
 						return Catalog{}, fmt.Errorf("lower scalar %s %d/%d/%d lost child data", field, zoom, x, y)
 					}
-					next[scalarKey{field: field, zoom: uint8(zoom), x: x, y: y}] = asset
+					next[id] = asset
 					scalarCatalog, err := scalarEntry(staging, asset, field)
 					if err != nil {
 						return Catalog{}, err
 					}
 					catalog.Scalars = append(catalog.Scalars, scalarCatalog)
-					catalog.Stats.MaxScalarBytes = max(catalog.Stats.MaxScalarBytes, cache.peakBytes+tiledelivery.ScalarTileBytes)
+					catalog.Stats.MaxScalarBytes = max(catalog.Stats.MaxScalarBytes, parent.PeakDecodedBytes()+tiledelivery.ScalarTileBytes)
 				}
 			}
 		}
