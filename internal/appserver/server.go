@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/tiledelivery"
 )
@@ -320,23 +321,27 @@ func (app *application) serveStaticArtifact(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cache-Control", cache)
 	w.Header().Set("Content-Type", contentType)
 	modTime := info.ModTime()
-	if requestPath == "places/current.json" || requestPath == "best-weather/current.json" {
+	if requestPath == "places/current.json" || requestPath == "best-weather/current.json" || requestPath == "climate/current.json" {
+		pointerReadError := "The place index pointer could not be read."
+		if requestPath == "climate/current.json" {
+			pointerReadError = "The climate pointer could not be read."
+		}
 		payload, err := io.ReadAll(io.LimitReader(file, 1025))
 		if err != nil || len(payload) > 1024 {
-			writeError(w, http.StatusInternalServerError, "read_failed", "The place index pointer could not be read.")
+			writeError(w, http.StatusInternalServerError, "read_failed", pointerReadError)
 			return
 		}
 		digest := sha256.Sum256(payload)
 		w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			writeError(w, http.StatusInternalServerError, "read_failed", "The place index pointer could not be read.")
+			writeError(w, http.StatusInternalServerError, "read_failed", pointerReadError)
 			return
 		}
 		// The pointer can rotate more than once within a filesystem timestamp
 		// tick. Its content-derived ETag is the sole safe cache validator.
 		modTime = time.Time{}
 	}
-	if r.Header.Get("Range") == "" && acceptsEncoding(r.Header.Get("Accept-Encoding"), "gzip") {
+	if requestPath != "climate/current.json" && r.Header.Get("Range") == "" && acceptsEncoding(r.Header.Get("Accept-Encoding"), "gzip") {
 		data, err := io.ReadAll(file)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "read_failed", "The requested file could not be read.")
@@ -373,6 +378,15 @@ func releaseAssetPath(requestPath string) (releaseID, assetPath string, matched 
 }
 
 func staticArtifactPath(requestPath string) (assetPath string, immutable, matched bool, err error) {
+	if requestPath == "climate/current.json" {
+		return requestPath, false, true, nil
+	}
+	if strings.HasPrefix(requestPath, "climate/") {
+		if validClimateArtifactPath(requestPath) {
+			return requestPath, true, true, nil
+		}
+		return "", false, true, errors.New("unsafe climate asset path")
+	}
 	if requestPath == "best-weather/current.json" {
 		return requestPath, false, true, nil
 	}
@@ -397,6 +411,83 @@ func staticArtifactPath(requestPath string) (assetPath string, immutable, matche
 		return requestPath, true, true, nil
 	}
 	return "", false, true, errors.New("unsafe place asset path")
+}
+
+func validClimateArtifactPath(requestPath string) bool {
+	parts := strings.Split(requestPath, "/")
+	if len(parts) < 4 || parts[0] != "climate" || parts[1] != "releases" || !validClimateReleaseID(parts[2]) {
+		return false
+	}
+	if len(parts) == 4 {
+		return parts[3] == "catalog.json"
+	}
+	if len(parts) == 7 && parts[3] == "points" && validClimatePeriod(parts[4]) {
+		return validFixedWidthNumber(parts[5], 3, 112) && validFixedWidthNumber(strings.TrimSuffix(parts[6], ".nwc"), 3, 112) && strings.HasSuffix(parts[6], ".nwc")
+	}
+	if len(parts) == 9 && parts[3] == "scores" && validClimatePeriod(parts[4]) && validClimateField(parts[5]) {
+		zoom, ok := canonicalNumber(parts[6], 4)
+		if !ok {
+			return false
+		}
+		maximumCoordinate := (1 << zoom) - 1
+		_, xOK := canonicalNumber(parts[7], maximumCoordinate)
+		_, yOK := canonicalNumber(strings.TrimSuffix(parts[8], ".nws"), maximumCoordinate)
+		return xOK && yOK && strings.HasSuffix(parts[8], ".nws")
+	}
+	return false
+}
+
+func validClimateReleaseID(value string) bool {
+	return len(value) <= 64 && validReleaseID(value)
+}
+
+func validClimatePeriod(value string) bool {
+	if len(value) != len("month-01") || !strings.HasPrefix(value, "month-") {
+		return false
+	}
+	digits := strings.TrimPrefix(value, "month-")
+	if !asciiDecimal(digits) {
+		return false
+	}
+	month, err := strconv.Atoi(digits)
+	return err == nil && month >= 1 && month <= 12
+}
+
+func validClimateField(value string) bool {
+	for _, field := range climatetiles.Fields() {
+		if value == string(field) {
+			return true
+		}
+	}
+	return false
+}
+
+func validFixedWidthNumber(value string, width, maximum int) bool {
+	if len(value) != width || !asciiDecimal(value) {
+		return false
+	}
+	number, err := strconv.Atoi(value)
+	return err == nil && number >= 0 && number <= maximum
+}
+
+func canonicalNumber(value string, maximum int) (int, bool) {
+	if !asciiDecimal(value) || len(value) > 1 && value[0] == '0' {
+		return 0, false
+	}
+	number, err := strconv.Atoi(value)
+	return number, err == nil && number >= 0 && number <= maximum
+}
+
+func asciiDecimal(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validPlaceShardName(value string) bool {
@@ -499,6 +590,9 @@ func isCompressible(contentType string) bool {
 func contentTypeForPath(path string) string {
 	if filepath.Ext(path) == ".nws" {
 		return tiledelivery.ScalarMediaType
+	}
+	if filepath.Ext(path) == ".nwc" {
+		return tiledelivery.ClimateBlockMediaType
 	}
 	contentType := mime.TypeByExtension(filepath.Ext(path))
 	if contentType == "" {

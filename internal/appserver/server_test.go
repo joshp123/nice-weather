@@ -1,6 +1,7 @@
 package appserver
 
 import (
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -569,5 +570,169 @@ func TestPlaceIndexFilesUsePointerAndImmutableHTTPContract(t *testing.T) {
 	app.handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/places/current.json", nil))
 	if post.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("place POST returned %d", post.Code)
+	}
+}
+
+func TestClimateArtifactsUseIsolatedStaticHTTPContract(t *testing.T) {
+	app := newTestApplication(t)
+	releaseID := "climate-2026-07"
+	pointerBody := []byte(`{"releaseId":"climate-2026-07","catalogSha256":"` + strings.Repeat("a", 64) + `"}`)
+	catalogBody := []byte("{\"version\":1}\n")
+	scalarBody := bytes.Repeat([]byte{42}, tiledelivery.ScalarTileBytes)
+	blockBody := make([]byte, 512)
+	for index := range blockBody {
+		blockBody[index] = byte(index)
+	}
+
+	writeClimateArtifact(t, app.root, "climate/current.json", pointerBody)
+	writeClimateArtifact(t, app.root, "climate/releases/"+releaseID+"/catalog.json", catalogBody)
+	writeClimateArtifact(t, app.root, "climate/releases/"+releaseID+"/scores/month-01/nice_good/4/1/2.nws", scalarBody)
+	writeClimateArtifact(t, app.root, "climate/releases/"+releaseID+"/points/month-01/001/002.nwc", blockBody)
+
+	pointer := httptest.NewRecorder()
+	app.handler.ServeHTTP(pointer, httptest.NewRequest(http.MethodGet, "/climate/current.json", nil))
+	etag := pointer.Header().Get("ETag")
+	if pointer.Code != http.StatusOK || pointer.Body.String() != string(pointerBody) || pointer.Header().Get("Cache-Control") != "no-cache" || pointer.Header().Get("Content-Type") != "application/json" || etag == "" || pointer.Header().Get("Last-Modified") != "" {
+		t.Fatalf("climate pointer: %d %+v %q", pointer.Code, pointer.Header(), pointer.Body.String())
+	}
+	conditionalRequest := httptest.NewRequest(http.MethodGet, "/climate/current.json", nil)
+	conditionalRequest.Header.Set("If-None-Match", etag)
+	conditionalRequest.Header.Set("Accept-Encoding", "gzip")
+	conditional := httptest.NewRecorder()
+	app.handler.ServeHTTP(conditional, conditionalRequest)
+	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 || conditional.Header().Get("ETag") != etag || conditional.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("conditional climate pointer: %d %+v %q", conditional.Code, conditional.Header(), conditional.Body.String())
+	}
+
+	query := httptest.NewRecorder()
+	app.handler.ServeHTTP(query, httptest.NewRequest(http.MethodGet, "/climate/current.json?release=other&path=../../secret", nil))
+	if query.Code != http.StatusOK || query.Body.String() != string(pointerBody) || query.Header().Get("ETag") != etag {
+		t.Fatalf("query changed climate pointer representation: %d %+v %q", query.Code, query.Header(), query.Body.String())
+	}
+
+	catalogURL := "/climate/releases/" + releaseID + "/catalog.json"
+	catalog := httptest.NewRecorder()
+	app.handler.ServeHTTP(catalog, httptest.NewRequest(http.MethodGet, catalogURL, nil))
+	if catalog.Code != http.StatusOK || catalog.Body.String() != string(catalogBody) || catalog.Header().Get("Content-Type") != "application/json" || catalog.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("climate catalog: %d %+v %q", catalog.Code, catalog.Header(), catalog.Body.String())
+	}
+
+	scalarURL := "/climate/releases/" + releaseID + "/scores/month-01/nice_good/4/1/2.nws"
+	scalar := httptest.NewRecorder()
+	app.handler.ServeHTTP(scalar, httptest.NewRequest(http.MethodGet, scalarURL+"?field=cycling_good", nil))
+	if scalar.Code != http.StatusOK || scalar.Body.String() != string(scalarBody) || scalar.Header().Get("Content-Type") != tiledelivery.ScalarMediaType || scalar.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("climate scalar: %d %+v body=%d", scalar.Code, scalar.Header(), scalar.Body.Len())
+	}
+
+	blockURL := "/climate/releases/" + releaseID + "/points/month-01/001/002.nwc"
+	rangeRequest := httptest.NewRequest(http.MethodGet, blockURL, nil)
+	rangeRequest.Header.Set("Range", "bytes=160-189")
+	rangeRequest.Header.Set("Accept-Encoding", "gzip")
+	partial := httptest.NewRecorder()
+	app.handler.ServeHTTP(partial, rangeRequest)
+	if partial.Code != http.StatusPartialContent || partial.Body.String() != string(blockBody[160:190]) || partial.Header().Get("Content-Range") != "bytes 160-189/512" || partial.Header().Get("Content-Length") != "30" || partial.Header().Get("Accept-Ranges") != "bytes" || partial.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || partial.Header().Get("Content-Encoding") != "" || partial.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("climate block range: %d %+v body=%d", partial.Code, partial.Header(), partial.Body.Len())
+	}
+	head := httptest.NewRecorder()
+	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, blockURL, nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != "512" || head.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || head.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("climate block HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
+	}
+
+	secondPointer := []byte(`{"releaseId":"climate-2026-08","catalogSha256":"` + strings.Repeat("b", 64) + `"}`)
+	if err := os.WriteFile(filepath.Join(app.root, "climate", "current.json"), secondPointer, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rotatedRequest := httptest.NewRequest(http.MethodGet, "/climate/current.json", nil)
+	rotatedRequest.Header.Set("If-None-Match", etag)
+	rotated := httptest.NewRecorder()
+	app.handler.ServeHTTP(rotated, rotatedRequest)
+	if rotated.Code != http.StatusOK || rotated.Body.String() != string(secondPointer) || rotated.Header().Get("ETag") == etag {
+		t.Fatalf("rotated climate pointer: %d %+v %q", rotated.Code, rotated.Header(), rotated.Body.String())
+	}
+}
+
+func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
+	app := newTestApplication(t)
+	mainManifest := httptest.NewRecorder()
+	app.handler.ServeHTTP(mainManifest, httptest.NewRequest(http.MethodGet, "/manifest.json", nil))
+	if mainManifest.Code != http.StatusOK {
+		t.Fatalf("main release failed without climate publication: %d %s", mainManifest.Code, mainManifest.Body.String())
+	}
+	for _, missingPath := range []string{"/climate/current.json", "/climate/releases/missing/catalog.json"} {
+		missing := httptest.NewRecorder()
+		app.handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, missingPath, nil))
+		if missing.Code != http.StatusNotFound {
+			t.Errorf("missing climate path %q returned %d: %s", missingPath, missing.Code, missing.Body.String())
+		}
+	}
+
+	releaseID := "safe-release"
+	blockPath := "climate/releases/" + releaseID + "/points/month-12/112/112.nwc"
+	outside := filepath.Join(t.TempDir(), "secret.nwc")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fullBlockPath := filepath.Join(app.root, filepath.FromSlash(blockPath))
+	if err := os.MkdirAll(filepath.Dir(fullBlockPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, fullBlockPath); err != nil {
+		t.Fatal(err)
+	}
+	escape := httptest.NewRecorder()
+	app.handler.ServeHTTP(escape, httptest.NewRequest(http.MethodGet, "/"+blockPath, nil))
+	if escape.Code != http.StatusNotFound || strings.Contains(escape.Body.String(), "secret") {
+		t.Fatalf("climate symlink escape response: %d %q", escape.Code, escape.Body.String())
+	}
+
+	unsafePaths := []string{
+		"/climate/",
+		"/climate/releases/",
+		"/climate/releases/safe-release/",
+		"/climate/releases/../current.json",
+		"/climate/releases/%2e%2e/current.json",
+		"/climate/releases/%252e%252e/catalog.json",
+		"/climate/releases/safe-release/points/month-01/001/../002.nwc",
+		"/climate/releases/safe-release/points/month-01/001/%2e%2e%2f002.nwc",
+		"/climate/releases/safe-release/points/month-13/001/002.nwc",
+		"/climate/releases/safe-release/points/month-+1/001/002.nwc",
+		"/climate/releases/safe-release/points/month-01/01/002.nwc",
+		"/climate/releases/safe-release/points/month-01/+01/002.nwc",
+		"/climate/releases/safe-release/scores/month-01/unknown/4/1/2.nws",
+		"/climate/releases/safe-release/scores/month-01/nice_good/5/1/2.nws",
+		"/climate/releases/safe-release/scores/month-01/nice_good/4/01/2.nws",
+		"/climate/releases/safe-release/scores/month-01/nice_good/4/+1/2.nws",
+		"/climate/releases/safe-release/scores/month-01/nice_good/4/1/-0.nws",
+		"/climate/releases/safe-release/scores/month-01/nice_good/4/16/2.nws",
+		"/climate/releases/safe-release/catalog.json/extra",
+	}
+	for _, requestPath := range unsafePaths {
+		response := httptest.NewRecorder()
+		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, requestPath, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("unsafe climate path %q returned %d: %s", requestPath, response.Code, response.Body.String())
+		}
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		for _, requestPath := range []string{"/climate/current.json", "/climate/releases/safe-release/catalog.json", "/" + blockPath} {
+			response := httptest.NewRecorder()
+			app.handler.ServeHTTP(response, httptest.NewRequest(method, requestPath, nil))
+			if response.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s returned %d", method, requestPath, response.Code)
+			}
+		}
+	}
+}
+
+func writeClimateArtifact(t *testing.T, root, relative string, data []byte) {
+	t.Helper()
+	filename := filepath.Join(root, filepath.FromSlash(relative))
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
