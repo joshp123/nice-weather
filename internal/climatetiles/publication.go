@@ -12,21 +12,53 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"syscall"
 )
 
-const maximumPointerBytes = 1024
+const (
+	PointerVersion      = 2
+	IndexVersion        = 1
+	maximumPointerBytes = 1024
+	maximumIndexBytes   = 64 * 1024
+)
 
 var (
 	privateBuildPattern   = regexp.MustCompile(`^\.build-[A-Za-z0-9][A-Za-z0-9._-]*-[0-9]+$`)
 	privatePointerPattern = regexp.MustCompile(`^\.current-[0-9a-f]{24}\.json$`)
 )
 
-// Pointer is the only mutable climate publication artifact. Its checksum
-// binds the pointer to one complete immutable catalogue.
+type IndexState string
+
+const (
+	IndexStatePreview  IndexState = "preview"
+	IndexStateComplete IndexState = "complete"
+)
+
+// Pointer is the only mutable climate publication artifact. It binds the
+// visible Typical Year product to one immutable, validated year index.
 type Pointer struct {
+	Version     int    `json:"version"`
+	IndexID     string `json:"indexId"`
+	IndexSHA256 string `json:"indexSha256"`
+}
+
+// MonthReference binds one canonical month to its complete immutable release.
+type MonthReference struct {
+	Period        string `json:"period"`
 	ReleaseID     string `json:"releaseId"`
 	CatalogSHA256 string `json:"catalogSha256"`
+}
+
+// Index is the complete contract for one visible Typical Year. Validation
+// requires every referenced month catalogue to share the same common contract.
+type Index struct {
+	Version         int              `json:"version"`
+	IndexID         string           `json:"indexId"`
+	State           IndexState       `json:"state"`
+	ReferencePeriod ReferencePeriod  `json:"referencePeriod"`
+	Provenance      Provenance       `json:"provenance"`
+	Months          []MonthReference `json:"months"`
 }
 
 // Stage is a private artifact-shaped workspace. Existing tiledelivery writers
@@ -38,15 +70,106 @@ type Stage struct {
 }
 
 // Builder writes assets below the supplied private stage and returns their
-// complete catalogue. BuildAndPublish owns catalog.json and publication.
+// complete month catalogue. BuildAndInstallMonth owns catalog.json.
 type Builder func(context.Context, Stage) (Catalog, error)
 
-// BuildAndPublish stages one release privately, validates and syncs it, moves
-// it into the immutable releases namespace, validates it again, and writes
-// climate/current.json last. It never accesses the main artifacts/current.
-func BuildAndPublish(ctx context.Context, artifactRoot, releaseID string, build Builder) (result Pointer, resultErr error) {
+// BuildAndInstallMonth builds and installs one immutable month release. It
+// never changes climate/current.json; visibility is owned by the year index.
+func BuildAndInstallMonth(ctx context.Context, artifactRoot, releaseID string, build Builder) (result MonthReference, resultErr error) {
 	if ctx == nil || build == nil || !validReleaseID(releaseID) {
-		return Pointer{}, errors.New("climate publication requires a context, release ID and builder")
+		return MonthReference{}, errors.New("climate month installation requires a context, release ID and builder")
+	}
+	climateRoot, err := publicationRoot(artifactRoot)
+	if err != nil {
+		return MonthReference{}, err
+	}
+	lock, err := acquirePublicationLock(climateRoot)
+	if err != nil {
+		return MonthReference{}, err
+	}
+	defer releasePublicationLock(lock)
+	if err := cleanupPrivatePublicationEntries(climateRoot); err != nil {
+		return MonthReference{}, err
+	}
+
+	target := filepath.Join(climateRoot, "releases", releaseID)
+	staging, err := os.MkdirTemp(climateRoot, ".build-"+releaseID+"-")
+	if err != nil {
+		return MonthReference{}, err
+	}
+	defer func() {
+		if staging == "" {
+			return
+		}
+		if err := removePrivateStage(climateRoot, staging); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("clean private climate stage: %w", err))
+		}
+	}()
+	releaseRoot := filepath.Join(staging, "releases", releaseID)
+	if err := os.MkdirAll(releaseRoot, 0o755); err != nil {
+		return MonthReference{}, err
+	}
+	catalog, err := build(ctx, Stage{Root: staging, ReleaseRoot: releaseRoot, ReleaseID: releaseID})
+	if err != nil {
+		return MonthReference{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return MonthReference{}, err
+	}
+	if catalog.ReleaseID != releaseID {
+		return MonthReference{}, errors.New("climate builder returned a different release ID")
+	}
+	if err := writeCatalog(releaseRoot, catalog); err != nil {
+		return MonthReference{}, err
+	}
+	if _, err := ValidateRelease(releaseRoot); err != nil {
+		return MonthReference{}, fmt.Errorf("validate staged climate release: %w", err)
+	}
+	if err := syncTree(releaseRoot); err != nil {
+		return MonthReference{}, fmt.Errorf("sync staged climate release: %w", err)
+	}
+	candidate, candidateDigest, err := validateReleaseDigest(releaseRoot)
+	if err != nil {
+		return MonthReference{}, fmt.Errorf("bind staged climate catalog: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return MonthReference{}, err
+	}
+	installed, installedDigest, err := installedRelease(target)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := os.Rename(releaseRoot, target); err != nil {
+			return MonthReference{}, fmt.Errorf("install climate release: %w", err)
+		}
+		if err := syncDirectory(filepath.Join(climateRoot, "releases")); err != nil {
+			return MonthReference{}, fmt.Errorf("sync climate releases: %w", err)
+		}
+		installed, installedDigest, err = installedRelease(target)
+	}
+	if err != nil {
+		return MonthReference{}, fmt.Errorf("validate installed climate release: %w", err)
+	}
+	if installedDigest != candidateDigest || installed.ReleaseID != candidate.ReleaseID {
+		return MonthReference{}, fmt.Errorf("immutable climate release %s already exists with different content", releaseID)
+	}
+	if err := syncTree(target); err != nil {
+		return MonthReference{}, fmt.Errorf("sync installed climate release: %w", err)
+	}
+	if err := syncDirectory(filepath.Join(climateRoot, "releases")); err != nil {
+		return MonthReference{}, fmt.Errorf("sync climate releases: %w", err)
+	}
+	if err := removePrivateStage(climateRoot, staging); err != nil {
+		return MonthReference{}, fmt.Errorf("clean installed climate stage: %w", err)
+	}
+	staging = ""
+	return MonthReference{Period: installed.Period, ReleaseID: installed.ReleaseID, CatalogSHA256: installedDigest}, nil
+}
+
+// BuildAndPublishIndex validates the requested month set, installs one
+// immutable year index, then changes climate/current.json atomically. A
+// complete index can never be replaced by a preview.
+func BuildAndPublishIndex(ctx context.Context, artifactRoot, indexID string, state IndexState, months []MonthReference) (result Pointer, resultErr error) {
+	if ctx == nil || !validReleaseID(indexID) {
+		return Pointer{}, errors.New("climate index publication requires a context and index ID")
 	}
 	climateRoot, err := publicationRoot(artifactRoot)
 	if err != nil {
@@ -60,11 +183,22 @@ func BuildAndPublish(ctx context.Context, artifactRoot, releaseID string, build 
 	if err := cleanupPrivatePublicationEntries(climateRoot); err != nil {
 		return Pointer{}, err
 	}
-	if err := validateExistingPointer(climateRoot); err != nil {
+	current, currentIndex, hasCurrent, err := validateExistingPointer(climateRoot)
+	if err != nil {
 		return Pointer{}, err
 	}
-	target := filepath.Join(climateRoot, "releases", releaseID)
-	staging, err := os.MkdirTemp(climateRoot, ".build-"+releaseID+"-")
+	if hasCurrent && currentIndex.State == IndexStateComplete && state == IndexStatePreview {
+		return Pointer{}, errors.New("refuse to replace a complete climate index with a preview")
+	}
+	index, err := buildIndex(climateRoot, indexID, state, months)
+	if err != nil {
+		return Pointer{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Pointer{}, err
+	}
+
+	staging, err := os.MkdirTemp(climateRoot, ".build-index-"+indexID+"-")
 	if err != nil {
 		return Pointer{}, err
 	}
@@ -73,73 +207,79 @@ func BuildAndPublish(ctx context.Context, artifactRoot, releaseID string, build 
 			return
 		}
 		if err := removePrivateStage(climateRoot, staging); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("clean private climate stage: %w", err))
+			resultErr = errors.Join(resultErr, fmt.Errorf("clean private climate index stage: %w", err))
 		}
 	}()
-	releaseRoot := filepath.Join(staging, "releases", releaseID)
-	if err := os.MkdirAll(releaseRoot, 0o755); err != nil {
+	stagedIndexes := filepath.Join(staging, "indexes")
+	if err := os.MkdirAll(stagedIndexes, 0o755); err != nil {
 		return Pointer{}, err
 	}
-	catalog, err := build(ctx, Stage{Root: staging, ReleaseRoot: releaseRoot, ReleaseID: releaseID})
+	stagedIndex := filepath.Join(stagedIndexes, indexID+".json")
+	if err := writeIndex(stagedIndex, index); err != nil {
+		return Pointer{}, err
+	}
+	if err := validateIndexFile(stagedIndex, index); err != nil {
+		return Pointer{}, fmt.Errorf("validate staged climate index: %w", err)
+	}
+	if err := syncTree(stagedIndexes); err != nil {
+		return Pointer{}, fmt.Errorf("sync staged climate index: %w", err)
+	}
+	candidatePayload, err := readRegularBounded(stagedIndex, maximumIndexBytes)
 	if err != nil {
 		return Pointer{}, err
 	}
+	candidateSum := sha256.Sum256(candidatePayload)
+	candidateDigest := hex.EncodeToString(candidateSum[:])
 	if err := ctx.Err(); err != nil {
 		return Pointer{}, err
 	}
-	if catalog.ReleaseID != releaseID {
-		return Pointer{}, errors.New("climate builder returned a different release ID")
-	}
-	if err := writeCatalog(releaseRoot, catalog); err != nil {
-		return Pointer{}, err
-	}
-	if _, err := ValidateRelease(releaseRoot); err != nil {
-		return Pointer{}, fmt.Errorf("validate staged climate release: %w", err)
-	}
-	if err := syncTree(releaseRoot); err != nil {
-		return Pointer{}, fmt.Errorf("sync staged climate release: %w", err)
-	}
-	candidate, candidateDigest, err := validateReleaseDigest(releaseRoot)
-	if err != nil {
-		return Pointer{}, fmt.Errorf("bind staged climate catalog: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return Pointer{}, err
-	}
-	installed, installedDigest, err := installedRelease(target)
+
+	target := filepath.Join(climateRoot, "indexes", indexID+".json")
+	installedDigest, err := installedIndexDigest(target)
 	if errors.Is(err, fs.ErrNotExist) {
-		if err := os.Rename(releaseRoot, target); err != nil {
-			return Pointer{}, fmt.Errorf("install climate release: %w", err)
+		if err := os.Link(stagedIndex, target); err != nil {
+			return Pointer{}, fmt.Errorf("install climate index: %w", err)
 		}
-		if err := syncDirectory(filepath.Join(climateRoot, "releases")); err != nil {
-			return Pointer{}, fmt.Errorf("sync climate releases: %w", err)
+		if err := syncDirectory(filepath.Join(climateRoot, "indexes")); err != nil {
+			return Pointer{}, fmt.Errorf("sync climate indexes: %w", err)
 		}
-		installed, installedDigest, err = installedRelease(target)
+		installedDigest, err = installedIndexDigest(target)
 	}
 	if err != nil {
-		return Pointer{}, fmt.Errorf("validate installed climate release: %w", err)
+		return Pointer{}, fmt.Errorf("validate installed climate index: %w", err)
 	}
-	if installedDigest != candidateDigest || installed.ReleaseID != candidate.ReleaseID {
-		return Pointer{}, fmt.Errorf("immutable climate release %s already exists with different content", releaseID)
+	if installedDigest != candidateDigest {
+		return Pointer{}, fmt.Errorf("immutable climate index %s already exists with different content", indexID)
+	}
+	installed, installedDigest, err := validateIndexAt(climateRoot, indexID)
+	if err != nil {
+		return Pointer{}, fmt.Errorf("validate installed climate index: %w", err)
+	}
+	if installed.IndexID != index.IndexID {
+		return Pointer{}, errors.New("installed climate index identity changed")
 	}
 	if err := syncTree(target); err != nil {
-		return Pointer{}, fmt.Errorf("sync installed climate release: %w", err)
+		return Pointer{}, fmt.Errorf("sync installed climate index: %w", err)
 	}
-	if err := syncDirectory(filepath.Join(climateRoot, "releases")); err != nil {
-		return Pointer{}, fmt.Errorf("sync climate releases: %w", err)
+	if err := syncDirectory(filepath.Join(climateRoot, "indexes")); err != nil {
+		return Pointer{}, fmt.Errorf("sync climate indexes: %w", err)
 	}
 	if err := removePrivateStage(climateRoot, staging); err != nil {
-		return Pointer{}, fmt.Errorf("clean installed climate stage: %w", err)
+		return Pointer{}, fmt.Errorf("clean installed climate index stage: %w", err)
 	}
 	staging = ""
-	pointer := Pointer{ReleaseID: installed.ReleaseID, CatalogSHA256: installedDigest}
+
+	pointer := Pointer{Version: PointerVersion, IndexID: indexID, IndexSHA256: installedDigest}
+	if hasCurrent && current == pointer {
+		return pointer, nil
+	}
 	if err := ctx.Err(); err != nil {
 		return Pointer{}, err
 	}
 	committed, err := writePointer(climateRoot, pointer)
 	if err != nil {
 		if committed {
-			visible, _, visibleErr := validateCurrent(climateRoot)
+			visible, _, visibleErr := validateCurrentIndex(climateRoot)
 			if visibleErr == nil && visible == pointer {
 				return pointer, nil
 			}
@@ -147,6 +287,193 @@ func BuildAndPublish(ctx context.Context, artifactRoot, releaseID string, build 
 		return Pointer{}, err
 	}
 	return pointer, nil
+}
+
+// ValidateCurrentIndex verifies current.json, the exact immutable index and
+// every referenced complete month release. It never changes publication state.
+func ValidateCurrentIndex(artifactRoot string) (Pointer, Index, error) {
+	climateRoot, err := existingPublicationRoot(artifactRoot)
+	if err != nil {
+		return Pointer{}, Index{}, err
+	}
+	return validateCurrentIndex(climateRoot)
+}
+
+func buildIndex(climateRoot, indexID string, state IndexState, months []MonthReference) (Index, error) {
+	if err := validateMonthReferenceOrder(state, months); err != nil {
+		return Index{}, err
+	}
+	var catalogs []Catalog
+	for _, reference := range months {
+		catalog, digest, err := validateReleaseDigest(filepath.Join(climateRoot, "releases", reference.ReleaseID))
+		if err != nil {
+			return Index{}, fmt.Errorf("validate climate month %s: %w", reference.Period, err)
+		}
+		if reference != (MonthReference{Period: catalog.Period, ReleaseID: catalog.ReleaseID, CatalogSHA256: digest}) {
+			return Index{}, fmt.Errorf("climate month %s does not match its exact release and catalog digest", reference.Period)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	first := catalogs[0]
+	for _, catalog := range catalogs[1:] {
+		if catalog.Geometry != first.Geometry || catalog.Source != first.Source || catalog.Provenance != first.Provenance || !sameProbability(catalog.Probability, first.Probability) {
+			return Index{}, errors.New("climate months do not share identical geometry, source, provenance and probability contracts")
+		}
+	}
+	index := Index{
+		Version: IndexVersion, IndexID: indexID, State: state,
+		ReferencePeriod: first.Source.ReferencePeriod,
+		Provenance:      first.Provenance,
+		Months:          append([]MonthReference(nil), months...),
+	}
+	if err := validateIndexShape(index); err != nil {
+		return Index{}, err
+	}
+	return index, nil
+}
+
+func validateMonthReferenceOrder(state IndexState, months []MonthReference) error {
+	if state == IndexStatePreview {
+		if len(months) < 1 || len(months) > 11 {
+			return errors.New("preview climate index requires 1 to 11 months")
+		}
+	} else if state == IndexStateComplete {
+		if len(months) != 12 {
+			return errors.New("complete climate index requires exactly 12 months")
+		}
+	} else {
+		return errors.New("climate index state is invalid")
+	}
+	previous := ""
+	for _, reference := range months {
+		if !periodPattern.MatchString(reference.Period) || !validReleaseID(reference.ReleaseID) || !validSHA256(reference.CatalogSHA256) {
+			return errors.New("climate index month reference is invalid")
+		}
+		if previous != "" && reference.Period <= previous {
+			return errors.New("climate index months must be unique and in canonical order")
+		}
+		previous = reference.Period
+	}
+	if state == IndexStateComplete {
+		for month, reference := range months {
+			if reference.Period != fmt.Sprintf("month-%02d", month+1) {
+				return errors.New("complete climate index must contain all 12 canonical months")
+			}
+		}
+	}
+	return nil
+}
+
+func validateIndexShape(index Index) error {
+	if index.Version != IndexVersion || !validReleaseID(index.IndexID) {
+		return errors.New("climate index identity is invalid")
+	}
+	if err := validateMonthReferenceOrder(index.State, index.Months); err != nil {
+		return err
+	}
+	if index.ReferencePeriod.FirstYear > index.ReferencePeriod.LastYear || !validEvidenceSHA256(index.Provenance.SourceEvidenceSHA256) ||
+		!validEvidenceSHA256(index.Provenance.LandMaskSetSHA256) || index.Provenance.DerivationContract == "" {
+		return errors.New("climate index reference period or provenance is invalid")
+	}
+	return nil
+}
+
+func sameProbability(left, right ProbabilitySemantics) bool {
+	return left.Unit == right.Unit && left.Denominator == right.Denominator && left.Threshold == right.Threshold &&
+		left.GoodMinimumScore == right.GoodMinimumScore && left.NoDataValue == right.NoDataValue && slices.Equal(left.Fields, right.Fields)
+}
+
+func validateIndexAt(climateRoot, indexID string) (*Index, string, error) {
+	filename := filepath.Join(climateRoot, "indexes", indexID+".json")
+	payload, err := readRegularBounded(filename, maximumIndexBytes)
+	if err != nil {
+		return nil, "", err
+	}
+	var index Index
+	if err := decodeExactJSON(payload, &index); err != nil {
+		return nil, "", fmt.Errorf("decode climate index: %w", err)
+	}
+	if index.IndexID != indexID {
+		return nil, "", errors.New("climate index path and identity differ")
+	}
+	if err := validateIndexFile(filename, index); err != nil {
+		return nil, "", err
+	}
+	want, err := buildIndex(climateRoot, index.IndexID, index.State, index.Months)
+	if err != nil {
+		return nil, "", err
+	}
+	if !sameIndex(index, want) {
+		return nil, "", errors.New("climate index common contract does not match its month releases")
+	}
+	after, err := readRegularBounded(filename, maximumIndexBytes)
+	if err != nil {
+		return nil, "", err
+	}
+	beforeSum, afterSum := sha256.Sum256(payload), sha256.Sum256(after)
+	if beforeSum != afterSum {
+		return nil, "", errors.New("climate index changed during validation")
+	}
+	return &index, hex.EncodeToString(beforeSum[:]), nil
+}
+
+func sameIndex(left, right Index) bool {
+	return left.Version == right.Version && left.IndexID == right.IndexID && left.State == right.State &&
+		left.ReferencePeriod == right.ReferencePeriod && left.Provenance == right.Provenance && slices.Equal(left.Months, right.Months)
+}
+
+func validateIndexFile(filename string, index Index) error {
+	info, err := os.Lstat(filename)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maximumIndexBytes {
+		return errors.New("climate index must be a bounded regular file and not a symlink")
+	}
+	return validateIndexShape(index)
+}
+
+func installedIndexDigest(target string) (string, error) {
+	payload, err := readRegularBounded(target, maximumIndexBytes)
+	if err != nil {
+		return "", err
+	}
+	var index Index
+	if err := decodeExactJSON(payload, &index); err != nil {
+		return "", err
+	}
+	if err := validateIndexFile(target, index); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func writeIndex(filename string, index Index) error {
+	if err := validateIndexShape(index); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	if len(payload) > maximumIndexBytes {
+		return errors.New("climate index exceeds size limit")
+	}
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(payload); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func installedRelease(target string) (Catalog, string, error) {
@@ -158,16 +485,6 @@ func installedRelease(target string) (Catalog, string, error) {
 		return Catalog{}, "", errors.New("climate release target must be a real directory")
 	}
 	return validateReleaseDigest(target)
-}
-
-// ValidateCurrent verifies current.json, its exact catalog checksum and the
-// complete release. It does not repair or change publication state.
-func ValidateCurrent(artifactRoot string) (Pointer, Catalog, error) {
-	climateRoot, err := existingPublicationRoot(artifactRoot)
-	if err != nil {
-		return Pointer{}, Catalog{}, err
-	}
-	return validateCurrent(climateRoot)
 }
 
 func writeCatalog(root string, catalog Catalog) error {
@@ -197,39 +514,39 @@ func writeCatalog(root string, catalog Catalog) error {
 	return file.Close()
 }
 
-func validateExistingPointer(climateRoot string) error {
+func validateExistingPointer(climateRoot string) (Pointer, Index, bool, error) {
 	_, err := os.Lstat(filepath.Join(climateRoot, "current.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return Pointer{}, Index{}, false, nil
 	}
 	if err != nil {
-		return err
+		return Pointer{}, Index{}, false, err
 	}
-	if _, _, err := validateCurrent(climateRoot); err != nil {
-		return fmt.Errorf("refuse publication with invalid current climate release: %w", err)
+	pointer, index, err := validateCurrentIndex(climateRoot)
+	if err != nil {
+		return Pointer{}, Index{}, false, fmt.Errorf("refuse publication with invalid current climate index: %w", err)
 	}
-	return nil
+	return pointer, index, true, nil
 }
 
-func validateCurrent(climateRoot string) (Pointer, Catalog, error) {
+func validateCurrentIndex(climateRoot string) (Pointer, Index, error) {
 	payload, err := readRegularBounded(filepath.Join(climateRoot, "current.json"), maximumPointerBytes)
 	if err != nil {
-		return Pointer{}, Catalog{}, fmt.Errorf("read climate pointer: %w", err)
+		return Pointer{}, Index{}, fmt.Errorf("read climate pointer: %w", err)
 	}
 	var pointer Pointer
-	if err := decodeExactJSON(payload, &pointer); err != nil || !validReleaseID(pointer.ReleaseID) || !validSHA256(pointer.CatalogSHA256) {
-		return Pointer{}, Catalog{}, errors.New("climate pointer is invalid")
+	if err := decodeExactJSON(payload, &pointer); err != nil || pointer.Version != PointerVersion || !validReleaseID(pointer.IndexID) || !validSHA256(pointer.IndexSHA256) {
+		return Pointer{}, Index{}, errors.New("climate pointer is invalid")
 	}
-	releaseRoot := filepath.Join(climateRoot, "releases", pointer.ReleaseID)
-	catalog, catalogDigest, err := validateReleaseDigest(releaseRoot)
+	index, digest, err := validateIndexAt(climateRoot, pointer.IndexID)
 	if err != nil {
-		return Pointer{}, Catalog{}, fmt.Errorf("validate current climate release: %w", err)
+		return Pointer{}, Index{}, fmt.Errorf("validate current climate index: %w", err)
 	}
-	want := Pointer{ReleaseID: catalog.ReleaseID, CatalogSHA256: catalogDigest}
+	want := Pointer{Version: PointerVersion, IndexID: index.IndexID, IndexSHA256: digest}
 	if pointer != want {
-		return Pointer{}, Catalog{}, errors.New("climate pointer catalog checksum does not match release")
+		return Pointer{}, Index{}, errors.New("climate pointer checksum does not match index")
 	}
-	return pointer, catalog, nil
+	return pointer, *index, nil
 }
 
 func validateReleaseDigest(releaseRoot string) (Catalog, string, error) {
@@ -321,16 +638,19 @@ func publicationRoot(artifactRoot string) (string, error) {
 			return "", fmt.Errorf("sync climate root: %w", err)
 		}
 	}
-	created, err = ensureRealDirectory(filepath.Join(climateRoot, "releases"))
-	if err != nil {
-		return "", err
-	}
-	if created {
-		if err := syncDirectory(climateRoot); err != nil {
-			return "", fmt.Errorf("sync climate releases parent: %w", err)
+	for _, name := range []string{"releases", "indexes"} {
+		root := filepath.Join(climateRoot, name)
+		created, err = ensureRealDirectory(root)
+		if err != nil {
+			return "", err
 		}
-		if err := syncDirectory(filepath.Join(climateRoot, "releases")); err != nil {
-			return "", fmt.Errorf("sync climate releases root: %w", err)
+		if created {
+			if err := syncDirectory(climateRoot); err != nil {
+				return "", fmt.Errorf("sync climate %s parent: %w", name, err)
+			}
+			if err := syncDirectory(root); err != nil {
+				return "", fmt.Errorf("sync climate %s root: %w", name, err)
+			}
 		}
 	}
 	return climateRoot, nil
@@ -346,7 +666,7 @@ func existingPublicationRoot(artifactRoot string) (string, error) {
 		return "", err
 	}
 	climateRoot := filepath.Join(resolved, "climate")
-	for _, directory := range []string{climateRoot, filepath.Join(climateRoot, "releases")} {
+	for _, directory := range []string{climateRoot, filepath.Join(climateRoot, "releases"), filepath.Join(climateRoot, "indexes")} {
 		info, err := os.Lstat(directory)
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return "", errors.New("climate publication roots must be real directories")
@@ -398,29 +718,29 @@ func cleanupPrivatePublicationEntries(climateRoot string) error {
 	changed := false
 	for _, entry := range entries {
 		name := entry.Name()
-		path := filepath.Join(climateRoot, name)
+		entryPath := filepath.Join(climateRoot, name)
 		switch {
 		case privateBuildPattern.MatchString(name):
-			info, err := os.Lstat(path)
+			info, err := os.Lstat(entryPath)
 			if err != nil {
 				return err
 			}
 			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("private climate build entry %q is not a real directory", name)
 			}
-			if err := os.RemoveAll(path); err != nil {
+			if err := os.RemoveAll(entryPath); err != nil {
 				return fmt.Errorf("remove stale climate build %q: %w", name, err)
 			}
 			changed = true
 		case privatePointerPattern.MatchString(name):
-			info, err := os.Lstat(path)
+			info, err := os.Lstat(entryPath)
 			if err != nil {
 				return err
 			}
 			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("private climate pointer entry %q is not a regular file", name)
 			}
-			if err := os.Remove(path); err != nil {
+			if err := os.Remove(entryPath); err != nil {
 				return fmt.Errorf("remove stale climate pointer %q: %w", name, err)
 			}
 			changed = true
