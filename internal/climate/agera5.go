@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"sort"
 	"time"
 
 	"nice-weather-finder/internal/weather"
@@ -31,33 +30,6 @@ type AgERA5Day struct {
 	WindSpeedKPH              float64 `json:"windSpeedKmh"`
 	DewPointC                 float64 `json:"dewPointC"`
 }
-
-// Distribution is one complete 2006–2025 cell/month after every observed day
-// has been scored. Overall and component fractions are chances of a real day
-// receiving at least a Good canonical judgement.
-type Distribution struct {
-	Days                int
-	ExpectedDays        int
-	Coverage            float64
-	MeanScore           float64
-	MedianScore         int
-	NiceFraction        float64
-	AwfulFraction       float64
-	ComfortGoodFraction float64
-	DryGoodFraction     float64
-	BrightGoodFraction  float64
-	CalmGoodFraction    float64
-	LongestPoorRun      int
-	SevenDayWindows     int
-	PoorWeekWindows     int
-	PoorWeekFraction    float64
-	Ratings             map[string]int
-}
-
-const (
-	referenceFirstYear = 2006
-	referenceLastYear  = 2025
-)
 
 // DecodeAgERA5 reads a bounded newline-delimited interchange for single-cell
 // scoring conformance and source research. It is not a regional extraction or
@@ -178,167 +150,6 @@ func (day AgERA5Day) Metrics() (weather.DailyMetrics, error) {
 		return weather.DailyMetrics{}, err
 	}
 	return metrics, nil
-}
-
-func Aggregate(days []AgERA5Day, profile weather.Profile) (Distribution, error) {
-	if len(days) == 0 {
-		return Distribution{}, errors.New("at least one AgERA5 day is required")
-	}
-	firstDate, err := time.Parse("2006-01-02", days[0].Date)
-	if err != nil {
-		return Distribution{}, fmt.Errorf("invalid first AgERA5 date %q", days[0].Date)
-	}
-	month := firstDate.Month()
-	expectedDates := referenceMonthDates(month)
-	type observation struct {
-		date  time.Time
-		score int
-	}
-	scores := make([]int, len(days))
-	observations := make([]observation, len(days))
-	seenDates := make(map[string]struct{}, len(days))
-	ratings := map[string]int{"Awful": 0, "Poor": 0, "Mixed": 0, "Good": 0, "Very good": 0, "Excellent": 0}
-	sum, nice, awful := 0, 0, 0
-	comfortGood, dryGood, brightGood, calmGood := 0, 0, 0, 0
-	for index, day := range days {
-		date, err := time.Parse("2006-01-02", day.Date)
-		if err != nil || date.Year() < referenceFirstYear || date.Year() > referenceLastYear || date.Month() != month || math.Abs(day.Latitude-days[0].Latitude) > 1e-9 || math.Abs(day.Longitude-days[0].Longitude) > 1e-9 {
-			return Distribution{}, errors.New("AgERA5 distribution requires one cell and month of year from 2006–2025")
-		}
-		if _, exists := seenDates[day.Date]; exists {
-			return Distribution{}, fmt.Errorf("duplicate AgERA5 date %s", day.Date)
-		}
-		seenDates[day.Date] = struct{}{}
-		metrics, err := day.Metrics()
-		if err != nil {
-			return Distribution{}, fmt.Errorf("day %s: %w", day.Date, err)
-		}
-		result := weather.Score(metrics, profile)
-		if !result.Available {
-			return Distribution{}, fmt.Errorf("day %s is not scoreable", day.Date)
-		}
-		scores[index], sum = result.Score, sum+result.Score
-		observations[index] = observation{date: date, score: result.Score}
-		ratings[result.Rating]++
-		if isGoodRating(result.Rating) {
-			nice++
-		}
-		if result.Rating == "Awful" {
-			awful++
-		}
-		if isGoodRating(weather.Rating(result.Components.Thermal)) {
-			comfortGood++
-		}
-		if isGoodRating(weather.Rating(result.Components.Dryness)) {
-			dryGood++
-		}
-		if isGoodRating(weather.Rating(result.Components.Sun)) {
-			brightGood++
-		}
-		if isGoodRating(weather.Rating(result.Components.Wind)) {
-			calmGood++
-		}
-	}
-	if len(seenDates) != len(expectedDates) {
-		missing := make([]string, 0, len(expectedDates)-len(seenDates))
-		for _, expected := range expectedDates {
-			if _, ok := seenDates[expected]; !ok {
-				missing = append(missing, expected)
-			}
-		}
-		firstMissing := "none"
-		if len(missing) > 0 {
-			firstMissing = missing[0]
-		}
-		return Distribution{}, fmt.Errorf("incomplete AgERA5 %s distribution: have %d of %d days; %d missing, first %s", month, len(seenDates), len(expectedDates), len(missing), firstMissing)
-	}
-	sort.Ints(scores)
-	median := scores[len(scores)/2]
-	if len(scores)%2 == 0 {
-		median = int(math.Round(float64(scores[len(scores)/2-1]+scores[len(scores)/2]) / 2))
-	}
-	sort.Slice(observations, func(left, right int) bool { return observations[left].date.Before(observations[right].date) })
-	poorWeeks, sevenDayWindows := 0, 0
-	for start := 0; start+7 <= len(observations); start++ {
-		window := observations[start : start+7]
-		complete := true
-		for index := 1; index < len(window); index++ {
-			if !window[index].date.Equal(window[index-1].date.AddDate(0, 0, 1)) {
-				complete = false
-				break
-			}
-		}
-		if !complete {
-			continue
-		}
-		sevenDayWindows++
-		poorRun, hasPoorSpell := 0, false
-		for _, item := range window {
-			if rating := weather.Rating(item.score); rating == "Poor" || rating == "Awful" {
-				poorRun++
-				if poorRun >= 3 {
-					hasPoorSpell = true
-				}
-			} else {
-				poorRun = 0
-			}
-		}
-		if hasPoorSpell {
-			poorWeeks++
-		}
-	}
-	longestPoorRun, poorRun := 0, 0
-	for index, item := range observations {
-		if index > 0 && !item.date.Equal(observations[index-1].date.AddDate(0, 0, 1)) {
-			poorRun = 0
-		}
-		rating := weather.Rating(item.score)
-		if rating != "Poor" && rating != "Awful" {
-			poorRun = 0
-			continue
-		}
-		poorRun++
-		if poorRun > longestPoorRun {
-			longestPoorRun = poorRun
-		}
-	}
-	poorWeekFraction := 0.0
-	if sevenDayWindows > 0 {
-		poorWeekFraction = float64(poorWeeks) / float64(sevenDayWindows)
-	}
-	return Distribution{
-		Days:                len(days),
-		ExpectedDays:        len(expectedDates),
-		Coverage:            1,
-		MeanScore:           float64(sum) / float64(len(days)),
-		MedianScore:         median,
-		NiceFraction:        float64(nice) / float64(len(days)),
-		AwfulFraction:       float64(awful) / float64(len(days)),
-		ComfortGoodFraction: float64(comfortGood) / float64(len(days)),
-		DryGoodFraction:     float64(dryGood) / float64(len(days)),
-		BrightGoodFraction:  float64(brightGood) / float64(len(days)),
-		CalmGoodFraction:    float64(calmGood) / float64(len(days)),
-		LongestPoorRun:      longestPoorRun,
-		SevenDayWindows:     sevenDayWindows,
-		PoorWeekWindows:     poorWeeks,
-		PoorWeekFraction:    poorWeekFraction,
-		Ratings:             ratings,
-	}, nil
-}
-
-func isGoodRating(rating string) bool {
-	return rating == "Good" || rating == "Very good" || rating == "Excellent"
-}
-
-func referenceMonthDates(month time.Month) []string {
-	dates := make([]string, 0, 31*(referenceLastYear-referenceFirstYear+1))
-	for year := referenceFirstYear; year <= referenceLastYear; year++ {
-		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
-		for day := 1; day <= lastDay; day++ {
-			dates = append(dates, time.Date(year, month, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02"))
-		}
-	}
-	return dates
 }
 
 func finite(values ...float64) bool {
