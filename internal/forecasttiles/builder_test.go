@@ -31,6 +31,29 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 	if len(catalog.Points) == 0 || len(catalog.Scalars) == 0 {
 		t.Fatalf("empty catalog: %+v", catalog)
 	}
+	if catalog.Source.SourceID != "test-source" || catalog.Source.RunUTC != testDate().Format(time.RFC3339) || catalog.Source.NativeResolutionKM != 28 || catalog.Source.Grid.Rows != 18 || catalog.Source.Grid.Cols != 36 || len(catalog.Source.EvidenceSHA256) != 64 {
+		t.Fatalf("source identity = %+v", catalog.Source)
+	}
+	if len(catalog.MaxZoomOutcomes) != 64 {
+		t.Fatalf("max-zoom outcomes = %d; want 64", len(catalog.MaxZoomOutcomes))
+	}
+	produced := make(map[[2]uint32]struct{})
+	for _, outcome := range catalog.MaxZoomOutcomes {
+		if outcome.Zoom != config.MaxZoom || outcome.DataRecords+outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize || outcome.Omitted != (outcome.DataRecords == 0) {
+			t.Fatalf("invalid max-zoom outcome: %+v", outcome)
+		}
+		if !outcome.Omitted {
+			produced[[2]uint32{outcome.X, outcome.Y}] = struct{}{}
+		}
+	}
+	if len(produced) != len(catalog.Points) {
+		t.Fatalf("produced outcomes=%d point tiles=%d", len(produced), len(catalog.Points))
+	}
+	for _, point := range catalog.Points {
+		if _, ok := produced[[2]uint32{point.X, point.Y}]; !ok {
+			t.Fatalf("point has no produced outcome: %+v", point)
+		}
+	}
 
 	for _, longitude := range []float64{-179.9, 179.9} {
 		id, row, column, err := tiledelivery.At(config.Tier, config.MaxZoom, longitude, 0)
@@ -187,6 +210,28 @@ func TestBuildRegionalTierPublishesOnlyItsSupportedGeography(t *testing.T) {
 	for _, point := range catalog.Points {
 		if point.Zoom == outside.Zoom && point.X == outside.X && point.Y == outside.Y {
 			t.Fatalf("regional tier wrapped or escaped its source support: %+v", point)
+		}
+	}
+	source, err := sourceSpec(config.Series)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make(map[[2]uint32]struct{})
+	count := uint32(1) << config.MaxZoom
+	for y := uint32(0); y < count; y++ {
+		for x := uint32(0); x < count; x++ {
+			id, _ := tiledelivery.NewID(config.Tier, config.MaxZoom, int64(x), int64(y))
+			if _, ok := tileSourceWindow(source.Grid, id); ok {
+				expected[[2]uint32{x, y}] = struct{}{}
+			}
+		}
+	}
+	if len(catalog.MaxZoomOutcomes) != len(expected) {
+		t.Fatalf("regional outcomes=%d want=%d", len(catalog.MaxZoomOutcomes), len(expected))
+	}
+	for _, outcome := range catalog.MaxZoomOutcomes {
+		if _, ok := expected[[2]uint32{outcome.X, outcome.Y}]; !ok {
+			t.Fatalf("unexpected regional outcome: %+v", outcome)
 		}
 	}
 }

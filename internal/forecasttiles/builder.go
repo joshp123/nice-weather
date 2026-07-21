@@ -5,6 +5,8 @@ package forecasttiles
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
@@ -83,6 +86,29 @@ type ScalarTile struct {
 	NoDataTexels uint32 `json:"noDataTexels"`
 }
 
+// SourceIdentity is derived from every prepared frame consumed by BuildDay.
+// EvidenceSHA256 covers their ordered physical metadata; callers do not get
+// to label scalar output with a different source after the build.
+type SourceIdentity struct {
+	SourceID           string            `json:"sourceId"`
+	RunUTC             string            `json:"runUtc"`
+	Grid               delivery.GridSpec `json:"grid"`
+	NativeResolutionKM float64           `json:"nativeResolutionKm"`
+	EvidenceSHA256     string            `json:"evidenceSha256"`
+}
+
+// MaxZoomOutcome records the evaluated interior of every max-zoom tile that
+// intersects the provider grid. An omitted outcome is valid only when all
+// records are no-data.
+type MaxZoomOutcome struct {
+	Zoom          uint8  `json:"zoom"`
+	X             uint32 `json:"x"`
+	Y             uint32 `json:"y"`
+	Omitted       bool   `json:"omitted"`
+	DataRecords   uint32 `json:"dataRecords"`
+	NoDataRecords uint32 `json:"noDataRecords"`
+}
+
 // BuildStats exposes bounded working-set evidence. Catalog metadata is output,
 // so it grows with the number of tiles; these counters cover weather and pixel
 // planes, which must remain tile-bounded.
@@ -93,15 +119,17 @@ type BuildStats struct {
 }
 
 type Catalog struct {
-	Version   int          `json:"version"`
-	ReleaseID string       `json:"releaseId"`
-	Period    string       `json:"period"`
-	Tier      string       `json:"tier"`
-	Date      string       `json:"date"`
-	MaxZoom   uint8        `json:"maxZoom"`
-	Points    []PointTile  `json:"points"`
-	Scalars   []ScalarTile `json:"scalars"`
-	Stats     BuildStats   `json:"stats"`
+	Version         int              `json:"version"`
+	ReleaseID       string           `json:"releaseId"`
+	Period          string           `json:"period"`
+	Tier            string           `json:"tier"`
+	Date            string           `json:"date"`
+	MaxZoom         uint8            `json:"maxZoom"`
+	Source          SourceIdentity   `json:"source"`
+	MaxZoomOutcomes []MaxZoomOutcome `json:"maxZoomOutcomes"`
+	Points          []PointTile      `json:"points"`
+	Scalars         []ScalarTile     `json:"scalars"`
+	Stats           BuildStats       `json:"stats"`
 }
 
 // BuildDay owns the complete, deterministic sequence for its exact day/tier
@@ -116,10 +144,11 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 	if err := ctx.Err(); err != nil {
 		return Catalog{}, err
 	}
-	source, err := sourceSpec(config.Series)
+	sourceIdentity, err := sourceSpec(config.Series)
 	if err != nil {
 		return Catalog{}, err
 	}
+	source := sourceIdentity.Grid
 	final := filepath.Join(config.Root, "forecast-days", config.Period, config.Tier)
 	if _, err := os.Stat(final); err == nil {
 		return Catalog{}, fmt.Errorf("immutable forecast day tier already exists: %s", final)
@@ -147,7 +176,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 	catalog := Catalog{
 		Version: catalogVersion, ReleaseID: config.ReleaseID, Period: config.Period,
 		Tier: config.Tier, Date: config.Date.Format("2006-01-02"), MaxZoom: config.MaxZoom,
-		Points: []PointTile{}, Scalars: []ScalarTile{},
+		Source: sourceIdentity, MaxZoomOutcomes: []MaxZoomOutcome{}, Points: []PointTile{}, Scalars: []ScalarTile{},
 	}
 	maxAssets := make(map[tiledelivery.ID]tiledelivery.ScalarAsset)
 	count := uint32(1) << config.MaxZoom
@@ -171,7 +200,9 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 				return Catalog{}, fmt.Errorf("evaluate %d/%d/%d: %w", id.Zoom, id.X, id.Y, err)
 			}
 			catalog.Stats.MaxDisplayRecords = max(catalog.Stats.MaxDisplayRecords, uint64(len(texture)+len(records)))
-			if !hasData(records) {
+			outcome := maxZoomOutcome(id, records)
+			catalog.MaxZoomOutcomes = append(catalog.MaxZoomOutcomes, outcome)
+			if outcome.Omitted {
 				continue
 			}
 			point, err := writer.Write(id, config.Period, records)
@@ -301,34 +332,105 @@ func validateConfig(config Config) error {
 	return nil
 }
 
-func sourceSpec(series pipeline.PreparedSeries) (delivery.GridSpec, error) {
+func sourceSpec(series pipeline.PreparedSeries) (SourceIdentity, error) {
 	var result delivery.GridSpec
 	var resolution float64
 	var sourceID string
 	var run time.Time
+	var evidence []preparedEvidence
 	for field, frames := range series {
 		if len(frames) == 0 {
-			return delivery.GridSpec{}, fmt.Errorf("prepared field %s is empty", field)
+			return SourceIdentity{}, fmt.Errorf("prepared field %s is empty", field)
 		}
 		for _, frame := range frames {
 			metadata, err := frame.Metadata()
 			if err != nil {
-				return delivery.GridSpec{}, err
+				return SourceIdentity{}, err
 			}
 			if metadata.Field != field {
-				return delivery.GridSpec{}, fmt.Errorf("prepared series key %s contains %s", field, metadata.Field)
+				return SourceIdentity{}, fmt.Errorf("prepared series key %s contains %s", field, metadata.Field)
 			}
 			if metadata.SourceID == "" || metadata.Run.IsZero() {
-				return delivery.GridSpec{}, errors.New("forecast tile tier requires prepared source and run identity")
+				return SourceIdentity{}, errors.New("forecast tile tier requires prepared source and run identity")
 			}
 			if result.Rows == 0 {
 				result, resolution, sourceID, run = metadata.Grid, metadata.NativeResolutionKM, metadata.SourceID, metadata.Run
 			} else if result != metadata.Grid || math.Abs(resolution-metadata.NativeResolutionKM) > 1e-9*math.Max(1, math.Max(resolution, metadata.NativeResolutionKM)) {
-				return delivery.GridSpec{}, errors.New("one forecast tile tier requires one source grid and resolution")
+				return SourceIdentity{}, errors.New("one forecast tile tier requires one source grid and resolution")
 			} else if metadata.SourceID != sourceID || !metadata.Run.Equal(run) {
-				return delivery.GridSpec{}, errors.New("one forecast tile tier cannot mix provider products or runs")
+				return SourceIdentity{}, errors.New("one forecast tile tier cannot mix provider products or runs")
 			}
+			evidence = append(evidence, preparedEvidenceFrom(metadata))
 		}
 	}
-	return result, nil
+	sort.Slice(evidence, func(i, j int) bool {
+		if evidence[i].Field != evidence[j].Field {
+			return evidence[i].Field < evidence[j].Field
+		}
+		if evidence[i].StartUTC != evidence[j].StartUTC {
+			return evidence[i].StartUTC < evidence[j].StartUTC
+		}
+		if evidence[i].EndUTC != evidence[j].EndUTC {
+			return evidence[i].EndUTC < evidence[j].EndUTC
+		}
+		if evidence[i].Semantics != evidence[j].Semantics {
+			return evidence[i].Semantics < evidence[j].Semantics
+		}
+		if evidence[i].Units != evidence[j].Units {
+			return evidence[i].Units < evidence[j].Units
+		}
+		if evidence[i].PackingError != evidence[j].PackingError {
+			return evidence[i].PackingError < evidence[j].PackingError
+		}
+		return evidence[i].PackingQuantum < evidence[j].PackingQuantum
+	})
+	envelope := struct {
+		SourceID           string             `json:"sourceId"`
+		RunUTC             string             `json:"runUtc"`
+		Grid               delivery.GridSpec  `json:"grid"`
+		NativeResolutionKM float64            `json:"nativeResolutionKm"`
+		Frames             []preparedEvidence `json:"frames"`
+	}{
+		SourceID: sourceID, RunUTC: run.UTC().Format(time.RFC3339), Grid: result,
+		NativeResolutionKM: resolution, Frames: evidence,
+	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return SourceIdentity{}, err
+	}
+	digest := sha256.Sum256(encoded)
+	return SourceIdentity{
+		SourceID: sourceID, RunUTC: run.UTC().Format(time.RFC3339), Grid: result,
+		NativeResolutionKM: resolution, EvidenceSHA256: hex.EncodeToString(digest[:]),
+	}, nil
+}
+
+type preparedEvidence struct {
+	Field          pipeline.Field     `json:"field"`
+	StartUTC       string             `json:"startUtc"`
+	EndUTC         string             `json:"endUtc"`
+	Semantics      pipeline.Semantics `json:"semantics"`
+	Units          string             `json:"units"`
+	PackingError   float64            `json:"packingError"`
+	PackingQuantum float64            `json:"packingQuantum"`
+}
+
+func preparedEvidenceFrom(metadata pipeline.PreparedFrameMetadata) preparedEvidence {
+	return preparedEvidence{
+		Field: metadata.Field, StartUTC: metadata.Start.UTC().Format(time.RFC3339Nano), EndUTC: metadata.End.UTC().Format(time.RFC3339Nano),
+		Semantics: metadata.Semantics, Units: metadata.Units, PackingError: metadata.PackingError, PackingQuantum: metadata.PackingQuantum,
+	}
+}
+
+func maxZoomOutcome(id tiledelivery.ID, records []delivery.DisplayScoreRecord) MaxZoomOutcome {
+	outcome := MaxZoomOutcome{Zoom: id.Zoom, X: id.X, Y: id.Y}
+	for _, record := range records {
+		if record.Valid {
+			outcome.DataRecords++
+		} else {
+			outcome.NoDataRecords++
+		}
+	}
+	outcome.Omitted = outcome.DataRecords == 0
+	return outcome
 }

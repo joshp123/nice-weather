@@ -47,6 +47,13 @@ func relativeAssetPath(root, path string) (string, error) {
 }
 
 func sortCatalog(catalog *Catalog) {
+	sort.Slice(catalog.MaxZoomOutcomes, func(i, j int) bool {
+		a, b := catalog.MaxZoomOutcomes[i], catalog.MaxZoomOutcomes[j]
+		if a.Y != b.Y {
+			return a.Y < b.Y
+		}
+		return a.X < b.X
+	})
 	sort.Slice(catalog.Points, func(i, j int) bool {
 		a, b := catalog.Points[i], catalog.Points[j]
 		if a.Zoom != b.Zoom {

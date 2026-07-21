@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	HeaderBytes = 256
-	Version     = 1
+	HeaderBytes = 320
+	Version     = 2
 	MediaType   = "application/vnd.nice-weather.forecast-block"
 
 	ProviderIFS    = "ecmwf-ifs"
@@ -31,12 +31,15 @@ const (
 	// MaxBytes keeps one selected block cheap to fetch and verify whole.
 	MaxBytes = 128 << 10
 
-	fixedHeaderBytes = 80
-	releaseIDBytes   = 64
-	providerIDBytes  = 24
-	tierIDBytes      = 24
-	dateIDBytes      = 16
-	digestStart      = fixedHeaderBytes + releaseIDBytes + providerIDBytes + tierIDBytes + dateIDBytes
+	fixedHeaderBytes   = 80
+	releaseIDBytes     = 64
+	providerIDBytes    = 24
+	tierIDBytes        = 24
+	dateIDBytes        = 16
+	runIDBytes         = 24
+	runStart           = fixedHeaderBytes + releaseIDBytes + providerIDBytes + tierIDBytes + dateIDBytes
+	sourceDigestStart  = runStart + runIDBytes
+	payloadDigestStart = sourceDigestStart + sha256.Size
 
 	rowMajorLayout = 1
 	gridIFS        = 1
@@ -66,14 +69,16 @@ type Coordinate struct {
 // Identity binds a block to one release, provider, tier, local forecast date
 // and exact native grid. Rows and Columns are the clipped block dimensions.
 type Identity struct {
-	ReleaseID string
-	Provider  string
-	Tier      string
-	Date      string
-	Grid      delivery.GridSpec
-	Block     Coordinate
-	Rows      uint16
-	Columns   uint16
+	ReleaseID            string
+	Provider             string
+	Tier                 string
+	Date                 string
+	RunUTC               string
+	SourceEvidenceSHA256 string
+	Grid                 delivery.GridSpec
+	Block                Coordinate
+	Rows                 uint16
+	Columns              uint16
 }
 
 // Asset is the complete static identity of one immutable native block.
@@ -121,12 +126,15 @@ type Block struct {
 
 // NewIdentity derives the exact clipped block shape and rejects provider or
 // grid combinations that would imply resampling.
-func NewIdentity(releaseID, provider, tier, date string, grid delivery.GridSpec, block Coordinate) (Identity, error) {
+func NewIdentity(releaseID, provider, tier, date, runUTC, sourceEvidenceSHA256 string, grid delivery.GridSpec, block Coordinate) (Identity, error) {
 	if !validIdentifier(releaseID, releaseIDBytes) {
 		return Identity{}, errors.New("forecast block release ID is invalid")
 	}
 	if !validDate(date) {
 		return Identity{}, errors.New("forecast block date is invalid")
+	}
+	if !validRunUTC(runUTC) || !validSHA256(sourceEvidenceSHA256) {
+		return Identity{}, errors.New("forecast block run or source evidence is invalid")
 	}
 	_, blockRows, blockCols, err := nativeLayout(provider, tier, grid)
 	if err != nil {
@@ -139,7 +147,8 @@ func NewIdentity(releaseID, provider, tier, date string, grid delivery.GridSpec,
 	rows := min(uint64(blockRows), uint64(grid.Rows)-firstRow)
 	cols := min(uint64(blockCols), uint64(grid.Cols)-firstCol)
 	return Identity{
-		ReleaseID: releaseID, Provider: provider, Tier: tier, Date: date, Grid: grid, Block: block,
+		ReleaseID: releaseID, Provider: provider, Tier: tier, Date: date, RunUTC: runUTC, SourceEvidenceSHA256: sourceEvidenceSHA256,
+		Grid: grid, Block: block,
 		Rows: uint16(rows), Columns: uint16(cols),
 	}, nil
 }
@@ -167,7 +176,7 @@ func RelativePath(identity Identity) (string, error) {
 
 // CoordinateIdentity returns the exact native block that owns a coordinate.
 // It selects a source cell; it never interpolates or changes grid resolution.
-func CoordinateIdentity(releaseID, provider, tier, date string, grid delivery.GridSpec, longitude, latitude float64) (Identity, bool, error) {
+func CoordinateIdentity(releaseID, provider, tier, date, runUTC, sourceEvidenceSHA256 string, grid delivery.GridSpec, longitude, latitude float64) (Identity, bool, error) {
 	_, blockRows, blockCols, err := nativeLayout(provider, tier, grid)
 	if err != nil {
 		return Identity{}, false, err
@@ -176,7 +185,7 @@ func CoordinateIdentity(releaseID, provider, tier, date string, grid delivery.Gr
 	if err != nil || !ok {
 		return Identity{}, ok, err
 	}
-	identity, err := NewIdentity(releaseID, provider, tier, date, grid, Coordinate{Row: row / uint32(blockRows), Column: col / uint32(blockCols)})
+	identity, err := NewIdentity(releaseID, provider, tier, date, runUTC, sourceEvidenceSHA256, grid, Coordinate{Row: row / uint32(blockRows), Column: col / uint32(blockCols)})
 	return identity, err == nil, err
 }
 
@@ -367,6 +376,7 @@ func encodeHeader(identity Identity, payloadDigest [sha256.Size]byte) []byte {
 	binary.LittleEndian.PutUint32(header[28:32], identity.Grid.Rows)
 	binary.LittleEndian.PutUint32(header[32:36], identity.Grid.Cols)
 	header[36], header[37], header[38], header[39] = byte(len(identity.ReleaseID)), byte(len(identity.Provider)), byte(len(identity.Tier)), byte(len(identity.Date))
+	header[76] = byte(len(identity.RunUTC))
 	putFloat64(header[40:48], identity.Grid.Bounds.West)
 	putFloat64(header[48:56], identity.Grid.Bounds.East)
 	putFloat64(header[56:64], identity.Grid.Bounds.South)
@@ -376,11 +386,15 @@ func encodeHeader(identity Identity, payloadDigest [sha256.Size]byte) []byte {
 	providerStart := releaseStart + releaseIDBytes
 	tierStart := providerStart + providerIDBytes
 	dateStart := tierStart + tierIDBytes
+	runEnd := runStart + runIDBytes
 	copy(header[releaseStart:providerStart], identity.ReleaseID)
 	copy(header[providerStart:tierStart], identity.Provider)
 	copy(header[tierStart:dateStart], identity.Tier)
-	copy(header[dateStart:digestStart], identity.Date)
-	copy(header[digestStart:digestStart+sha256.Size], payloadDigest[:])
+	copy(header[dateStart:runStart], identity.Date)
+	copy(header[runStart:runEnd], identity.RunUTC)
+	sourceDigest, _ := hex.DecodeString(identity.SourceEvidenceSHA256)
+	copy(header[sourceDigestStart:payloadDigestStart], sourceDigest)
+	copy(header[payloadDigestStart:payloadDigestStart+sha256.Size], payloadDigest[:])
 	return header
 }
 
@@ -388,22 +402,25 @@ func decodeHeader(header []byte) (Identity, [sha256.Size]byte, error) {
 	if len(header) != HeaderBytes || string(header[:8]) != string(blockMagic[:]) ||
 		binary.LittleEndian.Uint16(header[8:10]) != Version || binary.LittleEndian.Uint16(header[10:12]) != HeaderBytes ||
 		binary.LittleEndian.Uint16(header[12:14]) != delivery.DailyPointRecordBytes || header[14] != rowMajorLayout ||
-		!allZero(header[76:fixedHeaderBytes]) || !allZero(header[digestStart+sha256.Size:]) {
+		!allZero(header[77:fixedHeaderBytes]) || !allZero(header[payloadDigestStart+sha256.Size:]) {
 		return Identity{}, [sha256.Size]byte{}, errors.New("invalid forecast block header")
 	}
-	releaseLength, providerLength, tierLength, dateLength := int(header[36]), int(header[37]), int(header[38]), int(header[39])
-	if releaseLength > releaseIDBytes || providerLength > providerIDBytes || tierLength > tierIDBytes || dateLength > dateIDBytes {
+	releaseLength, providerLength, tierLength, dateLength, runLength := int(header[36]), int(header[37]), int(header[38]), int(header[39]), int(header[76])
+	if releaseLength > releaseIDBytes || providerLength > providerIDBytes || tierLength > tierIDBytes || dateLength > dateIDBytes || runLength > runIDBytes {
 		return Identity{}, [sha256.Size]byte{}, errors.New("invalid forecast block identity length")
 	}
 	releaseStart := fixedHeaderBytes
 	providerStart := releaseStart + releaseIDBytes
 	tierStart := providerStart + providerIDBytes
 	dateStart := tierStart + tierIDBytes
+	runEnd := runStart + runIDBytes
 	identity := Identity{
-		ReleaseID: string(header[releaseStart : releaseStart+releaseLength]),
-		Provider:  string(header[providerStart : providerStart+providerLength]),
-		Tier:      string(header[tierStart : tierStart+tierLength]),
-		Date:      string(header[dateStart : dateStart+dateLength]),
+		ReleaseID:            string(header[releaseStart : releaseStart+releaseLength]),
+		Provider:             string(header[providerStart : providerStart+providerLength]),
+		Tier:                 string(header[tierStart : tierStart+tierLength]),
+		Date:                 string(header[dateStart : dateStart+dateLength]),
+		RunUTC:               string(header[runStart : runStart+runLength]),
+		SourceEvidenceSHA256: hex.EncodeToString(header[sourceDigestStart:payloadDigestStart]),
 		Grid: delivery.GridSpec{
 			Bounds: delivery.GridBounds{West: getFloat64(header[40:48]), East: getFloat64(header[48:56]), South: getFloat64(header[56:64]), North: getFloat64(header[64:72])},
 			Rows:   binary.LittleEndian.Uint32(header[28:32]), Cols: binary.LittleEndian.Uint32(header[32:36]),
@@ -412,7 +429,7 @@ func decodeHeader(header []byte) (Identity, [sha256.Size]byte, error) {
 		Rows:  binary.LittleEndian.Uint16(header[16:18]), Columns: binary.LittleEndian.Uint16(header[18:20]),
 	}
 	if !allZero(header[releaseStart+releaseLength:providerStart]) || !allZero(header[providerStart+providerLength:tierStart]) ||
-		!allZero(header[tierStart+tierLength:dateStart]) || !allZero(header[dateStart+dateLength:digestStart]) {
+		!allZero(header[tierStart+tierLength:dateStart]) || !allZero(header[dateStart+dateLength:runStart]) || !allZero(header[runStart+runLength:runEnd]) {
 		return Identity{}, [sha256.Size]byte{}, errors.New("invalid forecast block identity padding")
 	}
 	if err := validateIdentity(identity); err != nil {
@@ -426,12 +443,12 @@ func decodeHeader(header []byte) (Identity, [sha256.Size]byte, error) {
 		return Identity{}, [sha256.Size]byte{}, errors.New("forecast block grid kind does not match its identity")
 	}
 	var digest [sha256.Size]byte
-	copy(digest[:], header[digestStart:digestStart+sha256.Size])
+	copy(digest[:], header[payloadDigestStart:payloadDigestStart+sha256.Size])
 	return identity, digest, nil
 }
 
 func validateIdentity(identity Identity) error {
-	canonical, err := NewIdentity(identity.ReleaseID, identity.Provider, identity.Tier, identity.Date, identity.Grid, identity.Block)
+	canonical, err := NewIdentity(identity.ReleaseID, identity.Provider, identity.Tier, identity.Date, identity.RunUTC, identity.SourceEvidenceSHA256, identity.Grid, identity.Block)
 	if err != nil {
 		return err
 	}
@@ -550,6 +567,10 @@ func validDate(value string) bool {
 	}
 	parsed, err := time.Parse("2006-01-02", value)
 	return err == nil && parsed.Format("2006-01-02") == value
+}
+func validRunUTC(value string) bool {
+	parsed, err := time.Parse(time.RFC3339, value)
+	return err == nil && parsed.Location() == time.UTC && parsed.Nanosecond() == 0 && parsed.Format(time.RFC3339) == value
 }
 func validSHA256(value string) bool {
 	if len(value) != sha256.Size*2 {

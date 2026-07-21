@@ -232,14 +232,6 @@ func fieldValue(record delivery.DisplayScoreRecord, field Field) (uint8, bool, e
 func errorsNewSampleOutside() error {
 	return fmt.Errorf("scalar sampler requested a texel outside its prepared texture")
 }
-func hasData(records []delivery.DisplayScoreRecord) bool {
-	for _, record := range records {
-		if record.Valid {
-			return true
-		}
-	}
-	return false
-}
 func mercatorLatitude(globalY, worldPixels int64) float64 {
 	y := (float64(globalY) + .5) / float64(worldPixels)
 	return math.Atan(math.Sinh(math.Pi*(1-2*y))) * 180 / math.Pi

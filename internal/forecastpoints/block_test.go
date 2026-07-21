@@ -1,6 +1,7 @@
 package forecastpoints
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,6 +13,10 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 )
+
+const testRunUTC = "2026-07-22T12:00:00Z"
+
+var testEvidenceSHA256 = strings.Repeat("a", 64)
 
 func TestNativeForecastBlockRoundTripAndFixedOffsets(t *testing.T) {
 	tests := []struct {
@@ -106,19 +111,27 @@ func TestBoundaryShapesAndNativeGridEnforcement(t *testing.T) {
 	badIFS.Cols *= 2
 	for name, attempt := range map[string]func() error{
 		"resampled IFS": func() error {
-			_, err := NewIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", badIFS, Coordinate{})
+			_, err := NewIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", testRunUTC, testEvidenceSHA256, badIFS, Coordinate{})
 			return err
 		},
 		"mixed pair": func() error {
-			_, err := NewIdentity("release-canary", ProviderIFS, TierEurope, "2026-07-22", ifsGrid, Coordinate{})
+			_, err := NewIdentity("release-canary", ProviderIFS, TierEurope, "2026-07-22", testRunUTC, testEvidenceSHA256, ifsGrid, Coordinate{})
 			return err
 		},
 		"outside block": func() error {
-			_, err := NewIdentity("release-canary", ProviderICONEU, TierEurope, "2026-07-22", iconGrid, Coordinate{Row: 11})
+			_, err := NewIdentity("release-canary", ProviderICONEU, TierEurope, "2026-07-22", testRunUTC, testEvidenceSHA256, iconGrid, Coordinate{Row: 11})
 			return err
 		},
 		"invalid date": func() error {
-			_, err := NewIdentity("release-canary", ProviderIFS, TierGlobal, "2026-02-30", ifsGrid, Coordinate{})
+			_, err := NewIdentity("release-canary", ProviderIFS, TierGlobal, "2026-02-30", testRunUTC, testEvidenceSHA256, ifsGrid, Coordinate{})
+			return err
+		},
+		"noncanonical run": func() error {
+			_, err := NewIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", "2026-07-22T12:00:00+00:00", testEvidenceSHA256, ifsGrid, Coordinate{})
+			return err
+		},
+		"invalid source evidence": func() error {
+			_, err := NewIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", testRunUTC, strings.Repeat("A", 64), ifsGrid, Coordinate{})
 			return err
 		},
 	} {
@@ -134,22 +147,22 @@ func TestBoundaryShapesAndNativeGridEnforcement(t *testing.T) {
 }
 
 func TestCoordinateOwnershipWrapAndNoResampling(t *testing.T) {
-	west, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", ifsGrid, -180, 0)
+	west, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", testRunUTC, testEvidenceSHA256, ifsGrid, -180, 0)
 	if err != nil || !ok {
 		t.Fatal(err)
 	}
-	east, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", ifsGrid, 180, 0)
+	east, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", testRunUTC, testEvidenceSHA256, ifsGrid, 180, 0)
 	if err != nil || !ok || east != west {
 		t.Fatalf("antimeridian east=%+v west=%+v ok=%t err=%v", east, west, ok, err)
 	}
-	wrapped, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", ifsGrid, 540, 0)
+	wrapped, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", testRunUTC, testEvidenceSHA256, ifsGrid, 540, 0)
 	if err != nil || !ok || wrapped != west {
 		t.Fatalf("wrapped = %+v, %t, %v", wrapped, ok, err)
 	}
 }
 
 func TestCoordinateBlockOwnershipAndCoastalNoData(t *testing.T) {
-	identity, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", ifsGrid, -164, 80)
+	identity, ok, err := CoordinateIdentity("release-canary", ProviderIFS, TierGlobal, "2026-07-22", testRunUTC, testEvidenceSHA256, ifsGrid, -164, 80)
 	if err != nil || !ok || identity.Block.Column != 1 || identity.Block.Row != 0 {
 		t.Fatalf("16 degree boundary = %+v, %t, %v", identity, ok, err)
 	}
@@ -157,7 +170,7 @@ func TestCoordinateBlockOwnershipAndCoastalNoData(t *testing.T) {
 	if _, ok, err := RecordRange(westBlock, -164, 80); err != nil || ok {
 		t.Fatalf("east boundary belonged to west block: ok=%t err=%v", ok, err)
 	}
-	icon, ok, err := CoordinateIdentity("release-canary", ProviderICONEU, TierEurope, "2026-07-22", iconGrid, -4.4214, 36.7213)
+	icon, ok, err := CoordinateIdentity("release-canary", ProviderICONEU, TierEurope, "2026-07-22", testRunUTC, testEvidenceSHA256, iconGrid, -4.4214, 36.7213)
 	if err != nil || !ok {
 		t.Fatal(err)
 	}
@@ -176,7 +189,7 @@ func TestCoordinateBlockOwnershipAndCoastalNoData(t *testing.T) {
 	if record, found, err := block.RecordAt(longitude, latitude); err != nil || found || record != (delivery.DailyPointRecord{}) {
 		t.Fatalf("coastal no-data = %+v, %t, %v", record, found, err)
 	}
-	if _, ok, err := CoordinateIdentity("release-canary", ProviderICONEU, TierEurope, "2026-07-22", iconGrid, -30, 40); err != nil || ok {
+	if _, ok, err := CoordinateIdentity("release-canary", ProviderICONEU, TierEurope, "2026-07-22", testRunUTC, testEvidenceSHA256, iconGrid, -30, 40); err != nil || ok {
 		t.Fatalf("outside ICON = %t, %v", ok, err)
 	}
 }
@@ -239,13 +252,23 @@ func TestBlockRejectsCorruptionIdentityAndUnboundedFiles(t *testing.T) {
 	if _, err := ParseBlock(data, wrongIdentity, asset.SHA256); err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("wrong identity error = %v", err)
 	}
+	wrongRun := identity
+	wrongRun.RunUTC = "2026-07-22T18:00:00Z"
+	if _, err := ParseBlock(data, wrongRun, asset.SHA256); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("wrong run error = %v", err)
+	}
+	wrongEvidence := identity
+	wrongEvidence.SourceEvidenceSHA256 = strings.Repeat("b", 64)
+	if _, err := ParseBlock(data, wrongEvidence, asset.SHA256); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("wrong evidence error = %v", err)
+	}
 	if _, err := ParseBlock(data[:len(data)-1], identity, asset.SHA256); err == nil || !strings.Contains(err.Error(), "bytes") {
 		t.Fatalf("truncated error = %v", err)
 	}
 	invalidRecord := append([]byte(nil), data...)
 	invalidRecord[HeaderBytes+25] = 101
 	payloadDigest := sha256.Sum256(invalidRecord[HeaderBytes:])
-	copy(invalidRecord[digestStart:digestStart+sha256.Size], payloadDigest[:])
+	copy(invalidRecord[payloadDigestStart:payloadDigestStart+sha256.Size], payloadDigest[:])
 	wholeDigest := sha256.Sum256(invalidRecord)
 	if _, err := ParseBlock(invalidRecord, identity, hex.EncodeToString(wholeDigest[:])); err == nil || !strings.Contains(err.Error(), "record 0") {
 		t.Fatalf("invalid canonical record error = %v", err)
@@ -289,11 +312,18 @@ func TestHeaderCarriesExactNativeIdentityAndPayloadDigest(t *testing.T) {
 	if binary.LittleEndian.Uint32(header[72:76]) != uint32(len(records)*delivery.DailyPointRecordBytes) {
 		t.Fatalf("payload bytes = %d", binary.LittleEndian.Uint32(header[72:76]))
 	}
+	if header[76] != byte(len(identity.RunUTC)) || string(header[runStart:runStart+len(identity.RunUTC)]) != identity.RunUTC {
+		t.Fatalf("run identity = %q", header[runStart:runStart+len(identity.RunUTC)])
+	}
+	sourceDigest, err := hex.DecodeString(identity.SourceEvidenceSHA256)
+	if err != nil || !bytes.Equal(header[sourceDigestStart:payloadDigestStart], sourceDigest) {
+		t.Fatalf("source evidence = %x, err=%v", header[sourceDigestStart:payloadDigestStart], err)
+	}
 }
 
 func mustIdentity(t *testing.T, provider, tier string, grid delivery.GridSpec, coordinate Coordinate) Identity {
 	t.Helper()
-	identity, err := NewIdentity("release-canary", provider, tier, "2026-07-22", grid, coordinate)
+	identity, err := NewIdentity("release-canary", provider, tier, "2026-07-22", testRunUTC, testEvidenceSHA256, grid, coordinate)
 	if err != nil {
 		t.Fatal(err)
 	}
