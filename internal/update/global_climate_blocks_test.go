@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/climatebuild"
+	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/agera5"
 )
@@ -30,16 +31,20 @@ func (reference globalClimateTestReference) LastDate() time.Time           { ret
 func (reference globalClimateTestReference) Block() agera5.BlockCoordinate { return reference.block }
 
 type globalClimateTestSource struct {
-	mu          sync.Mutex
-	entries     int
-	fetches     int
-	active      int
-	maximum     int
-	blocked     map[agera5.BlockCoordinate]bool
-	entered     chan struct{}
-	release     chan struct{}
-	fetchErr    error
-	repairBlock agera5.BlockCoordinate
+	mu                   sync.Mutex
+	entries              int
+	fetches              int
+	active               int
+	maximum              int
+	blocked              map[agera5.BlockCoordinate]bool
+	entered              chan struct{}
+	release              chan struct{}
+	fetchErr             error
+	repairBlock          agera5.BlockCoordinate
+	unsupported          bool
+	unsupportedBlock     agera5.BlockCoordinate
+	unsupportedLatitude  int
+	unsupportedLongitude int
 }
 
 func (source *globalClimateTestSource) Shape(block agera5.BlockCoordinate) (int, int, error) {
@@ -101,7 +106,11 @@ func (source *globalClimateTestSource) Fetch(ctx context.Context, raw climatebui
 	if err != nil {
 		return nil, err
 	}
-	return globalClimateTestBlock{reference: reference, width: width, height: height, repair: reference.block == source.repairBlock}, nil
+	return globalClimateTestBlock{
+		reference: reference, width: width, height: height, repair: reference.block == source.repairBlock,
+		unsupported:         source.unsupported && reference.block == source.unsupportedBlock,
+		unsupportedLatitude: source.unsupportedLatitude, unsupportedLongitude: source.unsupportedLongitude,
+	}, nil
 }
 
 func (source *globalClimateTestSource) counts() (fetches, maximum int) {
@@ -117,9 +126,11 @@ func (source *globalClimateTestSource) taskEntries() int {
 }
 
 type globalClimateTestBlock struct {
-	reference     globalClimateTestReference
-	width, height int
-	repair        bool
+	reference                                 globalClimateTestReference
+	width, height                             int
+	repair                                    bool
+	unsupported                               bool
+	unsupportedLatitude, unsupportedLongitude int
 }
 
 func (block globalClimateTestBlock) Reference() climatebuild.ChunkReference { return block.reference }
@@ -146,6 +157,9 @@ func (block globalClimateTestBlock) Location(latitudeOffset, longitudeOffset int
 func (block globalClimateTestBlock) Value(timeOffset, latitudeOffset, longitudeOffset int) (float32, bool, error) {
 	if timeOffset < 0 || timeOffset >= block.TimeCount() || latitudeOffset < 0 || latitudeOffset >= block.height || longitudeOffset < 0 || longitudeOffset >= block.width {
 		return 0, false, errors.New("value outside test block")
+	}
+	if block.unsupported && latitudeOffset == block.unsupportedLatitude && longitudeOffset == block.unsupportedLongitude {
+		return 0, false, nil
 	}
 	switch block.reference.field {
 	case agera5.DaytimeMeanTemperature:
@@ -251,6 +265,59 @@ func TestGlobalClimateBlocksBuildOneLandCheckpointAndResumeWithoutFetch(t *testi
 	}
 	if resumed.Reused != 1 || resumed.Built != 0 || resumed.CheckpointBytes != built.CheckpointBytes || !reflect.DeepEqual(resumed.Completed, built.Completed) {
 		t.Fatalf("resumed summary = %+v; built = %+v", resumed, built)
+	}
+}
+
+func TestGlobalClimateBlocksCountStructurallyUnsupportedLandAcrossBuildAndResume(t *testing.T) {
+	root := t.TempDir()
+	mask := globalClimateMask(t)
+	block := agera5.BlockCoordinate{Latitude: 109, Longitude: 0}
+	setGlobalClimateLand(t, &mask, 1749, 1)
+	setGlobalClimateLand(t, &mask, 1750, 1)
+	source := &globalClimateTestSource{
+		unsupported: true, unsupportedBlock: block,
+		unsupportedLatitude: 5, unsupportedLongitude: 1,
+	}
+
+	built, err := RunGlobalClimateBlocks(context.Background(), root, source, mask, testSourceDigest(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if built.LandCells != 2 || built.UnsupportedLandCells != 1 || built.Built != 1 {
+		t.Fatalf("built support summary = %+v", built)
+	}
+	checkpoint, found, err := climatebuild.LoadCheckpoint(globalClimateCheckpointPath(root, block), built.Completed[0])
+	if err != nil || !found {
+		t.Fatalf("load checkpoint found=%t error=%v", found, err)
+	}
+	if checkpoint.Months[0][5*32+1].Valid || !checkpoint.Months[0][6*32+1].Valid {
+		t.Fatalf("checkpoint support cells are not deterministic")
+	}
+
+	resumed, err := RunGlobalClimateBlocks(context.Background(), root, &globalClimateTestSource{fetchErr: errors.New("resume fetched source")}, mask, testSourceDigest(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.UnsupportedLandCells != 1 || resumed.Reused != 1 || resumed.Built != 0 {
+		t.Fatalf("resumed support summary = %+v", resumed)
+	}
+}
+
+func TestGlobalClimateCheckpointSupportRejectsPartialMonthsAndWaterEvidence(t *testing.T) {
+	checkpoint := climatebuild.Checkpoint{Identity: climatebuild.CheckpointIdentity{Width: 2, Height: 1}}
+	for month := range checkpoint.Months {
+		checkpoint.Months[month] = make([]delivery.ClimateDistributionRecord, 2)
+		checkpoint.Months[month][0].Valid = true
+	}
+	if complete, unsupported, err := globalClimateCheckpointSupport(checkpoint, []bool{true, true}); err != nil || complete != 1 || unsupported != 1 {
+		t.Fatalf("support = complete %d unsupported %d error %v", complete, unsupported, err)
+	}
+	checkpoint.Months[0][1].Valid = true
+	if _, _, err := globalClimateCheckpointSupport(checkpoint, []bool{true, true}); err == nil || !strings.Contains(err.Error(), "1 of 12 valid months") {
+		t.Fatalf("partial-month error = %v", err)
+	}
+	if _, _, err := globalClimateCheckpointSupport(checkpoint, []bool{false, true}); err == nil || !strings.Contains(err.Error(), "water cell 0") {
+		t.Fatalf("water evidence error = %v", err)
 	}
 }
 

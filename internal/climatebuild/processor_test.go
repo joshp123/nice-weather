@@ -242,7 +242,7 @@ func TestBuildLandBlockRequiresExactMaskGeometry(t *testing.T) {
 	}
 }
 
-func TestBuildLandBlockRejectsMissingEvidenceOnLand(t *testing.T) {
+func TestBuildLandBlockKeepsStructurallyUnsupportedLandInvalid(t *testing.T) {
 	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
 	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
 	missingCell := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
@@ -251,8 +251,12 @@ func TestBuildLandBlockRejectsMissingEvidenceOnLand(t *testing.T) {
 		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
-	if _, err := BuildLandBlock(context.Background(), fixtureSource(window, 2, 1, missingCell), coordinate, window, []bool{true, true}); !errors.Is(err, ErrIncompleteCell) || !strings.Contains(err.Error(), "land cell 0,1 has no source evidence") {
-		t.Fatalf("missing land-cell error = %v", err)
+	result, err := BuildLandBlock(context.Background(), fixtureSource(window, 2, 1, missingCell), coordinate, window, []bool{true, true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Stats.LandCells != 2 || result.Stats.CompleteCells != 1 || result.Stats.UnsupportedLandCells != 1 || result.Stats.NoDataCells != 1 || result.Months[0][1].Valid {
+		t.Fatalf("structurally unsupported land result = %+v, record = %+v", result.Stats, result.Months[0][1])
 	}
 
 	absentBlock := fixtureSource(window, 1, 1, completeValue)

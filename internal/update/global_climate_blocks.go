@@ -32,19 +32,20 @@ const (
 // only land-block checkpoint identities, in canonical north-to-south then
 // west-to-east order. Water-only blocks have no checkpoint by design.
 type GlobalClimateBlockSummary struct {
-	Blocks             int
-	SourceCells        int
-	IncludedCells      int
-	LandCells          int
-	WaterCells         int
-	CroppedCells       int
-	Reused             int
-	Built              int
-	WaterSkipped       int
-	CheckpointBytes    int64
-	TemperatureRepairs int64
-	MaximumInversionC  float64
-	Completed          []climatebuild.CheckpointIdentity
+	Blocks               int
+	SourceCells          int
+	IncludedCells        int
+	LandCells            int
+	UnsupportedLandCells int
+	WaterCells           int
+	CroppedCells         int
+	Reused               int
+	Built                int
+	WaterSkipped         int
+	CheckpointBytes      int64
+	TemperatureRepairs   int64
+	MaximumInversionC    float64
+	Completed            []climatebuild.CheckpointIdentity
 }
 
 type globalClimateBlockTask struct {
@@ -53,20 +54,21 @@ type globalClimateBlockTask struct {
 }
 
 type globalClimateBlockOutcome struct {
-	index              int
-	identity           climatebuild.CheckpointIdentity
-	sourceCells        int
-	includedCells      int
-	landCells          int
-	waterCells         int
-	croppedCells       int
-	reused             bool
-	built              bool
-	waterSkipped       bool
-	checkpointBytes    int64
-	temperatureRepairs int
-	maximumInversion   float64
-	err                error
+	index                int
+	identity             climatebuild.CheckpointIdentity
+	sourceCells          int
+	includedCells        int
+	landCells            int
+	unsupportedLandCells int
+	waterCells           int
+	croppedCells         int
+	reused               bool
+	built                bool
+	waterSkipped         bool
+	checkpointBytes      int64
+	temperatureRepairs   int
+	maximumInversion     float64
+	err                  error
 }
 
 // RunGlobalClimateBlocks builds or resumes every AgERA5 land block that
@@ -292,6 +294,11 @@ func runGlobalClimateBlock(
 		return outcome
 	}
 	if found {
+		_, outcome.unsupportedLandCells, err = globalClimateCheckpointSupport(checkpoint, land)
+		if err != nil {
+			outcome.err = fmt.Errorf("validate global climate block %+v checkpoint support: %w", task.block, err)
+			return outcome
+		}
 		outcome.reused = true
 		outcome.temperatureRepairs = checkpoint.TemperatureRepairs
 		outcome.maximumInversion = checkpoint.MaximumTemperatureRepair
@@ -306,10 +313,12 @@ func runGlobalClimateBlock(
 	}
 	if result.Width != width || result.Height != height || result.Stats.LogicalCells != outcome.sourceCells ||
 		result.Stats.LandCells != outcome.landCells || result.Stats.WaterCells != outcome.sourceCells-outcome.landCells ||
-		result.Stats.CompleteCells != outcome.landCells || result.Stats.NoDataCells != outcome.sourceCells-outcome.landCells || result.Stats.SparseOcean {
+		result.Stats.CompleteCells+result.Stats.UnsupportedLandCells != outcome.landCells ||
+		result.Stats.NoDataCells != outcome.sourceCells-outcome.landCells+result.Stats.UnsupportedLandCells || result.Stats.SparseOcean {
 		outcome.err = fmt.Errorf("global climate block %+v returned incomplete land evidence", task.block)
 		return outcome
 	}
+	outcome.unsupportedLandCells = result.Stats.UnsupportedLandCells
 	if err := ctx.Err(); err != nil {
 		outcome.err = err
 		return outcome
@@ -346,6 +355,37 @@ func globalClimateCheckpointBytes(path string) (int64, error) {
 	return info.Size(), nil
 }
 
+func globalClimateCheckpointSupport(checkpoint climatebuild.Checkpoint, land []bool) (completeLand, unsupportedLand int, err error) {
+	cells := checkpoint.Identity.Width * checkpoint.Identity.Height
+	if len(land) != cells {
+		return 0, 0, fmt.Errorf("land mask has %d cells; want %d", len(land), cells)
+	}
+	for month := range checkpoint.Months {
+		if len(checkpoint.Months[month]) != cells {
+			return 0, 0, fmt.Errorf("checkpoint month %02d has %d cells; want %d", month+1, len(checkpoint.Months[month]), cells)
+		}
+	}
+	for cell, isLand := range land {
+		validMonths := 0
+		for month := range checkpoint.Months {
+			if checkpoint.Months[month][cell].Valid {
+				validMonths++
+			}
+		}
+		switch {
+		case !isLand && validMonths != 0:
+			return 0, 0, fmt.Errorf("water cell %d has %d valid months", cell, validMonths)
+		case isLand && validMonths == len(checkpoint.Months):
+			completeLand++
+		case isLand && validMonths == 0:
+			unsupportedLand++
+		case isLand:
+			return 0, 0, fmt.Errorf("land cell %d has %d of %d valid months", cell, validMonths, len(checkpoint.Months))
+		}
+	}
+	return completeLand, unsupportedLand, nil
+}
+
 func summarizeGlobalClimateBlocks(outcomes []globalClimateBlockOutcome) (GlobalClimateBlockSummary, error) {
 	summary := GlobalClimateBlockSummary{Blocks: len(outcomes)}
 	for index, outcome := range outcomes {
@@ -355,6 +395,7 @@ func summarizeGlobalClimateBlocks(outcomes []globalClimateBlockOutcome) (GlobalC
 		summary.SourceCells += outcome.sourceCells
 		summary.IncludedCells += outcome.includedCells
 		summary.LandCells += outcome.landCells
+		summary.UnsupportedLandCells += outcome.unsupportedLandCells
 		summary.WaterCells += outcome.waterCells
 		summary.CroppedCells += outcome.croppedCells
 		summary.CheckpointBytes += outcome.checkpointBytes
@@ -376,6 +417,7 @@ func summarizeGlobalClimateBlocks(outcomes []globalClimateBlockOutcome) (GlobalC
 	}
 	if summary.IncludedCells != int(climatebuild.WorldwideGridSpec().Rows)*int(climatebuild.WorldwideGridSpec().Cols) ||
 		summary.IncludedCells != summary.LandCells+summary.WaterCells || summary.SourceCells != summary.IncludedCells+summary.CroppedCells ||
+		summary.UnsupportedLandCells < 0 || summary.UnsupportedLandCells > summary.LandCells ||
 		summary.Blocks != summary.Reused+summary.Built+summary.WaterSkipped || len(summary.Completed) != summary.Reused+summary.Built {
 		return GlobalClimateBlockSummary{}, errors.New("global climate block summary is incomplete")
 	}

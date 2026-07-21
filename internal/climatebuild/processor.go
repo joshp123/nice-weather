@@ -145,6 +145,7 @@ type Stats struct {
 	LandCells                int
 	WaterCells               int
 	CompleteCells            int
+	UnsupportedLandCells     int
 	NoDataCells              int
 	SparseOcean              bool
 	TemperatureRepairs       int
@@ -355,7 +356,12 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		switch cells[cellIndex].availableDays {
 		case 0:
 			if land != nil {
-				return Result{}, fmt.Errorf("%w: land cell %d,%d has no source evidence", ErrIncompleteCell, cellIndex/result.Width, cellIndex%result.Width)
+				// AgERA5 has a stricter source-support mask than Natural Earth,
+				// notably over permanent ice. A cell with no value in any required
+				// field on any day is structurally unsupported, not incomplete.
+				// It remains invalid and transparent. Any partial field or day
+				// coverage still fails in the hot path above or the default case.
+				result.Stats.UnsupportedLandCells++
 			}
 			result.Stats.NoDataCells++
 			continue
@@ -376,8 +382,8 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		}
 		result.Stats.CompleteCells++
 	}
-	if land != nil && (result.Stats.CompleteCells != result.Stats.LandCells || result.Stats.NoDataCells != result.Stats.WaterCells) {
-		return Result{}, fmt.Errorf("%w: complete land cells %d/%d and masked water cells %d/%d", ErrIncompleteCell, result.Stats.CompleteCells, result.Stats.LandCells, result.Stats.NoDataCells, result.Stats.WaterCells)
+	if land != nil && (result.Stats.CompleteCells+result.Stats.UnsupportedLandCells != result.Stats.LandCells || result.Stats.NoDataCells != result.Stats.WaterCells+result.Stats.UnsupportedLandCells) {
+		return Result{}, fmt.Errorf("%w: complete land cells %d, unsupported land cells %d, Natural Earth land cells %d, and no-data cells %d/%d", ErrIncompleteCell, result.Stats.CompleteCells, result.Stats.UnsupportedLandCells, result.Stats.LandCells, result.Stats.NoDataCells, result.Stats.WaterCells+result.Stats.UnsupportedLandCells)
 	}
 	return result, nil
 }
