@@ -2,10 +2,11 @@ import { readBoundedResponse } from './boundedResponse';
 
 const POINTER_PATH = '/climate/current.json';
 const MAX_POINTER_BYTES = 1_024;
-const MAX_CATALOG_BYTES = 32 * 1024 * 1024;
+const MAX_INDEX_BYTES = 64 * 1_024;
+const MAX_CATALOG_BYTES = 32 * 1_024 * 1_024;
 const MAX_POINT_BLOCKS = 20_000;
 const MAX_SCALAR_TILES = 20_000;
-const MAX_SESSION_RELEASES = 128;
+const MAX_SESSION_IDENTITIES = 128;
 const HEADER_BYTES = 160;
 const RECORD_BYTES = 36;
 const BLOCK_MEDIA_TYPE = 'application/vnd.nice-weather.climate-block';
@@ -18,6 +19,26 @@ const FIELDS = [
 const DERIVATION_CONTRACT = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
 
 export type ClimateField = typeof FIELDS[number];
+export type ClimateIndexState = 'preview' | 'complete';
+
+export type ClimateMonthReference = Readonly<{
+  period: string;
+  releaseId: string;
+  catalogSha256: string;
+}>;
+
+export type ClimateIndex = Readonly<{
+  version: 1;
+  indexId: string;
+  state: ClimateIndexState;
+  referencePeriod: Readonly<{ firstYear: 2006; lastYear: 2025 }>;
+  provenance: Readonly<{
+    sourceEvidenceSha256: string;
+    landMaskSetSha256: string;
+    derivationContract: typeof DERIVATION_CONTRACT;
+  }>;
+  months: readonly ClimateMonthReference[];
+}>;
 
 export type ClimateRatingShares = Readonly<{
   awful: number;
@@ -92,11 +113,7 @@ export type ClimateCatalog = Readonly<{
     localDay: 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time';
     landMask: 'natural-earth-5.1.1-centre-on-land';
   }>;
-  provenance: Readonly<{
-    sourceEvidenceSha256: string;
-    landMaskSetSha256: string;
-    derivationContract: typeof DERIVATION_CONTRACT;
-  }>;
+  provenance: ClimateIndex['provenance'];
   probability: Readonly<{
     unit: 'whole-percent';
     denominator: 'complete-real-days-in-reference-month';
@@ -112,6 +129,7 @@ export type ClimateCatalog = Readonly<{
 
 export type ClimateClientOptions = Readonly<{
   fetcher?: typeof fetch;
+  indexCacheSize?: number;
   catalogCacheSize?: number;
   blockCacheSize?: number;
 }>;
@@ -128,7 +146,8 @@ export class ClimateDataError extends Error {
   }
 }
 
-type Pointer = Readonly<{ releaseId: string; catalogSha256: string }>;
+type Pointer = Readonly<{ version: 2; indexId: string; indexSha256: string }>;
+type Snapshot = Readonly<{ pointer: Pointer; index: ClimateIndex }>;
 type PointLocation = Readonly<{
   latitude: number;
   longitude: number;
@@ -137,40 +156,58 @@ type PointLocation = Readonly<{
   latitudeBlock: number;
   longitudeBlock: number;
 }>;
+
 export class WorldwideClimateClient {
   readonly #fetcher: typeof fetch;
+  readonly #indexCacheSize: number;
   readonly #catalogCacheSize: number;
   readonly #blockCacheSize: number;
+  readonly #indexCache = new Map<string, ClimateIndex>();
   readonly #catalogCache = new Map<string, ClimateCatalog>();
-  readonly #releaseDigests = new Map<string, string>();
   readonly #blockCache = new Map<string, Uint8Array>();
+  readonly #indexDigests = new Map<string, string>();
+  readonly #releaseDigests = new Map<string, string>();
   #activePoint?: AbortController;
   #pointGeneration = 0;
 
   constructor(options: ClimateClientOptions = {}) {
     this.#fetcher = options.fetcher ?? fetch;
+    this.#indexCacheSize = boundedCacheSize(options.indexCacheSize, 2, 1, 4);
     this.#catalogCacheSize = boundedCacheSize(options.catalogCacheSize, 2, 1, 4);
     this.#blockCacheSize = boundedCacheSize(options.blockCacheSize, 16, 1, 64);
   }
 
-  async loadCatalog(signal?: AbortSignal): Promise<ClimateCatalog> {
+  async loadIndex(signal?: AbortSignal): Promise<ClimateIndex> {
     try {
+      return (await this.#loadSnapshot(signal)).index;
+    } catch (error) {
+      if (signal?.aborted) throw abortReason(signal);
+      if (error instanceof ClimateDataError) throw error;
+      throw new ClimateDataError('invalid');
+    }
+  }
+
+  // A preview deliberately exposes only its listed months. An unavailable
+  // month returns undefined without requesting a catalogue or an asset.
+  async loadCatalog(period: string, signal?: AbortSignal): Promise<ClimateCatalog | undefined> {
+    if (!periodID(period)) throw new ClimateDataError('invalid');
+    try {
+      const snapshot = await this.#loadSnapshot(signal);
+      const reference = snapshot.index.months.find((month) => month.period === period);
+      if (!reference) return undefined;
+      const catalog = await this.#catalogFor(snapshot.index, reference, signal);
       assertNotAborted(signal);
-      const pointer = await this.#loadPointer(signal);
-      assertNotAborted(signal);
-      const catalog = await this.#catalogFor(pointer, signal);
-      assertNotAborted(signal);
-      const after = await this.#loadPointer(signal);
-      assertNotAborted(signal);
-      if (!samePointer(pointer, after)) throw new ClimateDataError('stale');
+      await this.#confirmPointer(snapshot.pointer, signal);
       return catalog;
     } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
-      throw error;
+      if (signal?.aborted) throw abortReason(signal);
+      if (error instanceof ClimateDataError) throw error;
+      throw new ClimateDataError('invalid');
     }
   }
 
   async loadPoint(period: string, longitude: number, latitude: number, signal?: AbortSignal): Promise<ClimatePointEvidence | undefined> {
+    if (!periodID(period)) throw new ClimateDataError('invalid');
     this.#activePoint?.abort(new ClimateDataError('stale'));
     const controller = new AbortController();
     this.#activePoint = controller;
@@ -178,21 +215,22 @@ export class WorldwideClimateClient {
     const combined = combineSignals(controller.signal, signal);
 
     try {
-      const pointer = await this.#loadPointer(combined);
+      const snapshot = await this.#loadSnapshot(combined);
       this.#assertCurrent(generation, controller, combined);
-      const catalog = await this.#catalogFor(pointer, combined);
+      const reference = snapshot.index.months.find((month) => month.period === period);
+      if (!reference) return undefined;
+      const catalog = await this.#catalogFor(snapshot.index, reference, combined);
       this.#assertCurrent(generation, controller, combined);
-      if (period !== catalog.period) throw new ClimateDataError('stale');
 
       const location = locatePoint(longitude, latitude, catalog);
       if (!location) {
-        await this.#confirmPointer(pointer, combined, generation, controller);
+        await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
         return undefined;
       }
       const block = catalog.pointBlocks.find((candidate) =>
         candidate.latitudeBlock === location.latitudeBlock && candidate.longitudeBlock === location.longitudeBlock);
       if (!block) {
-        await this.#confirmPointer(pointer, combined, generation, controller);
+        await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
         return undefined;
       }
 
@@ -207,19 +245,15 @@ export class WorldwideClimateClient {
 
       const row = location.latitudeIndex - block.latitudeBlock * 16;
       const column = location.longitudeIndex - block.longitudeBlock * 32;
-      if (row < 0 || row >= block.latitudeCount || column < 0 || column >= block.longitudeCount) {
-        throw new ClimateDataError('invalid');
-      }
-      const index = row * block.longitudeCount + column;
-      const start = HEADER_BYTES + index * RECORD_BYTES;
+      if (row < 0 || row >= block.latitudeCount || column < 0 || column >= block.longitudeCount) throw new ClimateDataError('invalid');
+      const start = HEADER_BYTES + (row * block.longitudeCount + column) * RECORD_BYTES;
       if (!Number.isSafeInteger(start) || start + RECORD_BYTES > block.bytes) throw new ClimateDataError('invalid');
-      const record = blockBytes.subarray(start, start + RECORD_BYTES);
-      const evidence = decodeRecord(record, catalog.releaseId, catalog.period, location);
+      const evidence = decodeRecord(blockBytes.subarray(start, start + RECORD_BYTES), catalog.releaseId, catalog.period, location);
 
-      await this.#confirmPointer(pointer, combined, generation, controller);
+      await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
       return evidence;
     } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+      if (signal?.aborted) throw abortReason(signal);
       if (controller.signal.aborted || generation !== this.#pointGeneration) throw new ClimateDataError('stale');
       if (error instanceof ClimateDataError) throw error;
       throw new ClimateDataError('invalid');
@@ -238,60 +272,95 @@ export class WorldwideClimateClient {
     return climateAssetUrl(catalog.releaseId, tile.path);
   }
 
+  async #loadSnapshot(signal?: AbortSignal): Promise<Snapshot> {
+    assertNotAborted(signal);
+    const pointer = await this.#loadPointer(signal);
+    assertNotAborted(signal);
+    const index = await this.#indexFor(pointer, signal);
+    assertNotAborted(signal);
+    await this.#confirmPointer(pointer, signal);
+    return { pointer, index };
+  }
+
   async #loadPointer(signal?: AbortSignal): Promise<Pointer> {
+    const bytes = await this.#loadExactJSON(POINTER_PATH, MAX_POINTER_BYTES, signal, false);
+    const data = exactObject(parseJSON(bytes), ['version', 'indexId', 'indexSha256']);
+    if (data.version !== 2 || !releaseID(data.indexId) || !sha256Value(data.indexSha256)) throw new ClimateDataError('invalid');
+    return { version: 2, indexId: data.indexId, indexSha256: data.indexSha256 };
+  }
+
+  async #indexFor(pointer: Pointer, signal?: AbortSignal): Promise<ClimateIndex> {
+    const key = `${pointer.indexId}:${pointer.indexSha256}`;
+    const cached = touch(this.#indexCache, key);
+    if (cached) return cached;
+    const known = this.#indexDigests.get(pointer.indexId);
+    if (known !== undefined && known !== pointer.indexSha256) throw new ClimateDataError('stale');
+
+    const bytes = await this.#loadExactJSON(`/climate/indexes/${pointer.indexId}.json`, MAX_INDEX_BYTES, signal, true);
+    assertNotAborted(signal);
+    if (await digestHex(bytes) !== pointer.indexSha256) throw new ClimateDataError('invalid');
+    assertNotAborted(signal);
+    const index = parseIndex(parseJSON(bytes));
+    if (index.indexId !== pointer.indexId) throw new ClimateDataError('invalid');
+    rememberIdentity(this.#indexDigests, pointer.indexId, pointer.indexSha256);
+    insertBounded(this.#indexCache, key, index, this.#indexCacheSize);
+    return index;
+  }
+
+  async #catalogFor(index: ClimateIndex, reference: ClimateMonthReference, signal?: AbortSignal): Promise<ClimateCatalog> {
+    const key = `${reference.releaseId}:${reference.catalogSha256}`;
+    const cached = touch(this.#catalogCache, key);
+    if (cached) {
+      if (cached.releaseId !== reference.releaseId || cached.period !== reference.period ||
+        !sameReferencePeriod(cached.source.referencePeriod, index.referencePeriod) ||
+        !sameProvenance(cached.provenance, index.provenance)) throw new ClimateDataError('invalid');
+      return cached;
+    }
+    const known = this.#releaseDigests.get(reference.releaseId);
+    if (known !== undefined && known !== reference.catalogSha256) throw new ClimateDataError('stale');
+
+    const bytes = await this.#loadExactJSON(`/climate/releases/${reference.releaseId}/catalog.json`, MAX_CATALOG_BYTES, signal, true);
+    assertNotAborted(signal);
+    if (await digestHex(bytes) !== reference.catalogSha256) throw new ClimateDataError('invalid');
+    assertNotAborted(signal);
+    const catalog = parseCatalog(parseJSON(bytes));
+    if (catalog.releaseId !== reference.releaseId || catalog.period !== reference.period ||
+      !sameReferencePeriod(catalog.source.referencePeriod, index.referencePeriod) ||
+      !sameProvenance(catalog.provenance, index.provenance)) throw new ClimateDataError('invalid');
+    rememberIdentity(this.#releaseDigests, reference.releaseId, reference.catalogSha256);
+    insertBounded(this.#catalogCache, key, catalog, this.#catalogCacheSize);
+    return catalog;
+  }
+
+  async #loadExactJSON(path: string, maximumBytes: number, signal: AbortSignal | undefined, immutable: boolean): Promise<Uint8Array> {
     let response: Response;
     try {
-      response = await this.#fetcher(POINTER_PATH, { signal, cache: 'no-cache' });
+      response = await this.#fetcher(path, { signal, cache: immutable ? 'force-cache' : 'no-cache' });
     } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? error;
+      if (signal?.aborted) throw abortReason(signal);
       throw new ClimateDataError('unavailable');
     }
+    assertNotAborted(signal);
+    if (response.status === 404 || response.status === 409 || response.status === 410) throw new ClimateDataError(immutable ? 'stale' : 'unavailable');
     if (!response.ok) throw new ClimateDataError('unavailable');
-    if (!jsonMediaType(response)) throw new ClimateDataError('invalid');
+    if (!jsonMediaType(response) || response.headers.has('Content-Encoding')) throw new ClimateDataError('invalid');
+    let declared: number;
     try {
-      const bytes = await readBoundedResponse(response, 'climate pointer', MAX_POINTER_BYTES);
-      const data = exactObject(parseJSON(bytes), ['releaseId', 'catalogSha256']);
-      if (!releaseID(data.releaseId) || !sha256Value(data.catalogSha256)) throw new ClimateDataError('invalid');
-      return { releaseId: data.releaseId, catalogSha256: data.catalogSha256 };
+      declared = exactContentLength(response, maximumBytes);
     } catch (error) {
+      try { await response.body?.cancel('invalid climate JSON length'); } catch { /* The validation error wins. */ }
+      throw error;
+    }
+    try {
+      const bytes = await readBoundedResponse(response, 'climate JSON', maximumBytes);
+      assertNotAborted(signal);
+      if (bytes.byteLength !== declared) throw new ClimateDataError('invalid');
+      return bytes;
+    } catch (error) {
+      if (signal?.aborted) throw abortReason(signal);
       if (error instanceof ClimateDataError) throw error;
       throw new ClimateDataError('invalid');
     }
-  }
-
-  async #catalogFor(pointer: Pointer, signal?: AbortSignal): Promise<ClimateCatalog> {
-    const knownDigest = this.#releaseDigests.get(pointer.releaseId);
-    if (knownDigest !== undefined && knownDigest !== pointer.catalogSha256) throw new ClimateDataError('stale');
-    if (knownDigest === undefined && this.#releaseDigests.size >= MAX_SESSION_RELEASES) throw new ClimateDataError('invalid');
-    const key = `${pointer.releaseId}:${pointer.catalogSha256}`;
-    const cached = touch(this.#catalogCache, key);
-    if (cached) return cached;
-
-    const url = `/climate/releases/${pointer.releaseId}/catalog.json`;
-    let response: Response;
-    try {
-      response = await this.#fetcher(url, { signal });
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? error;
-      throw new ClimateDataError('unavailable');
-    }
-    if (!response.ok) throw new ClimateDataError(response.status === 404 || response.status === 409 || response.status === 410 ? 'stale' : 'unavailable');
-    if (!jsonMediaType(response)) throw new ClimateDataError('invalid');
-    let bytes: Uint8Array;
-    try {
-      bytes = await readBoundedResponse(response, 'climate catalog', MAX_CATALOG_BYTES);
-    } catch {
-      throw new ClimateDataError('invalid');
-    }
-    if (bytes.byteLength === 0 || await digestHex(bytes) !== pointer.catalogSha256) throw new ClimateDataError('invalid');
-    const catalog = parseCatalog(parseJSON(bytes));
-    if (catalog.releaseId !== pointer.releaseId) throw new ClimateDataError('stale');
-    const currentDigest = this.#releaseDigests.get(pointer.releaseId);
-    if (currentDigest !== undefined && currentDigest !== pointer.catalogSha256) throw new ClimateDataError('stale');
-    if (currentDigest === undefined && this.#releaseDigests.size >= MAX_SESSION_RELEASES) throw new ClimateDataError('invalid');
-    this.#releaseDigests.set(pointer.releaseId, pointer.catalogSha256);
-    insertBounded(this.#catalogCache, key, catalog, this.#catalogCacheSize);
-    return catalog;
   }
 
   async #loadBlock(url: string, catalog: ClimateCatalog, block: ClimatePointBlock, signal: AbortSignal): Promise<Uint8Array> {
@@ -299,22 +368,22 @@ export class WorldwideClimateClient {
     try {
       response = await this.#fetcher(url, { signal, headers: { Range: `bytes=0-${block.bytes - 1}` } });
     } catch (error) {
-      if (signal.aborted) throw signal.reason ?? error;
+      if (signal.aborted) throw abortReason(signal);
       throw new ClimateDataError('unavailable');
     }
+    assertNotAborted(signal);
     if (response.status === 404 || response.status === 409 || response.status === 410) throw new ClimateDataError('stale');
-    if (response.status !== 206 || response.headers.get('Content-Type')?.trim().toLowerCase() !== block.mediaType || response.headers.has('Content-Encoding')) {
-      throw new ClimateDataError('invalid');
-    }
-    if (response.headers.get('Content-Range') !== `bytes 0-${block.bytes - 1}/${block.bytes}`) throw new ClimateDataError('invalid');
-    if (response.headers.get('Content-Length') !== String(block.bytes)) throw new ClimateDataError('invalid');
+    if (response.status !== 206 || response.headers.get('Content-Type')?.trim().toLowerCase() !== block.mediaType || response.headers.has('Content-Encoding')) throw new ClimateDataError('invalid');
+    if (response.headers.get('Content-Range') !== `bytes 0-${block.bytes - 1}/${block.bytes}` || response.headers.get('Content-Length') !== String(block.bytes)) throw new ClimateDataError('invalid');
     let bytes: Uint8Array;
     try {
       bytes = await readBoundedResponse(response, 'climate point block', block.bytes);
     } catch {
       throw new ClimateDataError('invalid');
     }
+    assertNotAborted(signal);
     if (bytes.byteLength !== block.bytes || await digestHex(bytes) !== block.sha256) throw new ClimateDataError('invalid');
+    assertNotAborted(signal);
     parseHeader(bytes.subarray(0, HEADER_BYTES), catalog, block);
     if (await digestHex(bytes.subarray(HEADER_BYTES)) !== block.payloadSha256) throw new ClimateDataError('invalid');
     return bytes;
@@ -322,59 +391,76 @@ export class WorldwideClimateClient {
 
   #assertCurrent(generation: number, controller: AbortController, signal: AbortSignal): void {
     if (signal.aborted && controller.signal.aborted) throw new ClimateDataError('stale');
-    if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+    if (signal.aborted) throw abortReason(signal);
     if (generation !== this.#pointGeneration || controller.signal.aborted) throw new ClimateDataError('stale');
   }
 
-  async #confirmPointer(pointer: Pointer, signal: AbortSignal, generation: number, controller: AbortController): Promise<void> {
+  async #confirmPointer(pointer: Pointer, signal?: AbortSignal): Promise<void> {
     const after = await this.#loadPointer(signal);
-    this.#assertCurrent(generation, controller, signal);
+    assertNotAborted(signal);
     if (!samePointer(pointer, after)) throw new ClimateDataError('stale');
   }
+
+  async #confirmCurrent(pointer: Pointer, signal: AbortSignal, generation: number, controller: AbortController): Promise<void> {
+    await this.#confirmPointer(pointer, signal);
+    this.#assertCurrent(generation, controller, signal);
+  }
+}
+
+function parseIndex(value: unknown): ClimateIndex {
+  const data = exactObject(value, ['version', 'indexId', 'state', 'referencePeriod', 'provenance', 'months']);
+  if (data.version !== 1 || !releaseID(data.indexId) || (data.state !== 'preview' && data.state !== 'complete')) throw new ClimateDataError('invalid');
+  const referencePeriod = parseReferencePeriod(data.referencePeriod);
+  const provenance = parseProvenance(data.provenance);
+  if (!Array.isArray(data.months)) throw new ClimateDataError('invalid');
+  if ((data.state === 'preview' && (data.months.length < 1 || data.months.length > 11)) || (data.state === 'complete' && data.months.length !== 12)) throw new ClimateDataError('invalid');
+  const months = data.months.map((value: unknown) => {
+    const month = exactObject(value, ['period', 'releaseId', 'catalogSha256']);
+    if (!periodID(month.period) || !releaseID(month.releaseId) || !sha256Value(month.catalogSha256)) throw new ClimateDataError('invalid');
+    return month as ClimateMonthReference;
+  });
+  for (let index = 0; index < months.length; index++) {
+    if (index > 0 && months[index - 1].period >= months[index].period) throw new ClimateDataError('invalid');
+    if (data.state === 'complete' && months[index].period !== `month-${String(index + 1).padStart(2, '0')}`) throw new ClimateDataError('invalid');
+  }
+  return deepFreeze({ version: 1 as const, indexId: data.indexId, state: data.state, referencePeriod, provenance, months });
 }
 
 function parseCatalog(value: unknown): ClimateCatalog {
   const data = exactObject(value, ['version', 'releaseId', 'period', 'geometry', 'source', 'provenance', 'probability', 'maximumZoom', 'pointBlocks', 'scalarTiles']);
   if (data.version !== 1 || !releaseID(data.releaseId) || !periodID(data.period) || data.maximumZoom !== 4) throw new ClimateDataError('invalid');
-
   const geometry = exactObject(data.geometry, ['projection', 'west', 'east', 'south', 'north', 'rows', 'columns', 'cellResolutionDegrees', 'cellRegistration']);
   if (geometry.projection !== 'EPSG:4326' || geometry.west !== -179.95 || geometry.east !== 179.95 || geometry.south !== -85.05 || geometry.north !== 85.05 || geometry.rows !== 1701 || geometry.columns !== 3599 || geometry.cellResolutionDegrees !== 0.1 || geometry.cellRegistration !== 'centre') throw new ClimateDataError('invalid');
-
   const source = exactObject(data.source, ['dataset', 'version', 'kind', 'referencePeriod', 'deliveryGridDegrees', 'atmosphericEvidenceKm', 'precipitationEvidenceDegrees', 'localDay', 'landMask']);
-  const reference = exactObject(source.referencePeriod, ['firstYear', 'lastYear']);
-  if (source.dataset !== 'AgERA5' || source.version !== '2.0' || source.kind !== 'topography-corrected-interpolated-era5' || reference.firstYear !== 2006 || reference.lastYear !== 2025 || source.deliveryGridDegrees !== 0.1 || source.atmosphericEvidenceKm !== 30 || source.precipitationEvidenceDegrees !== 0.25 || source.localDay !== 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time' || source.landMask !== 'natural-earth-5.1.1-centre-on-land') throw new ClimateDataError('invalid');
-
-  const provenance = exactObject(data.provenance, ['sourceEvidenceSha256', 'landMaskSetSha256', 'derivationContract']);
-  if (!nonzeroSHA256(provenance.sourceEvidenceSha256) || !nonzeroSHA256(provenance.landMaskSetSha256) || provenance.derivationContract !== DERIVATION_CONTRACT) throw new ClimateDataError('invalid');
-
+  const referencePeriod = parseReferencePeriod(source.referencePeriod);
+  if (source.dataset !== 'AgERA5' || source.version !== '2.0' || source.kind !== 'topography-corrected-interpolated-era5' || source.deliveryGridDegrees !== 0.1 || source.atmosphericEvidenceKm !== 30 || source.precipitationEvidenceDegrees !== 0.25 || source.localDay !== 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time' || source.landMask !== 'natural-earth-5.1.1-centre-on-land') throw new ClimateDataError('invalid');
+  const provenance = parseProvenance(data.provenance);
   const probability = exactObject(data.probability, ['unit', 'denominator', 'threshold', 'goodMinimumScore', 'noDataValue', 'fields']);
   if (probability.unit !== 'whole-percent' || probability.denominator !== 'complete-real-days-in-reference-month' || probability.threshold !== 'canonical-rating-good-or-better' || probability.goodMinimumScore !== 55 || probability.noDataValue !== 255 || !sameArray(probability.fields, FIELDS)) throw new ClimateDataError('invalid');
-
   if (!Array.isArray(data.pointBlocks) || data.pointBlocks.length < 1 || data.pointBlocks.length > MAX_POINT_BLOCKS || !Array.isArray(data.scalarTiles) || data.scalarTiles.length < 1 || data.scalarTiles.length > MAX_SCALAR_TILES) throw new ClimateDataError('invalid');
   const pointBlocks = data.pointBlocks.map((item: unknown) => pointBlock(item, data.period));
   validatePointOrder(pointBlocks);
   const scalarTiles = data.scalarTiles.map((item: unknown) => scalarTile(item, data.period));
   validateScalarTiles(scalarTiles);
-
   return deepFreeze({
-    version: 1 as const,
-    releaseId: data.releaseId,
-    period: data.period,
+    version: 1 as const, releaseId: data.releaseId, period: data.period,
     geometry: geometry as ClimateCatalog['geometry'],
-    source: { ...source, referencePeriod: reference } as ClimateCatalog['source'],
-    provenance: provenance as ClimateCatalog['provenance'],
-    probability: {
-      unit: 'whole-percent',
-      denominator: 'complete-real-days-in-reference-month',
-      threshold: 'canonical-rating-good-or-better',
-      goodMinimumScore: 55,
-      noDataValue: 255,
-      fields: [...FIELDS],
-    },
-    maximumZoom: 4 as const,
-    pointBlocks,
-    scalarTiles,
+    source: { ...source, referencePeriod } as ClimateCatalog['source'], provenance,
+    probability: { unit: 'whole-percent', denominator: 'complete-real-days-in-reference-month', threshold: 'canonical-rating-good-or-better', goodMinimumScore: 55, noDataValue: 255, fields: [...FIELDS] },
+    maximumZoom: 4 as const, pointBlocks, scalarTiles,
   });
+}
+
+function parseReferencePeriod(value: unknown): ClimateIndex['referencePeriod'] {
+  const period = exactObject(value, ['firstYear', 'lastYear']);
+  if (period.firstYear !== 2006 || period.lastYear !== 2025) throw new ClimateDataError('invalid');
+  return { firstYear: 2006, lastYear: 2025 };
+}
+
+function parseProvenance(value: unknown): ClimateIndex['provenance'] {
+  const provenance = exactObject(value, ['sourceEvidenceSha256', 'landMaskSetSha256', 'derivationContract']);
+  if (!nonzeroSHA256(provenance.sourceEvidenceSha256) || !nonzeroSHA256(provenance.landMaskSetSha256) || provenance.derivationContract !== DERIVATION_CONTRACT) throw new ClimateDataError('invalid');
+  return provenance as ClimateIndex['provenance'];
 }
 
 function pointBlock(value: unknown, period: string): ClimatePointBlock {
@@ -385,8 +471,7 @@ function pointBlock(value: unknown, period: string): ClimatePointBlock {
   const records = latitudeCount * longitudeCount;
   const firstLatitude = data.latitudeBlock * 16;
   const firstLongitude = data.longitudeBlock * 32;
-  const intersectsCrop = firstLatitude + latitudeCount - 1 >= 50 && firstLatitude <= 1750
-    && firstLongitude + longitudeCount - 1 >= 1 && firstLongitude <= 3599;
+  const intersectsCrop = firstLatitude + latitudeCount - 1 >= 50 && firstLatitude <= 1750 && firstLongitude + longitudeCount - 1 >= 1 && firstLongitude <= 3599;
   const expectedPath = `points/${period}/${String(data.latitudeBlock).padStart(3, '0')}/${String(data.longitudeBlock).padStart(3, '0')}.nwc`;
   if (!intersectsCrop || data.latitudeCount !== latitudeCount || data.longitudeCount !== longitudeCount || data.path !== expectedPath || !safeAssetPath(data.path) || data.bytes !== HEADER_BYTES + records * RECORD_BYTES || !sha256Value(data.sha256) || !sha256Value(data.payloadSha256) || data.mediaType !== BLOCK_MEDIA_TYPE || !integer(data.dataRecords, 1, records) || !integer(data.noDataRecords, 0, records) || data.dataRecords + data.noDataRecords !== records) throw new ClimateDataError('invalid');
   return data as ClimatePointBlock;
@@ -450,12 +535,9 @@ function locatePoint(longitude: number, latitude: number, catalog: ClimateCatalo
   const longitudeIndex = cropColumn + 1;
   const latitudeIndex = cropLatitude + 50;
   return {
-    longitude: cleanCoordinate(-180 + longitudeIndex / 10),
-    latitude: cleanCoordinate(-90 + latitudeIndex / 10),
-    longitudeIndex,
-    latitudeIndex,
-    longitudeBlock: Math.floor(longitudeIndex / 32),
-    latitudeBlock: Math.floor(latitudeIndex / 16),
+    longitude: cleanCoordinate(-180 + longitudeIndex / 10), latitude: cleanCoordinate(-90 + latitudeIndex / 10),
+    longitudeIndex, latitudeIndex,
+    longitudeBlock: Math.floor(longitudeIndex / 32), latitudeBlock: Math.floor(latitudeIndex / 16),
   };
 }
 
@@ -466,8 +548,7 @@ function parseHeader(bytes: Uint8Array, catalog: ClimateCatalog, block: ClimateP
   const releaseLength = bytes[22];
   const periodLength = bytes[23];
   if (releaseLength !== catalog.releaseId.length || periodLength !== catalog.period.length || releaseLength > 64 || periodLength > 32 || ascii(bytes.subarray(32, 32 + releaseLength)) !== catalog.releaseId || ascii(bytes.subarray(96, 96 + periodLength)) !== catalog.period || !allZero(bytes.subarray(32 + releaseLength, 96)) || !allZero(bytes.subarray(96 + periodLength, 128))) throw new ClimateDataError('invalid');
-  const payloadSha256 = hex(bytes.subarray(128, 160));
-  if (payloadSha256 !== block.payloadSha256) throw new ClimateDataError('invalid');
+  if (hex(bytes.subarray(128, 160)) !== block.payloadSha256) throw new ClimateDataError('invalid');
 }
 
 function decodeRecord(bytes: Uint8Array, releaseId: string, period: string, location: PointLocation): ClimatePointEvidence | undefined {
@@ -480,33 +561,34 @@ function decodeRecord(bytes: Uint8Array, releaseId: string, period: string, loca
   const nice = decodeProfile(bytes.subarray(4, 20));
   const cycling = decodeProfile(bytes.subarray(20, 36));
   if (cycling.calmGoodPercent > nice.calmGoodPercent) throw new ClimateDataError('invalid');
-  return deepFreeze({
-    releaseId, period,
-    sourceCell: { latitude: location.latitude, longitude: location.longitude },
-    comfortGoodPercent: bytes[1], dryGoodPercent: bytes[2], brightGoodPercent: bytes[3],
-    nice, cycling,
-  });
+  return deepFreeze({ releaseId, period, sourceCell: { latitude: location.latitude, longitude: location.longitude }, comfortGoodPercent: bytes[1], dryGoodPercent: bytes[2], brightGoodPercent: bytes[3], nice, cycling });
 }
 
 function decodeProfile(bytes: Uint8Array): ClimateProfileEvidence {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const ratingShares = {
-    awful: view.getUint16(4, true), poor: view.getUint16(6, true), mixed: view.getUint16(8, true),
-    good: view.getUint16(10, true), veryGood: view.getUint16(12, true), excellent: view.getUint16(14, true),
-  };
+  const ratingShares = { awful: view.getUint16(4, true), poor: view.getUint16(6, true), mixed: view.getUint16(8, true), good: view.getUint16(10, true), veryGood: view.getUint16(12, true), excellent: view.getUint16(14, true) };
   const medianScore = bytes[0];
   const calmGoodPercent = bytes[1];
   const poorWeekPermille = view.getUint16(2, true);
   const shares = Object.values(ratingShares);
   if (medianScore > 100 || calmGoodPercent > 100 || poorWeekPermille > 1000 || shares.some((value) => value > 1000) || shares.reduce((sum, value) => sum + value, 0) !== 1000) throw new ClimateDataError('invalid');
   const goodOrBetterPermille = ratingShares.good + ratingShares.veryGood + ratingShares.excellent;
-  return {
-    medianScore, calmGoodPercent, poorWeekPermille, ratingShares,
-    goodOrBetterPermille,
-    goodOrBetterPercent: Math.floor((goodOrBetterPermille + 5) / 10),
-    awfulPermille: ratingShares.awful,
-    awfulPercent: Math.floor((ratingShares.awful + 5) / 10),
-  };
+  return { medianScore, calmGoodPercent, poorWeekPermille, ratingShares, goodOrBetterPermille, goodOrBetterPercent: Math.floor((goodOrBetterPermille + 5) / 10), awfulPermille: ratingShares.awful, awfulPercent: Math.floor((ratingShares.awful + 5) / 10) };
+}
+
+function exactContentLength(response: Response, maximum: number): number {
+  const value = response.headers.get('Content-Length');
+  if (value === null || !/^[1-9]\d*$/.test(value)) throw new ClimateDataError('invalid');
+  const length = Number(value);
+  if (!Number.isSafeInteger(length) || length > maximum) throw new ClimateDataError('invalid');
+  return length;
+}
+
+function rememberIdentity(map: Map<string, string>, identity: string, digest: string): void {
+  const known = map.get(identity);
+  if (known !== undefined && known !== digest) throw new ClimateDataError('stale');
+  if (known === undefined && map.size >= MAX_SESSION_IDENTITIES) throw new ClimateDataError('invalid');
+  map.set(identity, digest);
 }
 
 function exactObject(value: unknown, keys: readonly string[]): Record<string, any> {
@@ -519,11 +601,8 @@ function exactObject(value: unknown, keys: readonly string[]): Record<string, an
 }
 
 function parseJSON(bytes: Uint8Array): unknown {
-  try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
-  } catch {
-    throw new ClimateDataError('invalid');
-  }
+  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown; }
+  catch { throw new ClimateDataError('invalid'); }
 }
 
 function climateAssetUrl(release: string, path: string): string {
@@ -531,14 +610,8 @@ function climateAssetUrl(release: string, path: string): string {
   return `/climate/releases/${release}/${path}`;
 }
 
-function jsonMediaType(response: Response): boolean {
-  return /^application\/json(?:\s*;\s*charset=[A-Za-z0-9._-]+)?$/i.test(response.headers.get('Content-Type')?.trim() ?? '');
-}
-
-function safeAssetPath(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && !value.includes('\\') && !value.includes('\0') && !value.startsWith('/') && value.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
-}
-
+function jsonMediaType(response: Response): boolean { return /^application\/json(?:\s*;\s*charset=[A-Za-z0-9._-]+)?$/i.test(response.headers.get('Content-Type')?.trim() ?? ''); }
+function safeAssetPath(value: unknown): value is string { return typeof value === 'string' && value.length > 0 && !value.includes('\\') && !value.includes('\0') && !value.startsWith('/') && value.split('/').every((part) => part !== '' && part !== '.' && part !== '..'); }
 function releaseID(value: unknown): value is string { return typeof value === 'string' && value.length <= 64 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value); }
 function periodID(value: unknown): value is string { return typeof value === 'string' && /^month-(0[1-9]|1[0-2])$/.test(value); }
 function sha256Value(value: unknown): value is string { return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value); }
@@ -548,54 +621,23 @@ function blockLength(block: number, count: number, size: number): number { retur
 function tileKey(zoom: number, x: number, y: number): string { return `${zoom}/${x}/${y}`; }
 function allZero(bytes: Uint8Array): boolean { return bytes.every((value) => value === 0); }
 function hex(bytes: Uint8Array): string { return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join(''); }
-function ascii(bytes: Uint8Array): string {
-  if (bytes.some((value) => value > 0x7f)) throw new ClimateDataError('invalid');
-  return String.fromCharCode(...bytes);
-}
+function ascii(bytes: Uint8Array): string { if (bytes.some((value) => value > 0x7f)) throw new ClimateDataError('invalid'); return String.fromCharCode(...bytes); }
 function cleanCoordinate(value: number): number { return Object.is(value, -0) ? 0 : Number(value.toFixed(10)); }
-function samePointer(left: Pointer, right: Pointer): boolean { return left.releaseId === right.releaseId && left.catalogSha256 === right.catalogSha256; }
+function samePointer(left: Pointer, right: Pointer): boolean { return left.version === right.version && left.indexId === right.indexId && left.indexSha256 === right.indexSha256; }
 function sameArray(left: unknown, right: readonly unknown[]): boolean { return Array.isArray(left) && left.length === right.length && left.every((item, index) => item === right[index]); }
 function sameSet(left: Set<string>, right: Set<string>): boolean { return left.size === right.size && [...left].every((item) => right.has(item)); }
+function sameReferencePeriod(left: ClimateCatalog['source']['referencePeriod'], right: ClimateIndex['referencePeriod']): boolean { return left.firstYear === right.firstYear && left.lastYear === right.lastYear; }
+function sameProvenance(left: ClimateCatalog['provenance'], right: ClimateIndex['provenance']): boolean { return left.sourceEvidenceSha256 === right.sourceEvidenceSha256 && left.landMaskSetSha256 === right.landMaskSetSha256 && left.derivationContract === right.derivationContract; }
 
 async function digestHex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
   return hex(new Uint8Array(digest));
 }
 
-function combineSignals(internal: AbortSignal, external?: AbortSignal): AbortSignal {
-  return external ? AbortSignal.any([internal, external]) : internal;
-}
-
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
-}
-
-function boundedCacheSize(value: number | undefined, fallback: number, minimum: number, maximum: number): number {
-  if (value === undefined) return fallback;
-  if (!integer(value, minimum, maximum)) throw new TypeError('Climate cache size is invalid.');
-  return value;
-}
-
-function touch<K, V>(cache: Map<K, V>, key: K): V | undefined {
-  const value = cache.get(key);
-  if (value === undefined) return undefined;
-  cache.delete(key);
-  cache.set(key, value);
-  return value;
-}
-
-function insertBounded<K, V>(cache: Map<K, V>, key: K, value: V, maximum: number, evicted?: (key: K) => void): void {
-  cache.delete(key);
-  cache.set(key, value);
-  while (cache.size > maximum) {
-    const oldest = cache.keys().next().value as K;
-    cache.delete(oldest);
-    evicted?.(oldest);
-  }
-}
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
-  return Object.freeze(value);
-}
+function combineSignals(internal: AbortSignal, external?: AbortSignal): AbortSignal { return external ? AbortSignal.any([internal, external]) : internal; }
+function abortReason(signal: AbortSignal): unknown { return signal.reason ?? new DOMException('Aborted', 'AbortError'); }
+function assertNotAborted(signal?: AbortSignal): void { if (signal?.aborted) throw abortReason(signal); }
+function boundedCacheSize(value: number | undefined, fallback: number, minimum: number, maximum: number): number { if (value === undefined) return fallback; if (!integer(value, minimum, maximum)) throw new TypeError('Climate cache size is invalid.'); return value; }
+function touch<K, V>(cache: Map<K, V>, key: K): V | undefined { const value = cache.get(key); if (value === undefined) return undefined; cache.delete(key); cache.set(key, value); return value; }
+function insertBounded<K, V>(cache: Map<K, V>, key: K, value: V, maximum: number): void { cache.delete(key); cache.set(key, value); while (cache.size > maximum) cache.delete(cache.keys().next().value as K); }
+function deepFreeze<T>(value: T): T { if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value; for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child); return Object.freeze(value); }

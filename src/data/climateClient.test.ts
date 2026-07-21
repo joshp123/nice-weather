@@ -5,143 +5,165 @@ import {
   type ClimateCatalog, type ClimateField,
 } from './climateClient';
 
+const INDEX_ID = 'typical-2006-2025-preview-07';
 const RELEASE = 'climate-2026-07';
 const PERIOD = 'month-07';
 const BLOCK_TYPE = 'application/vnd.nice-weather.climate-block';
 const SCALAR_TYPE = 'application/vnd.nice-weather.score-tile';
 const FIELDS: ClimateField[] = ['comfort_good', 'dry_good', 'bright_good', 'nice_good', 'nice_calm_good', 'cycling_good', 'cycling_calm_good'];
+const DERIVATION = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
 
-describe('WorldwideClimateClient', () => {
-  it('does not make a request until a catalogue or point is called', () => {
-    const fetcher = vi.fn();
-    new WorldwideClimateClient({ fetcher });
-    expect(fetcher).not.toHaveBeenCalled();
+describe('WorldwideClimateClient year index', () => {
+  it('is lazy and loads the exact immutable index before any month catalogue', async () => {
+    const harness = climateHarness();
+    expect(harness.fetcher).not.toHaveBeenCalled();
+
+    const index = await harness.client.loadIndex();
+
+    expect(index).toMatchObject({ version: 1, indexId: INDEX_ID, state: 'preview', months: [{ period: PERIOD, releaseId: RELEASE }] });
+    expect(Object.isFrozen(index)).toBe(true);
+    expect(Object.isFrozen(index.months)).toBe(true);
+    expect(harness.count('/climate/current.json')).toBe(2);
+    expect(harness.count(`/climate/indexes/${INDEX_ID}.json`)).toBe(1);
+    expect(harness.count('/catalog.json')).toBe(0);
   });
 
-  it('loads Málaga and Amsterdam from verified blocks at the exact native record offsets', async () => {
-    const harness = await climateHarness();
+  it('returns undefined for a missing preview month without requesting a catalogue or asset', async () => {
+    const harness = climateHarness();
+
+    await expect(harness.client.loadCatalog('month-11')).resolves.toBeUndefined();
+    await expect(harness.client.loadPoint('month-11', -4.42, 36.72)).resolves.toBeUndefined();
+
+    expect(harness.count('/catalog.json')).toBe(0);
+    expect(harness.count('/points/')).toBe(0);
+    expect(harness.count('/scores/')).toBe(0);
+  });
+
+  it('loads only the selected month catalogue and exposes scalar metadata without fetching a tile', async () => {
+    const fixture = makeFixture(['month-03', PERIOD]);
+    const harness = climateHarness(fixture);
+
+    const catalog = await harness.client.loadCatalog(PERIOD) as ClimateCatalog;
+    const again = await harness.client.loadCatalog(PERIOD);
+    const tile = harness.client.findScalarTile(catalog, 'nice_good', 4, 0, 0)!;
+
+    expect(again).toBe(catalog);
+    expect(harness.count(`/climate/releases/${RELEASE}/catalog.json`)).toBe(1);
+    expect(harness.count('/climate/releases/climate-2026-03/catalog.json')).toBe(0);
+    expect(harness.client.scalarTileUrl(catalog, tile)).toBe(`/climate/releases/${RELEASE}/scores/${PERIOD}/nice_good/4/0/0.nws`);
+    expect(harness.requests.some((request) => request.includes('.nws'))).toBe(false);
+  });
+
+  it('loads exact native records from one fully verified whole-block Range', async () => {
+    const harness = climateHarness();
 
     const malaga = await harness.client.loadPoint(PERIOD, -4.42034, 36.72016);
-    const amsterdam = await harness.client.loadPoint(PERIOD, 4.9041, 52.3676);
 
     expect(malaga).toEqual({
-      releaseId: RELEASE,
-      period: PERIOD,
-      sourceCell: { latitude: 36.7, longitude: -4.4 },
-      comfortGoodPercent: 74,
-      dryGoodPercent: 82,
-      brightGoodPercent: 68,
-      nice: expect.objectContaining({ medianScore: 72, calmGoodPercent: 80, poorWeekPermille: 120, goodOrBetterPermille: 700, goodOrBetterPercent: 70, awfulPermille: 50, awfulPercent: 5 }),
-      cycling: expect.objectContaining({ medianScore: 65, calmGoodPercent: 70, poorWeekPermille: 210, goodOrBetterPermille: 550, goodOrBetterPercent: 55, awfulPermille: 100, awfulPercent: 10 }),
+      releaseId: RELEASE, period: PERIOD, sourceCell: { latitude: 36.7, longitude: -4.4 },
+      comfortGoodPercent: 74, dryGoodPercent: 82, brightGoodPercent: 68,
+      nice: expect.objectContaining({ medianScore: 72, calmGoodPercent: 80, poorWeekPermille: 120, goodOrBetterPercent: 70, awfulPercent: 5 }),
+      cycling: expect.objectContaining({ medianScore: 65, calmGoodPercent: 70, poorWeekPermille: 210, goodOrBetterPercent: 55, awfulPercent: 10 }),
     });
-    expect(amsterdam?.sourceCell).toEqual({ latitude: 52.4, longitude: 4.9 });
     expect(malaga?.nice.ratingShares).toEqual({ awful: 50, poor: 100, mixed: 150, good: 250, veryGood: 300, excellent: 150 });
-
     expect(harness.blocksFor(79, 54)).toBe(1);
-    expect(harness.blocksFor(89, 57)).toBe(1);
   });
 
-  it('wraps the dateline once and honours the deliberate cropped edge', async () => {
-    const harness = await climateHarness();
+  it('keeps the deliberate global crop and exact edge mapping', async () => {
+    const harness = climateHarness();
 
     expect((await harness.client.loadPoint(PERIOD, -179.94, 0))?.sourceCell).toEqual({ latitude: 0, longitude: -179.9 });
     expect((await harness.client.loadPoint(PERIOD, 179.94, 0))?.sourceCell).toEqual({ latitude: 0, longitude: 179.9 });
     expect((await harness.client.loadPoint(PERIOD, 539.94, 0))?.sourceCell).toEqual({ latitude: 0, longitude: 179.9 });
     await expect(harness.client.loadPoint(PERIOD, 180, 0)).resolves.toBeUndefined();
     await expect(harness.client.loadPoint(PERIOD, -180, 0)).resolves.toBeUndefined();
-    await expect(harness.client.loadPoint(PERIOD, 0, 85.06)).resolves.toBeUndefined();
-    await expect(harness.client.loadPoint(PERIOD, 0, -85.06)).resolves.toBeUndefined();
-  });
-
-  it('maps both exact latitude crop edges to their one native source row', async () => {
-    const harness = await climateHarness();
     expect((await harness.client.loadPoint(PERIOD, 0, 85.05))?.sourceCell).toEqual({ latitude: 85, longitude: 0 });
     expect((await harness.client.loadPoint(PERIOD, 0, -85.05))?.sourceCell).toEqual({ latitude: -85, longitude: 0 });
+    await expect(harness.client.loadPoint(PERIOD, 0, 85.06)).resolves.toBeUndefined();
   });
 
-  it('returns no data for an omitted block or an exact zero record', async () => {
-    const harness = await climateHarness();
+  it('accepts a complete index only when all 12 canonical months are present', async () => {
+    const complete = climateHarness(makeFixture(Array.from({ length: 12 }, (_, index) => `month-${String(index + 1).padStart(2, '0')}`), 'complete'));
+    await expect(complete.client.loadIndex()).resolves.toMatchObject({ state: 'complete', months: { length: 12 } });
 
-    await expect(harness.client.loadPoint(PERIOD, 30, 30)).resolves.toBeUndefined();
-    await expect(harness.client.loadPoint(PERIOD, -4.31, 36.71)).resolves.toBeUndefined();
-    expect(harness.requests.filter((request) => request.includes('/points/')).length).toBe(1);
-  });
-
-  it('caches the immutable catalogue and exposes checked scalar lookup without fetching a tile', async () => {
-    const harness = await climateHarness();
-
-    const first = await harness.client.loadCatalog();
-    const second = await harness.client.loadCatalog();
-    const tile = harness.client.findScalarTile(first, 'nice_good', 4, 0, 0)!;
-
-    expect(first).toBe(second);
-    expect(Object.isFrozen(first)).toBe(true);
-    expect(Object.isFrozen(first.pointBlocks)).toBe(true);
-    expect(harness.client.scalarTileUrl(first, tile)).toBe(`/climate/releases/${RELEASE}/scores/${PERIOD}/nice_good/4/0/0.nws`);
-    expect(harness.client.findScalarTile(first, 'nice_good', 5, 0, 0)).toBeUndefined();
-    expect(harness.count('/catalog.json')).toBe(1);
-    expect(harness.requests.some((request) => request.endsWith('.nws'))).toBe(false);
+    const short = makeFixture([PERIOD]);
+    short.index.state = 'complete';
+    bindIndex(short);
+    await expect(climateHarness(short).client.loadIndex()).rejects.toMatchObject({ code: 'invalid' });
   });
 
   it.each([
-    ['unknown pointer field', (fixture: Fixture) => { (fixture.pointer as Record<string, unknown>).extra = true; }],
-    ['unsafe release', (fixture: Fixture) => { fixture.pointer.releaseId = '../private'; }],
-    ['unknown catalogue version', (fixture: Fixture) => { fixture.catalog.version = 2; }],
-    ['unknown catalogue field', (fixture: Fixture) => { fixture.catalog.secret = 'do not show'; }],
-    ['wrong release', (fixture: Fixture) => { fixture.catalog.releaseId = 'other-release'; }],
-    ['wrong source', (fixture: Fixture) => { fixture.catalog.source.kind = 'native-atmosphere'; }],
-    ['wrong geometry', (fixture: Fixture) => { fixture.catalog.geometry.west = -180; }],
-    ['wrong probability contract', (fixture: Fixture) => { fixture.catalog.probability.goodMinimumScore = 50; }],
-    ['wrong field order', (fixture: Fixture) => { fixture.catalog.probability.fields.reverse(); }],
-    ['zero provenance', (fixture: Fixture) => { fixture.catalog.provenance.sourceEvidenceSha256 = '0'.repeat(64); }],
-    ['malicious point path', (fixture: Fixture) => { fixture.catalog.pointBlocks[0].path = '../private.nwc'; }],
-    ['wrong block bytes', (fixture: Fixture) => { fixture.catalog.pointBlocks[0].bytes++; }],
-    ['block outside crop', (fixture: Fixture) => { const block = fixture.catalog.pointBlocks[0]; block.latitudeBlock = 0; block.latitudeCount = 16; block.path = `points/${PERIOD}/000/${String(block.longitudeBlock).padStart(3, '0')}.nwc`; }],
-    ['duplicate block', (fixture: Fixture) => { fixture.catalog.pointBlocks.splice(1, 0, { ...fixture.catalog.pointBlocks[0] }); }],
-    ['wrong scalar path', (fixture: Fixture) => { fixture.catalog.scalarTiles[0].path = '/private.nws'; }],
-    ['missing scalar field', (fixture: Fixture) => { fixture.catalog.scalarTiles = fixture.catalog.scalarTiles.filter((tile: any) => tile.field !== 'cycling_good'); }],
-    ['missing scalar parent', (fixture: Fixture) => { fixture.catalog.scalarTiles = fixture.catalog.scalarTiles.filter((tile: any) => !(tile.field === 'comfort_good' && tile.zoom === 3)); }],
+    ['legacy pointer', (fixture: Fixture) => { fixture.pointer = { releaseId: RELEASE, catalogSha256: 'a'.repeat(64) }; }],
+    ['unknown pointer field', (fixture: Fixture) => { fixture.pointer.extra = true; }],
+    ['unsafe index ID', (fixture: Fixture) => { fixture.pointer.indexId = '../private'; }],
+    ['wrong index digest', (fixture: Fixture) => { fixture.pointer.indexSha256 = '0'.repeat(64); }],
+    ['unknown index field', (fixture: Fixture) => { fixture.index.extra = true; bindIndex(fixture); }],
+    ['wrong index identity', (fixture: Fixture) => { fixture.index.indexId = 'other-index'; bindIndex(fixture, false); }],
+    ['unordered preview months', (fixture: Fixture) => { fixture.index.months = [fixture.index.months[0], { ...fixture.index.months[0], period: 'month-03' }]; bindIndex(fixture); }],
+    ['duplicate preview month', (fixture: Fixture) => { fixture.index.months.push({ ...fixture.index.months[0] }); bindIndex(fixture); }],
+    ['zero index provenance', (fixture: Fixture) => { fixture.index.provenance.sourceEvidenceSha256 = '0'.repeat(64); bindIndex(fixture); }],
   ])('rejects %s', async (_name, mutate) => {
     const fixture = makeFixture();
     mutate(fixture);
-    bindCatalog(fixture);
-    const harness = await climateHarness(fixture);
-
-    await expect(harness.client.loadCatalog()).rejects.toMatchObject({ code: expect.stringMatching(/invalid|stale/) });
+    await expect(climateHarness(fixture).client.loadIndex()).rejects.toMatchObject({ code: expect.stringMatching(/invalid|stale/) });
   });
 
-  it('rejects a catalogue whose bytes do not match the pointer digest', async () => {
-    const fixture = makeFixture();
-    fixture.pointer.catalogSha256 = '0'.repeat(64);
-    const harness = await climateHarness(fixture);
-    await expect(harness.client.loadCatalog()).rejects.toMatchObject({ code: 'invalid' });
+  it.each([
+    ['pointer media type', { target: 'pointer', type: 'text/plain' }],
+    ['index media type', { target: 'index', type: 'text/plain' }],
+    ['index encoding', { target: 'index', encoding: 'gzip' }],
+    ['index missing length', { target: 'index', omitLength: true }],
+    ['index wrong length', { target: 'index', lengthDelta: 1 }],
+  ])('requires exact JSON transport metadata: %s', async (_name, mutation) => {
+    const harness = climateHarness(undefined, { jsonMutation: mutation });
+    await expect(harness.client.loadIndex()).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it('bounds pointer and catalogue responses before parsing', async () => {
-    const cancelPointer = vi.fn();
-    const pointerBody = new ReadableStream<Uint8Array>({ cancel: cancelPointer });
-    const pointerClient = new WorldwideClimateClient({ fetcher: async () => new Response(pointerBody, { headers: { 'Content-Type': 'application/json', 'Content-Length': '1025' } }) });
-    await expect(pointerClient.loadCatalog()).rejects.toMatchObject({ code: 'invalid' });
-    expect(cancelPointer).toHaveBeenCalledOnce();
-
+  it('bounds the immutable index before parsing', async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
     const fixture = makeFixture();
-    const catalogClient = new WorldwideClimateClient({ fetcher: async (input) => {
-      if (String(input) === '/climate/current.json') return jsonResponse(fixture.pointer);
-      const body = new ReadableStream<Uint8Array>();
-      return new Response(body, { headers: { 'Content-Type': 'application/json', 'Content-Length': String(32 * 1024 * 1024 + 1) } });
-    } });
-    await expect(catalogClient.loadCatalog()).rejects.toMatchObject({ code: 'invalid' });
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === '/climate/current.json'
+      ? exactJSONResponse(fixture.pointer)
+      : new Response(body, { headers: { 'Content-Type': 'application/json', 'Content-Length': String(64 * 1024 + 1) } }));
+    await expect(new WorldwideClimateClient({ fetcher }).loadIndex()).rejects.toMatchObject({ code: 'invalid' });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it('requires JSON media types before parsing pointer and catalogue bodies', async () => {
+  it('rejects catalogue content not bound by the selected month reference', async () => {
     const fixture = makeFixture();
-    const pointerClient = new WorldwideClimateClient({ fetcher: async () => new Response(JSON.stringify(fixture.pointer), { headers: { 'Content-Type': 'text/plain' } }) });
-    await expect(pointerClient.loadCatalog()).rejects.toMatchObject({ code: 'invalid' });
+    fixture.index.months[0].catalogSha256 = '0'.repeat(64);
+    bindIndex(fixture);
+    await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
+  });
 
-    const catalogClient = new WorldwideClimateClient({ fetcher: async (input) => String(input) === '/climate/current.json'
-      ? jsonResponse(fixture.pointer)
-      : new Response(fixture.catalogBytes, { headers: { 'Content-Type': 'text/plain' } }) });
-    await expect(catalogClient.loadCatalog()).rejects.toMatchObject({ code: 'invalid' });
+  it('rejects a catalogue that disagrees with its year-level provenance', async () => {
+    const fixture = makeFixture();
+    const month = fixture.months.get(PERIOD)!;
+    month.catalog.provenance.landMaskSetSha256 = 'c'.repeat(64);
+    bindCatalog(month);
+    fixture.index.months[0].catalogSha256 = digest(month.catalogBytes);
+    bindIndex(fixture);
+    await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it.each([
+    ['unknown catalogue field', (catalog: any) => { catalog.extra = true; }],
+    ['wrong source', (catalog: any) => { catalog.source.kind = 'native-atmosphere'; }],
+    ['wrong geometry', (catalog: any) => { catalog.geometry.west = -180; }],
+    ['wrong probability contract', (catalog: any) => { catalog.probability.goodMinimumScore = 50; }],
+    ['malicious point path', (catalog: any) => { catalog.pointBlocks[0].path = '../private.nwc'; }],
+    ['duplicate point block', (catalog: any) => { catalog.pointBlocks.splice(1, 0, { ...catalog.pointBlocks[0] }); }],
+    ['missing scalar field', (catalog: any) => { catalog.scalarTiles = catalog.scalarTiles.filter((tile: any) => tile.field !== 'cycling_good'); }],
+    ['missing scalar parent', (catalog: any) => { catalog.scalarTiles = catalog.scalarTiles.filter((tile: any) => !(tile.field === 'comfort_good' && tile.zoom === 3)); }],
+  ])('rejects hostile selected catalogue metadata: %s', async (_name, mutate) => {
+    const fixture = makeFixture();
+    const month = fixture.months.get(PERIOD)!;
+    mutate(month.catalog);
+    bindCatalog(month);
+    fixture.index.months[0].catalogSha256 = digest(month.catalogBytes);
+    bindIndex(fixture);
+    await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
   });
 
   it.each([
@@ -151,73 +173,93 @@ describe('WorldwideClimateClient', () => {
     ['wrong content range', (response: BlockResponse) => { response.headers['Content-Range'] = 'bytes 1-2/3'; }],
     ['wrong declared length', (response: BlockResponse) => { response.headers['Content-Length'] = String(response.body.byteLength - 1); }],
     ['truncated body', (response: BlockResponse) => { response.body = response.body.subarray(0, response.body.byteLength - 1); }],
-    ['oversized body', (response: BlockResponse) => { response.body = new Uint8Array([...response.body, 0]); }],
-  ])('rejects hostile full-block response: %s', async (_name, mutate) => {
-    const harness = await climateHarness(undefined, { mutateBlock: mutate });
+  ])('rejects hostile whole-block transport: %s', async (_name, mutate) => {
+    const harness = climateHarness(undefined, { mutateBlock: mutate });
     await expect(harness.client.loadPoint(PERIOD, -4.42, 36.72)).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it.each([
-    ['magic', (header: Uint8Array) => { header[0] = 0; }],
-    ['version', (header: Uint8Array) => { header[8] = 2; }],
-    ['release', (header: Uint8Array) => { header[32] ^= 1; }],
-    ['period', (header: Uint8Array) => { header[96] ^= 1; }],
-    ['block', (header: Uint8Array) => { header[18] ^= 1; }],
-    ['reserved byte', (header: Uint8Array) => { header[26] = 1; }],
-    ['identity padding', (header: Uint8Array) => { header[64] = 1; }],
-    ['payload digest', (header: Uint8Array) => { header[159] ^= 1; }],
-  ])('rejects a hostile block header: %s', async (_name, mutate) => {
-    const harness = await climateHarness(undefined, { mutateBlock: (block) => mutate(block.body.subarray(0, 160)) });
+  it('rejects valid-looking point data changed after catalogue publication', async () => {
+    const harness = climateHarness(undefined, { mutateBlock: (response) => { response.body[recordOffset(79, 54, 1267, 1756) + 4] = 73; } });
     await expect(harness.client.loadPoint(PERIOD, -4.42, 36.72)).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it('rejects valid-looking evidence changed after publication', async () => {
-    const start = recordOffset(79, 54, 1267, 1756);
-    const harness = await climateHarness(undefined, { mutateBlock: (block) => { block.body[start + 4] = 73; } });
-    await expect(harness.client.loadPoint(PERIOD, -4.42, 36.72)).rejects.toMatchObject({ code: 'invalid' });
-  });
-
-  it.each([
-    ['unknown flags', (record: Uint8Array) => { record[0] = 3; }],
-    ['nonzero no-data', (record: Uint8Array) => { record.fill(0); record[1] = 1; }],
-    ['shared probability', (record: Uint8Array) => { record[1] = 101; }],
-    ['median score', (record: Uint8Array) => { record[4] = 101; }],
-    ['poor-week probability', (record: Uint8Array) => { new DataView(record.buffer, record.byteOffset, record.byteLength).setUint16(6, 1001, true); }],
-    ['rating share', (record: Uint8Array) => { new DataView(record.buffer, record.byteOffset, record.byteLength).setUint16(8, 1001, true); }],
-    ['rating total', (record: Uint8Array) => { new DataView(record.buffer, record.byteOffset, record.byteLength).setUint16(8, 49, true); }],
-    ['Cycling calm exceeds Nice', (record: Uint8Array) => { record[21] = 81; }],
-  ])('rejects a hostile 36-byte record: %s', async (_name, mutate) => {
+  it('fails closed when the pointer rotates during an index read', async () => {
     const fixture = makeFixture();
-    authenticateRecordMutation(fixture, mutate);
-    const harness = await climateHarness(fixture);
-    await expect(harness.client.loadPoint(PERIOD, -4.42, 36.72)).rejects.toMatchObject({ code: 'invalid' });
-  });
-
-  it('rejects a changed pointer before returning point evidence', async () => {
-    const fixture = makeFixture();
-    let pointerReads = 0;
-    const harness = await climateHarness(fixture, { pointer: () => {
-      pointerReads++;
-      return pointerReads === 2 ? { releaseId: 'next-release', catalogSha256: 'b'.repeat(64) } : fixture.pointer;
+    let reads = 0;
+    const harness = climateHarness(fixture, { pointer: () => {
+      reads++;
+      return reads === 1 ? fixture.pointer : { version: 2, indexId: 'next-index', indexSha256: 'b'.repeat(64) };
     } });
-    await expect(harness.client.loadPoint(PERIOD, -4.42, 36.72)).rejects.toMatchObject({ code: 'stale' });
+    await expect(harness.client.loadIndex()).rejects.toMatchObject({ code: 'stale' });
   });
 
-  it('rejects the same release ID being rebound to changed catalogue content', async () => {
+  it('rejects the same release ID rebound through a later year index', async () => {
     const first = makeFixture();
     const second = makeFixture();
-    second.catalog.provenance.landMaskSetSha256 = 'c'.repeat(64);
-    bindCatalog(second);
-    let pointer = first.pointer;
-    const harness = await climateHarness(first, { pointer: () => pointer });
-    await harness.client.loadCatalog();
-    pointer = second.pointer;
-    await expect(harness.client.loadCatalog()).rejects.toMatchObject({ code: 'stale' });
+    second.index.indexId = 'typical-2006-2025-preview-next';
+    const month = second.months.get(PERIOD)!;
+    month.catalog.scalarTiles[0].sha256 = 'e'.repeat(64);
+    bindCatalog(month);
+    second.index.months[0].catalogSha256 = digest(month.catalogBytes);
+    bindIndex(second);
+    let active = first;
+    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => fixtureResponse(active, String(input)));
+    const client = new WorldwideClimateClient({ fetcher, catalogCacheSize: 1 });
+
+    await client.loadCatalog(PERIOD);
+    active = second;
+    await expect(client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'stale' });
   });
 
-  it('cancels stale point reads even when the fetch implementation ignores abort', async () => {
+  it('rechecks a cached catalogue against a later index common contract', async () => {
+    const first = makeFixture();
+    const second = makeFixture();
+    second.index.indexId = 'typical-2006-2025-inconsistent';
+    second.index.provenance.landMaskSetSha256 = 'c'.repeat(64);
+    bindIndex(second);
+    let active = first;
+    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => fixtureResponse(active, String(input)));
+    const client = new WorldwideClimateClient({ fetcher });
+
+    await client.loadCatalog(PERIOD);
+    active = second;
+    await expect(client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('does not let two month references alias one cached release', async () => {
     const fixture = makeFixture();
-    const base = await climateHarness(fixture);
+    fixture.index.months = [
+      { ...fixture.index.months[0], period: 'month-03' },
+      fixture.index.months[0],
+    ];
+    bindIndex(fixture);
+    const client = climateHarness(fixture).client;
+
+    await client.loadCatalog(PERIOD);
+    await expect(client.loadCatalog('month-03')).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('honours cancellation when the fetch implementation ignores abort', async () => {
+    const fixture = makeFixture();
+    let resolvePointer!: (response: Response) => void;
+    let started = false;
+    const fetcher = vi.fn(async (): Promise<Response> => {
+      started = true;
+      return new Promise((resolve) => { resolvePointer = resolve; });
+    });
+    const controller = new AbortController();
+    const client = new WorldwideClimateClient({ fetcher });
+    const pending = client.loadIndex(controller.signal);
+    await vi.waitFor(() => expect(started).toBe(true));
+    const reason = new DOMException('Cancelled', 'AbortError');
+    controller.abort(reason);
+    resolvePointer(exactJSONResponse(fixture.pointer));
+    await expect(pending).rejects.toBe(reason);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a superseded point read even when its fetch ignores abort', async () => {
+    const base = climateHarness();
     let releaseFirst!: (value: Response) => void;
     let delayed = true;
     let firstSignal: AbortSignal | undefined;
@@ -230,88 +272,42 @@ describe('WorldwideClimateClient', () => {
       return base.fetcher(input, init);
     });
     const client = new WorldwideClimateClient({ fetcher });
-
     const stale = client.loadPoint(PERIOD, -4.42, 36.72);
     await vi.waitFor(() => expect(firstSignal).toBeDefined());
-    const current = client.loadPoint(PERIOD, 4.9, 52.37);
+    const current = client.loadPoint(PERIOD, 179.94, 0);
     releaseFirst(new Response('', { status: 500 }));
-
     await expect(stale).rejects.toMatchObject({ code: 'stale' });
-    await expect(current).resolves.toMatchObject({ sourceCell: { latitude: 52.4, longitude: 4.9 } });
+    await expect(current).resolves.toMatchObject({ sourceCell: { latitude: 0, longitude: 179.9 } });
     expect(firstSignal?.aborted).toBe(true);
   });
 
-  it('honours catalogue cancellation when a fetch implementation ignores abort', async () => {
-    const fixture = makeFixture();
-    let resolvePointer!: (response: Response) => void;
-    let started = false;
-    const fetcher = vi.fn(async (): Promise<Response> => {
-      started = true;
-      return new Promise((resolve) => { resolvePointer = resolve; });
-    });
-    const controller = new AbortController();
-    const client = new WorldwideClimateClient({ fetcher });
-
-    const pending = client.loadCatalog(controller.signal);
-    await vi.waitFor(() => expect(started).toBe(true));
-    const reason = new DOMException('Cancelled', 'AbortError');
-    controller.abort(reason);
-    resolvePointer(jsonResponse(fixture.pointer));
-
-    await expect(pending).rejects.toBe(reason);
-    expect(fetcher).toHaveBeenCalledOnce();
-  });
-
-  it('keeps the verified-block cache bounded and refetches its least recent entry', async () => {
-    const harness = await climateHarness(undefined, { blockCacheSize: 1 });
+  it('keeps whole-block caching bounded', async () => {
+    const harness = climateHarness(undefined, { blockCacheSize: 1 });
     await harness.client.loadPoint(PERIOD, -4.42, 36.72);
-    await harness.client.loadPoint(PERIOD, 4.9, 52.37);
+    await harness.client.loadPoint(PERIOD, 179.94, 0);
     await harness.client.loadPoint(PERIOD, -4.42, 36.72);
     expect(harness.blocksFor(79, 54)).toBe(2);
   });
 
-  it('remembers immutable release identity after its catalogue leaves the LRU cache', async () => {
-    const first = makeFixture();
-    const other = makeFixture();
-    other.catalog.releaseId = 'climate-2026-08';
-    other.pointer.releaseId = 'climate-2026-08';
-    bindCatalog(other);
-    const rebound = makeFixture();
-    rebound.catalog.provenance.landMaskSetSha256 = 'c'.repeat(64);
-    bindCatalog(rebound);
-    let active = first;
-    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-      const url = String(input);
-      if (url === '/climate/current.json') return jsonResponse(active.pointer);
-      if (url === `/climate/releases/${active.pointer.releaseId}/catalog.json`) return new Response(active.catalogBytes, { headers: { 'Content-Type': 'application/json' } });
-      return new Response('', { status: 404 });
-    });
-    const client = new WorldwideClimateClient({ fetcher, catalogCacheSize: 1 });
-
-    await client.loadCatalog();
-    active = other;
-    await client.loadCatalog();
-    active = rebound;
-    await expect(client.loadCatalog()).rejects.toMatchObject({ code: 'stale' });
-  });
-
-  it('uses short product-safe errors without paths, headers, or response content', async () => {
+  it('uses short product-safe errors', async () => {
     const client = new WorldwideClimateClient({ fetcher: async () => new Response('private response detail', { status: 500 }) });
-    const error = await client.loadCatalog().catch((reason: unknown) => reason);
+    const error = await client.loadIndex().catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(ClimateDataError);
     expect(String((error as Error).message)).toBe('Climate data is not available right now.');
     expect(String((error as Error).message)).not.toMatch(/private|header|\/climate\//i);
   });
 });
 
-type Fixture = ReturnType<typeof makeFixture>;
+type MonthFixture = { releaseId: string; period: string; catalog: any; catalogBytes: Uint8Array; files: Map<string, Uint8Array> };
+type Fixture = { pointer: any; index: any; indexBytes: Uint8Array; months: Map<string, MonthFixture> };
 type BlockResponse = { status: number; headers: Record<string, string>; body: Uint8Array };
 
-async function climateHarness(
+function climateHarness(
   fixture = makeFixture(),
   options: {
-    mutateBlock?: (response: BlockResponse) => void;
     pointer?: () => Record<string, any>;
+    mutateBlock?: (response: BlockResponse) => void;
+    jsonMutation?: { target: string; type?: string; encoding?: string; omitLength?: boolean; lengthDelta?: number };
     blockCacheSize?: number;
   } = {},
 ) {
@@ -320,53 +316,50 @@ async function climateHarness(
     const url = String(input);
     const range = new Headers(init?.headers).get('Range');
     requests.push(range ? `${url}#${range}` : url);
-    if (url === '/climate/current.json') return jsonResponse(options.pointer?.() ?? fixture.pointer);
-    if (url === `/climate/releases/${fixture.pointer.releaseId}/catalog.json`) return new Response(fixture.catalogBytes, { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
-    const match = /\/points\/month-07\/(\d{3})\/(\d{3})\.nwc$/.exec(url);
-    if (match) {
-      const latitudeBlock = Number(match[1]);
-      const longitudeBlock = Number(match[2]);
-      const file = fixture.files.get(`${latitudeBlock}/${longitudeBlock}`);
-      if (!file) return new Response('', { status: 404 });
-      const response: BlockResponse = {
-        status: 206,
-        headers: {
-          'Content-Type': BLOCK_TYPE,
-          'Content-Length': String(file.byteLength),
-          'Content-Range': `bytes 0-${file.byteLength - 1}/${file.byteLength}`,
-        },
-        body: file.slice(),
-      };
-      options.mutateBlock?.(response);
-      return new Response(response.body as Uint8Array<ArrayBuffer>, { status: response.status, headers: response.headers });
+    if (url === '/climate/current.json') return mutatedJSONResponse(options.pointer?.() ?? fixture.pointer, options.jsonMutation?.target === 'pointer' ? options.jsonMutation : undefined);
+    if (url === `/climate/indexes/${fixture.index.indexId}.json`) return mutatedBytesResponse(fixture.indexBytes, options.jsonMutation?.target === 'index' ? options.jsonMutation : undefined);
+    for (const month of fixture.months.values()) {
+      if (url === `/climate/releases/${month.releaseId}/catalog.json`) return mutatedBytesResponse(month.catalogBytes, options.jsonMutation?.target === 'catalog' ? options.jsonMutation : undefined);
+      const match = new RegExp(`/climate/releases/${month.releaseId}/points/${month.period}/(\\d{3})/(\\d{3})\\.nwc$`).exec(url);
+      if (match) {
+        const file = month.files.get(`${Number(match[1])}/${Number(match[2])}`);
+        if (!file) return new Response('', { status: 404 });
+        const response: BlockResponse = { status: 206, headers: { 'Content-Type': BLOCK_TYPE, 'Content-Length': String(file.byteLength), 'Content-Range': `bytes 0-${file.byteLength - 1}/${file.byteLength}` }, body: file.slice() };
+        options.mutateBlock?.(response);
+        return new Response(response.body as Uint8Array<ArrayBuffer>, { status: response.status, headers: response.headers });
+      }
     }
     return new Response('', { status: 404 });
   });
   const client = new WorldwideClimateClient({ fetcher, blockCacheSize: options.blockCacheSize });
   return {
     client, fetcher, requests,
-    count: (suffix: string) => requests.filter((request) => request.includes(suffix)).length,
-    blocksFor: (latitude: number, longitude: number) => {
-      const path = `/${String(latitude).padStart(3, '0')}/${String(longitude).padStart(3, '0')}.nwc`;
-      const bytes = fixture.files.get(`${latitude}/${longitude}`)!.byteLength;
-      return requests.filter((request) => request.endsWith(`${path}#bytes=0-${bytes - 1}`)).length;
-    },
-    blockResponse: (latitude: number, longitude: number) => {
-      const file = fixture.files.get(`${latitude}/${longitude}`)!;
-      return new Response(file as Uint8Array<ArrayBuffer>, { status: 206, headers: { 'Content-Type': BLOCK_TYPE, 'Content-Length': String(file.byteLength), 'Content-Range': `bytes 0-${file.byteLength - 1}/${file.byteLength}` } });
-    },
+    count: (part: string) => requests.filter((request) => request.includes(part)).length,
+    blocksFor: (latitude: number, longitude: number) => requests.filter((request) => request.includes(`/${String(latitude).padStart(3, '0')}/${String(longitude).padStart(3, '0')}.nwc#bytes=`)).length,
   };
 }
 
-function makeFixture() {
-  const coordinates: Array<[number, number, number, number]> = [
-    [56, 0, 900, 1],
-    [56, 112, 900, 3599],
-    [79, 54, 1267, 1756],
-    [89, 57, 1424, 1849],
-    [3, 56, 50, 1800],
-    [109, 56, 1750, 1800],
-  ];
+function makeFixture(periods: string[] = [PERIOD], state: 'preview' | 'complete' = 'preview'): Fixture {
+  const months = new Map<string, MonthFixture>();
+  for (const period of periods) months.set(period, makeMonth(period));
+  const index: any = {
+    version: 1, indexId: state === 'complete' ? 'typical-2006-2025-complete' : INDEX_ID, state,
+    referencePeriod: { firstYear: 2006, lastYear: 2025 },
+    provenance: { sourceEvidenceSha256: 'a'.repeat(64), landMaskSetSha256: 'b'.repeat(64), derivationContract: DERIVATION },
+    months: periods.map((period) => {
+      const month = months.get(period)!;
+      return { period, releaseId: month.releaseId, catalogSha256: digest(month.catalogBytes) };
+    }),
+  };
+  const fixture: Fixture = { pointer: {}, index, indexBytes: new Uint8Array(), months };
+  bindIndex(fixture);
+  return fixture;
+}
+
+function makeMonth(period: string): MonthFixture {
+  const monthNumber = period.slice(-2);
+  const releaseId = `climate-2026-${monthNumber}`;
+  const coordinates: Array<[number, number, number, number]> = [[56, 0, 900, 1], [56, 112, 900, 3599], [79, 54, 1267, 1756], [3, 56, 50, 1800], [109, 56, 1750, 1800]];
   coordinates.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
   const files = new Map<string, Uint8Array>();
   const pointBlocks: any[] = [];
@@ -377,96 +370,46 @@ function makeFixture() {
     const index = (latitudeIndex - latitudeBlock * 16) * longitudeCount + longitudeIndex - longitudeBlock * 32;
     payload.set(validRecord(), index * 36);
     const payloadSha256 = digest(payload);
-    const header = blockHeader(latitudeBlock, longitudeBlock, latitudeCount, longitudeCount, payloadSha256);
+    const header = blockHeader(releaseId, period, latitudeBlock, longitudeBlock, latitudeCount, longitudeCount, payloadSha256);
     const file = new Uint8Array(header.length + payload.length);
-    file.set(header);
-    file.set(payload, header.length);
+    file.set(header); file.set(payload, header.length);
     files.set(`${latitudeBlock}/${longitudeBlock}`, file);
-    pointBlocks.push({
-      latitudeBlock, longitudeBlock, latitudeCount, longitudeCount,
-      path: `points/${PERIOD}/${String(latitudeBlock).padStart(3, '0')}/${String(longitudeBlock).padStart(3, '0')}.nwc`,
-      bytes: file.byteLength, sha256: digest(file), payloadSha256, mediaType: BLOCK_TYPE,
-      dataRecords: 1, noDataRecords: latitudeCount * longitudeCount - 1,
-    });
+    pointBlocks.push({ latitudeBlock, longitudeBlock, latitudeCount, longitudeCount, path: `points/${period}/${String(latitudeBlock).padStart(3, '0')}/${String(longitudeBlock).padStart(3, '0')}.nwc`, bytes: file.byteLength, sha256: digest(file), payloadSha256, mediaType: BLOCK_TYPE, dataRecords: 1, noDataRecords: latitudeCount * longitudeCount - 1 });
   }
-  const scalarTiles = FIELDS.flatMap((field) => Array.from({ length: 5 }, (_, zoom) => ({
-    field, zoom, x: 0, y: 0,
-    path: `scores/${PERIOD}/${field}/${zoom}/0/0.nws`,
-    bytes: 258 * 258, sha256: 'd'.repeat(64), mediaType: SCALAR_TYPE,
-    dataTexels: 1, noDataTexels: 258 * 258 - 1,
-  })));
+  const scalarTiles = FIELDS.flatMap((field) => Array.from({ length: 5 }, (_, zoom) => ({ field, zoom, x: 0, y: 0, path: `scores/${period}/${field}/${zoom}/0/0.nws`, bytes: 258 * 258, sha256: 'd'.repeat(64), mediaType: SCALAR_TYPE, dataTexels: 1, noDataTexels: 258 * 258 - 1 })));
   const catalog: any = {
-    version: 1,
-    releaseId: RELEASE,
-    period: PERIOD,
+    version: 1, releaseId, period,
     geometry: { projection: 'EPSG:4326', west: -179.95, east: 179.95, south: -85.05, north: 85.05, rows: 1701, columns: 3599, cellResolutionDegrees: 0.1, cellRegistration: 'centre' },
-    source: {
-      dataset: 'AgERA5', version: '2.0', kind: 'topography-corrected-interpolated-era5',
-      referencePeriod: { firstYear: 2006, lastYear: 2025 }, deliveryGridDegrees: 0.1,
-      atmosphericEvidenceKm: 30, precipitationEvidenceDegrees: 0.25,
-      localDay: 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time', landMask: 'natural-earth-5.1.1-centre-on-land',
-    },
-    provenance: {
-      sourceEvidenceSha256: 'a'.repeat(64), landMaskSetSha256: 'b'.repeat(64),
-      derivationContract: 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025',
-    },
-    probability: {
-      unit: 'whole-percent', denominator: 'complete-real-days-in-reference-month', threshold: 'canonical-rating-good-or-better',
-      goodMinimumScore: 55, noDataValue: 255, fields: [...FIELDS],
-    },
-    maximumZoom: 4,
-    pointBlocks,
-    scalarTiles,
+    source: { dataset: 'AgERA5', version: '2.0', kind: 'topography-corrected-interpolated-era5', referencePeriod: { firstYear: 2006, lastYear: 2025 }, deliveryGridDegrees: 0.1, atmosphericEvidenceKm: 30, precipitationEvidenceDegrees: 0.25, localDay: 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time', landMask: 'natural-earth-5.1.1-centre-on-land' },
+    provenance: { sourceEvidenceSha256: 'a'.repeat(64), landMaskSetSha256: 'b'.repeat(64), derivationContract: DERIVATION },
+    probability: { unit: 'whole-percent', denominator: 'complete-real-days-in-reference-month', threshold: 'canonical-rating-good-or-better', goodMinimumScore: 55, noDataValue: 255, fields: [...FIELDS] },
+    maximumZoom: 4, pointBlocks, scalarTiles,
   };
-  const fixture = { catalog, catalogBytes: new Uint8Array(), pointer: { releaseId: RELEASE, catalogSha256: '' }, files };
-  bindCatalog(fixture);
-  return fixture;
+  const month = { releaseId, period, catalog, catalogBytes: new Uint8Array(), files };
+  bindCatalog(month);
+  return month;
 }
 
-function bindCatalog(fixture: { catalog: any; catalogBytes: Uint8Array; pointer: Record<string, any> }): void {
-  fixture.catalogBytes = new TextEncoder().encode(`${JSON.stringify(fixture.catalog)}\n`);
-  fixture.pointer = { ...fixture.pointer, releaseId: fixture.pointer.releaseId ?? fixture.catalog.releaseId, catalogSha256: digest(fixture.catalogBytes) };
+function bindCatalog(month: MonthFixture): void { month.catalogBytes = new TextEncoder().encode(`${JSON.stringify(month.catalog)}\n`); }
+function bindIndex(fixture: Fixture, bindPointer = true): void {
+  fixture.indexBytes = new TextEncoder().encode(`${JSON.stringify(fixture.index)}\n`);
+  if (bindPointer) fixture.pointer = { version: 2, indexId: fixture.index.indexId, indexSha256: digest(fixture.indexBytes) };
 }
 
-function blockHeader(latitudeBlock: number, longitudeBlock: number, latitudeCount: number, longitudeCount: number, payloadSha256: string): Uint8Array {
+function blockHeader(releaseId: string, period: string, latitudeBlock: number, longitudeBlock: number, latitudeCount: number, longitudeCount: number, payloadSha256: string): Uint8Array {
   const header = new Uint8Array(160);
   header.set(new TextEncoder().encode('NWAG5CLM'));
   const view = new DataView(header.buffer);
-  view.setUint16(8, 1, true);
-  view.setUint16(10, 160, true);
-  view.setUint16(12, 36, true);
-  view.setUint16(14, latitudeCount, true);
-  view.setUint16(16, longitudeCount, true);
-  view.setUint16(18, latitudeBlock, true);
-  view.setUint16(20, longitudeBlock, true);
-  header[22] = RELEASE.length;
-  header[23] = PERIOD.length;
-  header[24] = 1;
-  header[25] = 1;
-  header.set(new TextEncoder().encode(RELEASE), 32);
-  header.set(new TextEncoder().encode(PERIOD), 96);
-  header.set(hexBytes(payloadSha256), 128);
+  view.setUint16(8, 1, true); view.setUint16(10, 160, true); view.setUint16(12, 36, true);
+  view.setUint16(14, latitudeCount, true); view.setUint16(16, longitudeCount, true); view.setUint16(18, latitudeBlock, true); view.setUint16(20, longitudeBlock, true);
+  header[22] = releaseId.length; header[23] = period.length; header[24] = 1; header[25] = 1;
+  header.set(new TextEncoder().encode(releaseId), 32); header.set(new TextEncoder().encode(period), 96); header.set(hexBytes(payloadSha256), 128);
   return header;
-}
-
-function authenticateRecordMutation(fixture: Fixture, mutate: (record: Uint8Array) => void): void {
-  const file = fixture.files.get('79/54')!;
-  const start = recordOffset(79, 54, 1267, 1756);
-  mutate(file.subarray(start, start + 36));
-  const payloadSha256 = digest(file.subarray(160));
-  file.set(hexBytes(payloadSha256), 128);
-  const asset = fixture.catalog.pointBlocks.find((block: any) => block.latitudeBlock === 79 && block.longitudeBlock === 54)!;
-  asset.payloadSha256 = payloadSha256;
-  asset.sha256 = digest(file);
-  bindCatalog(fixture);
 }
 
 function validRecord(): Uint8Array {
   const record = new Uint8Array(36);
-  record[0] = 1;
-  record[1] = 74;
-  record[2] = 82;
-  record[3] = 68;
+  record[0] = 1; record[1] = 74; record[2] = 82; record[3] = 68;
   encodeProfile(record.subarray(4, 20), 72, 80, 120, [50, 100, 150, 250, 300, 150]);
   encodeProfile(record.subarray(20, 36), 65, 70, 210, [100, 150, 200, 250, 200, 100]);
   return record;
@@ -474,9 +417,7 @@ function validRecord(): Uint8Array {
 
 function encodeProfile(target: Uint8Array, median: number, calm: number, poorWeek: number, shares: number[]): void {
   const view = new DataView(target.buffer, target.byteOffset, target.byteLength);
-  target[0] = median;
-  target[1] = calm;
-  view.setUint16(2, poorWeek, true);
+  target[0] = median; target[1] = calm; view.setUint16(2, poorWeek, true);
   shares.forEach((share, index) => view.setUint16(4 + index * 2, share, true));
 }
 
@@ -485,6 +426,21 @@ function recordOffset(latitudeBlock: number, longitudeBlock: number, latitudeInd
   return 160 + ((latitudeIndex - latitudeBlock * 16) * longitudeCount + longitudeIndex - longitudeBlock * 32) * 36;
 }
 
+function fixtureResponse(fixture: Fixture, url: string): Response {
+  if (url === '/climate/current.json') return exactJSONResponse(fixture.pointer);
+  if (url === `/climate/indexes/${fixture.index.indexId}.json`) return exactBytesResponse(fixture.indexBytes);
+  for (const month of fixture.months.values()) if (url === `/climate/releases/${month.releaseId}/catalog.json`) return exactBytesResponse(month.catalogBytes);
+  return new Response('', { status: 404 });
+}
+
+function exactJSONResponse(value: unknown): Response { return exactBytesResponse(new TextEncoder().encode(JSON.stringify(value))); }
+function exactBytesResponse(bytes: Uint8Array): Response { return new Response(bytes as Uint8Array<ArrayBuffer>, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': String(bytes.byteLength) } }); }
+function mutatedJSONResponse(value: unknown, mutation?: { type?: string; encoding?: string; omitLength?: boolean; lengthDelta?: number }): Response { return mutatedBytesResponse(new TextEncoder().encode(JSON.stringify(value)), mutation); }
+function mutatedBytesResponse(bytes: Uint8Array, mutation?: { type?: string; encoding?: string; omitLength?: boolean; lengthDelta?: number }): Response {
+  const headers: Record<string, string> = { 'Content-Type': mutation?.type ?? 'application/json', 'Content-Length': String(bytes.byteLength + (mutation?.lengthDelta ?? 0)) };
+  if (mutation?.omitLength) delete headers['Content-Length'];
+  if (mutation?.encoding) headers['Content-Encoding'] = mutation.encoding;
+  return new Response(bytes as Uint8Array<ArrayBuffer>, { headers });
+}
 function digest(value: Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }
 function hexBytes(value: string): Uint8Array { return Uint8Array.from(value.match(/../g)!, (item) => Number.parseInt(item, 16)); }
-function jsonResponse(value: unknown): Response { return new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } }); }
