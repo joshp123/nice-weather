@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -32,10 +33,12 @@ const (
 	minimumCheckpointFreeBytes     = uint64(4 << 30)
 	minimumArtifactFreeBytes       = uint64(1 << 30)
 	globalClimateReleaseContract   = "nice-weather-global-climate-release-v1"
+	globalClimateIndexContract     = "nice-weather-global-climate-index-v1"
 )
 
-// GlobalClimateConfig identifies one resumable worldwide AgERA5 build and
-// one independently published calendar month. CheckpointRoot may be on an
+// GlobalClimateConfig identifies one resumable worldwide AgERA5 build and one
+// calendar month. The month is installed independently, then exposed through
+// the matching preview or complete year index. CheckpointRoot may be on an
 // external volume, but it must already exist at a clean absolute path.
 type GlobalClimateConfig struct {
 	ArtifactRoot   string
@@ -49,21 +52,25 @@ type GlobalClimateConfig struct {
 // GlobalClimateSummary is bounded production evidence. It contains no token,
 // source object key, URL query or decoded source chunk.
 type GlobalClimateSummary struct {
-	ReleaseID            string
-	Pointer              climatetiles.Pointer
-	SourceResponses      int
-	SourceResponseBytes  int64
-	BlocksReused         int
-	BlocksBuilt          int
-	BlocksSkipped        int
-	CheckpointBytes      int64
-	ArtifactBytes        int64
-	PointBlocks          int
-	ScalarTiles          int
-	TemperatureRepairs   int64
-	MaximumInversionC    float64
-	MainPointerUnchanged bool
-	Elapsed              time.Duration
+	ReleaseID              string
+	Pointer                climatetiles.Pointer
+	IndexState             climatetiles.IndexState
+	MonthsAvailable        int
+	SelectedMonthInstalled bool
+	SourceResponses        int
+	SourceResponseBytes    int64
+	BlocksReused           int
+	BlocksBuilt            int
+	BlocksSkipped          int
+	UnsupportedLandCells   int
+	CheckpointBytes        int64
+	ArtifactBytes          int64
+	PointBlocks            int
+	ScalarTiles            int
+	TemperatureRepairs     int64
+	MaximumInversionC      float64
+	MainPointerUnchanged   bool
+	Elapsed                time.Duration
 }
 
 type globalClimateDependencies struct {
@@ -78,8 +85,10 @@ type globalClimateDependencies struct {
 	availableBytes  func(string) (uint64, error)
 	runBlocks       func(context.Context, string, climatebuild.Source, pipeline.FloatGrid, [sha256.Size]byte, int) (GlobalClimateBlockSummary, error)
 	buildMonth      func(context.Context, climateassembly.Config) (climatetiles.Catalog, error)
-	publish         func(context.Context, string, string, climatetiles.Builder) (climatetiles.Pointer, error)
-	validateCurrent func(string) (climatetiles.Pointer, climatetiles.Catalog, error)
+	installMonth    func(context.Context, string, string, climatetiles.Builder) (climatetiles.MonthReference, error)
+	validateMonth   func(string, string, string) (climatetiles.MonthReference, climatetiles.Catalog, bool, error)
+	publishIndex    func(context.Context, string, string, climatetiles.IndexState, []climatetiles.MonthReference) (climatetiles.Pointer, error)
+	validateCurrent func(string) (climatetiles.Pointer, climatetiles.Index, error)
 	treeStats       func(string) (int, int64, error)
 }
 
@@ -109,8 +118,10 @@ func productionGlobalClimateDependencies(client *agera5.Client) globalClimateDep
 		availableBytes:  filesystemAvailableBytes,
 		runBlocks:       RunGlobalClimateBlocks,
 		buildMonth:      climateassembly.BuildMonth,
-		publish:         climatetiles.BuildAndPublish,
-		validateCurrent: climatetiles.ValidateCurrent,
+		installMonth:    climatetiles.BuildAndInstallMonth,
+		validateMonth:   climatetiles.ValidateInstalledMonth,
+		publishIndex:    climatetiles.BuildAndPublishIndex,
+		validateCurrent: climatetiles.ValidateCurrentIndex,
 		treeStats:       treeStats,
 	}
 }
@@ -185,6 +196,7 @@ func runGlobalClimate(ctx context.Context, config GlobalClimateConfig, dependenc
 	summary.BlocksReused = blocks.Reused
 	summary.BlocksBuilt = blocks.Built
 	summary.BlocksSkipped = blocks.WaterSkipped
+	summary.UnsupportedLandCells = blocks.UnsupportedLandCells
 	summary.CheckpointBytes = blocks.CheckpointBytes
 	summary.TemperatureRepairs = blocks.TemperatureRepairs
 	summary.MaximumInversionC = blocks.MaximumInversionC
@@ -194,7 +206,7 @@ func runGlobalClimate(ctx context.Context, config GlobalClimateConfig, dependenc
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}
-	pointer, err := dependencies.publish(ctx, config.ArtifactRoot, releaseID, func(buildCtx context.Context, stage climatetiles.Stage) (climatetiles.Catalog, error) {
+	selectedReference, err := dependencies.installMonth(ctx, config.ArtifactRoot, releaseID, func(buildCtx context.Context, stage climatetiles.Stage) (climatetiles.Catalog, error) {
 		if err := buildCtx.Err(); err != nil {
 			return climatetiles.Catalog{}, err
 		}
@@ -207,14 +219,31 @@ func runGlobalClimate(ctx context.Context, config GlobalClimateConfig, dependenc
 		})
 	})
 	if err != nil {
-		return summary, fmt.Errorf("build and publish worldwide climate month: %w", err)
+		return summary, fmt.Errorf("build and install worldwide climate month: %w", err)
 	}
-	validatedPointer, catalog, err := dependencies.validateCurrent(config.ArtifactRoot)
+	summary.SelectedMonthInstalled = true
+	monthReferences, selectedCatalog, err := discoverGlobalClimateMonths(config.ArtifactRoot, sourceEvidence, config.Month, selectedReference, dependencies.validateMonth)
 	if err != nil {
-		return summary, fmt.Errorf("validate current worldwide climate month: %w", err)
+		return summary, err
 	}
-	if validatedPointer != pointer || catalog.ReleaseID != releaseID || catalog.Period != config.Period {
-		return summary, errors.New("published worldwide climate pointer does not identify the requested release")
+	state := climatetiles.IndexStatePreview
+	if len(monthReferences) == 12 {
+		state = climatetiles.IndexStateComplete
+	}
+	indexID, err := globalClimateIndexID(state, monthReferences)
+	if err != nil {
+		return summary, err
+	}
+	pointer, err := dependencies.publishIndex(ctx, config.ArtifactRoot, indexID, state, monthReferences)
+	if err != nil {
+		return summary, fmt.Errorf("publish worldwide climate year index: %w", err)
+	}
+	validatedPointer, index, err := dependencies.validateCurrent(config.ArtifactRoot)
+	if err != nil {
+		return summary, fmt.Errorf("validate current worldwide climate year index: %w", err)
+	}
+	if validatedPointer != pointer || index.IndexID != indexID || index.State != state || !slices.Equal(index.Months, monthReferences) {
+		return summary, errors.New("published worldwide climate pointer does not identify the exact installed month set")
 	}
 	_, artifactBytes, err := dependencies.treeStats(filepath.Join(config.ArtifactRoot, "climate", "releases", releaseID))
 	if err != nil {
@@ -223,11 +252,13 @@ func runGlobalClimate(ctx context.Context, config GlobalClimateConfig, dependenc
 	metrics := dependencies.sourceMetrics()
 	summary.ReleaseID = releaseID
 	summary.Pointer = pointer
+	summary.IndexState = state
+	summary.MonthsAvailable = len(monthReferences)
 	summary.SourceResponses = metrics.Responses
 	summary.SourceResponseBytes = metrics.FetchedBytes
 	summary.ArtifactBytes = artifactBytes
-	summary.PointBlocks = len(catalog.PointBlocks)
-	summary.ScalarTiles = len(catalog.ScalarTiles)
+	summary.PointBlocks = len(selectedCatalog.PointBlocks)
+	summary.ScalarTiles = len(selectedCatalog.ScalarTiles)
 	summary.Elapsed = dependencies.now().Sub(started)
 	if summary.Elapsed < 0 {
 		summary.Elapsed = 0
@@ -260,7 +291,7 @@ func validateGlobalClimateConfig(ctx context.Context, config GlobalClimateConfig
 			return fmt.Errorf("global climate %s root must be an existing real directory", name)
 		}
 	}
-	if dependencies.now == nil || dependencies.retry == nil || dependencies.fetchMetadata == nil || dependencies.sourceEvidence == nil || dependencies.newSource == nil || dependencies.retrySource == nil || dependencies.sourceMetrics == nil || dependencies.landMask == nil || dependencies.availableBytes == nil || dependencies.runBlocks == nil || dependencies.buildMonth == nil || dependencies.publish == nil || dependencies.validateCurrent == nil || dependencies.treeStats == nil {
+	if dependencies.now == nil || dependencies.retry == nil || dependencies.fetchMetadata == nil || dependencies.sourceEvidence == nil || dependencies.newSource == nil || dependencies.retrySource == nil || dependencies.sourceMetrics == nil || dependencies.landMask == nil || dependencies.availableBytes == nil || dependencies.runBlocks == nil || dependencies.buildMonth == nil || dependencies.installMonth == nil || dependencies.validateMonth == nil || dependencies.publishIndex == nil || dependencies.validateCurrent == nil || dependencies.treeStats == nil {
 		return errors.New("global climate dependencies are incomplete")
 	}
 	return nil
@@ -430,6 +461,87 @@ func globalClimateReleaseID(period string, month time.Month, sourceEvidence [sha
 	_, _ = digest.Write([]byte{byte(month)})
 	_, _ = digest.Write(sourceEvidence[:])
 	return fmt.Sprintf("agera5-%s-%s", period, hex.EncodeToString(digest.Sum(nil))[:20])
+}
+
+type installedClimateMonthValidator func(string, string, string) (climatetiles.MonthReference, climatetiles.Catalog, bool, error)
+
+func discoverGlobalClimateMonths(
+	artifactRoot string,
+	sourceEvidence [sha256.Size]byte,
+	selectedMonth time.Month,
+	selectedReference climatetiles.MonthReference,
+	validate installedClimateMonthValidator,
+) ([]climatetiles.MonthReference, climatetiles.Catalog, error) {
+	if validate == nil || selectedMonth < time.January || selectedMonth > time.December {
+		return nil, climatetiles.Catalog{}, errors.New("global climate month discovery is incomplete")
+	}
+	wantSource := hex.EncodeToString(sourceEvidence[:])
+	result := make([]climatetiles.MonthReference, 0, 12)
+	var selectedCatalog climatetiles.Catalog
+	selectedFound := false
+	for month := time.January; month <= time.December; month++ {
+		period := fmt.Sprintf("month-%02d", month)
+		releaseID := globalClimateReleaseID(period, month, sourceEvidence)
+		reference, catalog, found, err := validate(artifactRoot, releaseID, period)
+		if err != nil {
+			return nil, climatetiles.Catalog{}, fmt.Errorf("validate installed worldwide climate %s: %w", period, err)
+		}
+		if !found {
+			continue
+		}
+		if catalog.Provenance.SourceEvidenceSHA256 != wantSource || catalog.Provenance.DerivationContract != climatebuild.CheckpointDerivationContract {
+			return nil, climatetiles.Catalog{}, fmt.Errorf("installed worldwide climate %s has different source evidence", period)
+		}
+		result = append(result, reference)
+		if month == selectedMonth {
+			if reference != selectedReference {
+				return nil, climatetiles.Catalog{}, errors.New("installed selected climate month changed after installation")
+			}
+			selectedCatalog = catalog
+			selectedFound = true
+		}
+	}
+	if !selectedFound {
+		return nil, climatetiles.Catalog{}, errors.New("installed selected climate month is missing")
+	}
+	return result, selectedCatalog, nil
+}
+
+func globalClimateIndexID(state climatetiles.IndexState, months []climatetiles.MonthReference) (string, error) {
+	if (state == climatetiles.IndexStatePreview && (len(months) < 1 || len(months) > 11)) ||
+		(state == climatetiles.IndexStateComplete && len(months) != 12) {
+		return "", errors.New("global climate index state does not match its month count")
+	}
+	if state != climatetiles.IndexStatePreview && state != climatetiles.IndexStateComplete {
+		return "", errors.New("global climate index state is invalid")
+	}
+	digest := sha256.New()
+	writeDigestString(digest, globalClimateIndexContract)
+	writeDigestString(digest, string(state))
+	for index, reference := range months {
+		var month int
+		if _, err := fmt.Sscanf(reference.Period, "month-%02d", &month); err != nil || month < 1 || month > 12 || reference.Period != fmt.Sprintf("month-%02d", month) {
+			return "", errors.New("global climate index contains an invalid month period")
+		}
+		if index > 0 && reference.Period <= months[index-1].Period {
+			return "", errors.New("global climate index months are not in canonical order")
+		}
+		if state == climatetiles.IndexStateComplete && month != index+1 {
+			return "", errors.New("complete global climate index does not contain every canonical month")
+		}
+		if reference.ReleaseID == "" {
+			return "", errors.New("global climate index contains an invalid month reference")
+		}
+		decoded, err := hex.DecodeString(reference.CatalogSHA256)
+		if err != nil || len(decoded) != sha256.Size {
+			return "", errors.New("global climate index contains an invalid catalog digest")
+		}
+		writeDigestString(digest, reference.Period)
+		writeDigestString(digest, reference.ReleaseID)
+		_, _ = digest.Write(decoded)
+	}
+	encoded := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest.Sum(nil))
+	return "climate-" + strings.ToLower(encoded), nil
 }
 
 func preflightGlobalClimateDisk(config GlobalClimateConfig, available func(string) (uint64, error)) error {

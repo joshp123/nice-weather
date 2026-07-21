@@ -164,6 +164,36 @@ func BuildAndInstallMonth(ctx context.Context, artifactRoot, releaseID string, b
 	return MonthReference{Period: installed.Period, ReleaseID: installed.ReleaseID, CatalogSHA256: installedDigest}, nil
 }
 
+// ValidateInstalledMonth verifies one expected immutable month release. A
+// missing release is not an error; an existing malformed or mismatched release
+// fails closed.
+func ValidateInstalledMonth(artifactRoot, releaseID, period string) (MonthReference, Catalog, bool, error) {
+	if !validReleaseID(releaseID) || !periodPattern.MatchString(period) {
+		return MonthReference{}, Catalog{}, false, errors.New("installed climate month identity is invalid")
+	}
+	climateRoot, err := existingPublicationRoot(artifactRoot)
+	if err != nil {
+		return MonthReference{}, Catalog{}, false, err
+	}
+	releaseRoot := filepath.Join(climateRoot, "releases", releaseID)
+	_, err = os.Lstat(releaseRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		return MonthReference{}, Catalog{}, false, nil
+	}
+	if err != nil {
+		return MonthReference{}, Catalog{}, false, err
+	}
+	catalog, digest, err := validateReleaseDigest(releaseRoot)
+	if err != nil {
+		return MonthReference{}, Catalog{}, false, fmt.Errorf("validate installed climate month: %w", err)
+	}
+	if catalog.ReleaseID != releaseID || catalog.Period != period {
+		return MonthReference{}, Catalog{}, false, errors.New("installed climate month does not match its expected release and period")
+	}
+	reference := MonthReference{Period: period, ReleaseID: releaseID, CatalogSHA256: digest}
+	return reference, catalog, true, nil
+}
+
 // BuildAndPublishIndex validates the requested month set, installs one
 // immutable year index, then changes climate/current.json atomically. A
 // complete index can never be replaced by a preview.
@@ -193,6 +223,11 @@ func BuildAndPublishIndex(ctx context.Context, artifactRoot, indexID string, sta
 	index, err := buildIndex(climateRoot, indexID, state, months)
 	if err != nil {
 		return Pointer{}, err
+	}
+	if hasCurrent && currentIndex.State == IndexStatePreview && index.State == IndexStatePreview &&
+		currentIndex.ReferencePeriod == index.ReferencePeriod && currentIndex.Provenance == index.Provenance &&
+		!monthReferenceSuperset(index.Months, currentIndex.Months) {
+		return Pointer{}, errors.New("refuse to replace a climate preview with a smaller month set from the same source")
 	}
 	if err := ctx.Err(); err != nil {
 		return Pointer{}, err
@@ -287,6 +322,22 @@ func BuildAndPublishIndex(ctx context.Context, artifactRoot, indexID string, sta
 		return Pointer{}, err
 	}
 	return pointer, nil
+}
+
+func monthReferenceSuperset(candidate, current []MonthReference) bool {
+	if len(candidate) < len(current) {
+		return false
+	}
+	candidateSet := make(map[MonthReference]struct{}, len(candidate))
+	for _, reference := range candidate {
+		candidateSet[reference] = struct{}{}
+	}
+	for _, reference := range current {
+		if _, found := candidateSet[reference]; !found {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateCurrentIndex verifies current.json, the exact immutable index and

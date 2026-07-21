@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -245,6 +246,88 @@ func TestGlobalClimateWiresMetadataAndSourceRetriesAndExactMask(t *testing.T) {
 	}
 }
 
+func TestGlobalClimatePublishesCompleteIndexFromAllMatchingInstalledMonths(t *testing.T) {
+	config := globalClimateTestConfig(t, "token")
+	dependencies := globalClimateTestDependencies(t)
+	sourceEvidence := globalClimateTestSourceEvidence(t)
+	wantSource := hex.EncodeToString(sourceEvidence[:])
+	references := make(map[string]climatetiles.MonthReference, 12)
+	catalogs := make(map[string]climatetiles.Catalog, 12)
+	for month := time.January; month <= time.December; month++ {
+		period := fmt.Sprintf("month-%02d", month)
+		releaseID := globalClimateReleaseID(period, month, sourceEvidence)
+		digest := sha256.Sum256([]byte(period))
+		references[releaseID] = climatetiles.MonthReference{Period: period, ReleaseID: releaseID, CatalogSHA256: hex.EncodeToString(digest[:])}
+		catalogs[releaseID] = climatetiles.Catalog{
+			ReleaseID: releaseID, Period: period,
+			Provenance: climatetiles.Provenance{SourceEvidenceSHA256: wantSource, DerivationContract: climatebuild.CheckpointDerivationContract},
+		}
+	}
+	selectedID := globalClimateReleaseID(config.Period, config.Month, sourceEvidence)
+	dependencies.installMonth = func(ctx context.Context, _ string, releaseID string, build climatetiles.Builder) (climatetiles.MonthReference, error) {
+		if releaseID != selectedID {
+			t.Fatalf("installed release %q; want %q", releaseID, selectedID)
+		}
+		if _, err := build(ctx, climatetiles.Stage{ReleaseID: releaseID}); err != nil {
+			return climatetiles.MonthReference{}, err
+		}
+		return references[releaseID], nil
+	}
+	seen := make([]string, 0, 12)
+	dependencies.validateMonth = func(_ string, releaseID, period string) (climatetiles.MonthReference, climatetiles.Catalog, bool, error) {
+		seen = append(seen, period+"/"+releaseID)
+		return references[releaseID], catalogs[releaseID], true, nil
+	}
+	var published climatetiles.Index
+	dependencies.publishIndex = func(_ context.Context, _ string, indexID string, state climatetiles.IndexState, months []climatetiles.MonthReference) (climatetiles.Pointer, error) {
+		published = climatetiles.Index{Version: climatetiles.IndexVersion, IndexID: indexID, State: state, Months: append([]climatetiles.MonthReference(nil), months...)}
+		digest := sha256.Sum256([]byte(indexID))
+		return climatetiles.Pointer{Version: climatetiles.PointerVersion, IndexID: indexID, IndexSHA256: hex.EncodeToString(digest[:])}, nil
+	}
+	var pointer climatetiles.Pointer
+	originalPublish := dependencies.publishIndex
+	dependencies.publishIndex = func(ctx context.Context, root, indexID string, state climatetiles.IndexState, months []climatetiles.MonthReference) (climatetiles.Pointer, error) {
+		var err error
+		pointer, err = originalPublish(ctx, root, indexID, state, months)
+		return pointer, err
+	}
+	dependencies.validateCurrent = func(string) (climatetiles.Pointer, climatetiles.Index, error) {
+		return pointer, published, nil
+	}
+
+	summary, err := runGlobalClimate(context.Background(), config, dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !summary.SelectedMonthInstalled || summary.MonthsAvailable != 12 || summary.IndexState != climatetiles.IndexStateComplete || summary.Pointer != pointer || len(published.Months) != 12 {
+		t.Fatalf("summary=%+v index=%+v", summary, published)
+	}
+	if len(seen) != 12 || published.Months[0].Period != "month-01" || published.Months[11].Period != "month-12" {
+		t.Fatalf("discovered=%v months=%+v", seen, published.Months)
+	}
+}
+
+func TestGlobalClimateIndexIdentityBindsFullStateAndMonthSet(t *testing.T) {
+	month := climatetiles.MonthReference{Period: "month-07", ReleaseID: "release-07", CatalogSHA256: strings.Repeat("a", 64)}
+	first, err := globalClimateIndexID(climatetiles.IndexStatePreview, []climatetiles.MonthReference{month})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := globalClimateIndexID(climatetiles.IndexStatePreview, []climatetiles.MonthReference{month})
+	if err != nil || second != first || len(first) > 64 {
+		t.Fatalf("first=%q second=%q err=%v", first, second, err)
+	}
+	changed := month
+	changed.CatalogSHA256 = strings.Repeat("b", 64)
+	other, err := globalClimateIndexID(climatetiles.IndexStatePreview, []climatetiles.MonthReference{changed})
+	if err != nil || other == first {
+		t.Fatalf("changed identity=%q err=%v", other, err)
+	}
+	if _, err := globalClimateIndexID(climatetiles.IndexStateComplete, []climatetiles.MonthReference{month}); err == nil {
+		t.Fatal("incomplete month set accepted as complete")
+	}
+}
+
 func TestGlobalClimateRejectsIncompleteDependenciesWithoutPanic(t *testing.T) {
 	config := globalClimateTestConfig(t, "token")
 	dependencies := globalClimateTestDependencies(t)
@@ -355,12 +438,12 @@ func TestGlobalClimatePublishesIndependentMonthAndRerunsIdempotently(t *testing.
 	if !reflect.DeepEqual(seenSnapshots, metadataSnapshots) {
 		t.Fatalf("source-evidence snapshots = %v, want %v", seenSnapshots, metadataSnapshots)
 	}
-	if first.PointBlocks != 1 || first.ScalarTiles == 0 || first.ArtifactBytes <= 0 || first.CheckpointBytes != checkpointInfo.Size() || first.TemperatureRepairs != 3 || first.MaximumInversionC != .2 || !first.MainPointerUnchanged || !second.MainPointerUnchanged {
+	if first.PointBlocks != 1 || first.ScalarTiles == 0 || first.ArtifactBytes <= 0 || first.CheckpointBytes != checkpointInfo.Size() || first.TemperatureRepairs != 3 || first.MaximumInversionC != .2 || !first.SelectedMonthInstalled || first.MonthsAvailable != 1 || first.IndexState != climatetiles.IndexStatePreview || !first.MainPointerUnchanged || !second.MainPointerUnchanged {
 		t.Fatalf("first summary = %+v", first)
 	}
-	pointer, catalog, err := climatetiles.ValidateCurrent(artifactRoot)
-	if err != nil || pointer != first.Pointer || catalog.ReleaseID != first.ReleaseID || catalog.Period != "month-07" {
-		t.Fatalf("pointer=%+v catalog=%+v err=%v", pointer, catalog, err)
+	pointer, index, err := climatetiles.ValidateCurrentIndex(artifactRoot)
+	if err != nil || pointer != first.Pointer || index.State != climatetiles.IndexStatePreview || len(index.Months) != 1 || index.Months[0].ReleaseID != first.ReleaseID || index.Months[0].Period != "month-07" {
+		t.Fatalf("pointer=%+v index=%+v err=%v", pointer, index, err)
 	}
 	target, err := os.Readlink(filepath.Join(artifactRoot, "current"))
 	if err != nil || target != "releases/main-release" {
@@ -393,9 +476,9 @@ func TestGlobalClimateCancellationStopsBeforeBlocksAndDuringAssembly(t *testing.
 		dependencies.runBlocks = func(ctx context.Context, _ string, _ climatebuild.Source, _ pipeline.FloatGrid, _ [sha256.Size]byte, _ int) (GlobalClimateBlockSummary, error) {
 			return GlobalClimateBlockSummary{}, context.Canceled
 		}
-		dependencies.publish = func(context.Context, string, string, climatetiles.Builder) (climatetiles.Pointer, error) {
+		dependencies.installMonth = func(context.Context, string, string, climatetiles.Builder) (climatetiles.MonthReference, error) {
 			published = true
-			return climatetiles.Pointer{}, nil
+			return climatetiles.MonthReference{}, nil
 		}
 		if _, err := runGlobalClimate(context.Background(), config, dependencies); !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v", err)
@@ -424,17 +507,19 @@ func TestGlobalClimateFailsIfMainPointerChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	dependencies := globalClimateTestDependencies(t)
-	dependencies.publish = func(ctx context.Context, root, releaseID string, build climatetiles.Builder) (climatetiles.Pointer, error) {
-		if _, err := build(ctx, climatetiles.Stage{ReleaseID: releaseID}); err != nil {
-			return climatetiles.Pointer{}, err
+	install := dependencies.installMonth
+	dependencies.installMonth = func(ctx context.Context, root, releaseID string, build climatetiles.Builder) (climatetiles.MonthReference, error) {
+		reference, err := install(ctx, root, releaseID, build)
+		if err != nil {
+			return climatetiles.MonthReference{}, err
 		}
 		if err := os.Remove(filepath.Join(root, "current")); err != nil {
-			return climatetiles.Pointer{}, err
+			return climatetiles.MonthReference{}, err
 		}
 		if err := os.Symlink("changed", filepath.Join(root, "current")); err != nil {
-			return climatetiles.Pointer{}, err
+			return climatetiles.MonthReference{}, err
 		}
-		return climatetiles.Pointer{ReleaseID: releaseID, CatalogSHA256: strings.Repeat("a", 64)}, nil
+		return reference, nil
 	}
 	_, err := runGlobalClimate(context.Background(), config, dependencies)
 	if err == nil || !strings.Contains(err.Error(), "main artifacts/current changed") {
@@ -480,7 +565,10 @@ func globalClimateTestConfig(t *testing.T, token string) GlobalClimateConfig {
 func globalClimateTestDependencies(t *testing.T) globalClimateDependencies {
 	t.Helper()
 	pointer := climatetiles.Pointer{}
-	catalog := climatetiles.Catalog{}
+	index := climatetiles.Index{}
+	references := make(map[string]climatetiles.MonthReference)
+	catalogs := make(map[string]climatetiles.Catalog)
+	sourceEvidence := globalClimateTestSourceEvidence(t)
 	return globalClimateDependencies{
 		now:   func() time.Time { return time.Unix(100, 0) },
 		retry: func(_ context.Context, operation func() error) error { return operation() },
@@ -488,7 +576,7 @@ func globalClimateTestDependencies(t *testing.T) globalClimateDependencies {
 			return agera5.Metadata{}, nil
 		},
 		sourceEvidence: func(agera5.Metadata) ([sha256.Size]byte, error) {
-			return globalClimateTestSourceEvidence(t), nil
+			return sourceEvidence, nil
 		},
 		newSource:     func(agera5.Metadata, string) climatebuild.Source { return &globalClimateNoopSource{} },
 		retrySource:   func(source climatebuild.Source) climatebuild.Source { return source },
@@ -501,19 +589,44 @@ func globalClimateTestDependencies(t *testing.T) globalClimateDependencies {
 			return GlobalClimateBlockSummary{}, nil
 		},
 		buildMonth: func(_ context.Context, config climateassembly.Config) (climatetiles.Catalog, error) {
-			return climatetiles.Catalog{ReleaseID: config.Stage.ReleaseID, Period: config.Period}, nil
+			return climatetiles.Catalog{
+				ReleaseID: config.Stage.ReleaseID,
+				Period:    config.Period,
+				Provenance: climatetiles.Provenance{
+					SourceEvidenceSHA256: hex.EncodeToString(sourceEvidence[:]),
+					DerivationContract:   climatebuild.CheckpointDerivationContract,
+				},
+			}, nil
 		},
-		publish: func(ctx context.Context, _ string, releaseID string, build climatetiles.Builder) (climatetiles.Pointer, error) {
-			var err error
-			catalog, err = build(ctx, climatetiles.Stage{ReleaseID: releaseID})
+		installMonth: func(ctx context.Context, _ string, releaseID string, build climatetiles.Builder) (climatetiles.MonthReference, error) {
+			catalog, err := build(ctx, climatetiles.Stage{ReleaseID: releaseID})
 			if err != nil {
-				return climatetiles.Pointer{}, err
+				return climatetiles.MonthReference{}, err
 			}
-			pointer = climatetiles.Pointer{ReleaseID: releaseID, CatalogSHA256: strings.Repeat("a", 64)}
+			reference := climatetiles.MonthReference{Period: catalog.Period, ReleaseID: releaseID, CatalogSHA256: strings.Repeat("a", 64)}
+			references[releaseID] = reference
+			catalogs[releaseID] = catalog
+			return reference, nil
+		},
+		validateMonth: func(_ string, releaseID, period string) (climatetiles.MonthReference, climatetiles.Catalog, bool, error) {
+			reference, found := references[releaseID]
+			if !found {
+				return climatetiles.MonthReference{}, climatetiles.Catalog{}, false, nil
+			}
+			catalog := catalogs[releaseID]
+			if reference.Period != period || catalog.Period != period {
+				return climatetiles.MonthReference{}, climatetiles.Catalog{}, false, errors.New("period mismatch")
+			}
+			return reference, catalog, true, nil
+		},
+		publishIndex: func(_ context.Context, _ string, indexID string, state climatetiles.IndexState, months []climatetiles.MonthReference) (climatetiles.Pointer, error) {
+			digest := sha256.Sum256([]byte(indexID))
+			pointer = climatetiles.Pointer{Version: climatetiles.PointerVersion, IndexID: indexID, IndexSHA256: hex.EncodeToString(digest[:])}
+			index = climatetiles.Index{Version: climatetiles.IndexVersion, IndexID: indexID, State: state, Months: append([]climatetiles.MonthReference(nil), months...)}
 			return pointer, nil
 		},
-		validateCurrent: func(string) (climatetiles.Pointer, climatetiles.Catalog, error) {
-			return pointer, catalog, nil
+		validateCurrent: func(string) (climatetiles.Pointer, climatetiles.Index, error) {
+			return pointer, index, nil
 		},
 		treeStats: func(string) (int, int64, error) { return 4, 9876, nil },
 	}
@@ -523,8 +636,10 @@ func productionLikeGlobalClimateTestDependencies(t *testing.T) globalClimateDepe
 	t.Helper()
 	dependencies := globalClimateTestDependencies(t)
 	dependencies.buildMonth = climateassembly.BuildMonth
-	dependencies.publish = climatetiles.BuildAndPublish
-	dependencies.validateCurrent = climatetiles.ValidateCurrent
+	dependencies.installMonth = climatetiles.BuildAndInstallMonth
+	dependencies.validateMonth = climatetiles.ValidateInstalledMonth
+	dependencies.publishIndex = climatetiles.BuildAndPublishIndex
+	dependencies.validateCurrent = climatetiles.ValidateCurrentIndex
 	dependencies.treeStats = treeStats
 	return dependencies
 }

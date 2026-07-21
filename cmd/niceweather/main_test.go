@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"nice-weather-finder/internal/climatetiles"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -31,9 +32,12 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 			t.Fatal("standard input was not passed directly to the backend token reader")
 		}
 		return weatherupdate.GlobalClimateSummary{
-			ReleaseID: "agera5-month-11-test", SourceResponses: 73, SourceResponseBytes: 987654321,
+			ReleaseID: "agera5-month-11-test", Pointer: climatetiles.Pointer{IndexID: "preview-index-test"},
+			IndexState: climatetiles.IndexStatePreview, MonthsAvailable: 3, SelectedMonthInstalled: true,
+			SourceResponses: 73, SourceResponseBytes: 987654321,
 			BlocksReused: 111, BlocksBuilt: 222, BlocksSkipped: 333,
-			CheckpointBytes: 444, ArtifactBytes: 555, PointBlocks: 666, ScalarTiles: 777,
+			UnsupportedLandCells: 4,
+			CheckpointBytes:      444, ArtifactBytes: 555, PointBlocks: 666, ScalarTiles: 777,
 			TemperatureRepairs: 8, MaximumInversionC: .301, MainPointerUnchanged: true,
 			Elapsed: 90*time.Second + 400*time.Millisecond,
 		}, nil
@@ -56,8 +60,8 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 	}
 	for _, want := range []string{
 		"building November", "2006-2025", "111 reused", "222 built", "333 water-only skipped",
-		"73 responses", "987654321 bytes", "agera5-month-11-test", "666 point blocks", "777 scalar tiles",
-		"444 checkpoint bytes", "555 artifact bytes", "8 temperature repairs", "largest 0.301 C",
+		"73 responses", "987654321 bytes", "agera5-month-11-test installed", "3/12 months available", "preview index pointer preview-index-test", "666 point blocks", "777 scalar tiles",
+		"444 checkpoint bytes", "555 artifact bytes", "4 structurally unsupported land cells", "8 temperature repairs", "largest 0.301 C",
 		"main weather release unchanged", "elapsed 1m30s",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -135,7 +139,7 @@ func TestClimateWorldCommandKeepsBearerTokenOutOfArgumentsAndOutput(t *testing.T
 		if string(payload) != secret+"\n" {
 			return weatherupdate.GlobalClimateSummary{}, errors.New("backend did not receive exact standard input")
 		}
-		return weatherupdate.GlobalClimateSummary{ReleaseID: "safe-release", MainPointerUnchanged: true}, nil
+		return weatherupdate.GlobalClimateSummary{ReleaseID: "safe-release", Pointer: climatetiles.Pointer{IndexID: "safe-index"}, IndexState: climatetiles.IndexStatePreview, MonthsAvailable: 1, SelectedMonthInstalled: true, MainPointerUnchanged: true}, nil
 	}
 	var stdout, stderr bytes.Buffer
 	err := runClimateWorldCommand(context.Background(), args, strings.NewReader(secret+"\n"), &stdout, &stderr, runner)
@@ -189,6 +193,27 @@ func TestClimateWorldCommandRejectsUnprovenMainPointer(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "Output:") {
 		t.Fatalf("printed success summary without pointer proof: %s", stdout.String())
+	}
+}
+
+func TestClimateWorldCommandRejectsIncoherentYearIndexSummary(t *testing.T) {
+	directories := climateWorldTestDirectories(t)
+	var stdout, stderr bytes.Buffer
+	err := runClimateWorldCommand(context.Background(), []string{
+		"--month", "3", "--out", directories.artifacts,
+		"--checkpoints", directories.checkpoints, "--land-cache", directories.landCache,
+	}, strings.NewReader("secret"), &stdout, &stderr, func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error) {
+		return weatherupdate.GlobalClimateSummary{
+			ReleaseID: "release-03", Pointer: climatetiles.Pointer{IndexID: "wrong-preview"},
+			IndexState: climatetiles.IndexStatePreview, MonthsAvailable: 12,
+			SelectedMonthInstalled: true, MainPointerUnchanged: true,
+		}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid year-index summary") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(stdout.String(), "Output:") {
+		t.Fatalf("printed success summary for incoherent year index: %s", stdout.String())
 	}
 }
 

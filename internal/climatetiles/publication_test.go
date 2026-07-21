@@ -49,6 +49,25 @@ func TestMonthInstallDoesNotPublishAndPreviewIndexBindsExactRelease(t *testing.T
 	}
 }
 
+func TestValidateInstalledMonthFindsOnlyTheExactExpectedRelease(t *testing.T) {
+	artifacts := t.TempDir()
+	want := installFixtureMonth(t, artifacts, 7, 63, fixtureProvenance())
+
+	got, catalog, found, err := ValidateInstalledMonth(artifacts, want.ReleaseID, want.Period)
+	if err != nil || !found || got != want || catalog.ReleaseID != want.ReleaseID || catalog.Period != want.Period {
+		t.Fatalf("reference=%+v catalog=%+v found=%v err=%v", got, catalog, found, err)
+	}
+	if _, _, found, err := ValidateInstalledMonth(artifacts, "climate-08", "month-08"); err != nil || found {
+		t.Fatalf("missing release found=%v err=%v", found, err)
+	}
+	if _, _, _, err := ValidateInstalledMonth(artifacts, want.ReleaseID, "month-08"); err == nil || !strings.Contains(err.Error(), "expected release and period") {
+		t.Fatalf("period mismatch error = %v", err)
+	}
+	if _, _, _, err := ValidateInstalledMonth(artifacts, "../escape", "month-07"); err == nil {
+		t.Fatal("unsafe release identity unexpectedly accepted")
+	}
+}
+
 func TestCompleteIndexRequiresAllMonthsAndCannotDowngradeToPreview(t *testing.T) {
 	artifacts := t.TempDir()
 	months := installFixtureYear(t, artifacts, fixtureProvenance())
@@ -71,6 +90,23 @@ func TestCompleteIndexRequiresAllMonthsAndCannotDowngradeToPreview(t *testing.T)
 	pointer, index, err := ValidateCurrentIndex(artifacts)
 	if err != nil || pointer != complete || index.State != IndexStateComplete || len(index.Months) != 12 {
 		t.Fatalf("complete index = %+v, %+v, %v", pointer, index, err)
+	}
+}
+
+func TestPreviewIndexCannotRegressForTheSameSource(t *testing.T) {
+	artifacts := t.TempDir()
+	first := installFixtureMonth(t, artifacts, 1, 61, fixtureProvenance())
+	second := installFixtureMonth(t, artifacts, 2, 62, fixtureProvenance())
+	published, err := BuildAndPublishIndex(context.Background(), artifacts, "preview-two", IndexStatePreview, []MonthReference{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildAndPublishIndex(context.Background(), artifacts, "stale-preview-one", IndexStatePreview, []MonthReference{first}); err == nil || !strings.Contains(err.Error(), "smaller month set") {
+		t.Fatalf("stale preview error = %v", err)
+	}
+	pointer, index, err := ValidateCurrentIndex(artifacts)
+	if err != nil || pointer != published || len(index.Months) != 2 || index.Months[1] != second {
+		t.Fatalf("current preview = %+v, %+v, %v", pointer, index, err)
 	}
 }
 

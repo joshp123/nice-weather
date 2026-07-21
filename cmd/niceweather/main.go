@@ -15,6 +15,7 @@ import (
 
 	"nice-weather-finder/internal/appserver"
 	"nice-weather-finder/internal/climatecanary"
+	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/product"
@@ -228,18 +229,23 @@ func runClimateWorldCommand(
 	if !summary.MainPointerUnchanged {
 		return errors.New("worldwide climate build did not prove that the main weather release stayed unchanged")
 	}
+	if !summary.SelectedMonthInstalled || summary.Pointer.IndexID == "" || summary.MonthsAvailable < 1 || summary.MonthsAvailable > 12 ||
+		(summary.MonthsAvailable == 12 && summary.IndexState != climatetiles.IndexStateComplete) ||
+		(summary.MonthsAvailable < 12 && summary.IndexState != climatetiles.IndexStatePreview) {
+		return errors.New("worldwide climate build returned an invalid year-index summary")
+	}
 	if _, err := fmt.Fprintf(stdout, "Blocks: %d reused, %d built, %d water-only skipped. Source: %d responses, %d bytes.\n",
 		summary.BlocksReused, summary.BlocksBuilt, summary.BlocksSkipped,
 		summary.SourceResponses, summary.SourceResponseBytes); err != nil {
 		return fmt.Errorf("write climate-world block summary: %w", err)
 	}
-	if _, err := fmt.Fprintf(stdout, "Output: %s; %d point blocks, %d scalar tiles; %d checkpoint bytes, %d artifact bytes.\n",
-		summary.ReleaseID, summary.PointBlocks, summary.ScalarTiles,
+	if _, err := fmt.Fprintf(stdout, "Output: %s installed; %d/12 months available; %s index pointer %s; %d point blocks, %d scalar tiles; %d checkpoint bytes, %d artifact bytes.\n",
+		summary.ReleaseID, summary.MonthsAvailable, summary.IndexState, summary.Pointer.IndexID, summary.PointBlocks, summary.ScalarTiles,
 		summary.CheckpointBytes, summary.ArtifactBytes); err != nil {
 		return fmt.Errorf("write climate-world output summary: %w", err)
 	}
-	if _, err := fmt.Fprintf(stdout, "Quality: %d temperature repairs, largest %.3f C; main weather release unchanged; elapsed %s.\n",
-		summary.TemperatureRepairs, summary.MaximumInversionC, summary.Elapsed.Round(time.Second)); err != nil {
+	if _, err := fmt.Fprintf(stdout, "Quality: %d structurally unsupported land cells left transparent; %d temperature repairs, largest %.3f C; main weather release unchanged; elapsed %s.\n",
+		summary.UnsupportedLandCells, summary.TemperatureRepairs, summary.MaximumInversionC, summary.Elapsed.Round(time.Second)); err != nil {
 		return fmt.Errorf("write climate-world quality summary: %w", err)
 	}
 	return nil
