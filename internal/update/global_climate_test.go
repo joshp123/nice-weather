@@ -415,9 +415,9 @@ func TestGlobalClimatePublishesIndependentMonthAndRerunsIdempotently(t *testing.
 	}
 	dependencies.runBlocks = func(context.Context, string, climatebuild.Source, pipeline.FloatGrid, [sha256.Size]byte, int) (GlobalClimateBlockSummary, error) {
 		if runs.Add(1) == 1 {
-			return GlobalClimateBlockSummary{Blocks: 1, Built: 1, CheckpointBytes: checkpointInfo.Size(), Completed: []climatebuild.CheckpointIdentity{checkpoint.Identity}, TemperatureRepairs: 3, MaximumInversionC: .2}, nil
+			return GlobalClimateBlockSummary{Blocks: 1, Built: 1, CheckpointBytes: checkpointInfo.Size(), Completed: []climatebuild.CheckpointIdentity{checkpoint.Identity}, TemperatureRepairs: 3, MaximumInversionC: .2, DewPointRepairs: 4, MaximumDewPointCapC: 2.1}, nil
 		}
-		return GlobalClimateBlockSummary{Blocks: 1, Reused: 1, CheckpointBytes: checkpointInfo.Size(), Completed: []climatebuild.CheckpointIdentity{checkpoint.Identity}, TemperatureRepairs: 3, MaximumInversionC: .2}, nil
+		return GlobalClimateBlockSummary{Blocks: 1, Reused: 1, CheckpointBytes: checkpointInfo.Size(), Completed: []climatebuild.CheckpointIdentity{checkpoint.Identity}, TemperatureRepairs: 3, MaximumInversionC: .2, DewPointRepairs: 4, MaximumDewPointCapC: 2.1}, nil
 	}
 	config := GlobalClimateConfig{
 		ArtifactRoot: artifactRoot, CheckpointRoot: checkpointRoot, LandCacheRoot: filepath.Join(t.TempDir(), "land-cache"),
@@ -438,7 +438,7 @@ func TestGlobalClimatePublishesIndependentMonthAndRerunsIdempotently(t *testing.
 	if !reflect.DeepEqual(seenSnapshots, metadataSnapshots) {
 		t.Fatalf("source-evidence snapshots = %v, want %v", seenSnapshots, metadataSnapshots)
 	}
-	if first.PointBlocks != 1 || first.ScalarTiles == 0 || first.ArtifactBytes <= 0 || first.CheckpointBytes != checkpointInfo.Size() || first.TemperatureRepairs != 3 || first.MaximumInversionC != .2 || !first.SelectedMonthInstalled || first.MonthsAvailable != 1 || first.IndexState != climatetiles.IndexStatePreview || !first.MainPointerUnchanged || !second.MainPointerUnchanged {
+	if first.PointBlocks != 1 || first.ScalarTiles == 0 || first.ArtifactBytes <= 0 || first.CheckpointBytes != checkpointInfo.Size() || first.TemperatureRepairs != 3 || first.MaximumInversionC != .2 || first.DewPointRepairs != 4 || first.MaximumDewPointCapC != 2.1 || !first.SelectedMonthInstalled || first.MonthsAvailable != 1 || first.IndexState != climatetiles.IndexStatePreview || !first.MainPointerUnchanged || !second.MainPointerUnchanged {
 		t.Fatalf("first summary = %+v", first)
 	}
 	pointer, index, err := climatetiles.ValidateCurrentIndex(artifactRoot)

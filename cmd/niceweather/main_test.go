@@ -38,7 +38,7 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 			BlocksReused: 111, BlocksBuilt: 222, BlocksSkipped: 333,
 			UnsupportedLandCells: 4,
 			CheckpointBytes:      444, ArtifactBytes: 555, PointBlocks: 666, ScalarTiles: 777,
-			TemperatureRepairs: 8, MaximumInversionC: .301, MainPointerUnchanged: true,
+			TemperatureRepairs: 8, MaximumInversionC: .301, DewPointRepairs: 5, MaximumDewPointCapC: 2.104, MainPointerUnchanged: true,
 			Elapsed: 90*time.Second + 400*time.Millisecond,
 		}, nil
 	}
@@ -61,7 +61,7 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 	for _, want := range []string{
 		"building November", "2006-2025", "111 reused", "222 built", "333 water-only skipped",
 		"73 responses", "987654321 bytes", "agera5-month-11-test installed", "3/12 months available", "preview index pointer preview-index-test", "666 point blocks", "777 scalar tiles",
-		"444 checkpoint bytes", "555 artifact bytes", "4 structurally unsupported land cells", "8 temperature repairs", "largest 0.301 C",
+		"444 checkpoint bytes", "555 artifact bytes", "4 structurally unsupported land cells", "8 crossed-extrema repairs", "largest 0.301 C", "5 dew-point caps", "largest 2.104 C",
 		"main weather release unchanged", "elapsed 1m30s",
 	} {
 		if !strings.Contains(stdout.String(), want) {

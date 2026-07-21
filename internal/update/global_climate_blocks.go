@@ -45,6 +45,8 @@ type GlobalClimateBlockSummary struct {
 	CheckpointBytes      int64
 	TemperatureRepairs   int64
 	MaximumInversionC    float64
+	DewPointRepairs      int64
+	MaximumDewPointCapC  float64
 	Completed            []climatebuild.CheckpointIdentity
 }
 
@@ -68,6 +70,8 @@ type globalClimateBlockOutcome struct {
 	checkpointBytes      int64
 	temperatureRepairs   int
 	maximumInversion     float64
+	dewPointRepairs      int
+	maximumDewPointCap   float64
 	err                  error
 }
 
@@ -302,6 +306,8 @@ func runGlobalClimateBlock(
 		outcome.reused = true
 		outcome.temperatureRepairs = checkpoint.TemperatureRepairs
 		outcome.maximumInversion = checkpoint.MaximumTemperatureRepair
+		outcome.dewPointRepairs = checkpoint.DewPointRepairs
+		outcome.maximumDewPointCap = checkpoint.MaximumDewPointRepair
 		outcome.checkpointBytes, outcome.err = globalClimateCheckpointBytes(path)
 		return outcome
 	}
@@ -328,6 +334,8 @@ func runGlobalClimateBlock(
 		Months:                   result.Months,
 		TemperatureRepairs:       result.Stats.TemperatureRepairs,
 		MaximumTemperatureRepair: result.Stats.MaximumTemperatureRepair,
+		DewPointRepairs:          result.Stats.DewPointRepairs,
+		MaximumDewPointRepair:    result.Stats.MaximumDewPointRepair,
 	}
 	if err := climatebuild.WriteCheckpoint(path, checkpoint); err != nil {
 		outcome.err = fmt.Errorf("write global climate block %+v checkpoint: %w", task.block, err)
@@ -336,6 +344,8 @@ func runGlobalClimateBlock(
 	outcome.built = true
 	outcome.temperatureRepairs = checkpoint.TemperatureRepairs
 	outcome.maximumInversion = checkpoint.MaximumTemperatureRepair
+	outcome.dewPointRepairs = checkpoint.DewPointRepairs
+	outcome.maximumDewPointCap = checkpoint.MaximumDewPointRepair
 	outcome.checkpointBytes, outcome.err = globalClimateCheckpointBytes(path)
 	return outcome
 }
@@ -401,6 +411,8 @@ func summarizeGlobalClimateBlocks(outcomes []globalClimateBlockOutcome) (GlobalC
 		summary.CheckpointBytes += outcome.checkpointBytes
 		summary.TemperatureRepairs += int64(outcome.temperatureRepairs)
 		summary.MaximumInversionC = math.Max(summary.MaximumInversionC, outcome.maximumInversion)
+		summary.DewPointRepairs += int64(outcome.dewPointRepairs)
+		summary.MaximumDewPointCapC = math.Max(summary.MaximumDewPointCapC, outcome.maximumDewPointCap)
 		switch {
 		case outcome.waterSkipped && !outcome.reused && !outcome.built && outcome.landCells == 0:
 			summary.WaterSkipped++

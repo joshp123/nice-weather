@@ -69,6 +69,8 @@ type GlobalClimateSummary struct {
 	ScalarTiles            int
 	TemperatureRepairs     int64
 	MaximumInversionC      float64
+	DewPointRepairs        int64
+	MaximumDewPointCapC    float64
 	MainPointerUnchanged   bool
 	Elapsed                time.Duration
 }
@@ -200,6 +202,8 @@ func runGlobalClimate(ctx context.Context, config GlobalClimateConfig, dependenc
 	summary.CheckpointBytes = blocks.CheckpointBytes
 	summary.TemperatureRepairs = blocks.TemperatureRepairs
 	summary.MaximumInversionC = blocks.MaximumInversionC
+	summary.DewPointRepairs = blocks.DewPointRepairs
+	summary.MaximumDewPointCapC = blocks.MaximumDewPointCapC
 
 	releaseID := globalClimateReleaseID(config.Period, config.Month, sourceEvidence)
 	loader := globalClimateCheckpointLoader(config.CheckpointRoot)

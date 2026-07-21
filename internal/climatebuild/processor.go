@@ -24,6 +24,12 @@ var (
 	ErrIncompleteCell    = errors.New("AgERA5 cell has incomplete daily coverage")
 )
 
+// The generic weather contract permits up to 2°C of cross-field tolerance.
+// AgERA5 independently bias-corrects daily fields, so only a crossing beyond
+// that existing materiality boundary is capped at the ordered daily maximum.
+// This keeps every previously accepted checkpoint byte-equivalent.
+const materialDewPointCrossingC = 2
+
 const (
 	fieldDaytimeTemperature = iota
 	fieldMinimumTemperature
@@ -150,6 +156,8 @@ type Stats struct {
 	SparseOcean              bool
 	TemperatureRepairs       int
 	MaximumTemperatureRepair float64
+	DewPointRepairs          int
+	MaximumDewPointRepair    float64
 	PeakRetainedDecodedBytes int64
 }
 
@@ -319,11 +327,17 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 				if cells[cellIndex].missingDays != 0 {
 					continue
 				}
-				metrics, repaired, inversion := normalize(values)
-				if repaired {
+				metrics, repairs := normalize(values)
+				if repairs.temperature > 0 {
 					result.Stats.TemperatureRepairs++
-					if inversion > result.Stats.MaximumTemperatureRepair {
-						result.Stats.MaximumTemperatureRepair = inversion
+					if repairs.temperature > result.Stats.MaximumTemperatureRepair {
+						result.Stats.MaximumTemperatureRepair = repairs.temperature
+					}
+				}
+				if repairs.dewPoint > 0 {
+					result.Stats.DewPointRepairs++
+					if repairs.dewPoint > result.Stats.MaximumDewPointRepair {
+						result.Stats.MaximumDewPointRepair = repairs.dewPoint
 					}
 				}
 				if err := cells[cellIndex].accumulator.AddMetrics(date, latitudes[cellIndex], longitudes[cellIndex], metrics); err != nil {
@@ -560,13 +574,23 @@ func readCellDay(blocks fieldBlocks, timeOffset, latitudeOffset, longitudeOffset
 	return values, available, nil
 }
 
-func normalize(values rawValues) (weather.DailyMetrics, bool, float64) {
+type repairMagnitudes struct {
+	temperature float64
+	dewPoint    float64
+}
+
+func normalize(values rawValues) (weather.DailyMetrics, repairMagnitudes) {
 	minimum, maximum := values[fieldMinimumTemperature], values[fieldMaximumTemperature]
-	repaired := minimum > maximum
-	inversion := 0.0
-	if repaired {
-		inversion = minimum - maximum
+	repairs := repairMagnitudes{}
+	if minimum > maximum {
+		repairs.temperature = minimum - maximum
 		minimum, maximum = maximum, minimum
+	}
+	dewPoint := values[fieldDewPoint]
+	dewPointC := dewPoint - 273.15
+	if finite(dewPoint) && dewPointC >= -100 && dewPointC <= 70 && dewPoint > maximum+materialDewPointCrossingC {
+		repairs.dewPoint = dewPoint - maximum
+		dewPoint = maximum
 	}
 	return weather.DailyMetrics{
 		ComfortableTempC: values[fieldDaytimeTemperature] - 273.15,
@@ -580,11 +604,11 @@ func normalize(values rawValues) (weather.DailyMetrics, bool, float64) {
 		},
 		WindSpeedKPH: values[fieldWindSpeed] * 3.6,
 		DewPointC: weather.OptionalFloat{
-			Value: values[fieldDewPoint] - 273.15, Available: true,
+			Value: dewPoint - 273.15, Available: true,
 		},
 		NativeResolutionKM: 30,
 		Valid:              true,
-	}, repaired, inversion
+	}, repairs
 }
 
 func sameCoordinates(leftLatitudes, leftLongitudes, rightLatitudes, rightLongitudes []float64) bool {

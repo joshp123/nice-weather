@@ -172,6 +172,9 @@ func (block globalClimateTestBlock) Value(timeOffset, latitudeOffset, longitudeO
 	case agera5.MaximumTemperature:
 		return 300, true, nil
 	case agera5.MeanDewPoint:
+		if block.repair && timeOffset == 1 {
+			return 302.5, true, nil
+		}
 		return 285, true, nil
 	case agera5.Precipitation:
 		return 0, true, nil
@@ -244,14 +247,14 @@ func TestGlobalClimateBlocksBuildOneLandCheckpointAndResumeWithoutFetch(t *testi
 	if built.Built != 1 || built.Reused != 0 || built.WaterSkipped != built.Blocks-1 || len(built.Completed) != 1 || built.Completed[0].Block != block {
 		t.Fatalf("built summary = %+v", built)
 	}
-	if built.TemperatureRepairs != 1 || math.Abs(built.MaximumInversionC-1) > 1e-9 || built.CheckpointBytes <= 0 {
+	if built.TemperatureRepairs != 1 || math.Abs(built.MaximumInversionC-1) > 1e-9 || built.DewPointRepairs != 1 || math.Abs(built.MaximumDewPointCapC-2.5) > 1e-9 || built.CheckpointBytes <= 0 {
 		t.Fatalf("build evidence = %+v", built)
 	}
 	checkpoint, found, err := climatebuild.LoadCheckpoint(globalClimateCheckpointPath(root, block), built.Completed[0])
 	if err != nil || !found {
 		t.Fatalf("load checkpoint found=%t error=%v", found, err)
 	}
-	if checkpoint.TemperatureRepairs != 1 || len(checkpoint.Months[0]) != 16*32 {
+	if checkpoint.TemperatureRepairs != 1 || checkpoint.DewPointRepairs != 1 || checkpoint.MaximumDewPointRepair != 2.5 || len(checkpoint.Months[0]) != 16*32 {
 		t.Fatalf("checkpoint = %+v", checkpoint)
 	}
 
@@ -265,6 +268,40 @@ func TestGlobalClimateBlocksBuildOneLandCheckpointAndResumeWithoutFetch(t *testi
 	}
 	if resumed.Reused != 1 || resumed.Built != 0 || resumed.CheckpointBytes != built.CheckpointBytes || !reflect.DeepEqual(resumed.Completed, built.Completed) {
 		t.Fatalf("resumed summary = %+v; built = %+v", resumed, built)
+	}
+}
+
+func TestGlobalClimateBlocksReuseExistingLegacyV1Checkpoint(t *testing.T) {
+	root := t.TempDir()
+	mask := globalClimateMask(t)
+	block := agera5.BlockCoordinate{Latitude: 109, Longitude: 0}
+	setGlobalClimateLand(t, &mask, 1750, 1)
+
+	built, err := RunGlobalClimateBlocks(context.Background(), root, &globalClimateTestSource{}, mask, testSourceDigest(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := globalClimateCheckpointPath(root, block)
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for offset, value := range encoded[216:232] {
+		if value != 0 {
+			t.Fatalf("legacy v1 reserved byte %d is nonzero", 216+offset)
+		}
+	}
+
+	resumeSource := &globalClimateTestSource{fetchErr: errors.New("legacy v1 resume fetched source")}
+	resumed, err := RunGlobalClimateBlocks(context.Background(), root, resumeSource, mask, testSourceDigest(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetches, _ := resumeSource.counts(); fetches != 0 {
+		t.Fatalf("legacy v1 resume fetched %d source chunks", fetches)
+	}
+	if built.Built != 1 || resumed.Reused != 1 || resumed.Built != 0 || resumed.DewPointRepairs != 0 || !reflect.DeepEqual(resumed.Completed, built.Completed) {
+		t.Fatalf("legacy v1 reuse failed: built=%+v resumed=%+v", built, resumed)
 	}
 }
 

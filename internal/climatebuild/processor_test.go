@@ -150,9 +150,9 @@ func TestRequiredFieldOrderMatchesProviderContract(t *testing.T) {
 }
 
 func TestNormalizeUsesExactDomainUnits(t *testing.T) {
-	metrics, repaired, inversion := normalize(rawValues{300, 290, 305, 285, 7.5, .25, 12_500_000, .42, 5})
-	if repaired || inversion != 0 {
-		t.Fatalf("valid extrema reported as repaired: repaired=%t inversion=%g", repaired, inversion)
+	metrics, repairs := normalize(rawValues{300, 290, 305, 285, 7.5, .25, 12_500_000, .42, 5})
+	if repairs != (repairMagnitudes{}) {
+		t.Fatalf("valid temperatures reported as repaired: %+v", repairs)
 	}
 	if err := metrics.Validate(); err != nil {
 		t.Fatal(err)
@@ -172,15 +172,65 @@ func TestNormalizeUsesExactDomainUnits(t *testing.T) {
 }
 
 func TestNormalizeOrdersAgERA5CrossedExtremaAtProviderBoundary(t *testing.T) {
-	metrics, repaired, inversion := normalize(rawValues{300, 305, 290, 285, 7.5, .25, 12_500_000, .42, 5})
-	if !repaired {
+	metrics, repairs := normalize(rawValues{300, 305, 290, 285, 7.5, .25, 12_500_000, .42, 5})
+	if repairs.temperature == 0 {
 		t.Fatal("crossed AgERA5 extrema were not repaired")
 	}
-	assertNear(t, inversion, 15)
+	assertNear(t, repairs.temperature, 15)
+	assertNear(t, repairs.dewPoint, 0)
 	assertNear(t, metrics.MinTempC, 16.85)
 	assertNear(t, metrics.MaxTempC, 31.85)
 	if err := metrics.Validate(); err != nil {
 		t.Fatalf("repaired metrics do not satisfy the strict domain contract: %v", err)
+	}
+}
+
+func TestNormalizeCapsExactLiveAgERA5DewPointCrossingAtOrderedMaximum(t *testing.T) {
+	// Official AgERA5 v2 block 104,35, cell 9,16, 2009-03-10. The
+	// independently bias-corrected dew point is physically above Tmax.
+	metrics, repairs := normalize(rawValues{
+		239.5069580078125, 238.32176208496094, 241.38815307617188,
+		243.49264526367188, 0, 0, 0, 0, 0,
+	})
+	assertNear(t, metrics.ComfortableTempC, -33.64304199218748)
+	assertNear(t, metrics.MinTempC, -34.82823791503904)
+	assertNear(t, metrics.MaxTempC, -31.761846923828102)
+	assertNear(t, metrics.DewPointC.Value, metrics.MaxTempC)
+	assertNear(t, repairs.temperature, 0)
+	assertNear(t, repairs.dewPoint, 2.1044921875)
+	if err := metrics.Validate(); err != nil {
+		t.Fatalf("AgERA5-specific repair did not satisfy the strict generic contract: %v", err)
+	}
+}
+
+func TestNormalizePreservesPreviouslyAcceptedDewPointTolerance(t *testing.T) {
+	metrics, repairs := normalize(rawValues{300, 290, 305, 306.5, 0, 0, 0, 0, 0})
+	assertNear(t, metrics.DewPointC.Value, 33.35)
+	if repairs.dewPoint != 0 {
+		t.Fatalf("accepted v1 dew-point tolerance was changed: %+v", repairs)
+	}
+	if err := metrics.Validate(); err != nil {
+		t.Fatalf("generic weather contract rejected its existing tolerance: %v", err)
+	}
+}
+
+func TestNormalizeDoesNotLaunderInvalidDewPointEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		dewPoint float64
+	}{
+		{name: "positive infinity", dewPoint: math.Inf(1)},
+		{name: "above supported Celsius range", dewPoint: 344.15},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			metrics, repairs := normalize(rawValues{300, 290, 305, test.dewPoint, 0, 0, 0, 0, 0})
+			if repairs.dewPoint != 0 || metrics.DewPointC.Value != test.dewPoint-273.15 {
+				t.Fatalf("invalid dew point was repaired: metrics=%+v repairs=%+v", metrics, repairs)
+			}
+			if err := metrics.Validate(); err == nil {
+				t.Fatal("strict generic validation accepted invalid raw dew point")
+			}
+		})
 	}
 }
 
@@ -209,6 +259,7 @@ func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
 	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
 	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
 	crossingDate := time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)
+	dewPointCrossingDate := time.Date(2024, time.February, 15, 0, 0, 0, 0, time.UTC)
 	value := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
 		if date.Equal(crossingDate) {
 			switch field {
@@ -217,6 +268,9 @@ func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
 			case agera5.MaximumTemperature:
 				return 292, true
 			}
+		}
+		if date.Equal(dewPointCrossingDate) && field == agera5.MeanDewPoint {
+			return 304, true
 		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
@@ -228,6 +282,10 @@ func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
 		t.Fatalf("temperature repairs = %d; want 1", result.Stats.TemperatureRepairs)
 	}
 	assertNear(t, result.Stats.MaximumTemperatureRepair, float64(float32(292.2)-float32(292)))
+	if result.Stats.DewPointRepairs != 1 {
+		t.Fatalf("dew-point repairs = %d; want 1", result.Stats.DewPointRepairs)
+	}
+	assertNear(t, result.Stats.MaximumDewPointRepair, float64(float32(304)-float32(295.15)))
 }
 
 func TestBuildLandBlockRequiresExactMaskGeometry(t *testing.T) {
@@ -407,7 +465,7 @@ func TestHotCellDayNormalizationAllocatesNothing(t *testing.T) {
 		if err != nil || available != len(requiredFields) {
 			panic("fixture failed")
 		}
-		_, _, _ = normalize(values)
+		_, _ = normalize(values)
 	})
 	if allocations != 0 {
 		t.Fatalf("hot cell-day allocations = %.2f; want 0", allocations)
@@ -439,7 +497,7 @@ func BenchmarkHotCellDayNormalization(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		_, _, _ = normalize(values)
+		_, _ = normalize(values)
 	}
 }
 
@@ -463,7 +521,7 @@ func BenchmarkCompleteBlockAndFinalization(b *testing.B) {
 }
 
 func BenchmarkCompleteCellDayPhases(b *testing.B) {
-	metrics, _, _ := normalize(rawValues{297.15, 291.15, 301.15, 285.15, 0, 0, 16_000_000, .2, 3})
+	metrics, _ := normalize(rawValues{297.15, 291.15, 301.15, 285.15, 0, 0, 16_000_000, .2, 3})
 	b.Run("validate", func(b *testing.B) {
 		b.ReportAllocs()
 		for index := 0; index < b.N; index++ {

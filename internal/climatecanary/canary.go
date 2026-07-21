@@ -47,6 +47,8 @@ type Summary struct {
 	SparseOcean                 bool
 	TemperatureRepairs          int
 	MaximumTemperatureRepairC   float64
+	DewPointRepairs             int
+	MaximumDewPointRepairC      float64
 	Responses                   int
 	Chunks                      int
 	FetchedBytes                int64
@@ -144,6 +146,7 @@ func run(ctx context.Context, config Config, execute executeFunc) (summary Summa
 		Width: runResult.result.Width, Height: runResult.result.Height,
 		CompleteCells: stats.CompleteCells, NoDataCells: stats.NoDataCells, SparseOcean: stats.SparseOcean,
 		TemperatureRepairs: stats.TemperatureRepairs, MaximumTemperatureRepairC: stats.MaximumTemperatureRepair,
+		DewPointRepairs: stats.DewPointRepairs, MaximumDewPointRepairC: stats.MaximumDewPointRepair,
 		Responses: metrics.Responses, Chunks: metrics.Chunks, FetchedBytes: metrics.FetchedBytes,
 		CompressedChunkBytes: metrics.CompressedChunkBytes, DecodedChunkBytes: metrics.DecodedChunkBytes,
 		MaximumCompressedChunkBytes: metrics.MaximumCompressedChunkBytes, ChunkResponseLimitBytes: metrics.ChunkResponseLimitBytes,
