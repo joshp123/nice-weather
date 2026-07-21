@@ -13,7 +13,7 @@ import {
   sha256Hex,
 } from './scalarTileLayer';
 
-describe('scalar tile delivery canary', () => {
+describe('scalar tile layer', () => {
   it('uses exact XYZ coverage and shares one canonical tile across world wraps', () => {
     expect(coveringTiles({ west: -180, east: 180, south: -85, north: 85 }, 1)).toHaveLength(4);
     const dateline = coveringTiles({ west: 170, east: -170, south: -10, north: 10 }, 2);

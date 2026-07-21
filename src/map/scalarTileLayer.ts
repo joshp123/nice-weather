@@ -97,12 +97,7 @@ void main() {
   fragColor = vec4(colour.rgb * alpha, alpha);
 }`;
 
-/**
- * An isolated feasibility canary. It is intentionally not wired into the
- * production map until browser evidence proves that it beats MapLibre raster
- * tiles on fidelity, latency and resource use.
- */
-export class ScalarTileCanaryLayer implements CustomLayerInterface {
+export class ScalarTileLayer implements CustomLayerInterface {
   readonly id: string;
   readonly type = 'custom' as const;
   readonly renderingMode = '2d' as const;

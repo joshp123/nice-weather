@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { ScalarTileCanaryLayer, type ScalarPaletteColour } from './scalarTileLayer';
+import { ScalarTileLayer, type ScalarPaletteColour } from '../scalarTileLayer';
 import './canary.css';
 
 type PaletteStop = Readonly<{ score: number; color: string }>;
@@ -67,7 +67,7 @@ async function start(container: HTMLElement): Promise<void> {
   const failures: string[] = [];
   const availableTiles = new Set(index.tiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`));
   const tileDigests = new Map(index.tiles.map((tile) => [`${tile.z}/${tile.x}/${tile.y}`, tile.sha256]));
-  const layer = new ScalarTileCanaryLayer({
+  const layer = new ScalarTileLayer({
     id: 'evaluated-score-canary',
     minSourceZoom: index.minZoom,
     maxSourceZoom: index.maxZoom,
@@ -160,7 +160,7 @@ function statusElement(index: CanaryIndex): HTMLElement {
   return element;
 }
 
-function updateStatus(status: HTMLElement, layer: ScalarTileCanaryLayer, index: CanaryIndex, failures: readonly string[]): void {
+function updateStatus(status: HTMLElement, layer: ScalarTileLayer, index: CanaryIndex, failures: readonly string[]): void {
   const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
   const tileNamespace = `/assets/scalar-canary/${index.contract}/releases/`;
   const tiles = resources.filter((entry) => entry.name.includes(tileNamespace) && entry.name.endsWith('.nws'));
