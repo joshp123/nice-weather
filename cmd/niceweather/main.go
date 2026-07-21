@@ -89,11 +89,12 @@ func main() {
 					Year:  *year, StagingParent: *staging, TokenReader: os.Stdin, Synthetic: *synthetic,
 				})
 				if err == nil {
-					fmt.Printf("AgERA5 canary: %s block %d,%d; %s through %s; %d/%d days; %d complete + %d no-data cells in %dx%d; transfer %d bytes in %d responses/%d chunks; compressed %d bytes (largest %d, response limit %d); decoded %d bytes total, %d retained peak; sampled peak heap %d bytes; %s\n",
+					fmt.Printf("AgERA5 canary: %s block %d,%d; %s through %s; %d/%d days; %d complete + %d no-data cells in %dx%d; %d temperature repairs (largest %.3f C); transfer %d bytes in %d responses/%d chunks; compressed %d bytes (largest %d, response limit %d); decoded %d bytes total, %d retained peak; sampled peak heap %d bytes; %s\n",
 						summary.Source, summary.Block.Latitude, summary.Block.Longitude,
 						summary.FirstDate.Format(time.DateOnly), summary.LastDate.Format(time.DateOnly),
 						summary.ProcessedDays, summary.ExpectedDays, summary.CompleteCells, summary.NoDataCells,
-						summary.Width, summary.Height, summary.FetchedBytes, summary.Responses, summary.Chunks,
+						summary.Width, summary.Height, summary.TemperatureRepairs, summary.MaximumTemperatureRepairC,
+						summary.FetchedBytes, summary.Responses, summary.Chunks,
 						summary.CompressedChunkBytes, summary.MaximumCompressedChunkBytes, summary.ChunkResponseLimitBytes,
 						summary.DecodedChunkBytes, summary.PeakRetainedDecodedBytes, summary.SampledPeakHeapBytes, summary.Elapsed.Round(time.Millisecond))
 				}

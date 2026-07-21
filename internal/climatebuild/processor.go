@@ -142,9 +142,13 @@ type Stats struct {
 	ChunksFetched            int
 	ChunksAbsent             int
 	LogicalCells             int
+	LandCells                int
+	WaterCells               int
 	CompleteCells            int
 	NoDataCells              int
 	SparseOcean              bool
+	TemperatureRepairs       int
+	MaximumTemperatureRepair float64
 	PeakRetainedDecodedBytes int64
 }
 
@@ -175,10 +179,22 @@ type cellState struct {
 	missingDays   int
 }
 
-// BuildBlock scores one logical AgERA5 16x32 block for a complete reference
-// window. It fails closed on partial fields or dates and never returns a
-// partially valid result.
-func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoordinate, window climate.ReferenceWindow) (Result, error) {
+// BuildSourceCanaryBlock scores one unmasked AgERA5 source block. It exists
+// only for bounded source audits; publication must use BuildLandBlock.
+func BuildSourceCanaryBlock(ctx context.Context, source Source, coordinate agera5.BlockCoordinate, window climate.ReferenceWindow) (Result, error) {
+	return buildBlock(ctx, source, coordinate, window, nil)
+}
+
+// BuildLandBlock scores only cells marked true by the Natural Earth centre
+// mask. The mask is row-major in the exact source-block geometry.
+func BuildLandBlock(ctx context.Context, source Source, coordinate agera5.BlockCoordinate, window climate.ReferenceWindow, land []bool) (Result, error) {
+	if land == nil {
+		return Result{}, errors.New("climate land mask is required")
+	}
+	return buildBlock(ctx, source, coordinate, window, land)
+}
+
+func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoordinate, window climate.ReferenceWindow, land []bool) (Result, error) {
 	if ctx == nil {
 		return Result{}, errors.New("nil climate build context")
 	}
@@ -198,6 +214,9 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 	if width <= 0 || width > 32 || height <= 0 || height > 16 {
 		return Result{}, fmt.Errorf("AgERA5 source returned invalid block shape %dx%d", width, height)
 	}
+	if land != nil && len(land) != width*height {
+		return Result{}, fmt.Errorf("climate land mask has %d cells; want %d", len(land), width*height)
+	}
 
 	references, err := source.Plan(firstDate, lastDate, coordinate)
 	if err != nil {
@@ -208,6 +227,17 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		return Result{}, err
 	}
 	result := Result{Width: width, Height: height, Stats: Stats{ExpectedDays: expectedDays, SourceTimeChunks: len(groups), LogicalCells: width * height}}
+	if land == nil {
+		result.Stats.LandCells = width * height
+	} else {
+		for _, isLand := range land {
+			if isLand {
+				result.Stats.LandCells++
+			} else {
+				result.Stats.WaterCells++
+			}
+		}
+	}
 	for month := range result.Months {
 		result.Months[month] = make([]delivery.ClimateDistributionRecord, width*height)
 	}
@@ -251,6 +281,9 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		if cells == nil {
 			cells = make([]cellState, result.Width*result.Height)
 			for index := range cells {
+				if land != nil && !land[index] {
+					continue
+				}
 				cells[index].accumulator, err = climate.NewStreamingAccumulator(window)
 				if err != nil {
 					return Result{}, err
@@ -266,6 +299,9 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 				return Result{}, err
 			}
 			for cellIndex := range cells {
+				if cells[cellIndex].accumulator == nil {
+					continue
+				}
 				latitudeOffset, longitudeOffset := cellIndex/result.Width, cellIndex%result.Width
 				values, available, err := readCellDay(blocks, timeOffset, latitudeOffset, longitudeOffset)
 				if err != nil {
@@ -282,7 +318,13 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 				if cells[cellIndex].missingDays != 0 {
 					continue
 				}
-				metrics := normalize(values)
+				metrics, repaired, inversion := normalize(values)
+				if repaired {
+					result.Stats.TemperatureRepairs++
+					if inversion > result.Stats.MaximumTemperatureRepair {
+						result.Stats.MaximumTemperatureRepair = inversion
+					}
+				}
 				if err := cells[cellIndex].accumulator.AddMetrics(date, latitudes[cellIndex], longitudes[cellIndex], metrics); err != nil {
 					return Result{}, fmt.Errorf("accumulate AgERA5 %s cell %d,%d: %w", date.Format(time.DateOnly), latitudeOffset, longitudeOffset, err)
 				}
@@ -303,6 +345,10 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		return Result{}, fmt.Errorf("%w: processed %d of %d dates", ErrIncompleteSource, result.Stats.ProcessedDays, expectedDays)
 	}
 	for cellIndex := range cells {
+		if cells[cellIndex].accumulator == nil {
+			result.Stats.NoDataCells++
+			continue
+		}
 		switch cells[cellIndex].availableDays {
 		case 0:
 			result.Stats.NoDataCells++
@@ -499,11 +545,18 @@ func readCellDay(blocks fieldBlocks, timeOffset, latitudeOffset, longitudeOffset
 	return values, available, nil
 }
 
-func normalize(values rawValues) weather.DailyMetrics {
+func normalize(values rawValues) (weather.DailyMetrics, bool, float64) {
+	minimum, maximum := values[fieldMinimumTemperature], values[fieldMaximumTemperature]
+	repaired := minimum > maximum
+	inversion := 0.0
+	if repaired {
+		inversion = minimum - maximum
+		minimum, maximum = maximum, minimum
+	}
 	return weather.DailyMetrics{
 		ComfortableTempC: values[fieldDaytimeTemperature] - 273.15,
-		MinTempC:         values[fieldMinimumTemperature] - 273.15,
-		MaxTempC:         values[fieldMaximumTemperature] - 273.15,
+		MinTempC:         minimum - 273.15,
+		MaxTempC:         maximum - 273.15,
 		RainMM:           values[fieldPrecipitation],
 		WetTimeFraction:  weather.OptionalFloat{Value: values[fieldPrecipitationDuration], Available: true},
 		SolarEnergyMJm2:  weather.OptionalFloat{Value: values[fieldSolarRadiation] / 1_000_000, Available: true},
@@ -516,7 +569,7 @@ func normalize(values rawValues) weather.DailyMetrics {
 		},
 		NativeResolutionKM: 30,
 		Valid:              true,
-	}
+	}, repaired, inversion
 }
 
 func sameCoordinates(leftLatitudes, leftLongitudes, rightLatitudes, rightLongitudes []float64) bool {

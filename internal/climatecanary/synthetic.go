@@ -97,6 +97,6 @@ func (syntheticSource) Fetch(_ context.Context, reference climatebuild.ChunkRefe
 func executeSynthetic(ctx context.Context, _ string, block agera5.BlockCoordinate, window climate.ReferenceWindow, _ string) (execution, error) {
 	firstDate := time.Date(window.FirstYear, time.January, 1, 0, 0, 0, 0, time.UTC)
 	lastDate := time.Date(window.LastYear, time.December, 31, 0, 0, 0, 0, time.UTC)
-	result, err := climatebuild.BuildBlock(ctx, syntheticSource{block: block, firstDate: firstDate, lastDate: lastDate}, block, window)
+	result, err := climatebuild.BuildSourceCanaryBlock(ctx, syntheticSource{block: block, firstDate: firstDate, lastDate: lastDate}, block, window)
 	return execution{result: result}, err
 }

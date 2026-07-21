@@ -45,6 +45,8 @@ type Summary struct {
 	CompleteCells               int
 	NoDataCells                 int
 	SparseOcean                 bool
+	TemperatureRepairs          int
+	MaximumTemperatureRepairC   float64
 	Responses                   int
 	Chunks                      int
 	FetchedBytes                int64
@@ -141,6 +143,7 @@ func run(ctx context.Context, config Config, execute executeFunc) (summary Summa
 		ExpectedDays: stats.ExpectedDays, ProcessedDays: stats.ProcessedDays,
 		Width: runResult.result.Width, Height: runResult.result.Height,
 		CompleteCells: stats.CompleteCells, NoDataCells: stats.NoDataCells, SparseOcean: stats.SparseOcean,
+		TemperatureRepairs: stats.TemperatureRepairs, MaximumTemperatureRepairC: stats.MaximumTemperatureRepair,
 		Responses: metrics.Responses, Chunks: metrics.Chunks, FetchedBytes: metrics.FetchedBytes,
 		CompressedChunkBytes: metrics.CompressedChunkBytes, DecodedChunkBytes: metrics.DecodedChunkBytes,
 		MaximumCompressedChunkBytes: metrics.MaximumCompressedChunkBytes, ChunkResponseLimitBytes: metrics.ChunkResponseLimitBytes,
@@ -155,7 +158,7 @@ func executeLive(ctx context.Context, token string, block agera5.BlockCoordinate
 	if err != nil {
 		return execution{}, err
 	}
-	result, err := climatebuild.BuildBlock(ctx, climatebuild.NewAgERA5Source(metadata, client, token), block, window)
+	result, err := climatebuild.BuildSourceCanaryBlock(ctx, climatebuild.NewAgERA5Source(metadata, client, token), block, window)
 	return execution{result: result, metrics: client.Metrics()}, err
 }
 

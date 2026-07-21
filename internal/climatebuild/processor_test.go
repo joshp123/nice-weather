@@ -109,11 +109,11 @@ func TestBuildBlockMatchesSingleCellAggregateAndIgnoresFieldOrder(t *testing.T) 
 		shuffled.references[left], shuffled.references[right] = shuffled.references[right], shuffled.references[left]
 	})
 
-	got, err := BuildBlock(context.Background(), ordered, agera5.BlockCoordinate{Latitude: 7, Longitude: 8}, window)
+	got, err := BuildSourceCanaryBlock(context.Background(), ordered, agera5.BlockCoordinate{Latitude: 7, Longitude: 8}, window)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotShuffled, err := BuildBlock(context.Background(), shuffled, agera5.BlockCoordinate{Latitude: 7, Longitude: 8}, window)
+	gotShuffled, err := BuildSourceCanaryBlock(context.Background(), shuffled, agera5.BlockCoordinate{Latitude: 7, Longitude: 8}, window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,10 @@ func TestRequiredFieldOrderMatchesProviderContract(t *testing.T) {
 }
 
 func TestNormalizeUsesExactDomainUnits(t *testing.T) {
-	metrics := normalize(rawValues{300, 290, 305, 285, 7.5, .25, 12_500_000, .42, 5})
+	metrics, repaired, inversion := normalize(rawValues{300, 290, 305, 285, 7.5, .25, 12_500_000, .42, 5})
+	if repaired || inversion != 0 {
+		t.Fatalf("valid extrema reported as repaired: repaired=%t inversion=%g", repaired, inversion)
+	}
 	if err := metrics.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +171,77 @@ func TestNormalizeUsesExactDomainUnits(t *testing.T) {
 	}
 }
 
+func TestNormalizeOrdersAgERA5CrossedExtremaAtProviderBoundary(t *testing.T) {
+	metrics, repaired, inversion := normalize(rawValues{300, 305, 290, 285, 7.5, .25, 12_500_000, .42, 5})
+	if !repaired {
+		t.Fatal("crossed AgERA5 extrema were not repaired")
+	}
+	assertNear(t, inversion, 15)
+	assertNear(t, metrics.MinTempC, 16.85)
+	assertNear(t, metrics.MaxTempC, 31.85)
+	if err := metrics.Validate(); err != nil {
+		t.Fatalf("repaired metrics do not satisfy the strict domain contract: %v", err)
+	}
+}
+
+func TestBuildLandBlockMasksWaterBeforeNormalisation(t *testing.T) {
+	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
+	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
+	value := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
+		if longitudeOffset == 1 && field == agera5.Precipitation {
+			return -50, true
+		}
+		return completeValue(field, date, latitudeOffset, longitudeOffset)
+	}
+	result, err := BuildLandBlock(context.Background(), fixtureSource(window, 2, 1, value), coordinate, window, []bool{true, false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Stats.LandCells != 1 || result.Stats.WaterCells != 1 || result.Stats.CompleteCells != 1 || result.Stats.NoDataCells != 1 || result.Stats.TemperatureRepairs != 0 {
+		t.Fatalf("unexpected land-mask stats: %+v", result.Stats)
+	}
+	if !result.Months[0][0].Valid || result.Months[0][1].Valid {
+		t.Fatalf("unexpected land-mask records: land=%+v water=%+v", result.Months[0][0], result.Months[0][1])
+	}
+}
+
+func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
+	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
+	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
+	crossingDate := time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)
+	value := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
+		if date.Equal(crossingDate) {
+			switch field {
+			case agera5.MinimumTemperature:
+				return 292.2, true
+			case agera5.MaximumTemperature:
+				return 292, true
+			}
+		}
+		return completeValue(field, date, latitudeOffset, longitudeOffset)
+	}
+	result, err := BuildLandBlock(context.Background(), fixtureSource(window, 1, 1, value), coordinate, window, []bool{true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Stats.TemperatureRepairs != 1 {
+		t.Fatalf("temperature repairs = %d; want 1", result.Stats.TemperatureRepairs)
+	}
+	assertNear(t, result.Stats.MaximumTemperatureRepair, float64(float32(292.2)-float32(292)))
+}
+
+func TestBuildLandBlockRequiresExactMaskGeometry(t *testing.T) {
+	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
+	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
+	source := fixtureSource(window, 2, 1, completeValue)
+	if _, err := BuildLandBlock(context.Background(), source, coordinate, window, nil); err == nil || !strings.Contains(err.Error(), "land mask is required") {
+		t.Fatalf("nil mask error = %v", err)
+	}
+	if _, err := BuildLandBlock(context.Background(), source, coordinate, window, []bool{true}); err == nil || !strings.Contains(err.Error(), "has 1 cells; want 2") {
+		t.Fatalf("wrong-size mask error = %v", err)
+	}
+}
+
 func TestBuildBlockKeepsAllFieldNoDataCellsInvalid(t *testing.T) {
 	window := climate.ReferenceWindow{FirstYear: 2023, LastYear: 2023}
 	value := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
@@ -176,7 +250,7 @@ func TestBuildBlockKeepsAllFieldNoDataCellsInvalid(t *testing.T) {
 		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
-	result, err := BuildBlock(context.Background(), fixtureSource(window, 2, 1, value), agera5.BlockCoordinate{Latitude: 7, Longitude: 8}, window)
+	result, err := BuildSourceCanaryBlock(context.Background(), fixtureSource(window, 2, 1, value), agera5.BlockCoordinate{Latitude: 7, Longitude: 8}, window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +267,7 @@ func TestBuildBlockDistinguishesSparseOceanFromPartialChunk(t *testing.T) {
 	for reference := range ocean.blocks {
 		ocean.absent[reference] = true
 	}
-	result, err := BuildBlock(context.Background(), ocean, coordinate, window)
+	result, err := BuildSourceCanaryBlock(context.Background(), ocean, coordinate, window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +277,7 @@ func TestBuildBlockDistinguishesSparseOceanFromPartialChunk(t *testing.T) {
 
 	partial := fixtureSource(window, 2, 1, completeValue)
 	partial.absent[partial.references[0].(fakeReference)] = true
-	if _, err := BuildBlock(context.Background(), partial, coordinate, window); !errors.Is(err, ErrPartialFieldChunk) {
+	if _, err := BuildSourceCanaryBlock(context.Background(), partial, coordinate, window); !errors.Is(err, ErrPartialFieldChunk) {
 		t.Fatalf("partial field chunk error = %v", err)
 	}
 
@@ -213,7 +287,7 @@ func TestBuildBlockDistinguishesSparseOceanFromPartialChunk(t *testing.T) {
 			missingTime.absent[reference] = true
 		}
 	}
-	if _, err := BuildBlock(context.Background(), missingTime, coordinate, window); !errors.Is(err, ErrIncompleteSource) {
+	if _, err := BuildSourceCanaryBlock(context.Background(), missingTime, coordinate, window); !errors.Is(err, ErrIncompleteSource) {
 		t.Fatalf("missing time chunk error = %v", err)
 	}
 }
@@ -227,7 +301,7 @@ func TestBuildBlockRejectsPartialAndIncompleteCellDays(t *testing.T) {
 		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
-	if _, err := BuildBlock(context.Background(), fixtureSource(window, 1, 1, partialValue), coordinate, window); !errors.Is(err, ErrPartialCell) {
+	if _, err := BuildSourceCanaryBlock(context.Background(), fixtureSource(window, 1, 1, partialValue), coordinate, window); !errors.Is(err, ErrPartialCell) {
 		t.Fatalf("partial cell error = %v", err)
 	}
 
@@ -237,7 +311,7 @@ func TestBuildBlockRejectsPartialAndIncompleteCellDays(t *testing.T) {
 		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
-	if _, err := BuildBlock(context.Background(), fixtureSource(window, 1, 1, incompleteValue), coordinate, window); !errors.Is(err, ErrIncompleteCell) {
+	if _, err := BuildSourceCanaryBlock(context.Background(), fixtureSource(window, 1, 1, incompleteValue), coordinate, window); !errors.Is(err, ErrIncompleteCell) {
 		t.Fatalf("incomplete cell error = %v", err)
 	}
 }
@@ -251,7 +325,7 @@ func TestBuildBlockReportsExactUnscoreableCellDayCause(t *testing.T) {
 		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
-	_, err := BuildBlock(context.Background(), fixtureSource(window, 32, 16, invalidValue), coordinate, window)
+	_, err := BuildSourceCanaryBlock(context.Background(), fixtureSource(window, 32, 16, invalidValue), coordinate, window)
 	if err == nil {
 		t.Fatal("expected invalid weather error")
 	}
@@ -271,7 +345,7 @@ func TestBuildBlockRejectsWrongReturnedReference(t *testing.T) {
 		field: want.field, reference: wrong,
 		dates: datesBetween(want.first, want.last), width: 1, height: 1, value: completeValue,
 	}
-	if _, err := BuildBlock(context.Background(), source, want.coordinate, window); err == nil || !strings.Contains(err.Error(), "different source reference") {
+	if _, err := BuildSourceCanaryBlock(context.Background(), source, want.coordinate, window); err == nil || !strings.Contains(err.Error(), "different source reference") {
 		t.Fatalf("wrong-reference error = %v", err)
 	}
 }
@@ -280,7 +354,7 @@ func TestBuildBlockUsesSourceGeometryAndHonoursCancellation(t *testing.T) {
 	window := climate.ReferenceWindow{FirstYear: 2023, LastYear: 2023}
 	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
 	edge := fixtureSource(window, 16, 9, completeValue)
-	result, err := BuildBlock(context.Background(), edge, coordinate, window)
+	result, err := BuildSourceCanaryBlock(context.Background(), edge, coordinate, window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +365,7 @@ func TestBuildBlockUsesSourceGeometryAndHonoursCancellation(t *testing.T) {
 	cancelled := fixtureSource(window, 1, 1, completeValue)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := BuildBlock(ctx, cancelled, coordinate, window); !errors.Is(err, context.Canceled) || cancelled.fetches != 0 {
+	if _, err := BuildSourceCanaryBlock(ctx, cancelled, coordinate, window); !errors.Is(err, context.Canceled) || cancelled.fetches != 0 {
 		t.Fatalf("cancelled build error=%v fetches=%d", err, cancelled.fetches)
 	}
 }
@@ -307,7 +381,7 @@ func TestHotCellDayNormalizationAllocatesNothing(t *testing.T) {
 		if err != nil || available != len(requiredFields) {
 			panic("fixture failed")
 		}
-		_ = normalize(values)
+		_, _, _ = normalize(values)
 	})
 	if allocations != 0 {
 		t.Fatalf("hot cell-day allocations = %.2f; want 0", allocations)
@@ -339,7 +413,7 @@ func BenchmarkHotCellDayNormalization(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = normalize(values)
+		_, _, _ = normalize(values)
 	}
 }
 
@@ -352,7 +426,7 @@ func BenchmarkCompleteBlockAndFinalization(b *testing.B) {
 	b.ReportMetric(1, "reference-years/op")
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
-		result, err := BuildBlock(context.Background(), source, coordinate, window)
+		result, err := BuildSourceCanaryBlock(context.Background(), source, coordinate, window)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -363,7 +437,7 @@ func BenchmarkCompleteBlockAndFinalization(b *testing.B) {
 }
 
 func BenchmarkCompleteCellDayPhases(b *testing.B) {
-	metrics := normalize(rawValues{297.15, 291.15, 301.15, 285.15, 0, 0, 16_000_000, .2, 3})
+	metrics, _, _ := normalize(rawValues{297.15, 291.15, 301.15, 285.15, 0, 0, 16_000_000, .2, 3})
 	b.Run("validate", func(b *testing.B) {
 		b.ReportAllocs()
 		for index := 0; index < b.N; index++ {
