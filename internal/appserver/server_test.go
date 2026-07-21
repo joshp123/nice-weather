@@ -1,8 +1,8 @@
 package appserver
 
 import (
-	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,8 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"nice-weather-finder/internal/climatebuild"
+	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/places"
+	"nice-weather-finder/internal/providers/agera5"
 	"nice-weather-finder/internal/tiledelivery"
 )
 
@@ -575,25 +578,27 @@ func TestPlaceIndexFilesUsePointerAndImmutableHTTPContract(t *testing.T) {
 
 func TestClimateArtifactsUseIsolatedStaticHTTPContract(t *testing.T) {
 	app := newTestApplication(t)
-	releaseID := "climate-2026-07"
-	pointerBody := []byte(`{"releaseId":"climate-2026-07","catalogSha256":"` + strings.Repeat("a", 64) + `"}`)
-	catalogBody := []byte("{\"version\":1}\n")
-	scalarBody := bytes.Repeat([]byte{42}, tiledelivery.ScalarTileBytes)
-	blockBody := make([]byte, 512)
-	for index := range blockBody {
-		blockBody[index] = byte(index)
-	}
-
-	writeClimateArtifact(t, app.root, "climate/current.json", pointerBody)
-	writeClimateArtifact(t, app.root, "climate/releases/"+releaseID+"/catalog.json", catalogBody)
-	writeClimateArtifact(t, app.root, "climate/releases/"+releaseID+"/scores/month-01/nice_good/4/1/2.nws", scalarBody)
-	writeClimateArtifact(t, app.root, "climate/releases/"+releaseID+"/points/month-01/001/002.nwc", blockBody)
+	published, index, climateCatalog := publishClimateHTTPPreview(t, app.root)
+	pointerBody := readClimateArtifact(t, app.root, "climate/current.json")
+	indexPath := "climate/indexes/" + published.IndexID + ".json"
+	indexBody := readClimateArtifact(t, app.root, indexPath)
+	catalogPath := "climate/releases/" + index.Months[0].ReleaseID + "/catalog.json"
+	catalogBody := readClimateArtifact(t, app.root, catalogPath)
+	scalarPath := "climate/releases/" + index.Months[0].ReleaseID + "/" + climateCatalog.ScalarTiles[0].Path
+	scalarBody := readClimateArtifact(t, app.root, scalarPath)
+	blockPath := "climate/releases/" + index.Months[0].ReleaseID + "/" + climateCatalog.PointBlocks[0].Path
+	blockBody := readClimateArtifact(t, app.root, blockPath)
 
 	pointer := httptest.NewRecorder()
 	app.handler.ServeHTTP(pointer, httptest.NewRequest(http.MethodGet, "/climate/current.json", nil))
 	etag := pointer.Header().Get("ETag")
 	if pointer.Code != http.StatusOK || pointer.Body.String() != string(pointerBody) || pointer.Header().Get("Cache-Control") != "no-cache" || pointer.Header().Get("Content-Type") != "application/json" || etag == "" || pointer.Header().Get("Last-Modified") != "" {
 		t.Fatalf("climate pointer: %d %+v %q", pointer.Code, pointer.Header(), pointer.Body.String())
+	}
+	pointerHead := httptest.NewRecorder()
+	app.handler.ServeHTTP(pointerHead, httptest.NewRequest(http.MethodHead, "/climate/current.json", nil))
+	if pointerHead.Code != http.StatusOK || pointerHead.Body.Len() != 0 || pointerHead.Header().Get("Content-Length") != fmt.Sprint(len(pointerBody)) || pointerHead.Header().Get("ETag") != etag || pointerHead.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatalf("climate pointer HEAD: %d %+v body=%d", pointerHead.Code, pointerHead.Header(), pointerHead.Body.Len())
 	}
 	conditionalRequest := httptest.NewRequest(http.MethodGet, "/climate/current.json", nil)
 	conditionalRequest.Header.Set("If-None-Match", etag)
@@ -610,36 +615,47 @@ func TestClimateArtifactsUseIsolatedStaticHTTPContract(t *testing.T) {
 		t.Fatalf("query changed climate pointer representation: %d %+v %q", query.Code, query.Header(), query.Body.String())
 	}
 
-	catalogURL := "/climate/releases/" + releaseID + "/catalog.json"
+	indexResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(indexResponse, httptest.NewRequest(http.MethodGet, "/"+indexPath, nil))
+	if indexResponse.Code != http.StatusOK || indexResponse.Body.String() != string(indexBody) || indexResponse.Header().Get("Content-Type") != "application/json" || indexResponse.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("climate index: %d %+v %q", indexResponse.Code, indexResponse.Header(), indexResponse.Body.String())
+	}
+	indexHead := httptest.NewRecorder()
+	app.handler.ServeHTTP(indexHead, httptest.NewRequest(http.MethodHead, "/"+indexPath, nil))
+	if indexHead.Code != http.StatusOK || indexHead.Body.Len() != 0 || indexHead.Header().Get("Content-Length") != fmt.Sprint(len(indexBody)) || indexHead.Header().Get("Content-Type") != "application/json" || indexHead.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("climate index HEAD: %d %+v body=%d", indexHead.Code, indexHead.Header(), indexHead.Body.Len())
+	}
+
+	catalogURL := "/" + catalogPath
 	catalog := httptest.NewRecorder()
 	app.handler.ServeHTTP(catalog, httptest.NewRequest(http.MethodGet, catalogURL, nil))
 	if catalog.Code != http.StatusOK || catalog.Body.String() != string(catalogBody) || catalog.Header().Get("Content-Type") != "application/json" || catalog.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("climate catalog: %d %+v %q", catalog.Code, catalog.Header(), catalog.Body.String())
 	}
 
-	scalarURL := "/climate/releases/" + releaseID + "/scores/month-01/nice_good/4/1/2.nws"
+	scalarURL := "/" + scalarPath
 	scalar := httptest.NewRecorder()
 	app.handler.ServeHTTP(scalar, httptest.NewRequest(http.MethodGet, scalarURL+"?field=cycling_good", nil))
 	if scalar.Code != http.StatusOK || scalar.Body.String() != string(scalarBody) || scalar.Header().Get("Content-Type") != tiledelivery.ScalarMediaType || scalar.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("climate scalar: %d %+v body=%d", scalar.Code, scalar.Header(), scalar.Body.Len())
 	}
 
-	blockURL := "/climate/releases/" + releaseID + "/points/month-01/001/002.nwc"
+	blockURL := "/" + blockPath
 	rangeRequest := httptest.NewRequest(http.MethodGet, blockURL, nil)
 	rangeRequest.Header.Set("Range", "bytes=160-189")
 	rangeRequest.Header.Set("Accept-Encoding", "gzip")
 	partial := httptest.NewRecorder()
 	app.handler.ServeHTTP(partial, rangeRequest)
-	if partial.Code != http.StatusPartialContent || partial.Body.String() != string(blockBody[160:190]) || partial.Header().Get("Content-Range") != "bytes 160-189/512" || partial.Header().Get("Content-Length") != "30" || partial.Header().Get("Accept-Ranges") != "bytes" || partial.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || partial.Header().Get("Content-Encoding") != "" || partial.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+	if partial.Code != http.StatusPartialContent || partial.Body.String() != string(blockBody[160:190]) || partial.Header().Get("Content-Range") != fmt.Sprintf("bytes 160-189/%d", len(blockBody)) || partial.Header().Get("Content-Length") != "30" || partial.Header().Get("Accept-Ranges") != "bytes" || partial.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || partial.Header().Get("Content-Encoding") != "" || partial.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("climate block range: %d %+v body=%d", partial.Code, partial.Header(), partial.Body.Len())
 	}
 	head := httptest.NewRecorder()
 	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, blockURL, nil))
-	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != "512" || head.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || head.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(len(blockBody)) || head.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || head.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("climate block HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
 	}
 
-	secondPointer := []byte(`{"releaseId":"climate-2026-08","catalogSha256":"` + strings.Repeat("b", 64) + `"}`)
+	secondPointer := []byte(`{"version":2,"indexId":"second-index","indexSha256":"` + strings.Repeat("b", 64) + `"}`)
 	if err := os.WriteFile(filepath.Join(app.root, "climate", "current.json"), secondPointer, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -659,7 +675,7 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 	if mainManifest.Code != http.StatusOK {
 		t.Fatalf("main release failed without climate publication: %d %s", mainManifest.Code, mainManifest.Body.String())
 	}
-	for _, missingPath := range []string{"/climate/current.json", "/climate/releases/missing/catalog.json"} {
+	for _, missingPath := range []string{"/climate/current.json", "/climate/indexes/missing.json", "/climate/releases/missing/catalog.json"} {
 		missing := httptest.NewRecorder()
 		app.handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, missingPath, nil))
 		if missing.Code != http.StatusNotFound {
@@ -685,9 +701,35 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 	if escape.Code != http.StatusNotFound || strings.Contains(escape.Body.String(), "secret") {
 		t.Fatalf("climate symlink escape response: %d %q", escape.Code, escape.Body.String())
 	}
+	indexRoot := filepath.Join(app.root, "climate", "indexes")
+	if err := os.MkdirAll(indexRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(indexRoot, "safe-index.json")); err != nil {
+		t.Fatal(err)
+	}
+	indexEscape := httptest.NewRecorder()
+	app.handler.ServeHTTP(indexEscape, httptest.NewRequest(http.MethodGet, "/climate/indexes/safe-index.json", nil))
+	if indexEscape.Code != http.StatusNotFound || strings.Contains(indexEscape.Body.String(), "secret") {
+		t.Fatalf("climate index symlink escape response: %d %q", indexEscape.Code, indexEscape.Body.String())
+	}
+	if err := os.Symlink("../current.json", filepath.Join(indexRoot, "current-alias.json")); err != nil {
+		t.Fatal(err)
+	}
+	inRootAlias := httptest.NewRecorder()
+	app.handler.ServeHTTP(inRootAlias, httptest.NewRequest(http.MethodGet, "/climate/indexes/current-alias.json", nil))
+	if inRootAlias.Code != http.StatusNotFound {
+		t.Fatalf("in-root climate index symlink returned %d: %q", inRootAlias.Code, inRootAlias.Body.String())
+	}
 
 	unsafePaths := []string{
 		"/climate/",
+		"/climate/indexes/",
+		"/climate/indexes/../current.json",
+		"/climate/indexes/%2e%2e/current.json",
+		"/climate/indexes/%252e%252e.json",
+		"/climate/indexes/.hidden.json",
+		"/climate/indexes/safe-index.json/extra",
 		"/climate/releases/",
 		"/climate/releases/safe-release/",
 		"/climate/releases/../current.json",
@@ -716,7 +758,7 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 	}
 
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
-		for _, requestPath := range []string{"/climate/current.json", "/climate/releases/safe-release/catalog.json", "/" + blockPath} {
+		for _, requestPath := range []string{"/climate/current.json", "/climate/indexes/safe-index.json", "/climate/releases/safe-release/catalog.json", "/" + blockPath} {
 			response := httptest.NewRecorder()
 			app.handler.ServeHTTP(response, httptest.NewRequest(method, requestPath, nil))
 			if response.Code != http.StatusMethodNotAllowed {
@@ -726,13 +768,114 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 	}
 }
 
-func writeClimateArtifact(t *testing.T, root, relative string, data []byte) {
+func publishClimateHTTPPreview(t *testing.T, artifacts string) (climatetiles.Pointer, climatetiles.Index, climatetiles.Catalog) {
 	t.Helper()
-	filename := filepath.Join(root, filepath.FromSlash(relative))
-	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+	reference := installClimateHTTPFixtureMonth(t, artifacts, 1, 61, climateHTTPFixtureProvenance())
+	pointer, err := climatetiles.BuildAndPublishIndex(context.Background(), artifacts, "typical-2006-2025-preview-01", climatetiles.IndexStatePreview, []climatetiles.MonthReference{reference})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filename, data, 0o644); err != nil {
+	_, index, err := climatetiles.ValidateCurrentIndex(artifacts)
+	if err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := climatetiles.ValidateRelease(filepath.Join(artifacts, "climate", "releases", reference.ReleaseID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pointer, index, catalog
+}
+
+func installClimateHTTPFixtureMonth(t *testing.T, artifacts string, month int, score byte, provenance climatetiles.Provenance) climatetiles.MonthReference {
+	t.Helper()
+	releaseID := fmt.Sprintf("climate-http-%02d", month)
+	period := fmt.Sprintf("month-%02d", month)
+	reference, err := climatetiles.BuildAndInstallMonth(context.Background(), artifacts, releaseID, func(ctx context.Context, stage climatetiles.Stage) (climatetiles.Catalog, error) {
+		if err := ctx.Err(); err != nil {
+			return climatetiles.Catalog{}, err
+		}
+		block := agera5.BlockCoordinate{Latitude: 79, Longitude: 54}
+		identity, err := tiledelivery.NewClimateBlockIdentity(releaseID, period, block)
+		if err != nil {
+			return climatetiles.Catalog{}, err
+		}
+		records := make([]delivery.ClimateDistributionRecord, int(identity.LatitudeCount)*int(identity.LongitudeCount))
+		for index := range records {
+			records[index] = climateHTTPFixtureRecord()
+		}
+		pointPath := climatetiles.PointBlockPath(period, block)
+		pointAsset, err := tiledelivery.WriteClimateBlock(filepath.Join(stage.ReleaseRoot, filepath.FromSlash(pointPath)), releaseID, period, block, records)
+		if err != nil {
+			return climatetiles.Catalog{}, err
+		}
+		point, err := climatetiles.PointBlockFromAsset(stage.ReleaseRoot, pointAsset)
+		if err != nil {
+			return climatetiles.Catalog{}, err
+		}
+		tiles := make([]climatetiles.ScalarTile, 0, len(climatetiles.Fields())*(climatetiles.MaximumZoom+1))
+		for zoom := uint8(0); zoom <= climatetiles.MaximumZoom; zoom++ {
+			id, err := tiledelivery.NewID(string(climatetiles.FieldComfortGood), zoom, 0, 0)
+			if err != nil {
+				return climatetiles.Catalog{}, err
+			}
+			encoded, stats, err := tiledelivery.BuildScalarTile(id, func(tiledelivery.ScalarSample) (uint8, bool, error) { return score, true, nil })
+			if err != nil {
+				return climatetiles.Catalog{}, err
+			}
+			digest := sha256.Sum256(encoded)
+			for _, field := range climatetiles.Fields() {
+				relative := climatetiles.ScalarTilePath(period, field, zoom, 0, 0)
+				filename := filepath.Join(stage.ReleaseRoot, filepath.FromSlash(relative))
+				if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+					return climatetiles.Catalog{}, err
+				}
+				if err := os.WriteFile(filename, encoded, 0o644); err != nil {
+					return climatetiles.Catalog{}, err
+				}
+				tiles = append(tiles, climatetiles.ScalarTile{
+					Field: field, Zoom: zoom, Path: relative, Bytes: uint64(len(encoded)),
+					SHA256: hex.EncodeToString(digest[:]), MediaType: tiledelivery.ScalarMediaType,
+					DataTexels: stats.DataTexels, NoDataTexels: stats.NoDataTexels,
+				})
+			}
+		}
+		return climatetiles.NewCatalog(releaseID, period, provenance, []climatetiles.PointBlock{point}, tiles), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reference
+}
+
+func climateHTTPFixtureProvenance() climatetiles.Provenance {
+	source := sha256.Sum256([]byte("AgERA5 HTTP fixture"))
+	land := sha256.Sum256([]byte("Natural Earth HTTP fixture"))
+	return climatetiles.Provenance{
+		SourceEvidenceSHA256: hex.EncodeToString(source[:]),
+		LandMaskSetSHA256:    hex.EncodeToString(land[:]),
+		DerivationContract:   climatebuild.CheckpointDerivationContract,
+	}
+}
+
+func climateHTTPFixtureRecord() delivery.ClimateDistributionRecord {
+	profile := delivery.ClimateProfileDistribution{
+		MedianScore: 65, CalmGoodPercent: 75, PoorWeekPermille: 125,
+		RatingShares: delivery.ClimateRatingShares{Awful: 50, Poor: 100, Mixed: 200, Good: 300, VeryGood: 250, Excellent: 100},
+	}
+	cycling := profile
+	cycling.MedianScore = 58
+	cycling.CalmGoodPercent = 60
+	return delivery.ClimateDistributionRecord{
+		ComfortGoodPercent: 70, DryGoodPercent: 80, BrightGoodPercent: 65,
+		Nice: profile, Cycling: cycling, Valid: true,
+	}
+}
+
+func readClimateArtifact(t *testing.T, root, relative string) []byte {
+	t.Helper()
+	payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }

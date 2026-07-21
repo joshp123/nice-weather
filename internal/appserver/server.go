@@ -306,6 +306,12 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 }
 
 func (app *application) serveStaticArtifact(w http.ResponseWriter, r *http.Request, requestPath, cache string) {
+	if strings.HasPrefix(requestPath, "climate/") {
+		if err := rejectSymlinkComponents(app.artifactFS, requestPath); err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
+			return
+		}
+	}
 	file, err := app.artifactFS.Open(requestPath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
@@ -351,6 +357,25 @@ func (app *application) serveStaticArtifact(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	http.ServeContent(w, r, filepath.Base(requestPath), modTime, file)
+}
+
+func rejectSymlinkComponents(root *os.Root, requestPath string) error {
+	current := ""
+	for _, part := range strings.Split(requestPath, "/") {
+		if current == "" {
+			current = part
+		} else {
+			current += "/" + part
+		}
+		info, err := root.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("artifact path contains a symlink")
+		}
+	}
+	return nil
 }
 
 func (app *application) releaseRoot(current *releaseSnapshot, releaseID string) string {
@@ -415,6 +440,9 @@ func staticArtifactPath(requestPath string) (assetPath string, immutable, matche
 
 func validClimateArtifactPath(requestPath string) bool {
 	parts := strings.Split(requestPath, "/")
+	if len(parts) == 3 && parts[0] == "climate" && parts[1] == "indexes" {
+		return strings.HasSuffix(parts[2], ".json") && validClimateReleaseID(strings.TrimSuffix(parts[2], ".json"))
+	}
 	if len(parts) < 4 || parts[0] != "climate" || parts[1] != "releases" || !validClimateReleaseID(parts[2]) {
 		return false
 	}
