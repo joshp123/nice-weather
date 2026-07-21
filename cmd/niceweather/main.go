@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -100,6 +103,10 @@ func main() {
 				}
 			}
 		}
+	case "climate-world":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		err = runClimateWorldCommand(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr, weatherupdate.RunGlobalClimate)
 	case "places":
 		flags := flag.NewFlagSet("places", flag.ContinueOnError)
 		source := flags.String("source", "", "directory containing pinned GeoNames extracts")
@@ -151,5 +158,109 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|agera5-canary|serve|places|best-weather> [options]")
+	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|agera5-canary|climate-world|serve|places|best-weather> [options]")
+}
+
+type globalClimateRunner func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error)
+
+func runClimateWorldCommand(
+	ctx context.Context,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+	run globalClimateRunner,
+) error {
+	if ctx == nil {
+		return errors.New("climate-world requires a context")
+	}
+	if run == nil {
+		return errors.New("climate-world runner is unavailable")
+	}
+	if stdin == nil {
+		return errors.New("climate-world requires the AgERA5 bearer token on standard input")
+	}
+	if stdout == nil || stderr == nil {
+		return errors.New("climate-world output streams are unavailable")
+	}
+	flags := flag.NewFlagSet("climate-world", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	month := flags.Int("month", 0, "calendar month to publish, from 1 to 12 (required)")
+	out := flags.String("out", "", "existing artifact directory (required)")
+	checkpoints := flags.String("checkpoints", "", "existing absolute checkpoint directory (required)")
+	landCache := flags.String("land-cache", "", "existing Natural Earth cache directory (required)")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("climate-world accepts no positional arguments")
+	}
+	if *month < int(time.January) || *month > int(time.December) {
+		return errors.New("climate-world --month must be between 1 and 12")
+	}
+	if err := validateClimateWorldDirectory("--out", *out, false); err != nil {
+		return err
+	}
+	if err := validateClimateWorldDirectory("--checkpoints", *checkpoints, true); err != nil {
+		return err
+	}
+	if err := validateClimateWorldDirectory("--land-cache", *landCache, false); err != nil {
+		return err
+	}
+	selectedMonth := time.Month(*month)
+	if _, err := fmt.Fprintf(stdout, "Worldwide climate: building %s from daily AgERA5 data for 2006-2025. Valid checkpoints will be reused.\n", selectedMonth); err != nil {
+		return fmt.Errorf("write climate-world progress: %w", err)
+	}
+	summary, err := run(ctx, weatherupdate.GlobalClimateConfig{
+		ArtifactRoot:   *out,
+		CheckpointRoot: *checkpoints,
+		LandCacheRoot:  *landCache,
+		Period:         fmt.Sprintf("month-%02d", selectedMonth),
+		Month:          selectedMonth,
+		TokenReader:    stdin,
+	})
+	if err != nil {
+		return err
+	}
+	if !summary.MainPointerUnchanged {
+		return errors.New("worldwide climate build did not prove that the main weather release stayed unchanged")
+	}
+	if _, err := fmt.Fprintf(stdout, "Blocks: %d reused, %d built, %d water-only skipped. Source: %d responses, %d bytes.\n",
+		summary.BlocksReused, summary.BlocksBuilt, summary.BlocksSkipped,
+		summary.SourceResponses, summary.SourceResponseBytes); err != nil {
+		return fmt.Errorf("write climate-world block summary: %w", err)
+	}
+	if _, err := fmt.Fprintf(stdout, "Output: %s; %d point blocks, %d scalar tiles; %d checkpoint bytes, %d artifact bytes.\n",
+		summary.ReleaseID, summary.PointBlocks, summary.ScalarTiles,
+		summary.CheckpointBytes, summary.ArtifactBytes); err != nil {
+		return fmt.Errorf("write climate-world output summary: %w", err)
+	}
+	if _, err := fmt.Fprintf(stdout, "Quality: %d temperature repairs, largest %.3f C; main weather release unchanged; elapsed %s.\n",
+		summary.TemperatureRepairs, summary.MaximumInversionC, summary.Elapsed.Round(time.Second)); err != nil {
+		return fmt.Errorf("write climate-world quality summary: %w", err)
+	}
+	return nil
+}
+
+func validateClimateWorldDirectory(flagName, path string, absolute bool) error {
+	if path == "" {
+		return fmt.Errorf("climate-world %s is required", flagName)
+	}
+	if absolute && filepath.Clean(path) != path {
+		return fmt.Errorf("climate-world %s must be a clean directory path", flagName)
+	}
+	if absolute && (!filepath.IsAbs(path) || path == string(filepath.Separator)) {
+		return fmt.Errorf("climate-world %s must be an absolute directory other than the filesystem root", flagName)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect climate-world %s directory: %w", flagName, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("climate-world %s must be an existing real directory", flagName)
+	}
+	return nil
 }
