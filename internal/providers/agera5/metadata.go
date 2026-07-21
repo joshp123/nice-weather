@@ -294,6 +294,15 @@ type BlockCoordinate struct {
 	Longitude int
 }
 
+// BlockShape returns the logical rows and columns in a source block. Boundary
+// blocks are smaller than the fixed Zarr chunk shape.
+func BlockShape(block BlockCoordinate) (latitude, longitude int, err error) {
+	if block.Latitude < 0 || block.Latitude >= blockCount(latitudeCount, latitudeChunkLength) || block.Longitude < 0 || block.Longitude >= blockCount(longitudeCount, longitudeChunkLength) {
+		return 0, 0, fmt.Errorf("AgERA5 spatial block is outside the 113 by 113 chunk grid: %+v", block)
+	}
+	return min(latitudeChunkLength, latitudeCount-block.Latitude*latitudeChunkLength), min(longitudeChunkLength, longitudeCount-block.Longitude*longitudeChunkLength), nil
+}
+
 // ChunkRef identifies one field chunk. FirstDate and LastDate are the dates
 // requested inside this time chunk, inclusive.
 type ChunkRef struct {
@@ -325,8 +334,8 @@ func (m Metadata) PlanChunks(firstDate, lastDate time.Time, block BlockCoordinat
 	if !isUTCDate(firstDate) || !isUTCDate(lastDate) || lastDate.Before(firstDate) {
 		return nil, errors.New("AgERA5 range must be inclusive UTC calendar dates in ascending order")
 	}
-	if block.Latitude < 0 || block.Latitude >= blockCount(latitudeCount, latitudeChunkLength) || block.Longitude < 0 || block.Longitude >= blockCount(longitudeCount, longitudeChunkLength) {
-		return nil, fmt.Errorf("AgERA5 spatial block is outside the 113 by 113 chunk grid: %+v", block)
+	if _, _, err := BlockShape(block); err != nil {
+		return nil, err
 	}
 	storeLastDate := sourceFirstDate.AddDate(0, 0, m.timeLength-1)
 	if firstDate.Before(sourceFirstDate) || lastDate.After(storeLastDate) {

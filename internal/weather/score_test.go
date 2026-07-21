@@ -30,6 +30,42 @@ func TestIdealDayScoresHighly(t *testing.T) {
 	}
 }
 
+func TestScoreProfilesExactlyMatchesSingleProfilePath(t *testing.T) {
+	days := []DailyMetrics{idealDay()}
+	for _, temperature := range []float64{-10, 5, 16, 24, 30, 38} {
+		day := idealDay()
+		day.ComfortableTempC = temperature
+		day.MinTempC, day.MaxTempC = temperature-4, temperature+4
+		day.DewPointC = known(min(temperature, 24))
+		days = append(days, day)
+	}
+	for _, wind := range []float64{0, 20, 28, 40, 60} {
+		day := idealDay()
+		day.WindSpeedKPH, day.GustKPH = wind, known(wind+10)
+		days = append(days, day)
+	}
+	for _, rain := range []float64{0, 1, 3, 8, 12} {
+		day := idealDay()
+		day.RainMM = rain
+		day.WetTimeFraction = known(min(1, rain/12))
+		days = append(days, day)
+	}
+	for index, day := range days {
+		nice, cycling := ScoreProfiles(day)
+		if want := Score(day, ProfileNice); nice != want {
+			t.Fatalf("day %d Nice = %+v, want %+v", index, nice, want)
+		}
+		if want := Score(day, ProfileCycling); cycling != want {
+			t.Fatalf("day %d Cycling = %+v, want %+v", index, cycling, want)
+		}
+	}
+	invalid := idealDay()
+	invalid.Valid = false
+	if nice, cycling := ScoreProfiles(invalid); nice != (Result{}) || cycling != (Result{}) {
+		t.Fatalf("invalid profiles = %+v %+v", nice, cycling)
+	}
+}
+
 func TestSixteenDegreesIsMediocre(t *testing.T) {
 	day := idealDay()
 	day.ComfortableTempC = 16

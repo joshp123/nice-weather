@@ -55,19 +55,45 @@ func Score(m DailyMetrics, profile Profile) Result {
 	if m.Validate() != nil || (profile != ProfileNice && profile != ProfileCycling) {
 		return Result{}
 	}
+	components := sharedComponents(m)
+	if profile == ProfileCycling {
+		components.Wind = cyclingWindScore(m.WindSpeedKPH, m.GustKPH)
+	} else {
+		components.Wind = niceWindScore(m.WindSpeedKPH, m.GustKPH)
+	}
+	return scoreProfile(m, profile, components)
+}
 
-	components := Components{
+// ScoreProfiles evaluates both canonical profiles with one validation and one
+// calculation of the shared physical components. It is for bulk products that
+// always publish Nice and Cycling together; Score remains the single-profile
+// entry point.
+func ScoreProfiles(m DailyMetrics) (nice, cycling Result) {
+	if m.Validate() != nil {
+		return Result{}, Result{}
+	}
+	shared := sharedComponents(m)
+	niceWind := niceWindScore(m.WindSpeedKPH, m.GustKPH)
+	niceComponents := shared
+	niceComponents.Wind = niceWind
+	cyclingComponents := shared
+	cyclingComponents.Wind = cyclingWindScoreWithNice(m.WindSpeedKPH, m.GustKPH, niceWind)
+	return scoreProfile(m, ProfileNice, niceComponents), scoreProfile(m, ProfileCycling, cyclingComponents)
+}
+
+func sharedComponents(m DailyMetrics) Components {
+	return Components{
 		Thermal: thermalScore(m),
 		Dryness: drynessScore(m),
 		Sun:     sunScore(m),
 	}
+}
 
+func scoreProfile(m DailyMetrics, profile Profile, components Components) Result {
 	var w weights
 	if profile == ProfileCycling {
-		components.Wind = cyclingWindScore(m.WindSpeedKPH, m.GustKPH)
 		w = weights{warmth: .35, dryness: .30, sun: .10, wind: .25}
 	} else {
-		components.Wind = niceWindScore(m.WindSpeedKPH, m.GustKPH)
 		w = weights{warmth: .45, dryness: .25, sun: .20, wind: .10}
 	}
 
@@ -125,6 +151,10 @@ func niceWindScore(wind float64, gust OptionalFloat) int {
 }
 
 func cyclingWindScore(wind float64, gust OptionalFloat) int {
+	return cyclingWindScoreWithNice(wind, gust, niceWindScore(wind, gust))
+}
+
+func cyclingWindScoreWithNice(wind float64, gust OptionalFloat, nice int) int {
 	cycling := piecewise(wind, cyclingWindCurve)
 	if gust.Available {
 		cycling = math.Min(cycling, piecewise(gust.Value, cyclingGustCurve))
@@ -132,7 +162,7 @@ func cyclingWindScore(wind float64, gust OptionalFloat) int {
 	// Cycling is the stricter wind judgement. Keep that relationship explicit
 	// even if either policy curve changes: choosing Cycling must never make an
 	// identical sustained wind or gust look calmer than Nice.
-	return min(rounded(cycling), niceWindScore(wind, gust))
+	return min(rounded(cycling), nice)
 }
 
 func sunScore(m DailyMetrics) int {

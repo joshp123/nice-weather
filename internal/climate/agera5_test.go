@@ -253,6 +253,18 @@ func TestClimateDeliveryUsesDeterministicLargestRemainderAndMapScalars(t *testin
 	}
 }
 
+func TestAllocatePermilleAllocatesNothing(t *testing.T) {
+	allocations := testing.AllocsPerRun(1000, func() {
+		shares, err := allocatePermille([6]int{17, 23, 31, 41, 53, 67})
+		if err != nil || shares == ([6]uint16{}) {
+			panic("allocation fixture failed")
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("allocatePermille allocations = %.2f; want 0", allocations)
+	}
+}
+
 func TestAgERA5DoesNotInventSynchronousRelativeHumidity(t *testing.T) {
 	metrics, err := day("2025-11-01", 36.72, -4.42, 30, 0, 0, 15, 20, 12).Metrics()
 	if err != nil {

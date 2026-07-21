@@ -75,42 +75,63 @@ func (accumulator *StreamingAccumulator) Add(day AgERA5Day) error {
 	if err != nil {
 		return accumulator.fail(fmt.Errorf("invalid AgERA5 date %q", day.Date))
 	}
-	if date.After(accumulator.finalDate) {
-		return accumulator.fail(fmt.Errorf("AgERA5 date %s is outside reference window %d–%d", day.Date, accumulator.window.FirstYear, accumulator.window.LastYear))
-	}
-	if !date.Equal(accumulator.nextDate) {
-		if date.Before(accumulator.nextDate) {
-			return accumulator.fail(fmt.Errorf("duplicate or out-of-order AgERA5 date %s; expected %s", day.Date, formatDate(accumulator.nextDate)))
-		}
-		return accumulator.fail(fmt.Errorf("incomplete AgERA5 stream: got %s; expected %s", day.Date, formatDate(accumulator.nextDate)))
-	}
 	metrics, err := day.Metrics()
 	if err != nil {
 		return accumulator.fail(fmt.Errorf("day %s: %w", day.Date, err))
 	}
+	return accumulator.AddMetrics(date, day.Latitude, day.Longitude, metrics)
+}
+
+// AddMetrics scores one normalized day without converting its date through a
+// string. Bulk source builders use this typed seam in their hot cell-day loop;
+// Add remains the strict single-cell interchange seam.
+func (accumulator *StreamingAccumulator) AddMetrics(date time.Time, latitude, longitude float64, metrics weather.DailyMetrics) error {
+	if accumulator == nil {
+		return errors.New("nil climate streaming accumulator")
+	}
+	if accumulator.failed != nil {
+		return accumulator.failed
+	}
+	if accumulator.finalized {
+		return errors.New("climate streaming accumulator is already finalized")
+	}
+	if !isUTCDate(date) {
+		return accumulator.fail(errors.New("climate date must be a UTC calendar date"))
+	}
+	if date.After(accumulator.finalDate) {
+		return accumulator.fail(fmt.Errorf("climate date %s is outside reference window %d–%d", formatDate(date), accumulator.window.FirstYear, accumulator.window.LastYear))
+	}
+	if !date.Equal(accumulator.nextDate) {
+		if date.Before(accumulator.nextDate) {
+			return accumulator.fail(fmt.Errorf("duplicate or out-of-order climate date %s; expected %s", formatDate(date), formatDate(accumulator.nextDate)))
+		}
+		return accumulator.fail(fmt.Errorf("incomplete climate stream: got %s; expected %s", formatDate(date), formatDate(accumulator.nextDate)))
+	}
+	if math.IsNaN(latitude) || math.IsInf(latitude, 0) || math.IsNaN(longitude) || math.IsInf(longitude, 0) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
+		return accumulator.fail(fmt.Errorf("day %s has invalid coordinates", formatDate(date)))
+	}
 	if accumulator.hasCell {
-		if math.Abs(day.Latitude-accumulator.latitude) > 1e-9 || math.Abs(day.Longitude-accumulator.longitude) > 1e-9 {
-			return accumulator.fail(fmt.Errorf("day %s does not belong to climate cell %.9f,%.9f", day.Date, accumulator.latitude, accumulator.longitude))
+		if math.Abs(latitude-accumulator.latitude) > 1e-9 || math.Abs(longitude-accumulator.longitude) > 1e-9 {
+			return accumulator.fail(fmt.Errorf("day %s does not belong to climate cell %.9f,%.9f", formatDate(date), accumulator.latitude, accumulator.longitude))
 		}
 	} else {
-		accumulator.latitude = day.Latitude
-		accumulator.longitude = day.Longitude
+		accumulator.latitude = latitude
+		accumulator.longitude = longitude
 		accumulator.hasCell = true
 	}
 
-	nice := weather.Score(metrics, weather.ProfileNice)
-	cycling := weather.Score(metrics, weather.ProfileCycling)
+	nice, cycling := weather.ScoreProfiles(metrics)
 	if !nice.Available || !cycling.Available {
-		return accumulator.fail(fmt.Errorf("day %s is not scoreable", day.Date))
+		return accumulator.fail(fmt.Errorf("day %s is not scoreable", formatDate(date)))
 	}
 	if nice.Components.Thermal != cycling.Components.Thermal || nice.Components.Dryness != cycling.Components.Dryness || nice.Components.Sun != cycling.Components.Sun {
-		return accumulator.fail(fmt.Errorf("day %s has profile-dependent shared components", day.Date))
+		return accumulator.fail(fmt.Errorf("day %s has profile-dependent shared components", formatDate(date)))
 	}
 
 	month := &accumulator.months[date.Month()-1]
 	contiguous := !month.lastDate.IsZero() && date.Equal(month.lastDate.AddDate(0, 0, 1))
 	if err := month.add(date, contiguous, nice, cycling); err != nil {
-		return accumulator.fail(fmt.Errorf("day %s: %w", day.Date, err))
+		return accumulator.fail(fmt.Errorf("day %s: %w", formatDate(date), err))
 	}
 	accumulator.nextDate = date.AddDate(0, 0, 1)
 	return nil
@@ -277,4 +298,8 @@ func daysInReferenceMonth(window ReferenceWindow, month time.Month) int {
 
 func formatDate(date time.Time) string {
 	return date.Format("2006-01-02")
+}
+
+func isUTCDate(date time.Time) bool {
+	return date.Location() == time.UTC && date.Hour() == 0 && date.Minute() == 0 && date.Second() == 0 && date.Nanosecond() == 0
 }

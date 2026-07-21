@@ -103,6 +103,20 @@ func TestPlanChunksRejectsAmbiguousOrOutOfRangeInput(t *testing.T) {
 	}
 }
 
+func TestBlockShapeIncludesExactBoundaryCells(t *testing.T) {
+	latitude, longitude, err := BlockShape(BlockCoordinate{Latitude: 0, Longitude: 0})
+	if err != nil || latitude != 16 || longitude != 32 {
+		t.Fatalf("full block shape = %dx%d, error %v", latitude, longitude, err)
+	}
+	latitude, longitude, err = BlockShape(BlockCoordinate{Latitude: 112, Longitude: 112})
+	if err != nil || latitude != 9 || longitude != 16 {
+		t.Fatalf("boundary block shape = %dx%d, error %v", latitude, longitude, err)
+	}
+	if _, _, err := BlockShape(BlockCoordinate{Latitude: 113, Longitude: 0}); err == nil {
+		t.Fatal("expected out-of-range shape error")
+	}
+}
+
 func TestPlanningRequiresExactCoordinateValues(t *testing.T) {
 	unbound, err := parseMetadata(bytes.NewReader(metadataFixture(t)))
 	if err != nil {

@@ -448,22 +448,24 @@ func allocatePermille(counts [6]int) ([6]uint16, error) {
 	if total == 0 {
 		return [6]uint16{}, errors.New("climate rating counts are empty")
 	}
-	type remainder struct {
-		index int
-		value int
-	}
 	result := [6]uint16{}
-	remainders := make([]remainder, len(counts))
+	remainders := [6]int{}
 	allocated := 0
 	for index, count := range counts {
 		scaled := count * 1000
 		result[index] = uint16(scaled / total)
 		allocated += int(result[index])
-		remainders[index] = remainder{index: index, value: scaled % total}
+		remainders[index] = scaled % total
 	}
-	sort.SliceStable(remainders, func(left, right int) bool { return remainders[left].value > remainders[right].value })
-	for index := 0; index < 1000-allocated; index++ {
-		result[remainders[index].index]++
+	for remaining := 1000 - allocated; remaining > 0; remaining-- {
+		largest := 0
+		for index := 1; index < len(remainders); index++ {
+			if remainders[index] > remainders[largest] {
+				largest = index
+			}
+		}
+		result[largest]++
+		remainders[largest] = -1
 	}
 	return result, nil
 }
