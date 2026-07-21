@@ -37,6 +37,10 @@ func (block Block) TimeCount() int      { return block.timeCount }
 func (block Block) LatitudeCount() int  { return block.latitudeCount }
 func (block Block) LongitudeCount() int { return block.longitudeCount }
 
+// DecodedBytes reports the retained source allocation. Boundary and partial-
+// date blocks still decode the complete physical Zarr chunk.
+func (block Block) DecodedBytes() int { return len(block.values) * floatBytes }
+
 func (block Block) Reference() ChunkRef { return block.reference }
 
 func (block Block) Date(timeOffset int) (time.Time, error) {

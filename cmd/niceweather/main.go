@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/appserver"
+	"nice-weather-finder/internal/climatecanary"
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/product"
+	"nice-weather-finder/internal/providers/agera5"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -68,6 +70,35 @@ func main() {
 					summary.StageElapsed.Round(time.Millisecond), summary.PrepareElapsed.Round(time.Millisecond), summary.TileElapsed.Round(time.Millisecond), summary.Elapsed.Round(time.Millisecond))
 			}
 		}
+	case "agera5-canary":
+		flags := flag.NewFlagSet("agera5-canary", flag.ContinueOnError)
+		blockLatitude := flags.Int("block-lat", -1, "AgERA5 latitude block index (required, 0-112)")
+		blockLongitude := flags.Int("block-lon", -1, "AgERA5 longitude block index (required, 0-112)")
+		year := flags.Int("year", 0, "complete UTC calendar year (required)")
+		staging := flags.String("staging", "./.cache/agera5-canary", "parent for disposable canary staging")
+		synthetic := flags.Bool("synthetic", false, "exercise the canary without network access or a token")
+		if err = flags.Parse(os.Args[2:]); err == nil {
+			if flags.NArg() != 0 {
+				err = fmt.Errorf("agera5-canary accepts no positional arguments")
+			} else {
+				ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				var summary climatecanary.Summary
+				summary, err = climatecanary.Run(ctx, climatecanary.Config{
+					Block: agera5.BlockCoordinate{Latitude: *blockLatitude, Longitude: *blockLongitude},
+					Year:  *year, StagingParent: *staging, TokenReader: os.Stdin, Synthetic: *synthetic,
+				})
+				if err == nil {
+					fmt.Printf("AgERA5 canary: %s block %d,%d; %s through %s; %d/%d days; %d complete + %d no-data cells in %dx%d; transfer %d bytes in %d responses/%d chunks; compressed %d bytes (largest %d, response limit %d); decoded %d bytes total, %d retained peak; sampled peak heap %d bytes; %s\n",
+						summary.Source, summary.Block.Latitude, summary.Block.Longitude,
+						summary.FirstDate.Format(time.DateOnly), summary.LastDate.Format(time.DateOnly),
+						summary.ProcessedDays, summary.ExpectedDays, summary.CompleteCells, summary.NoDataCells,
+						summary.Width, summary.Height, summary.FetchedBytes, summary.Responses, summary.Chunks,
+						summary.CompressedChunkBytes, summary.MaximumCompressedChunkBytes, summary.ChunkResponseLimitBytes,
+						summary.DecodedChunkBytes, summary.PeakRetainedDecodedBytes, summary.SampledPeakHeapBytes, summary.Elapsed.Round(time.Millisecond))
+				}
+			}
+		}
 	case "places":
 		flags := flag.NewFlagSet("places", flag.ContinueOnError)
 		source := flags.String("source", "", "directory containing pinned GeoNames extracts")
@@ -119,5 +150,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|serve|places|best-weather> [options]")
+	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|agera5-canary|serve|places|best-weather> [options]")
 }

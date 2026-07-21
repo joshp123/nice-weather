@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 var ErrChunkNotFound = errors.New("AgERA5 chunk is not present")
@@ -16,12 +17,41 @@ var ErrChunkNotFound = errors.New("AgERA5 chunk is not present")
 type Client struct {
 	root      string
 	transport http.RoundTripper
+	metricsMu sync.Mutex
+	metrics   ClientMetrics
+}
+
+// ClientMetrics reports byte counts without retaining request URLs, headers or
+// credentials. FetchedBytes includes metadata and coordinate responses;
+// CompressedChunkBytes and DecodedChunkBytes cover weather chunks only.
+type ClientMetrics struct {
+	Responses                   int
+	Chunks                      int
+	FetchedBytes                int64
+	CompressedChunkBytes        int64
+	DecodedChunkBytes           int64
+	MaximumCompressedChunkBytes int64
+	ChunkResponseLimitBytes     int64
 }
 
 // NewClient returns a client pinned to the official AgERA5 object store.
 // Tests in this package replace the private transport and root directly.
 func NewClient() *Client {
-	return &Client{root: DefaultRoot, transport: http.DefaultTransport}
+	return &Client{
+		root: DefaultRoot, transport: http.DefaultTransport,
+		metrics: ClientMetrics{ChunkResponseLimitBytes: int64(chunkDecodedBytes + bloscHeaderBytes)},
+	}
+}
+
+// Metrics returns a race-safe snapshot of the current client's transfer
+// counters. It contains no source keys or authentication material.
+func (client *Client) Metrics() ClientMetrics {
+	if client == nil {
+		return ClientMetrics{}
+	}
+	client.metricsMu.Lock()
+	defer client.metricsMu.Unlock()
+	return client.metrics
 }
 
 // FetchMetadata retrieves and validates the small consolidated metadata
@@ -64,7 +94,13 @@ func (client *Client) FetchChunk(ctx context.Context, token string, reference Ch
 	if err != nil {
 		return Block{}, err
 	}
-	return DecodeChunk(reference, body)
+	client.recordCompressedChunk(len(body))
+	block, err := DecodeChunk(reference, body)
+	if err != nil {
+		return Block{}, err
+	}
+	client.recordDecodedChunk(chunkDecodedBytes)
+	return block, nil
 }
 
 func (client *Client) fetch(ctx context.Context, token, key string, maximumBytes int) ([]byte, error) {
@@ -108,7 +144,31 @@ func (client *Client) fetch(ctx context.Context, token, key string, maximumBytes
 	if len(body) > maximumBytes {
 		return nil, fmt.Errorf("AgERA5 %s exceeds %d-byte limit", key, maximumBytes)
 	}
+	client.recordResponse(len(body))
 	return body, nil
+}
+
+func (client *Client) recordResponse(bytes int) {
+	client.metricsMu.Lock()
+	defer client.metricsMu.Unlock()
+	client.metrics.Responses++
+	client.metrics.FetchedBytes += int64(bytes)
+}
+
+func (client *Client) recordCompressedChunk(bytes int) {
+	client.metricsMu.Lock()
+	defer client.metricsMu.Unlock()
+	client.metrics.Chunks++
+	client.metrics.CompressedChunkBytes += int64(bytes)
+	if int64(bytes) > client.metrics.MaximumCompressedChunkBytes {
+		client.metrics.MaximumCompressedChunkBytes = int64(bytes)
+	}
+}
+
+func (client *Client) recordDecodedChunk(bytes int) {
+	client.metricsMu.Lock()
+	defer client.metricsMu.Unlock()
+	client.metrics.DecodedChunkBytes += int64(bytes)
 }
 
 func (client *Client) resourceURL(key string) (string, error) {

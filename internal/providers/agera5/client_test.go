@@ -68,11 +68,18 @@ func TestFetchChunkBoundsBodyAndDoesNotLeakToken(t *testing.T) {
 	if err != nil || !valid || value != 285 {
 		t.Fatalf("value=%g valid=%t error=%v", value, valid, err)
 	}
+	metrics := client.Metrics()
+	if metrics.Responses != 1 || metrics.Chunks != 1 || metrics.FetchedBytes != int64(len(body)) || metrics.CompressedChunkBytes != int64(len(body)) || metrics.DecodedChunkBytes != chunkDecodedBytes || metrics.MaximumCompressedChunkBytes != int64(len(body)) || metrics.ChunkResponseLimitBytes != chunkDecodedBytes+bloscHeaderBytes {
+		t.Fatalf("client metrics = %+v", metrics)
+	}
 
 	client.transport = roundTripperFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("network down") })
 	_, err = client.FetchChunk(context.Background(), token, reference)
 	if err == nil || strings.Contains(err.Error(), token) {
 		t.Fatalf("transport error = %v", err)
+	}
+	if got := client.Metrics(); got != metrics {
+		t.Fatalf("failed request changed metrics: got %+v want %+v", got, metrics)
 	}
 }
 

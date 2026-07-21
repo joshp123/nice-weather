@@ -136,15 +136,16 @@ func (block providerBlock) Reference() ChunkReference { return block.Block.Refer
 
 // Stats makes sparse-ocean and complete-cell outcomes explicit.
 type Stats struct {
-	ExpectedDays     int
-	ProcessedDays    int
-	SourceTimeChunks int
-	ChunksFetched    int
-	ChunksAbsent     int
-	LogicalCells     int
-	CompleteCells    int
-	NoDataCells      int
-	SparseOcean      bool
+	ExpectedDays             int
+	ProcessedDays            int
+	SourceTimeChunks         int
+	ChunksFetched            int
+	ChunksAbsent             int
+	LogicalCells             int
+	CompleteCells            int
+	NoDataCells              int
+	SparseOcean              bool
+	PeakRetainedDecodedBytes int64
 }
 
 // Result contains January through December record planes in row-major order.
@@ -230,6 +231,10 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 				return Result{}, fmt.Errorf("%w: time chunk beginning %s is absent after present data", ErrIncompleteSource, group.key.first.Format(time.DateOnly))
 			}
 			continue
+		}
+		decodedBytes := decodedBlockBytes(blocks)
+		if decodedBytes > result.Stats.PeakRetainedDecodedBytes {
+			result.Stats.PeakRetainedDecodedBytes = decodedBytes
 		}
 		sawPresent = true
 		if sawAbsent {
@@ -320,6 +325,21 @@ func BuildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		result.Stats.CompleteCells++
 	}
 	return result, nil
+}
+
+func decodedBlockBytes(blocks fieldBlocks) int64 {
+	var total int64
+	for _, block := range blocks {
+		if sized, ok := block.(interface{ DecodedBytes() int }); ok {
+			total += int64(sized.DecodedBytes())
+			continue
+		}
+		// Test and alternate sources may expose logical blocks without a
+		// physical backing allocation. Four bytes per value is the minimum
+		// retained float32 evidence for that contract.
+		total += int64(block.TimeCount() * block.LatitudeCount() * block.LongitudeCount() * 4)
+	}
+	return total
 }
 
 func groupReferences(references []ChunkReference, coordinate agera5.BlockCoordinate, firstDate, lastDate time.Time) ([]chunkGroup, error) {

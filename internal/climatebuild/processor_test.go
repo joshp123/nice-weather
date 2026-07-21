@@ -120,7 +120,7 @@ func TestBuildBlockMatchesSingleCellAggregateAndIgnoresFieldOrder(t *testing.T) 
 	if !reflect.DeepEqual(got, gotShuffled) {
 		t.Fatal("field/reference order changed the climate block")
 	}
-	if got.Width != 3 || got.Height != 2 || got.Stats.ExpectedDays != 366 || got.Stats.ProcessedDays != 366 || got.Stats.CompleteCells != 6 || got.Stats.NoDataCells != 0 || got.Stats.SourceTimeChunks != 2 || got.Stats.ChunksFetched != 18 {
+	if got.Width != 3 || got.Height != 2 || got.Stats.ExpectedDays != 366 || got.Stats.ProcessedDays != 366 || got.Stats.CompleteCells != 6 || got.Stats.NoDataCells != 0 || got.Stats.SourceTimeChunks != 2 || got.Stats.ChunksFetched != 18 || got.Stats.PeakRetainedDecodedBytes <= 0 {
 		t.Fatalf("unexpected result or stats: %+v", got.Stats)
 	}
 
