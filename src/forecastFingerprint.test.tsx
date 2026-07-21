@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { ForecastFingerprint } from './App';
+import { ForecastFingerprint, forecastScoreEvidence } from './App';
 import type { ForecastDayScore, WeatherManifest } from './data/types';
 
 describe('forecast fingerprint', () => {
@@ -19,6 +19,7 @@ describe('forecast fingerprint', () => {
     expect(markup).toContain('aria-label="Fri 31, 26, Poor"');
     expect(markup).toContain('--day-colour:#f06031');
     expect(markup).toContain('--day-colour:#5e6382');
+    expect(forecastScoreEvidence(days, legend)).toBe('Good or better on 8 of 14 days · Poor or Awful on 3 · median score 59');
   });
 });
 

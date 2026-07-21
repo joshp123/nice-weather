@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
-import { forecastRunStatus, imageAssetUrl, loadManifest, loadPoint, StaleReleaseError } from './data/api';
+import { forecastRunStatus, imageAssetUrl, isStale, loadManifest, loadPoint, StaleReleaseError } from './data/api';
 import { loadBestWeather, type BestWeatherPlace } from './data/bestWeather';
 import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
@@ -20,6 +20,7 @@ type LoadState =
 
 type PointState = { status: 'idle' | 'loading' | 'ready' | 'error'; data?: PointWeather; message?: string };
 type WindState = { status: 'idle' | 'loading' | 'ready' | 'error'; grid?: WindGrid };
+type ControlPanel = 'when' | 'lenses' | 'profile' | null;
 
 export default function App() {
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
@@ -33,7 +34,7 @@ export default function App() {
   const [viewport, setViewport] = useState<PlaceSearchViewport>({ latitude: 48.5, longitude: 9.5 });
   const [mapNotice, setMapNotice] = useState('');
   const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
-  const [legendPanel, setLegendPanel] = useState<'lenses' | 'guide' | null>(null);
+  const [legendPanel, setLegendPanel] = useState<ControlPanel>(null);
   const [mapSelectionToken, setMapSelectionToken] = useState(0);
   const [windEnabled, setWindEnabled] = useState(false);
   const [windFrameSelection, setWindFrameSelection] = useState({ periodId: '', index: 0 });
@@ -178,37 +179,21 @@ export default function App() {
       </Suspense>
 
       <header className="masthead">
-        <div className="wordmark" aria-label="Nice Weather"><SunMark /><span>Nice Weather</span></div>
-        <PlaceSearch viewport={viewport} manifest={manifest} profile={profile} view={view} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onFound={(point, origin) => {
+        <div className="mastheadIdentity">
+          <div className="wordmark" aria-label="Nice Weather"><SunMark /><span>Nice Weather</span></div>
+          {manifest && <PeriodStatus manifest={manifest} view={view} period={period} />}
+        </div>
+        <PlaceSearch viewport={viewport} manifest={manifest} profile={profile} view={view} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onLocate={() => locate((point) => {
+          setMapSelectionToken((value) => value + 1);
+          selectPoint({ ...point, label: 'Current location' });
+        }, setMapNotice)} onFound={(point, origin) => {
           pointFocusOrigin.current = origin;
           selectPoint(point, true, shouldFocusDetails('search'));
         }} />
-        {manifest?.dataStatus === 'sample' && <p className="sampleFlag" role="status"><strong>Sample</strong><span>Not a live forecast</span></p>}
       </header>
 
-      <button className="mapAction locationButton" type="button" onClick={() => locate((point) => { setMapSelectionToken((value) => value + 1); selectPoint({ ...point, label: 'Current location' }); }, setMapNotice)} aria-label="Use my location">
-        <LocationIcon />
-      </button>
-
       {(mapNotice || overlayState.status === 'error') && (
-        <p className="mapNotice" role="status">{mapNotice || 'Weather colours could not be shown.'}</p>
-      )}
-
-      {manifest && (
-        <LayerLegend
-          manifest={manifest}
-          period={period}
-          view={view}
-          lens={lens}
-          panel={legendPanel}
-          windEnabled={windEnabled}
-          windFrameIndex={windFrameIndex}
-          windStatus={windState.status}
-          onPanelChange={setLegendPanel}
-          onChange={(next) => { setLens(next); setLegendPanel(null); telemetry('lens-changed', { lens: next }); }}
-          onWindEnabledChange={(enabled) => { setWindEnabled(enabled); telemetry('wind-direction-changed', { enabled }); }}
-          onWindFrameChange={(index) => setWindFrameSelection({ periodId: period?.id ?? '', index })}
-        />
+        <p className="controlSurface mapNotice" role="status">{mapNotice || 'Weather colours could not be shown.'}</p>
       )}
 
       {selectedPoint && (
@@ -229,16 +214,30 @@ export default function App() {
         />
       )}
 
-      <section className="cockpit" aria-label="Weather map controls">
+      <section className="controlSurface cockpit" aria-label="Weather map controls">
         {loadState.status === 'loading' && <DockMessage title="Loading forecast" />}
         {loadState.status === 'error' && <DockMessage title="Forecast unavailable" action={<button type="button" onClick={() => setRetry((value) => value + 1)}>Try again</button>} />}
         {manifest && (
           <>
-            <div className="cockpitMain">
-              <ViewControl value={view} climateAvailable={Boolean(manifest.climate)} onChange={handleView} />
-              <p className="periodStatus">{periodStatus(manifest, view, period)}</p>
-              <ProfileControl value={profile} onChange={(next) => { setProfile(next); telemetry('profile-changed', { profile: next }); }} />
+            <div className="cockpitToolbar">
+              <ViewControl value={view} climateAvailable={Boolean(manifest.climate)} panel={legendPanel} onPanelChange={setLegendPanel} onChange={handleView} />
+              <LayerLegend
+                manifest={manifest}
+                period={period}
+                view={view}
+                lens={lens}
+                panel={legendPanel}
+                windEnabled={windEnabled}
+                windFrameIndex={windFrameIndex}
+                windStatus={windState.status}
+                onPanelChange={setLegendPanel}
+                onChange={(next) => { setLens(next); telemetry('lens-changed', { lens: next }); }}
+                onWindEnabledChange={(enabled) => { setWindEnabled(enabled); telemetry('wind-direction-changed', { enabled }); }}
+                onWindFrameChange={(index) => setWindFrameSelection({ periodId: period?.id ?? '', index })}
+              />
+              <ProfileControl value={profile} panel={legendPanel} onPanelChange={setLegendPanel} onChange={(next) => { setProfile(next); telemetry('profile-changed', { profile: next }); }} />
             </div>
+            {overlayState.status !== 'error' && <ScoreRamp manifest={manifest} />}
             {view !== 'range' && period && <PeriodRail periods={periods} selectedId={period.id} view={view} onChange={(id) => { setPeriodId(id); telemetry('period-changed', { period: id, view }); }} />}
           </>
         )}
@@ -247,41 +246,81 @@ export default function App() {
   );
 }
 
-function ViewControl({ value, climateAvailable, onChange }: { value: View; climateAvailable: boolean; onChange: (value: View) => void }) {
+function ViewControl({ value, climateAvailable, panel, onPanelChange, onChange }: { value: View; climateAvailable: boolean; panel: ControlPanel; onPanelChange: (panel: ControlPanel) => void; onChange: (value: View) => void }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const open = panel === 'when';
+  useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
+  const label = value === 'range' ? 'Next 14 days' : value === 'daily' ? 'Day by day' : 'Typical year';
+  const choose = (next: View) => {
+    onChange(next);
+    onPanelChange(null);
+    window.requestAnimationFrame(() => restoreFocus(trigger.current));
+  };
   return (
-    <div className="segmented viewControl" role="group" aria-label="Weather period">
-      <button type="button" aria-pressed={value === 'range'} onClick={() => onChange('range')}><span className="wideLabel">Next 14 days</span><span className="shortLabel">14 days</span></button>
-      <button type="button" aria-pressed={value === 'daily'} onClick={() => onChange('daily')}>Day by day</button>
-      <button type="button" aria-pressed={value === 'climate'} disabled={!climateAvailable} onClick={() => onChange('climate')}>Typical year</button>
+    <div className="toolbarMenu viewControl">
+      <button ref={trigger} type="button" className="toolbarTrigger" aria-expanded={open} aria-controls="weather-period-menu" aria-label={`Choose time period. Active: ${label}`} onClick={() => onPanelChange(open ? null : 'when')}>
+        <strong><span className="wideControlLabel">{label}</span><span className="compactControlLabel">{value === 'range' ? '14 days' : value === 'daily' ? 'By day' : 'Climate'}</span></strong><MenuChevron />
+      </button>
+      {open && <div id="weather-period-menu" className="controlSurface toolbarPopover" role="group" aria-label="Weather period">
+        <button type="button" aria-pressed={value === 'range'} onClick={() => choose('range')}><span>Next 14 days</span><MenuCheck selected={value === 'range'} /></button>
+        <button type="button" aria-pressed={value === 'daily'} onClick={() => choose('daily')}><span>Day by day</span><MenuCheck selected={value === 'daily'} /></button>
+        <button type="button" aria-pressed={value === 'climate'} disabled={!climateAvailable} onClick={() => choose('climate')}><span>Typical year</span><MenuCheck selected={value === 'climate'} /></button>
+      </div>}
     </div>
   );
 }
 
-function ProfileControl({ value, onChange }: { value: Profile; onChange: (value: Profile) => void }) {
+function ProfileControl({ value, panel, onPanelChange, onChange }: { value: Profile; panel: ControlPanel; onPanelChange: (panel: ControlPanel) => void; onChange: (value: Profile) => void }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const open = panel === 'profile';
+  useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
+  const choose = (next: Profile) => {
+    onChange(next);
+    onPanelChange(null);
+    window.requestAnimationFrame(() => restoreFocus(trigger.current));
+  };
   return (
-    <div className="segmented profileControl" role="group" aria-label="Weather preference">
-      <button type="button" aria-pressed={value === 'nice'} onClick={() => onChange('nice')}>Nice</button>
-      <button type="button" aria-pressed={value === 'cycling'} onClick={() => onChange('cycling')}>Cycling</button>
+    <div className="toolbarMenu profileControl">
+      <button ref={trigger} type="button" className="toolbarTrigger" aria-expanded={open} aria-controls="weather-profile-menu" aria-label={`Choose weather preference. Active: ${value === 'nice' ? 'Warm & sunny' : 'Cycling'}`} onClick={() => onPanelChange(open ? null : 'profile')}>
+        <strong>{value === 'nice' ? <><span className="wideControlLabel">Warm &amp; sunny</span><span className="compactControlLabel">Warm + sunny</span></> : 'Cycling'}</strong><MenuChevron />
+      </button>
+      {open && <div id="weather-profile-menu" className="controlSurface toolbarPopover alignRight" role="group" aria-label="Weather preference">
+        <button type="button" aria-pressed={value === 'nice'} onClick={() => choose('nice')}><span>Warm &amp; sunny</span><MenuCheck selected={value === 'nice'} /></button>
+        <button type="button" aria-pressed={value === 'cycling'} onClick={() => choose('cycling')}><span>Cycling</span><MenuCheck selected={value === 'cycling'} /></button>
+      </div>}
     </div>
   );
 }
 
 function PeriodRail({ periods, selectedId, view, onChange }: { periods: Period[]; selectedId: string; view: View; onChange: (id: string) => void }) {
   const rail = useRef<HTMLDivElement>(null);
-  useEffect(() => revealSelectedPeriod(rail.current, selectedId), [selectedId, view]);
+  const [hasMore, setHasMore] = useState(false);
+  const [hasBefore, setHasBefore] = useState(false);
+  const updateCue = useCallback(() => {
+    setHasMore(periodRailHasMore(rail.current));
+    setHasBefore(Boolean(rail.current && rail.current.scrollLeft > 2));
+  }, []);
+  useEffect(() => {
+    revealSelectedPeriod(rail.current, selectedId);
+    const frame = window.requestAnimationFrame(updateCue);
+    window.addEventListener('resize', updateCue);
+    return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', updateCue); };
+  }, [periods, selectedId, updateCue, view]);
   return (
-    <div ref={rail} className="periodRail" role="group" aria-label={view === 'daily' ? 'Forecast day' : 'Typical month'}>
-      {periods.map((period, index) => (
-        <button key={period.id} type="button" data-period-id={period.id} aria-pressed={selectedId === period.id} onClick={() => onChange(period.id)}>
-          <span>{period.shortLabel}</span>{view === 'daily' && period.date && <small>{railMonthLabel(periods, index)}</small>}
-        </button>
-      ))}
+    <div className="periodRailWrap" data-has-more={hasMore || undefined} data-has-before={hasBefore || undefined}>
+      <div ref={rail} className="periodRail" role="group" aria-label={view === 'daily' ? 'Forecast day' : 'Typical month'} onScroll={updateCue}>
+        {periods.map((period, index) => (
+          <button key={period.id} type="button" data-period-id={period.id} aria-pressed={selectedId === period.id} onFocus={(event) => revealFocusedPeriod(event.currentTarget)} onClick={() => onChange(period.id)}>
+            <span>{period.shortLabel}</span>{view === 'daily' && period.date && <small>{railMonthLabel(periods, index)}</small>}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
 export const LENSES: ReadonlyArray<{ id: Lens; label: string }> = [
-  { id: 'overall', label: 'Overall' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Bright' }, { id: 'wind', label: 'Calm' },
+  { id: 'overall', label: 'Overall score' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Bright' }, { id: 'wind', label: 'Calm' },
 ];
 
 type LayerLegendProps = {
@@ -289,11 +328,11 @@ type LayerLegendProps = {
   period?: Period;
   view: View;
   lens: Lens;
-  panel: 'lenses' | 'guide' | null;
+  panel: ControlPanel;
   windEnabled: boolean;
   windFrameIndex: number;
   windStatus: WindState['status'];
-  onPanelChange: (panel: 'lenses' | 'guide' | null) => void;
+  onPanelChange: (panel: ControlPanel) => void;
   onChange: (lens: Lens) => void;
   onWindEnabledChange: (enabled: boolean) => void;
   onWindFrameChange: (index: number) => void;
@@ -301,27 +340,22 @@ type LayerLegendProps = {
 
 export function LayerLegend({ manifest, period, view, lens, panel, windEnabled, windFrameIndex, windStatus, onPanelChange, onChange, onWindEnabledChange, onWindFrameChange }: LayerLegendProps) {
   const trigger = useRef<HTMLButtonElement>(null);
-  const guideTrigger = useRef<HTMLButtonElement>(null);
-  useEscape(panel !== null, () => { const focus = panel === 'guide' ? guideTrigger.current : trigger.current; onPanelChange(null); restoreFocus(focus); });
-  const active = LENSES.find((item) => item.id === lens)?.label ?? 'Overall';
+  const open = panel === 'lenses';
+  useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
+  const active = LENSES.find((item) => item.id === lens)?.label ?? 'Overall score';
   const frames = view === 'daily' ? period?.windFrames ?? [] : [];
   return (
     <div className="legendControl">
-      <div className="legendInstrument">
-        <button ref={trigger} type="button" className="legendTrigger" aria-haspopup="dialog" aria-expanded={panel === 'lenses'} aria-label={`Choose map lens. Active: ${active}`} onClick={() => onPanelChange(panel === 'lenses' ? null : 'lenses')}>
-          <span className="legendTop"><strong>{active}</strong><span aria-hidden="true">⌄</span></span>
-          <span className="legendRamp" style={{ background: `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(',')})` }} />
-          <span className="legendEnds"><span>Awful</span><span>Excellent</span></span>
-        </button>
-        <button ref={guideTrigger} type="button" className="scoreGuideTrigger" aria-haspopup="dialog" aria-expanded={panel === 'guide'} aria-label="Explain weather scores" onClick={() => onPanelChange(panel === 'guide' ? null : 'guide')}>Scores</button>
-      </div>
-      {panel && (
-        <div className="legendPopover" role="dialog" aria-label={panel === 'guide' ? 'Score guide' : 'Choose map lens'}>
-          {panel === 'lenses' && <div className="layerMenu" role="radiogroup" aria-label="Map lens">
-            {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={lens === item.id} onClick={() => { onChange(item.id); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><b aria-hidden="true">{lens === item.id ? '✓' : ''}</b></button>)}
-          </div>}
-          {panel === 'lenses' && view === 'daily' && <button type="button" className="windToggle" role="switch" aria-checked={windEnabled} onClick={() => onWindEnabledChange(!windEnabled)}><span>Wind direction</span><b aria-hidden="true">{windEnabled ? 'On' : 'Off'}</b></button>}
-          {panel === 'guide' && <ScoreGuide manifest={manifest} />}
+      <button ref={trigger} type="button" className="toolbarTrigger lensTrigger" aria-haspopup="dialog" aria-expanded={open} aria-label={`Choose map lens and explain scores. Active: ${active}`} onClick={() => onPanelChange(open ? null : 'lenses')}>
+        <strong><span className="wideControlLabel">{active}</span><span className="compactControlLabel">{lens === 'overall' ? 'Overall' : active}</span></strong><MenuChevron />
+      </button>
+      {open && (
+        <div className="controlSurface legendPopover" role="dialog" aria-label="Map lens and score guide">
+          <div className="layerMenu" role="group" aria-label="Map lens">
+            {LENSES.map((item) => <button key={item.id} type="button" aria-pressed={lens === item.id} onClick={() => { onChange(item.id); onPanelChange(null); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.label}</span><MenuCheck selected={lens === item.id} /></button>)}
+          </div>
+          {view === 'daily' && <button type="button" className="windToggle" role="switch" aria-checked={windEnabled} onClick={() => onWindEnabledChange(!windEnabled)}><span>Wind direction</span><b aria-hidden="true">{windEnabled ? 'On' : 'Off'}</b></button>}
+          <ScoreGuide manifest={manifest} />
         </div>
       )}
       {windEnabled && view === 'daily' && <WindTimeControl frames={frames} index={windFrameIndex} status={windStatus} onChange={onWindFrameChange} />}
@@ -329,10 +363,18 @@ export function LayerLegend({ manifest, period, view, lens, panel, windEnabled, 
   );
 }
 
+function MenuChevron() {
+  return <svg className="menuChevron" viewBox="0 0 12 8" aria-hidden="true"><path d="m1.5 1.5 4.5 4 4.5-4" /></svg>;
+}
+
+function MenuCheck({ selected }: { selected: boolean }) {
+  return <span className="menuCheck" aria-hidden="true">{selected ? '✓' : ''}</span>;
+}
+
 function WindTimeControl({ frames, index, status, onChange }: { frames: NonNullable<Period['windFrames']>; index: number; status: WindState['status']; onChange: (index: number) => void }) {
   const frame = frames[index];
   return (
-    <div className="windTime" aria-label="Wind direction time">
+    <div className="controlSurface windTime" aria-label="Wind direction time">
       <button type="button" aria-label="Earlier wind direction" disabled={index <= 0} onClick={() => onChange(index - 1)}>‹</button>
       <span>{status === 'error' ? 'Direction unavailable' : frame ? timeLabel(frame.validAt) : 'No direction data'}{status === 'loading' && <i aria-label="Loading">…</i>}</span>
       <button type="button" aria-label="Later wind direction" disabled={index >= frames.length - 1} onClick={() => onChange(index + 1)}>›</button>
@@ -342,21 +384,28 @@ function WindTimeControl({ frames, index, status, onChange }: { frames: NonNulla
 
 function ScoreGuide({ manifest }: { manifest: WeatherManifest }) {
   return (
-    <section className="scoreGuide">
-      <h2>How scores work</h2>
+    <details className="scoreGuide">
+      <summary>How scores work</summary>
       <div className="scoreGuideBody">
-        <p>Overall starts with four scores. Severe heat, cold, rain or wind can cap it.</p>
-        <p><strong>Nice</strong> · {PROFILE_WEIGHT_NOTES.nice}</p>
+        <p>Overall score starts with four scores. Severe heat, cold, rain or wind can cap it.</p>
+        <p><strong>Warm &amp; sunny</strong> · {PROFILE_WEIGHT_NOTES.nice}</p>
         <p><strong>Cycling</strong> · {PROFILE_WEIGHT_NOTES.cycling}</p>
         <p>{DRY_SCORE_NOTE}</p>
         <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
         <p>{forecastDetailNote(manifest)}{manifest.climate ? ` Typical year uses ${manifest.climate.period} monthly averages, not the chance of a nice day.` : ''}</p>
       </div>
-    </section>
+    </details>
   );
 }
 
-function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, onFound }: { viewport: PlaceSearchViewport; manifest?: WeatherManifest; profile: Profile; view: View; clearToken: number; onEngage: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
+export function ScoreRamp({ manifest }: { manifest: WeatherManifest }) {
+  const gradient = `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(', ')})`;
+  return <div className="scoreRamp" aria-label="Score colours run from Awful to Excellent">
+    <b>Awful</b><i style={{ background: gradient }} aria-hidden="true" /><b>Excellent</b>
+  </div>;
+}
+
+function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, onLocate, onFound }: { viewport: PlaceSearchViewport; manifest?: WeatherManifest; profile: Profile; view: View; clearToken: number; onEngage: () => void; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
   const search = useMemo(() => new EuropePlaceSearch(), []);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
@@ -372,6 +421,7 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
   const blurTimer = useRef<number | undefined>(undefined);
   const restoringFocusAfterDismiss = useRef(false);
   const showBest = focused && !bestDismissed && view === 'range' && query.trim() === '';
+  const bestAvailability = bestWeatherAvailability(manifest);
   const open = focused && (showBest || results.length > 0 || Boolean(status));
   const prompt = placeSearchPrompt(view);
 
@@ -405,7 +455,12 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
   }, [query, search]);
 
   useEffect(() => {
-    if (!showBest || !manifest) return;
+    if (!showBest) return;
+    if (!manifest || !bestAvailability.allowed) {
+      setBestWeather([]);
+      setBestStatus(bestAvailability.message);
+      return;
+    }
     const controller = new AbortController();
     setBestWeather([]);
     setBestStatus('Finding the best weather…');
@@ -417,7 +472,7 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
         setBestWeather([]); setBestStatus('Best weather is unavailable');
       });
     return () => controller.abort();
-  }, [manifest, profile, showBest]);
+  }, [bestAvailability.allowed, bestAvailability.message, manifest, profile, showBest]);
 
   const choose = (result: PlaceSearchResult) => {
     const label = [result.name, result.admin1, result.country].filter((item, index, all) => item && all.indexOf(item) === index).join(', ');
@@ -450,7 +505,7 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
   };
 
   return (
-    <form className="placeSearch" role="search" onSubmit={submit} onKeyDown={(event) => {
+    <form className="controlSurface placeSearch" role="search" onSubmit={submit} onKeyDown={(event) => {
       if (event.key !== 'Escape' || !open) return;
       event.preventDefault();
       event.stopPropagation();
@@ -481,9 +536,11 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
         setBestDismissed(false);
         setQuery(event.target.value);
       }} aria-expanded={open} aria-controls="place-results" />
-      {query && <button className="clearSearch" type="button" aria-label="Clear search" onClick={() => { setBestDismissed(false); setQuery(''); setResults([]); setStatus(''); input.current?.focus(); }}>×</button>}
+      {query
+        ? <button className="iconButton searchAction clearSearch" type="button" aria-label="Clear search" onClick={() => { setBestDismissed(false); setQuery(''); setResults([]); setStatus(''); input.current?.focus(); }}>×</button>
+        : <button className="iconButton searchAction searchLocation" type="button" aria-label="Use my location" onClick={onLocate}><LocationIcon /></button>}
       {open && (
-        <div id="place-results" className="searchPopover">
+        <div id="place-results" className="controlSurface searchPopover">
           {showBest ? <>
             <div className="bestWeatherHeading"><strong>Best weather</strong><span>Next 14 days</span></div>
             {bestWeather.length > 0 ? <ul aria-label="Best weather over the next 14 days">{bestWeather.map((result) => <li key={result.geonameId}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseBest(result)}><span className="bestPlace"><strong>{result.name}</strong><small>{[result.admin1, result.country].filter(Boolean).join(', ')}</small></span><span className="bestScore"><strong>{result.score}</strong><small>{result.niceDays} nice {result.niceDays === 1 ? 'day' : 'days'}</small></span></button></li>)}</ul> : <p role="status">{bestStatus}</p>}
@@ -503,12 +560,11 @@ function PointPanel({ state, point, legend, lens, focusIntent, onLensChange, esc
   useEffect(() => { if (focusIntent.requested) restoreFocus(panel.current); }, [focusIntent]);
   useEscape(escapeEnabled, onClose);
   return (
-    <aside ref={panel} tabIndex={-1} className={`pointPanel${expanded ? ' expanded' : ''}`} aria-live="polite" aria-label="Weather at selected place">
+    <aside ref={panel} tabIndex={-1} className={`controlSurface pointPanel${expanded ? ' expanded' : ''}`} aria-live="polite" aria-label="Weather at selected place">
       <div className="pointPanelHeader">
         <div className="sheetHandle" aria-hidden="true" />
-        <button ref={close} className="closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
+        <button ref={close} className="iconButton closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
         {state.status === 'ready' && state.data && <PointHeadingFor data={state.data} point={point} />}
-        {state.status === 'ready' && <PointLensControl value={lens} onChange={onLensChange} />}
       </div>
       <div className="pointPanelBody">
         {state.status === 'loading' && <PointSkeleton label={point.label} />}
@@ -517,8 +573,8 @@ function PointPanel({ state, point, legend, lens, focusIntent, onLensChange, esc
           ? <RangeDetails data={state.data} legend={legend} />
           : <DailyDetails data={state.data} legend={legend} lens={lens} onLensChange={onLensChange} />)}
         {state.status === 'idle' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}°</p></div>}
-        {state.status === 'ready' && <button className="sheetExpand" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show all details'}</button>}
       </div>
+      {state.status === 'ready' && <button className="sheetExpand" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show all details'}</button>}
     </aside>
   );
 }
@@ -531,9 +587,11 @@ function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint 
 }
 
 function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'range' }>; legend: WeatherManifest['legend'] }) {
+  const evidence = forecastScoreEvidence(data.days, legend);
   return (
     <>
-      <p className="phonePointSummary">{data.window.niceDays} nice {data.window.niceDays === 1 ? 'day' : 'days'} · {data.window.awfulDays} awful · longest poor spell {data.window.longestPoorRun} {data.window.longestPoorRun === 1 ? 'day' : 'days'}</p>
+      <p className="phonePointSummary">{evidence}</p>
+      <p className="rangeEvidence">{evidence}</p>
       <dl className="rangeFacts">
         <div><dd>{data.window.niceDays}</dd><dt>Nice days</dt></div>
         <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
@@ -575,12 +633,6 @@ function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; 
 
 function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; eyebrow: string; score: number; category: string }) {
   return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{Math.round(score)}</strong><span>{category}</span></div></div>;
-}
-
-export function PointLensControl({ value, onChange }: { value: Lens; onChange: (lens: Lens) => void }) {
-  return <div className="phoneLensControl" role="radiogroup" aria-label="Map lens">
-    {LENSES.map((item) => <button key={item.id} type="button" role="radio" aria-checked={value === item.id} onClick={() => onChange(item.id)}>{item.label}</button>)}
-  </div>;
 }
 
 function ComponentRows({ data, legend, active, onChange }: { data: PointWeather; legend: WeatherManifest['legend']; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
@@ -630,11 +682,35 @@ export function rangeLensAsset(window: WeatherManifest['forecast']['window'], pr
   return window.lenses[lens];
 }
 
-function periodStatus(manifest: WeatherManifest, view: View, period?: Period): string {
-  if (view === 'climate') return `Monthly average · ${manifest.climate?.period ?? ''}`;
+function PeriodStatus({ manifest, view, period }: { manifest: WeatherManifest; view: View; period?: Period }) {
+  const status = periodStatus(manifest, view, period);
+  return <p className="metaLine mapStatus" role="status">
+    <span className={status.stale ? 'statusPrimary isStale' : 'statusPrimary'}>{status.primary}</span>
+    {status.meta && <><span className="statusSeparator" aria-hidden="true">·</span><span className="statusMeta">{status.meta}</span></>}
+  </p>;
+}
+
+export function periodStatus(manifest: WeatherManifest, view: View, period?: Period): { primary: string; meta: string; stale: boolean } {
+  const prefix = manifest.dataStatus === 'sample' ? 'Sample data · ' : '';
+  if (view === 'climate') return { primary: `${prefix}Monthly average`, meta: manifest.climate?.period ?? '', stale: false };
   const status = forecastRunStatus(view === 'daily' && period ? period.sourceRunAt : manifest.forecast.updatedAt, manifest.forecast.staleAfterHours);
-  if (view === 'range') return `${status.label} · ${shortRange(manifest.forecast.window.startDate, manifest.forecast.window.endDate)}`;
-  return `${status.label} · ${period?.kind === 'outlook' ? 'Outlook' : 'Detailed'} · about ${Math.round(period?.resolutionKm ?? 0)} km`;
+  const primary = `${prefix}${status.stale ? 'Forecast out of date' : status.label}`;
+  if (view === 'range') return { primary, meta: forecastRangeMeta(manifest), stale: status.stale };
+  return { primary, meta: `${period?.kind === 'outlook' ? 'Outlook' : 'Detailed'} · about ${Math.round(period?.resolutionKm ?? 0)} km`, stale: status.stale };
+}
+
+export function forecastRangeMeta(manifest: WeatherManifest): string {
+  const groups = new Map<string, { count: number; kind: NonNullable<Period['kind']>; resolutionKm: number }>();
+  for (const day of manifest.forecast.days) {
+    if (!day.kind) continue;
+    const resolutionKm = Math.round(day.resolutionKm);
+    const key = `${day.kind}:${resolutionKm}`;
+    const group = groups.get(key);
+    if (group) group.count += 1;
+    else groups.set(key, { count: 1, kind: day.kind, resolutionKm });
+  }
+  if (!groups.size) return `Forecast detail · about ${Math.round(manifest.forecast.window.resolutionKm)} km`;
+  return Array.from(groups.values()).map(({ count, kind, resolutionKm }) => `${count} ${count === 1 ? 'day' : 'days'} ${kind} at ${resolutionKm} km`).join(' · ');
 }
 
 function comfortContext(data: DailyPoint) {
@@ -683,6 +759,28 @@ export function revealSelectedPeriod(container: Pick<HTMLElement, 'querySelector
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest', inline: 'center' });
 }
+export function revealFocusedPeriod(period: Pick<HTMLElement, 'scrollIntoView'>): void {
+  period.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+}
+export function periodRailHasMore(container: Pick<HTMLElement, 'scrollWidth' | 'clientWidth' | 'scrollLeft'> | null): boolean {
+  return Boolean(container && container.scrollWidth - container.clientWidth - container.scrollLeft > 2);
+}
+export function bestWeatherAvailability(manifest: WeatherManifest | undefined, now = new Date()): { allowed: boolean; message: string } {
+  if (!manifest) return { allowed: false, message: 'Loading the forecast…' };
+  return isStale(manifest.forecast.updatedAt, manifest.forecast.staleAfterHours, now)
+    ? { allowed: false, message: 'The forecast is out of date. Search for a place instead.' }
+    : { allowed: true, message: '' };
+}
+export function forecastScoreEvidence(days: Extract<PointWeather, { kind: 'range' }>['days'], legend: WeatherManifest['legend']): string {
+  const good = new Set(legend.slice(3).map((band) => band.label));
+  const poor = new Set(legend.slice(0, 2).map((band) => band.label));
+  const goodDays = days.filter((day) => good.has(day.category)).length;
+  const poorDays = days.filter((day) => poor.has(day.category)).length;
+  const ordered = days.map((day) => day.score).sort((a, b) => a - b);
+  const middle = Math.floor(ordered.length / 2);
+  const median = ordered.length % 2 ? ordered[middle] : Math.round((ordered[middle - 1] + ordered[middle]) / 2);
+  return `Good or better on ${goodDays} of ${days.length} days · Poor or Awful on ${poorDays} · median score ${median}`;
+}
 export function dayCountLabel(count: number): string { return `${count} ${count === 1 ? 'day' : 'days'}`; }
 export function temperatureRange(minimum: number, maximum: number): string {
   const low = format(minimum, 0);
@@ -690,7 +788,7 @@ export function temperatureRange(minimum: number, maximum: number): string {
   return low === high ? `${low}°` : `${low}–${high}°`;
 }
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
-export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search Europe or see best weather' : 'Search Europe'; }
+export function placeSearchPrompt(_view: View): string { return 'Search Europe'; }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
   if (data.source.basis === 'climate') return { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` };
   const amount = `${format(data.metrics.rainMm, 1)} mm`;
@@ -724,4 +822,4 @@ function optional(value: number | undefined, present: (value: number) => string)
 
 function SunMark() { return <svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="4.5" /><path d="M14 2v5M14 21v5M2 14h5M21 14h5M5.5 5.5 9 9M19 19l3.5 3.5M22.5 5.5 19 9M9 19l-3.5 3.5" /></svg>; }
 function SearchIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></svg>; }
-function LocationIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 7 17-7-3-7 3 7-17Z" /></svg>; }
+function LocationIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>; }

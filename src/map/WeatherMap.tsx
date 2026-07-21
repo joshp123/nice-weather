@@ -165,10 +165,16 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_
       return;
     }
     mapRef.current = map;
+    let resizeFrame = 0;
+    const resizeObserver = new ResizeObserver(() => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => map.resize());
+    });
+    resizeObserver.observe(containerRef.current);
     map.touchZoomRotate.disableRotation();
     map.getCanvas().tabIndex = -1;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     // MapLibre opens compact attribution on creation. Close only that initial
     // disclosure so it cannot obscure search or sample status; the native
     // details control remains available and opens normally when selected.
@@ -226,6 +232,8 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_
     });
     map.getCanvas().addEventListener('webglcontextlost', onFailure, { once: true });
     return () => {
+      resizeObserver.disconnect();
+      window.cancelAnimationFrame(resizeFrame);
       window.clearTimeout(deadline);
       window.clearTimeout(attributionDeadline);
       markerRef.current?.remove();
