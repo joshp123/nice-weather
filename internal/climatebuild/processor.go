@@ -337,6 +337,9 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 	}
 
 	if !sawPresent {
+		if land != nil && result.Stats.LandCells > 0 {
+			return Result{}, fmt.Errorf("%w: land block has no source evidence", ErrIncompleteCell)
+		}
 		result.Stats.SparseOcean = true
 		result.Stats.NoDataCells = result.Stats.LogicalCells
 		return result, nil
@@ -351,6 +354,9 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 		}
 		switch cells[cellIndex].availableDays {
 		case 0:
+			if land != nil {
+				return Result{}, fmt.Errorf("%w: land cell %d,%d has no source evidence", ErrIncompleteCell, cellIndex/result.Width, cellIndex%result.Width)
+			}
 			result.Stats.NoDataCells++
 			continue
 		case expectedDays:
@@ -369,6 +375,9 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 			result.Months[month][cellIndex] = record
 		}
 		result.Stats.CompleteCells++
+	}
+	if land != nil && (result.Stats.CompleteCells != result.Stats.LandCells || result.Stats.NoDataCells != result.Stats.WaterCells) {
+		return Result{}, fmt.Errorf("%w: complete land cells %d/%d and masked water cells %d/%d", ErrIncompleteCell, result.Stats.CompleteCells, result.Stats.LandCells, result.Stats.NoDataCells, result.Stats.WaterCells)
 	}
 	return result, nil
 }

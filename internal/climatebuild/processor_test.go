@@ -242,6 +242,28 @@ func TestBuildLandBlockRequiresExactMaskGeometry(t *testing.T) {
 	}
 }
 
+func TestBuildLandBlockRejectsMissingEvidenceOnLand(t *testing.T) {
+	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
+	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
+	missingCell := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
+		if longitudeOffset == 1 {
+			return 0, false
+		}
+		return completeValue(field, date, latitudeOffset, longitudeOffset)
+	}
+	if _, err := BuildLandBlock(context.Background(), fixtureSource(window, 2, 1, missingCell), coordinate, window, []bool{true, true}); !errors.Is(err, ErrIncompleteCell) || !strings.Contains(err.Error(), "land cell 0,1 has no source evidence") {
+		t.Fatalf("missing land-cell error = %v", err)
+	}
+
+	absentBlock := fixtureSource(window, 1, 1, completeValue)
+	for reference := range absentBlock.blocks {
+		absentBlock.absent[reference] = true
+	}
+	if _, err := BuildLandBlock(context.Background(), absentBlock, coordinate, window, []bool{true}); !errors.Is(err, ErrIncompleteCell) || !strings.Contains(err.Error(), "land block has no source evidence") {
+		t.Fatalf("absent land-block error = %v", err)
+	}
+}
+
 func TestBuildBlockKeepsAllFieldNoDataCellsInvalid(t *testing.T) {
 	window := climate.ReferenceWindow{FirstYear: 2023, LastYear: 2023}
 	value := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
