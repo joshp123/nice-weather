@@ -120,6 +120,26 @@ func TestFetchChunkHandlesSparseAndHostileResponses(t *testing.T) {
 	}
 }
 
+func TestHTTPFailuresExposeBoundedRetryMetadata(t *testing.T) {
+	reference := oneReference(t)
+	client := NewClient()
+	client.transport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusTooManyRequests, nil, http.Header{"Retry-After": {"7"}}), nil
+	})
+	client.root = "https://example.test/store"
+	_, err := client.FetchChunk(context.Background(), "token", reference)
+	if err == nil {
+		t.Fatal("expected status error")
+	}
+	var status interface {
+		HTTPStatusCode() int
+		RetryAfterValue() string
+	}
+	if !errors.As(err, &status) || status.HTTPStatusCode() != http.StatusTooManyRequests || status.RetryAfterValue() != "7" {
+		t.Fatalf("retry metadata = %#v from %v", status, err)
+	}
+}
+
 func TestClientRejectsUnsafeRootKeyAndTokenBeforeRequest(t *testing.T) {
 	calls := 0
 	client := NewClient()

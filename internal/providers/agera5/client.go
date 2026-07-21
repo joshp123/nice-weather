@@ -14,6 +14,18 @@ import (
 
 var ErrChunkNotFound = errors.New("AgERA5 chunk is not present")
 
+type responseError struct {
+	message    string
+	status     int
+	retryAfter string
+	cause      error
+}
+
+func (err responseError) Error() string           { return err.message }
+func (err responseError) Unwrap() error           { return err.cause }
+func (err responseError) HTTPStatusCode() int     { return err.status }
+func (err responseError) RetryAfterValue() string { return err.retryAfter }
+
 type Client struct {
 	root      string
 	transport http.RoundTripper
@@ -124,12 +136,12 @@ func (client *Client) fetch(ctx context.Context, token, key string, maximumBytes
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
 		if key == ".zmetadata" || strings.HasPrefix(key, "time/") || key == "latitude/0" || key == "longitude/0" {
-			return nil, fmt.Errorf("required AgERA5 resource %s returned HTTP 404", key)
+			return nil, responseError{message: fmt.Sprintf("required AgERA5 resource %s returned HTTP 404", key), status: response.StatusCode, retryAfter: response.Header.Get("Retry-After")}
 		}
-		return nil, fmt.Errorf("%w: %s", ErrChunkNotFound, key)
+		return nil, responseError{message: fmt.Sprintf("%s: %s", ErrChunkNotFound, key), status: response.StatusCode, retryAfter: response.Header.Get("Retry-After"), cause: ErrChunkNotFound}
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch AgERA5 %s returned HTTP %d", key, response.StatusCode)
+		return nil, responseError{message: fmt.Sprintf("fetch AgERA5 %s returned HTTP %d", key, response.StatusCode), status: response.StatusCode, retryAfter: response.Header.Get("Retry-After")}
 	}
 	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
 		return nil, fmt.Errorf("fetch AgERA5 %s returned unsupported content encoding %q", key, encoding)
