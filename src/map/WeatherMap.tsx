@@ -4,9 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { WindGrid } from '../data/wind';
 import { telemetry } from '../telemetry';
 import { recordFailure } from './failureWindow';
+import { ScalarTileLayer, type ScalarPaletteColour, type ScalarTileID } from './scalarTileLayer';
 import { baseOverlayBefore, scoreOverlayBefore, windFeatures, windLayerLayout } from './windLayer';
 
 const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
+const EUROPE_MAX_BOUNDS: [[number, number], [number, number]] = [[-36, 20], [58, 77]];
+const SCALAR_LAYER_ID = 'weather-score-scalar';
 
 export type MapPoint = { lat: number; lon: number; label?: string };
 export type OverlayState =
@@ -15,8 +18,20 @@ export type OverlayState =
   | { status: 'error'; assetUrl: string; reason: 'stale-release' | 'load-failed' | 'timeout' };
 type MapCommand = { type: 'select' | 'left' | 'right' | 'up' | 'down' | 'zoom-in' | 'zoom-out'; id: number };
 
+export type ScalarOverlay = Readonly<{
+  key: string;
+  minSourceZoom: number;
+  maxSourceZoom: number;
+  palette: readonly ScalarPaletteColour[];
+  urlForTile: (tile: ScalarTileID) => string;
+  sha256ForTile: (tile: ScalarTileID) => string;
+  tileAvailable: (tile: ScalarTileID) => boolean;
+}>;
+
 type Props = {
   overlayUrl?: string;
+  scalarOverlay?: ScalarOverlay;
+  worldwide?: boolean;
   windGrid?: WindGrid;
   bounds?: [number, number, number, number];
   selectedPoint?: MapPoint;
@@ -39,6 +54,10 @@ export function WeatherMap(props: Props) {
   useLayoutEffect(() => {
     const generation = ++overlayGeneration.current;
     setVerifiedOverlay(undefined);
+    if (props.scalarOverlay) {
+      onOverlayStateRef.current?.({ status: 'loading', assetUrl: props.scalarOverlay.key });
+      return;
+    }
     if (!props.overlayUrl) {
       onOverlayStateRef.current?.({ status: 'idle' });
       return;
@@ -72,18 +91,19 @@ export function WeatherMap(props: Props) {
       window.clearTimeout(deadline);
       controller.abort();
     };
-  }, [props.overlayUrl]);
+  }, [props.overlayUrl, props.scalarOverlay]);
+  const targetOverlay = props.scalarOverlay?.key ?? props.overlayUrl;
   const rendererProps = {
     ...props,
     overlayUrl: verifiedOverlay,
     targetOverlayUrl: props.overlayUrl,
     onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => {
-      if (assetUrl !== props.overlayUrl) return;
+      if (assetUrl !== targetOverlay) return;
       onOverlayStateRef.current?.({ status: 'ready', assetUrl });
       props.onOverlayReady?.(elapsedMs, renderer, assetUrl);
     },
     onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => {
-      if (assetUrl !== props.overlayUrl) return;
+      if (assetUrl !== targetOverlay) return;
       setVerifiedOverlay(undefined);
       onOverlayStateRef.current?.({ status: 'error', assetUrl, reason });
     },
@@ -118,7 +138,7 @@ type RendererProps = Props & {
   onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => void;
 };
 
-function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
+function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = false, windGrid, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -151,7 +171,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_
         zoom: window.matchMedia('(max-width: 680px)').matches ? 3.15 : 4,
         minZoom: 2.5,
         maxZoom: 9,
-        maxBounds: [[-36, 20], [58, 77]],
+        maxBounds: worldwide ? undefined : EUROPE_MAX_BOUNDS,
         attributionControl: false,
         dragRotate: false,
         pitchWithRotate: false,
@@ -243,6 +263,26 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_
     };
   }, [onFailure]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+    if (worldwide) {
+      map.setMaxBounds(null);
+      map.setMinZoom(0.5);
+      map.jumpTo({ center: [0, 12], zoom: window.matchMedia('(max-width: 680px)').matches ? 0.55 : 1.35 });
+      telemetry('map-coverage-changed', { coverage: 'worldwide' });
+      return;
+    }
+    map.setMinZoom(2.5);
+    map.setMaxBounds(EUROPE_MAX_BOUNDS);
+    const compact = window.matchMedia('(max-width: 680px)').matches;
+    map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {
+      padding: { top: 72, right: compact ? 24 : 42, bottom: compact ? 250 : 190, left: compact ? 24 : 42 },
+      animate: false,
+    });
+    telemetry('map-coverage-changed', { coverage: 'europe' });
+  }, [bounds, styleLoaded, worldwide]);
+
   useLayoutEffect(() => {
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
@@ -294,6 +334,59 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, windGrid, bounds = DEFAULT_
     }
     return cleanup;
   }, [bounds, overlayUrl, styleLoaded, targetOverlayUrl]);
+
+  useLayoutEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+    const activeMap = map;
+    removeScalarOverlay(activeMap);
+    if (!scalarOverlay) return;
+    const startedAt = performance.now();
+    const key = scalarOverlay.key;
+    let reported = false;
+    const deadline = window.setTimeout(() => fail('timeout'), 8_000);
+    const ready = (visible: boolean) => {
+      if (!visible) {
+        fail('load-failed');
+        return;
+      }
+      if (reported) return;
+      reported = true;
+      window.clearTimeout(deadline);
+      onOverlayReadyRef.current?.(Math.round(performance.now() - startedAt), 'maplibre', key);
+    };
+    const layer = new ScalarTileLayer({
+      id: SCALAR_LAYER_ID,
+      minSourceZoom: scalarOverlay.minSourceZoom,
+      maxSourceZoom: scalarOverlay.maxSourceZoom,
+      maxTextures: 64,
+      maxRequests: 6,
+      palette: scalarOverlay.palette,
+      urlForTile: scalarOverlay.urlForTile,
+      sha256ForTile: scalarOverlay.sha256ForTile,
+      tileAvailable: scalarOverlay.tileAvailable,
+      onError: () => fail('load-failed'),
+      onContractError: () => fail('load-failed'),
+      onRenderProof: ready,
+    });
+    function fail(reason: 'load-failed' | 'timeout') {
+      if (reported) return;
+      reported = true;
+      window.clearTimeout(deadline);
+      removeScalarOverlay(activeMap);
+      onOverlayErrorRef.current(key, reason);
+    }
+    try {
+      const layers = activeMap.getStyle().layers ?? [];
+      activeMap.addLayer(layer, scoreOverlayBefore(layers));
+    } catch {
+      fail('load-failed');
+    }
+    return () => {
+      window.clearTimeout(deadline);
+      removeScalarOverlay(activeMap);
+    };
+  }, [scalarOverlay, styleLoaded]);
 
   useLayoutEffect(() => {
     const map = mapRef.current;
@@ -367,6 +460,10 @@ function installOverlay(map: Map, url: string, bounds: [number, number, number, 
 function removeWindDirection(map: Map) {
   if (map.getLayer('weather-wind-direction')) map.removeLayer('weather-wind-direction');
   if (map.getSource('weather-wind-direction')) map.removeSource('weather-wind-direction');
+}
+
+function removeScalarOverlay(map: Map) {
+  if (map.getLayer(SCALAR_LAYER_ID)) map.removeLayer(SCALAR_LAYER_ID);
 }
 
 function windArrowImage(): ImageData {

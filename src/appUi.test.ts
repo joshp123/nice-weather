@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, clearSearchAfterMapSelection, dayCountLabel, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
 
 describe('map controls', () => {
@@ -126,10 +127,10 @@ describe('clear weather copy', () => {
     expect(wetDaytimeDuration(.1)).toBe('about 1 wet hour');
   });
 
-  it('uses an honest Europe search prompt in every view', () => {
+  it('states the real place-search boundary while allowing worldwide coordinates', () => {
     expect(placeSearchPrompt('range')).toBe('Search Europe');
     expect(placeSearchPrompt('daily')).toBe('Search Europe');
-    expect(placeSearchPrompt('climate')).toBe('Search Europe');
+    expect(placeSearchPrompt('climate')).toBe('Search Europe or enter coordinates');
   });
 
   it('keeps source honesty outside the control labels without repeating the range dates', () => {
@@ -148,7 +149,62 @@ describe('clear weather copy', () => {
     expect(periodStatus(manifest, 'range')).toEqual({ primary: 'Forecast out of date', meta: '5 days detailed at 7 km · 9 days outlook at 28 km', stale: true });
     expect(forecastRangeMeta(manifest)).toBe('5 days detailed at 7 km · 9 days outlook at 28 km');
     expect(periodStatus(manifest, 'range').meta).not.toContain('20 Jul');
-    expect(periodStatus(manifest, 'climate')).toEqual({ primary: 'Monthly average', meta: '1981–2010', stale: false });
+    const climate = climateUiModel(climateIndex('preview', ['month-11']));
+    expect(periodStatus(manifest, 'climate', undefined, climate)).toEqual({ primary: 'Climate preview', meta: '2006–2025 · worldwide', stale: false });
+  });
+
+  it('never presents a partial climate index as a typical year', () => {
+    const preview = climateUiModel(climateIndex('preview', ['month-11']));
+    expect(preview).toMatchObject({ available: true, complete: false, label: 'November climate', compactLabel: 'November', referencePeriod: '2006–2025' });
+    expect(preview.periods).toEqual([{ id: 'month-11', shortLabel: 'Nov' }]);
+    expect(climateRailPeriods(preview)).toEqual([]);
+    expect(preview.label).not.toBe('Typical year');
+
+    const complete = climateUiModel(climateIndex('complete', Array.from({ length: 12 }, (_, index) => `month-${String(index + 1).padStart(2, '0')}`)));
+    expect(complete).toMatchObject({ available: true, complete: true, label: 'Typical year', referencePeriod: '2006–2025' });
+    expect(complete.periods).toHaveLength(12);
+    expect(climateRailPeriods(complete)).toHaveLength(12);
+  });
+
+  it('maps each climate lens to one canonical probability field', () => {
+    expect(climateFieldFor('overall', 'nice')).toBe('nice_good');
+    expect(climateFieldFor('overall', 'cycling')).toBe('cycling_good');
+    expect(climateFieldFor('comfort', 'cycling')).toBe('comfort_good');
+    expect(climateFieldFor('dry', 'nice')).toBe('dry_good');
+    expect(climateFieldFor('bright', 'nice')).toBe('bright_good');
+    expect(climateFieldFor('wind', 'nice')).toBe('nice_calm_good');
+    expect(climateFieldFor('wind', 'cycling')).toBe('cycling_calm_good');
+  });
+
+  it('retains only selections that the Europe forecast can explain', () => {
+    const bounds: [number, number, number, number] = [-25, 30, 45, 72];
+    expect(pointWithinBounds({ lon: -4.4, lat: 36.7 }, bounds)).toBe(true);
+    expect(pointWithinBounds({ lon: 103.8, lat: 1.3 }, bounds)).toBe(false);
+  });
+
+  it('uses one continuous 101-value palette and an honest probability legend', () => {
+    const manifest = { palette: [{ score: 0, color: '#343b53' }, { score: 100, color: '#f0b83f' }] } as WeatherManifest;
+    const palette = scalarPalette(manifest);
+    expect(palette).toHaveLength(101);
+    expect(palette[0]).toEqual([52, 59, 83, 255]);
+    expect(palette[50]).toEqual([146, 122, 73, 255]);
+    expect(palette[100]).toEqual([240, 184, 63, 255]);
+    const markup = renderToStaticMarkup(createElement(ScoreRamp, { manifest, probability: true }));
+    expect(markup).toContain('Climate colours run from Rarely nice to Usually nice');
+    expect(markup).toContain('Rarely nice');
+    expect(markup).toContain('Usually nice');
+  });
+
+  it('shows distribution evidence instead of inventing a monthly weather day', () => {
+    const data = climateEvidence();
+    const markup = renderToStaticMarkup(createElement(ClimateDetails, {
+      data, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+    }));
+    expect(climateSummary(data, 'nice')).toBe('68% nice · 9% awful · median 71');
+    for (const copy of ['Nice days', 'Awful days', 'Chance of a poor week', 'Median score', 'Comfort', 'Dry', 'Bright']) expect(markup).toContain(copy);
+    expect(markup).toContain('12.3%');
+    expect(markup).toContain('Recent daily climate · 2006–2025 · worldwide · about 30 km weather detail');
+    expect(markup).not.toMatch(/monthly average|temperature|rain/i);
   });
 
   it('falls back to the declared range detail when no daily split is present', () => {
@@ -240,3 +296,41 @@ const legend: WeatherManifest['legend'] = [
   { label: 'Very good', color: '#e18952', min: 70, max: 84 },
   { label: 'Excellent', color: '#f06031', min: 85, max: 100 },
 ];
+
+function climateIndex(state: ClimateIndex['state'], periods: string[]): ClimateIndex {
+  return {
+    version: 1,
+    indexId: 'climate-index',
+    state,
+    referencePeriod: { firstYear: 2006, lastYear: 2025 },
+    provenance: {
+      sourceEvidenceSha256: 'a'.repeat(64),
+      landMaskSetSha256: 'b'.repeat(64),
+      derivationContract: 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025',
+    },
+    months: periods.map((period) => ({ period, releaseId: `release-${period}`, catalogSha256: 'c'.repeat(64) })),
+  } as ClimateIndex;
+}
+
+function climateEvidence(): ClimatePointEvidence {
+  const profile = (goodOrBetterPercent: number, awfulPercent: number, medianScore: number, calmGoodPercent: number) => ({
+    medianScore,
+    calmGoodPercent,
+    poorWeekPermille: 123,
+    ratingShares: { awful: awfulPercent * 10, poor: 120, mixed: 110, good: 250, veryGood: 230, excellent: 200 },
+    goodOrBetterPermille: goodOrBetterPercent * 10,
+    goodOrBetterPercent,
+    awfulPermille: awfulPercent * 10,
+    awfulPercent,
+  });
+  return {
+    releaseId: 'climate-month-11',
+    period: 'month-11',
+    sourceCell: { latitude: 36.7, longitude: -4.4 },
+    comfortGoodPercent: 77,
+    dryGoodPercent: 82,
+    brightGoodPercent: 74,
+    nice: profile(68, 9, 71, 61),
+    cycling: profile(59, 13, 64, 52),
+  };
+}
