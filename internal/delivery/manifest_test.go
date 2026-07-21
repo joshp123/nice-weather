@@ -152,23 +152,23 @@ func TestManifestRejectsBrokenContracts(t *testing.T) {
 
 func TestCanonicalScoreColoursAreFixed(t *testing.T) {
 	wantLegend := []LegendCategory{
-		{Label: "Awful", Color: "#34364F", Min: 0, Max: 24},
-		{Label: "Poor", Color: "#555977", Min: 25, Max: 39},
-		{Label: "Mixed", Color: "#7D7E94", Min: 40, Max: 54},
-		{Label: "Good", Color: "#B9ACA4", Min: 55, Max: 69},
-		{Label: "Very good", Color: "#E3B37F", Min: 70, Max: 84},
-		{Label: "Excellent", Color: "#F27643", Min: 85, Max: 100},
+		{Label: "Awful", Color: "#22385C", Min: 0, Max: 24},
+		{Label: "Poor", Color: "#3A5C78", Min: 25, Max: 39},
+		{Label: "Mixed", Color: "#5F7E7F", Min: 40, Max: 54},
+		{Label: "Good", Color: "#859D80", Min: 55, Max: 69},
+		{Label: "Very good", Color: "#AFB87C", Min: 70, Max: 84},
+		{Label: "Excellent", Color: "#E4C46B", Min: 85, Max: 100},
 	}
 	if got := CanonicalLegend(); !reflect.DeepEqual(got, wantLegend) {
 		t.Fatalf("canonical legend = %+v; want %+v", got, wantLegend)
 	}
 	wantPalette := []PaletteStop{
-		{Score: 0, Color: "#34364F"}, {Score: 24, Color: "#4E526E"},
-		{Score: 25, Color: "#555977"}, {Score: 39, Color: "#696B86"},
-		{Score: 40, Color: "#7D7E94"}, {Score: 54, Color: "#98939D"},
-		{Score: 55, Color: "#A69DA0"}, {Score: 69, Color: "#CBB198"},
-		{Score: 70, Color: "#D1B49A"}, {Score: 84, Color: "#E3B37F"},
-		{Score: 85, Color: "#E7AA75"}, {Score: 100, Color: "#F27643"},
+		{Score: 0, Color: "#22385C"}, {Score: 24, Color: "#365270"},
+		{Score: 25, Color: "#3A5C78"}, {Score: 39, Color: "#537484"},
+		{Score: 40, Color: "#5F7E7F"}, {Score: 54, Color: "#849082"},
+		{Score: 55, Color: "#859D80"}, {Score: 69, Color: "#9DB07F"},
+		{Score: 70, Color: "#AFB87C"}, {Score: 84, Color: "#D0C375"},
+		{Score: 85, Color: "#E4C46B"}, {Score: 100, Color: "#F6C867"},
 	}
 	if got := CanonicalPalette(); !reflect.DeepEqual(got, wantPalette) {
 		t.Fatalf("canonical palette = %+v; want %+v", got, wantPalette)

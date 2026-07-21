@@ -4,7 +4,7 @@ import type {
 } from './types';
 
 const MANIFEST_VERSION = 8;
-const PRODUCT_CONTRACT = 'nice-weather-v17';
+const PRODUCT_CONTRACT = 'nice-weather-v18';
 const POINT_HEADER_BYTES = 128;
 const MAX_MERCATOR_LATITUDE = 85.0511287798066;
 const MAPLIBRE_TILE_EXTENT = 8192;

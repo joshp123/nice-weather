@@ -8,7 +8,7 @@ describe('weather delivery client', () => {
   it('parses manifest v8 with dense outlook score planes and window lenses', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifestFixture()), { status: 200 })));
     const manifest = await loadManifest();
-    expect(manifest.productContract).toBe('nice-weather-v17');
+    expect(manifest.productContract).toBe('nice-weather-v18');
     expect(manifest.forecast.window).toMatchObject({ id: 'next-14-days', dayCount: 14, startDate: '2026-07-18', endDate: '2026-07-31', resolutionKm: 28 });
     expect(Object.keys(manifest.forecast.window.lenses)).toEqual(['comfort', 'dry', 'bright', 'wind-nice', 'wind-cycling']);
     expect(manifest.forecast.days).toHaveLength(14);
@@ -312,7 +312,7 @@ function manifestFixture(releaseId = 'release-20260718'): Record<string, any> {
     return period(date, { date, kind, ...(kind === 'outlook' ? { displayPoint: pointAsset(`${date}-display`, 'display-score') } : {}), windFrames });
   });
   return {
-    version: 8, releaseId, productContract: 'nice-weather-v17', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
+    version: 8, releaseId, productContract: 'nice-weather-v18', dataStatus: 'sample', generatedAt: '2026-07-18T10:00:00Z',
     region: { id: 'europe', label: 'Europe', bounds: { west: -25, east: 45, south: 30, north: 72 } },
     profiles: [{ id: 'nice', label: 'Nice' }, { id: 'cycling', label: 'Cycling' }],
     legend: POINT_LEGEND,

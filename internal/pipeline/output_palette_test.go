@@ -15,9 +15,9 @@ func TestCanonicalPaletteUsesOKLabInterpolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[int]string{
-		0: "#34364F", 10: "#3F415C", 20: "#4A4D69", 30: "#5C5F7C",
-		40: "#7D7E94", 50: "#908D9A", 60: "#B3A49E", 70: "#D1B49A",
-		80: "#DEB387", 90: "#EC9A65", 100: "#F27643",
+		0: "#22385C", 10: "#2A4364", 20: "#334E6D", 30: "#43657C",
+		40: "#5F7E7F", 50: "#7A8B81", 60: "#8EA480", 70: "#AFB87C",
+		80: "#C7C077", 90: "#EAC56A", 100: "#F6C867",
 	}
 	for score, wantHex := range want {
 		if got := paletteHex(palette[score]); got != wantHex {
