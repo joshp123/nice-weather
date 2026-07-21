@@ -52,6 +52,13 @@ func TestScoreProfilesExactlyMatchesSingleProfilePath(t *testing.T) {
 	}
 	for index, day := range days {
 		nice, cycling := ScoreProfiles(day)
+		checkedNice, checkedCycling, err := ScoreProfilesChecked(day)
+		if err != nil {
+			t.Fatalf("day %d checked profiles: %v", index, err)
+		}
+		if checkedNice != nice || checkedCycling != cycling {
+			t.Fatalf("day %d checked profiles = %+v %+v, want %+v %+v", index, checkedNice, checkedCycling, nice, cycling)
+		}
 		if want := Score(day, ProfileNice); nice != want {
 			t.Fatalf("day %d Nice = %+v, want %+v", index, nice, want)
 		}
@@ -63,6 +70,22 @@ func TestScoreProfilesExactlyMatchesSingleProfilePath(t *testing.T) {
 	invalid.Valid = false
 	if nice, cycling := ScoreProfiles(invalid); nice != (Result{}) || cycling != (Result{}) {
 		t.Fatalf("invalid profiles = %+v %+v", nice, cycling)
+	}
+	if nice, cycling, err := ScoreProfilesChecked(invalid); nice != (Result{}) || cycling != (Result{}) || err == nil || err.Error() != "weather data is marked invalid" {
+		t.Fatalf("checked invalid profiles = %+v %+v, error %v", nice, cycling, err)
+	}
+}
+
+func TestScoreProfilesCheckedAllocatesNothingForValidMetrics(t *testing.T) {
+	day := idealDay()
+	allocations := testing.AllocsPerRun(1000, func() {
+		nice, cycling, err := ScoreProfilesChecked(day)
+		if err != nil || !nice.Available || !cycling.Available {
+			panic("valid fixture became unscoreable")
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("checked profile allocations = %.2f; want 0", allocations)
 	}
 }
 

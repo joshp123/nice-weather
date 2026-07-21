@@ -242,6 +242,25 @@ func TestBuildBlockRejectsPartialAndIncompleteCellDays(t *testing.T) {
 	}
 }
 
+func TestBuildBlockReportsExactUnscoreableCellDayCause(t *testing.T) {
+	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
+	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
+	invalidValue := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
+		if date.Equal(time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)) && latitudeOffset == 11 && longitudeOffset == 9 && field == agera5.Precipitation {
+			return -0.25, true
+		}
+		return completeValue(field, date, latitudeOffset, longitudeOffset)
+	}
+	_, err := BuildBlock(context.Background(), fixtureSource(window, 32, 16, invalidValue), coordinate, window)
+	if err == nil {
+		t.Fatal("expected invalid weather error")
+	}
+	want := "accumulate AgERA5 2024-01-15 cell 11,9: day 2024-01-15 is not scoreable: rain, solar energy and wind cannot be negative: rain=-0.25 mm solar=9 MJ/m² wind=19.8 km/h gust=0 km/h"
+	if err.Error() != want {
+		t.Fatalf("invalid weather error = %q, want %q", err, want)
+	}
+}
+
 func TestBuildBlockRejectsWrongReturnedReference(t *testing.T) {
 	window := climate.ReferenceWindow{FirstYear: 2024, LastYear: 2024}
 	source := fixtureSource(window, 1, 1, completeValue)
@@ -364,8 +383,8 @@ func BenchmarkCompleteCellDayPhases(b *testing.B) {
 	b.Run("score-shared-profiles", func(b *testing.B) {
 		b.ReportAllocs()
 		for index := 0; index < b.N; index++ {
-			nice, cycling := weather.ScoreProfiles(metrics)
-			if !nice.Available || !cycling.Available {
+			nice, cycling, err := weather.ScoreProfilesChecked(metrics)
+			if err != nil || !nice.Available || !cycling.Available {
 				b.Fatal("unscoreable benchmark metrics")
 			}
 		}

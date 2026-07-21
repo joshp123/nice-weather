@@ -69,8 +69,17 @@ func Score(m DailyMetrics, profile Profile) Result {
 // always publish Nice and Cycling together; Score remains the single-profile
 // entry point.
 func ScoreProfiles(m DailyMetrics) (nice, cycling Result) {
-	if m.Validate() != nil {
-		return Result{}, Result{}
+	nice, cycling, _ = ScoreProfilesChecked(m)
+	return nice, cycling
+}
+
+// ScoreProfilesChecked is the diagnostic form of ScoreProfiles. It preserves
+// the same canonical scoring path while returning the validation error that
+// made a provider day unavailable. Bulk builders use it so they do not have
+// to validate once for diagnostics and then again while scoring.
+func ScoreProfilesChecked(m DailyMetrics) (nice, cycling Result, err error) {
+	if err := m.Validate(); err != nil {
+		return Result{}, Result{}, err
 	}
 	shared := sharedComponents(m)
 	niceWind := niceWindScore(m.WindSpeedKPH, m.GustKPH)
@@ -78,7 +87,7 @@ func ScoreProfiles(m DailyMetrics) (nice, cycling Result) {
 	niceComponents.Wind = niceWind
 	cyclingComponents := shared
 	cyclingComponents.Wind = cyclingWindScoreWithNice(m.WindSpeedKPH, m.GustKPH, niceWind)
-	return scoreProfile(m, ProfileNice, niceComponents), scoreProfile(m, ProfileCycling, cyclingComponents)
+	return scoreProfile(m, ProfileNice, niceComponents), scoreProfile(m, ProfileCycling, cyclingComponents), nil
 }
 
 func sharedComponents(m DailyMetrics) Components {

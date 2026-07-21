@@ -120,9 +120,12 @@ func (accumulator *StreamingAccumulator) AddMetrics(date time.Time, latitude, lo
 		accumulator.hasCell = true
 	}
 
-	nice, cycling := weather.ScoreProfiles(metrics)
+	nice, cycling, err := weather.ScoreProfilesChecked(metrics)
+	if err != nil {
+		return accumulator.fail(fmt.Errorf("day %s is not scoreable: %w", formatDate(date), err))
+	}
 	if !nice.Available || !cycling.Available {
-		return accumulator.fail(fmt.Errorf("day %s is not scoreable", formatDate(date)))
+		return accumulator.fail(fmt.Errorf("day %s is not scoreable after successful validation", formatDate(date)))
 	}
 	if nice.Components.Thermal != cycling.Components.Thermal || nice.Components.Dryness != cycling.Components.Dryness || nice.Components.Sun != cycling.Components.Sun {
 		return accumulator.fail(fmt.Errorf("day %s has profile-dependent shared components", formatDate(date)))

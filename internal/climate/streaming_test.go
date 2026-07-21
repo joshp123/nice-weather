@@ -96,7 +96,7 @@ func TestStreamingAccumulatorRejectsGapsDuplicatesOrderCellsAndMetrics(t *testin
 	t.Run("invalid metrics", func(t *testing.T) {
 		stream := newStream(t)
 		invalid := day("2024-01-01", 36.72, -4.42, 24, -1, 0, 15, 20, 12)
-		if err := stream.Add(invalid); err == nil || !strings.Contains(err.Error(), "day 2024-01-01") {
+		if err := stream.Add(invalid); err == nil || !strings.Contains(err.Error(), "day 2024-01-01") || !strings.Contains(err.Error(), "rain, solar energy and wind cannot be negative") {
 			t.Fatalf("invalid-metrics error = %v", err)
 		}
 	})
