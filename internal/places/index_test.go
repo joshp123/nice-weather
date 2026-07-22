@@ -2,6 +2,7 @@ package places
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -149,6 +150,80 @@ func TestGlobalBuildPreservesEuropeanDetailAndCoversTheWorld(t *testing.T) {
 			if item.Key == key && item.LongitudeE5 != -18_000_000 {
 				t.Fatalf("%s longitude = %d, want canonical -180 degrees", query, item.LongitudeE5)
 			}
+		}
+	}
+}
+
+func TestGlobalBuildIndexesWorldwideEnglishNamesWithoutChangingCanonicalLabels(t *testing.T) {
+	t.Parallel()
+	source := makeGlobalSource(t, []globalSourcePlace{
+		{id: 2542997, name: "Marrakesh", country: "MA", latitude: "31.63416", longitude: "-7.99994", code: "PPLA", population: "995871"},
+		{id: 1205733, name: "Chattogram", country: "BD", latitude: "22.3384", longitude: "91.83168", code: "PPLA", population: "3920222"},
+		{id: 104515, name: "Makkah", country: "SA", latitude: "21.42664", longitude: "39.82563", code: "PPLA", population: "1578722"},
+	}, []string{
+		alternateRow(2542997, "en", "Marrakech", false, false, false),
+		alternateRow(2542997, "en", "Red City", false, false, false),
+		alternateRow(2542997, "en", "Old Marrakech", false, false, true),
+		alternateRow(1205733, "en", "Chittagong", true, false, false),
+		alternateRow(104515, "en", "Mecca", true, false, false),
+	})
+	output := filepath.Join(t.TempDir(), "release")
+	refinement := bounds{West: -24, East: 45, South: 29, North: 71.5}
+	config := buildConfig{
+		sourceDir: source, outputDir: output, sourceDate: "2026-07-20",
+		countries: []string{"BD", "MA", "SA"}, coverage: bounds{West: -180, East: 180, South: -90, North: 90},
+		retainAllWithin: &refinement, minimumPopulationOutsideArea: 1_500,
+		limits: limits{minPlaces: 1, maxPlaces: 10, maxShards: 20, maxShardGzip: 256 * 1024},
+	}
+	bundleSHA256, err := validateGlobalSource(context.Background(), source, config.sourceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.sourceBundleSHA256 = bundleSHA256
+	if _, err := build(context.Background(), config); err != nil {
+		t.Fatal(err)
+	}
+	files := readTree(t, filepath.Dir(output), filepath.Base(output))
+	for query, id := range map[string]int64{
+		"Marrakech":  2542997,
+		"Chittagong": 1205733,
+		"Mecca":      104515,
+	} {
+		assertShardResolves(t, files, query, id)
+	}
+	var marrakech shard
+	if err := json.Unmarshal(files["shards/mar.json"], &marrakech); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range marrakech.Records {
+		if item.GeoNameID == 2542997 && item.Name != "Marrakesh" {
+			t.Fatalf("English alias changed canonical result label to %q", item.Name)
+		}
+	}
+	for _, excluded := range []string{"Red City", "Old Marrakech"} {
+		key := normalize(excluded)
+		if payload, exists := files["shards/"+shardName(key)+".json"]; exists && bytes.Contains(payload, []byte(`"`+key+`"`)) {
+			t.Fatalf("non-variant alias %q was indexed", excluded)
+		}
+	}
+}
+
+func TestCloseLatinVariant(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		candidate string
+		canonical string
+		want      bool
+	}{
+		{candidate: "Marrakech", canonical: "Marrakesh", want: true},
+		{candidate: "St Petersburg", canonical: "Saint Petersburg", want: true},
+		{candidate: "Odessa", canonical: "Odesa", want: true},
+		{candidate: "Jo'anna", canonical: "Johannesburg", want: false},
+		{candidate: "Zion", canonical: "Jerusalem", want: false},
+		{candidate: "L.A.", canonical: "Los Angeles", want: false},
+	} {
+		if got := closeLatinVariant(test.candidate, test.canonical); got != test.want {
+			t.Errorf("closeLatinVariant(%q, %q) = %v, want %v", test.candidate, test.canonical, got, test.want)
 		}
 	}
 }
@@ -423,11 +498,12 @@ func makeGlobalSource(t *testing.T, places []globalSourcePlace, alternates []str
 	countryNames := map[string]string{
 		"AU": "Australia", "BR": "Brazil", "GB": "United Kingdom", "NL": "Netherlands",
 		"NZ": "New Zealand", "RU": "Russia", "SG": "Singapore", "US": "United States", "ZA": "South Africa",
-		"ES": "Spain",
+		"BD": "Bangladesh", "ES": "Spain", "MA": "Morocco", "SA": "Saudi Arabia",
 	}
 	continents := map[string]string{
 		"GB": "EU", "NL": "EU", "RU": "EU", "AU": "OC", "BR": "SA",
 		"NZ": "OC", "SG": "AS", "US": "NA", "ZA": "AF", "ES": "EU",
+		"BD": "AS", "MA": "AF", "SA": "AS",
 	}
 	codes := make([]string, 0, len(countryNames))
 	for code := range countryNames {

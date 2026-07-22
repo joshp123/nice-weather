@@ -110,9 +110,13 @@ var globalLimits = limits{
 		{id: 3093133, queries: []string{"Łódź", "Lodz"}},
 		{id: 2514256, queries: []string{"Málaga", "Malaga"}},
 		{id: 2655710, queries: []string{"Biddestone"}},
-		{id: 5128581, queries: []string{"New York City"}},
+		{id: 5128581, queries: []string{"New York City", "New York"}},
 		{id: 3448439, queries: []string{"São Paulo", "Sao Paulo"}},
 		{id: 3369157, queries: []string{"Cape Town"}},
+		{id: 2542997, queries: []string{"Marrakesh", "Marrakech"}},
+		{id: 1205733, queries: []string{"Chattogram", "Chittagong"}},
+		{id: 104515, queries: []string{"Makkah", "Mecca"}},
+		{id: 2028462, queries: []string{"Ulan Bator", "Ulaanbaatar"}},
 		{id: 1880252, queries: []string{"Singapore"}},
 		{id: 2147714, queries: []string{"Sydney"}},
 		{id: 2193733, queries: []string{"Auckland"}},
@@ -158,18 +162,18 @@ type country struct {
 }
 
 type place struct {
-	id             int64
-	name           string
-	asciiName      string
-	country        string
-	admin1         string
-	latitudeE5     int32
-	longitudeE5    int32
-	population     int64
-	featureRank    uint8
-	localName      string
-	localPriority  int
-	preferredAlias string
+	id            int64
+	name          string
+	asciiName     string
+	country       string
+	admin1        string
+	latitudeE5    int32
+	longitudeE5   int32
+	population    int64
+	featureRank   uint8
+	localName     string
+	localPriority int
+	searchAliases []string
 }
 
 type record struct {
@@ -290,7 +294,9 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 		if place.localName != "" && normalize(place.localName) != "" {
 			displayName = place.localName
 		}
-		keys := uniqueKeys(place.name, place.asciiName, place.localName, place.preferredAlias)
+		searchNames := []string{place.name, place.asciiName, place.localName}
+		searchNames = append(searchNames, place.searchAliases...)
+		keys := uniqueKeys(searchNames...)
 		for _, key := range keys {
 			shardName := shardName(key)
 			shards[shardName] = append(shards[shardName], record{
@@ -698,15 +704,15 @@ func retainPlace(config buildConfig, country country, latitude, longitude float6
 }
 
 func readPreferredNames(ctx context.Context, path string, countries map[string]country, refinement *bounds, places map[int64]*place) error {
-	include := func(place *place) bool {
+	includeLocalName := func(place *place) bool {
 		return countries[place.country].continent != "AF" && refinement != nil && contains(*refinement, float64(place.latitudeE5)/100_000, float64(place.longitudeE5)/100_000)
 	}
-	return readPreferredNameRows(path, "alternateNamesV2.txt", ctx, include, func(place *place) []string {
+	return readPreferredNameRows(path, "alternateNamesV2.txt", ctx, includeLocalName, func(place *place) []string {
 		return countries[place.country].languages
 	}, places)
 }
 
-func readPreferredNameRows(path, member string, ctx context.Context, include func(*place) bool, languagesFor func(*place) []string, places map[int64]*place) error {
+func readPreferredNameRows(path, member string, ctx context.Context, includeLocalName func(*place) bool, languagesFor func(*place) []string, places map[int64]*place) error {
 	prioritiesByCountry := make(map[string]map[string]int)
 	return readZipLines(path, member, func(line int, fields []string) error {
 		if line%4096 == 0 {
@@ -726,37 +732,104 @@ func readPreferredNameRows(path, member string, ctx context.Context, include fun
 			return fmt.Errorf("line %d: invalid alternate geoname id %q", line, fields[1])
 		}
 		place, ok := places[id]
-		if !ok || include != nil && !include(place) {
-			return nil
-		}
-		priorities, ok := prioritiesByCountry[place.country]
 		if !ok {
-			languages := languagesFor(place)
-			priorities = make(map[string]int, len(languages))
-			for priority, language := range languages {
-				priorities[language] = priority
-			}
-			prioritiesByCountry[place.country] = priorities
+			return nil
 		}
 		for _, position := range []int{4, 5, 6, 7} {
 			if fields[position] != "" && fields[position] != "1" {
 				return fmt.Errorf("line %d: invalid alternate-name flag %q", line, fields[position])
 			}
 		}
-		if fields[4] != "1" || fields[6] == "1" || fields[7] == "1" {
+		if fields[6] == "1" || fields[7] == "1" {
 			return nil
 		}
 		language := strings.Split(fields[2], "-")[0]
 		name := fields[3]
-		if language == "en" && betterName(name, place.preferredAlias) {
-			place.preferredAlias = name
+		preferred := fields[4] == "1"
+		eligibleLocalName := preferred && (includeLocalName == nil || includeLocalName(place))
+		if language != "en" && !eligibleLocalName {
+			return nil
 		}
-		if priority, ok := priorities[language]; ok && normalize(name) != "" && (priority < place.localPriority || priority == place.localPriority && betterName(name, place.localName)) {
+		if normalize(name) == "" {
+			return nil
+		}
+		if language == "en" && (preferred || closeLatinVariant(name, place.name) || closeLatinVariant(name, place.asciiName)) {
+			place.searchAliases = append(place.searchAliases, name)
+		}
+		if !eligibleLocalName {
+			return nil
+		}
+		priorities, ok := prioritiesByCountry[place.country]
+		if !ok {
+			languages := languagesFor(place)
+			priorities = make(map[string]int, len(languages))
+			for priority, item := range languages {
+				priorities[item] = priority
+			}
+			prioritiesByCountry[place.country] = priorities
+		}
+		if priority, ok := priorities[language]; ok && (priority < place.localPriority || priority == place.localPriority && betterName(name, place.localName)) {
 			place.localPriority = priority
 			place.localName = name
 		}
 		return nil
 	})
+}
+
+func closeLatinVariant(candidate, canonical string) bool {
+	left := strings.ReplaceAll(normalize(candidate), " ", "")
+	right := strings.ReplaceAll(normalize(canonical), " ", "")
+	if len(left) < 4 || len(right) < 4 || left[0] != right[0] {
+		return false
+	}
+	limit := 1
+	longest := max(len(left), len(right))
+	if longest >= 6 {
+		limit = 2
+	}
+	if longest >= 12 {
+		limit = 3
+	}
+	if abs(len(left)-len(right)) > limit {
+		return false
+	}
+	return editDistanceWithin(left, right, limit)
+}
+
+func editDistanceWithin(left, right string, limit int) bool {
+	previous := make([]int, len(right)+1)
+	for index := range previous {
+		previous[index] = index
+	}
+	for leftIndex := 1; leftIndex <= len(left); leftIndex++ {
+		current := make([]int, len(right)+1)
+		current[0] = leftIndex
+		rowMinimum := current[0]
+		for rightIndex := 1; rightIndex <= len(right); rightIndex++ {
+			cost := 0
+			if left[leftIndex-1] != right[rightIndex-1] {
+				cost = 1
+			}
+			current[rightIndex] = min(
+				previous[rightIndex]+1,
+				current[rightIndex-1]+1,
+				previous[rightIndex-1]+cost,
+			)
+			rowMinimum = min(rowMinimum, current[rightIndex])
+		}
+		if rowMinimum > limit {
+			return false
+		}
+		previous = current
+	}
+	return previous[len(right)] <= limit
+}
+
+func abs(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func betterName(candidate, current string) bool {
