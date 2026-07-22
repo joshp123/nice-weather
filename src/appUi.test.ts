@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, topBestWeatherRecommendation, wetDaytimeDuration } from './App';
+import type { BestWeatherPlace } from './data/bestWeather';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
@@ -135,6 +136,20 @@ describe('map controls', () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
   });
 
+  it('reveals the selected month immediately after its rail width changes', () => {
+    const scrollIntoView = vi.fn();
+    const container = {
+      querySelectorAll: () => [{ dataset: { periodId: 'month-12' }, scrollIntoView }],
+    } as unknown as Pick<HTMLElement, 'querySelectorAll'>;
+
+    revealSelectedPeriod(container, 'month-12', 'auto');
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'nearest', inline: 'center' });
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    expect(app).toContain('const observer = new ResizeObserver(() => {');
+    expect(app).toContain("revealSelectedPeriod(container, selected.current, 'auto');");
+  });
+
   it('keeps the score direction visible without opening score theory', () => {
     const markup = renderToStaticMarkup(createElement(ScoreRamp, {
       manifest: { palette: [{ score: 0, color: '#000000' }, { score: 100, color: '#ffffff' }] } as WeatherManifest,
@@ -171,7 +186,7 @@ describe('clear weather copy', () => {
   });
 
   it('states the forecast and climate place-search scopes', () => {
-    expect(placeSearchPrompt('range')).toBe('Search or see best weather');
+    expect(placeSearchPrompt('range')).toBe('Search places');
     expect(placeSearchPrompt('daily')).toBe('Search anywhere');
     expect(placeSearchPrompt('climate')).toBe('Search anywhere');
   });
@@ -350,6 +365,26 @@ describe('clear weather copy', () => {
     } as WeatherManifest;
     expect(bestWeatherAvailability(manifest, new Date('2026-07-20T19:59:00Z'))).toEqual({ allowed: true, message: '' });
     expect(bestWeatherAvailability(manifest, new Date('2026-07-20T20:01:00Z'))).toEqual({ allowed: false, message: 'The forecast is out of date. Search for a place instead.' });
+  });
+
+  it('shows the current top recommendation before interaction and refreshes it by profile', () => {
+    const place = (name: string, score: number): BestWeatherPlace => ({
+      geonameId: score, name, country: 'Spain', countryCode: 'ES', latitude: 36.7, longitude: -4.4, score, niceDays: 10,
+    });
+    const nice = { status: 'ready', profile: 'nice', results: [place('Málaga', 82)] } as const;
+    const cycling = { status: 'ready', profile: 'cycling', results: [place('Girona', 76)] } as const;
+    expect(topBestWeatherRecommendation(nice, 'nice', true, '', false)).toMatchObject({ name: 'Málaga', score: 82 });
+    expect(topBestWeatherRecommendation(cycling, 'cycling', true, '', false)).toMatchObject({ name: 'Girona', score: 76 });
+    expect(topBestWeatherRecommendation(nice, 'cycling', true, '', false)).toBeUndefined();
+    expect(topBestWeatherRecommendation(cycling, 'nice', true, '', false)).toBeUndefined();
+    expect(topBestWeatherRecommendation(nice, 'nice', false, '', false)).toBeUndefined();
+    expect(topBestWeatherRecommendation(nice, 'nice', true, 'Mal', false)).toBeUndefined();
+    expect(topBestWeatherRecommendation(nice, 'nice', true, '', true)).toBeUndefined();
+
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    expect(app).toContain('}, [bestWeatherAllowed, forecast, profile]);');
+    expect(app).toContain('onClick={openBestWeather}');
+    expect(app).toContain('Show all six recommendations.');
   });
 
   it('uses the correct singular day label', () => {

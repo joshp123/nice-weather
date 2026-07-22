@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { readScalarResponse, sha256Hex, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 import type { MapPoint, ScalarOverlay } from './WeatherMap';
+import { canonicalWorldRect, constrainWorldwideCamera, initialWorldwideCamera } from './initialCamera';
 import { WORLD_LAND_ASSET } from './worldLandAsset';
 import styles from './CanvasFallback.module.css';
 
@@ -30,7 +31,8 @@ type LoadedScore = { canvas: HTMLCanvasElement; textureBounds: readonly [number,
 export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selectedPoint, focusPoint, command, onSelect, onViewportChange, onReady, onOverlayReady, onOverlayError }: Props) {
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const viewRef = useRef<ViewState>(worldwide ? { longitude: 0, latitude: 12, zoom: compactZoom() } : fittedView(bounds));
+  const viewRef = useRef<ViewState>(worldwide ? initialWorldwideCamera(window.innerWidth, window.innerHeight) : fittedView(bounds));
+  const cameraOwnedByUser = useRef(false);
   const dragRef = useRef<{ pointer: number; x: number; y: number; moved: boolean } | undefined>(undefined);
   const frameRef = useRef(0);
   const renderGeneration = useRef(0);
@@ -91,6 +93,7 @@ export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selec
       context.fillStyle = '#dce6e9';
       context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       const generation = ++renderGeneration.current;
+      if (worldwide && canvas.clientWidth > 0 && canvas.clientHeight > 0) viewRef.current = constrainWorldwideCamera(viewRef.current, canvas.clientWidth, canvas.clientHeight);
       const view = viewRef.current;
       const viewport = viewportBounds(canvas.clientWidth, canvas.clientHeight, view);
       if (!landImage.current) {
@@ -176,7 +179,13 @@ export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selec
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    const observer = new ResizeObserver(() => { scheduleDraw(); reportViewport(); });
+    const observer = new ResizeObserver(() => {
+      if (worldwide && surface.clientWidth > 0 && surface.clientHeight > 0) viewRef.current = cameraOwnedByUser.current
+        ? constrainWorldwideCamera(viewRef.current, surface.clientWidth, surface.clientHeight)
+        : initialWorldwideCamera(surface.clientWidth, surface.clientHeight);
+      scheduleDraw();
+      reportViewport();
+    });
     observer.observe(surface);
     scheduleDraw();
     reportViewport();
@@ -204,7 +213,9 @@ export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selec
 
   useEffect(() => {
     if (!focusPoint) return;
+    cameraOwnedByUser.current = true;
     viewRef.current = { longitude: focusPoint.lon, latitude: focusPoint.lat, zoom: 7 };
+    constrainView();
     scheduleDraw();
     reportViewport();
   }, [focusPoint, reportViewport, scheduleDraw]);
@@ -213,19 +224,24 @@ export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selec
     if (!command) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    cameraOwnedByUser.current = true;
     const view = viewRef.current;
     if (command.type === 'select') onSelectRef.current({ lat: view.latitude, lon: view.longitude }, { focusDetails: true });
     else if (command.type === 'zoom-in') view.zoom = Math.min(9, view.zoom + 1);
-    else if (command.type === 'zoom-out') view.zoom = Math.max(.5, view.zoom - 1);
+    else if (command.type === 'zoom-out') view.zoom -= 1;
     else panView(view, command.type === 'left' ? 80 : command.type === 'right' ? -80 : 0, command.type === 'up' ? 80 : command.type === 'down' ? -80 : 0);
+    constrainView();
     scheduleDraw(); reportViewport();
   }, [command, reportViewport, scheduleDraw]);
 
   const zoom = (delta: number) => {
-    viewRef.current.zoom = Math.max(.5, Math.min(9, viewRef.current.zoom + delta));
+    cameraOwnedByUser.current = true;
+    viewRef.current.zoom = Math.min(9, viewRef.current.zoom + delta);
+    constrainView();
     scheduleDraw(); reportViewport();
   };
   const pointerDown = (event: ReactPointerEvent) => {
+    cameraOwnedByUser.current = true;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
   };
@@ -236,6 +252,7 @@ export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selec
     if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
     drag.x = event.clientX; drag.y = event.clientY;
     panView(viewRef.current, dx, dy);
+    constrainView();
     scheduleDraw();
   };
   const pointerUp = (event: ReactPointerEvent) => {
@@ -249,6 +266,12 @@ export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selec
     reportViewport();
   };
   const wheel = (event: ReactWheelEvent) => { event.preventDefault(); zoom(event.deltaY < 0 ? .5 : -.5); };
+
+  function constrainView() {
+    const canvas = canvasRef.current;
+    if (!worldwide || !canvas || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return;
+    viewRef.current = constrainWorldwideCamera(viewRef.current, canvas.clientWidth, canvas.clientHeight);
+  }
 
   return <div ref={surfaceRef} className={styles.surface} data-renderer="canvas" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { dragRef.current = undefined; }} onWheel={wheel}>
     <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
@@ -335,17 +358,9 @@ function drawScoreTile(context: CanvasRenderingContext2D, loaded: LoadedScore, t
   context.drawImage(loaded.canvas, 1 + west * 256, 1 + north * 256, (east - west) * 256, (south - north) * 256, position.x, position.y, position.size, position.size);
 }
 
-function drawLand(context: CanvasRenderingContext2D, image: CanvasImageSource, view: ViewState, width: number, height: number) {
-  const worldTiles = 2 ** view.zoom;
-  const worldPixels = worldTiles * MAP_TILE_SIZE;
-  const centre = geoToWorld(view.longitude, view.latitude, view.zoom);
-  const firstWorld = Math.floor((centre.x * MAP_TILE_SIZE - width / 2) / worldPixels);
-  const lastWorld = Math.ceil((centre.x * MAP_TILE_SIZE + width / 2) / worldPixels);
-  const y = height / 2 - centre.y * MAP_TILE_SIZE;
-  for (let world = firstWorld; world <= lastWorld; world += 1) {
-    const x = width / 2 + (world * worldTiles - centre.x) * MAP_TILE_SIZE;
-    context.drawImage(image, x, y, worldPixels, worldPixels);
-  }
+export function drawLand(context: CanvasRenderingContext2D, image: CanvasImageSource, view: ViewState, width: number, height: number) {
+  const world = canonicalWorldRect(view, width, height);
+  context.drawImage(image, world.x, world.y, world.size, world.size);
 }
 
 function tileScreenPosition(tile: TileDraw, view: ViewState, width: number, height: number) {
@@ -356,11 +371,11 @@ function tileScreenPosition(tile: TileDraw, view: ViewState, width: number, heig
   return { x: width / 2 + (tile.worldX - centre.x) * size, y: height / 2 + (tile.id.y - centre.y) * size, size };
 }
 
-function visibleTiles(bounds: GeographicBounds, zoom: number): TileDraw[] {
+export function visibleTiles(bounds: GeographicBounds, zoom: number): TileDraw[] {
   const count = 2 ** zoom;
-  const west = (bounds.west + 180) / 360 * count;
-  let east = (bounds.east + 180) / 360 * count;
-  while (east <= west) east += count;
+  const west = Math.max(0, Math.min(count, (bounds.west + 180) / 360 * count));
+  const east = Math.max(0, Math.min(count, (bounds.east + 180) / 360 * count));
+  if (east <= west) return [];
   const yNorth = geoToWorld(0, bounds.north, zoom).y;
   const ySouth = geoToWorld(0, bounds.south, zoom).y;
   const result: TileDraw[] = [];
@@ -417,7 +432,6 @@ function updateMarker(point: MapPoint | undefined, view: ViewState, width: numbe
 function fittedView(bounds: [number, number, number, number]): ViewState {
   return { longitude: (bounds[0] + bounds[2]) / 2, latitude: (bounds[1] + bounds[3]) / 2, zoom: 3.2 };
 }
-function compactZoom() { return window.matchMedia('(max-width: 680px)').matches ? .55 : 1.35; }
 function modulo(value: number, modulus: number) { return ((value % modulus) + modulus) % modulus; }
 function insertBounded<K, V>(cache: Map<K, V>, key: K, value: V, limit: number) { cache.delete(key); cache.set(key, value); while (cache.size > limit) cache.delete(cache.keys().next().value!); }
 async function settled<T>(promise: Promise<T>): Promise<T | undefined> { try { return await promise; } catch { return undefined; } }

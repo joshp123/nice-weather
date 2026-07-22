@@ -4,11 +4,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { telemetry } from '../telemetry';
 import { activateRendererAttempt, decideRendererFailure, detachRenderer, recordFailure, withCurrentRenderer, type RendererFailureReason } from './failureWindow';
 import { CanvasFallback } from './canvasFallback';
+import { initialWorldwideCamera, minimumWorldwideCoverZoom } from './initialCamera';
 import { scoreOverlayBefore } from './overlayPlacement';
 import { ScalarTileLayer, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 
 const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
 const EUROPE_MAX_BOUNDS: [[number, number], [number, number]] = [[-36, 20], [58, 77]];
+const WORLD_MAX_BOUNDS: [[number, number], [number, number]] = [[-180, -85.0511287798066], [180, 85.0511287798066]];
 const SCALAR_LAYER_ID = 'weather-score-scalar';
 
 export type MapPoint = { lat: number; lon: number; label?: string; allowNearbyClimate?: boolean };
@@ -185,6 +187,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
   const onOverlayReadyRef = useRef(onRendererOverlayReady);
   const onOverlayErrorRef = useRef(onRendererOverlayError);
   const overlayGeneration = useRef(0);
+  const cameraOwnedByUser = useRef(false);
   const [styleLoaded, setStyleLoaded] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   onSelectRef.current = onSelect;
@@ -196,17 +199,23 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    const container = containerRef.current;
     const startedAt = performance.now();
     let map: Map;
+    const initialWidth = container.clientWidth || window.innerWidth;
+    const initialHeight = container.clientHeight || window.innerHeight;
+    const initialCamera = worldwide
+      ? initialWorldwideCamera(initialWidth, initialHeight)
+      : { longitude: 9.5, latitude: 48.5, zoom: window.matchMedia('(max-width: 680px)').matches ? 3.15 : 4 };
     try {
       map = new maplibregl.Map({
-        container: containerRef.current,
+        container,
         style: 'https://tiles.openfreemap.org/styles/positron',
-        center: [9.5, 48.5],
-        zoom: window.matchMedia('(max-width: 680px)').matches ? 3.15 : 4,
-        minZoom: 2.5,
+        center: [initialCamera.longitude, initialCamera.latitude],
+        zoom: initialCamera.zoom,
+        minZoom: worldwide ? minimumWorldwideCoverZoom(initialWidth, initialHeight) : 2.5,
         maxZoom: 9,
-        maxBounds: worldwide ? undefined : EUROPE_MAX_BOUNDS,
+        maxBounds: worldwide ? WORLD_MAX_BOUNDS : EUROPE_MAX_BOUNDS,
         attributionControl: false,
         dragRotate: false,
         pitchWithRotate: false,
@@ -222,11 +231,24 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     }
     mapRef.current = map;
     let resizeFrame = 0;
+    const applyInitialCamera = () => {
+      if (!worldwide || cameraOwnedByUser.current || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+      const camera = initialWorldwideCamera(container.clientWidth, container.clientHeight);
+      map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
+      map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom });
+    };
     const resizeObserver = new ResizeObserver(() => {
       window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => map.resize());
+      resizeFrame = window.requestAnimationFrame(() => {
+        if (worldwide && container.clientWidth > 0 && container.clientHeight > 0) map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
+        map.resize();
+        applyInitialCamera();
+      });
     });
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(container);
+    const claimCamera = () => { cameraOwnedByUser.current = true; };
+    container.addEventListener('pointerdown', claimCamera, { passive: true });
+    container.addEventListener('wheel', claimCamera, { passive: true });
     map.touchZoomRotate.disableRotation();
     map.getCanvas().tabIndex = -1;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -273,10 +295,11 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     map.once('style.load', () => {
       const currentBounds = boundsRef.current;
       const compact = window.matchMedia('(max-width: 680px)').matches;
-      map.fitBounds([[currentBounds[0], currentBounds[1]], [currentBounds[2], currentBounds[3]]], {
-        padding: { top: 72, right: compact ? 24 : 42, bottom: compact ? 250 : 190, left: compact ? 24 : 42 },
-        animate: false,
-      });
+      if (worldwide) applyInitialCamera();
+      else map.fitBounds([[currentBounds[0], currentBounds[1]], [currentBounds[2], currentBounds[3]]], {
+          padding: { top: 72, right: compact ? 24 : 42, bottom: compact ? 250 : 190, left: compact ? 24 : 42 },
+          animate: false,
+        });
       setStyleLoaded(true);
       map.once('render', markReady);
       map.triggerRepaint();
@@ -306,6 +329,8 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     map.getCanvas().addEventListener('webglcontextlost', onContextLost, { once: true });
     return () => {
       resizeObserver.disconnect();
+      container.removeEventListener('pointerdown', claimCamera);
+      container.removeEventListener('wheel', claimCamera);
       window.cancelAnimationFrame(resizeFrame);
       window.clearTimeout(deadline);
       window.clearTimeout(attributionDeadline);
@@ -321,9 +346,9 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
     if (worldwide) {
-      map.setMaxBounds(null);
-      map.setMinZoom(0.5);
-      map.jumpTo({ center: [0, 12], zoom: window.matchMedia('(max-width: 680px)').matches ? 0.55 : 1.35 });
+      map.setMaxBounds(WORLD_MAX_BOUNDS);
+      const container = map.getContainer();
+      if (container.clientWidth > 0 && container.clientHeight > 0) map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
       telemetry('map-coverage-changed', { coverage: 'worldwide' });
       return;
     }
@@ -458,6 +483,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
 
   useEffect(() => {
     if (!focusPoint || !mapRef.current || !styleLoaded) return;
+    cameraOwnedByUser.current = true;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) mapRef.current.jumpTo({ center: [focusPoint.lon, focusPoint.lat], zoom: 7 });
     else mapRef.current.flyTo({ center: [focusPoint.lon, focusPoint.lat], zoom: 7, duration: 650, essential: false });
   }, [focusPoint, styleLoaded]);
@@ -465,6 +491,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleLoaded || !command) return;
+    cameraOwnedByUser.current = true;
     if (command.type === 'select') {
       const center = map.getCenter();
       onSelectRef.current({ lat: center.lat, lon: center.lng }, { focusDetails: true });

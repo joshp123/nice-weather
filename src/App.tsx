@@ -474,6 +474,9 @@ function ProfileControl({ value, panel, onPanelChange, onChange }: { value: Prof
 
 function PeriodRail({ periods, selectedId, label, onChange }: { periods: readonly PeriodChoice[]; selectedId: string; label: string; onChange: (id: string) => void }) {
   const rail = useRef<HTMLDivElement>(null);
+  const selected = useRef(selectedId);
+  const mounted = useRef(false);
+  selected.current = selectedId;
   const [hasMore, setHasMore] = useState(false);
   const [hasBefore, setHasBefore] = useState(false);
   const updateCue = useCallback(() => {
@@ -481,11 +484,23 @@ function PeriodRail({ periods, selectedId, label, onChange }: { periods: readonl
     setHasBefore(Boolean(rail.current && rail.current.scrollLeft > 2));
   }, []);
   useEffect(() => {
-    revealSelectedPeriod(rail.current, selectedId);
+    revealSelectedPeriod(rail.current, selectedId, mounted.current ? 'smooth' : 'auto');
+    mounted.current = true;
     const frame = window.requestAnimationFrame(updateCue);
-    window.addEventListener('resize', updateCue);
-    return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', updateCue); };
+    return () => window.cancelAnimationFrame(frame);
   }, [periods, selectedId, updateCue]);
+  useEffect(() => {
+    const container = rail.current;
+    if (!container) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      revealSelectedPeriod(container, selected.current, 'auto');
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateCue);
+    });
+    observer.observe(container);
+    return () => { observer.disconnect(); window.cancelAnimationFrame(frame); };
+  }, [updateCue]);
   return (
     <div className="periodRailWrap" data-has-more={hasMore || undefined} data-has-before={hasBefore || undefined}>
       <div ref={rail} className="periodRail" role="group" aria-label={label} onScroll={updateCue}>
@@ -573,11 +588,11 @@ export function ScoreRamp({ manifest, probability = false, profile }: { manifest
   </div>;
 }
 
-type BestWeatherState =
+export type BestWeatherState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'unavailable' }
-  | { status: 'ready'; results: BestWeatherPlace[] };
+  | { status: 'ready'; profile: Profile; results: readonly BestWeatherPlace[] };
 
 function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, onLocate, onFound }: { viewport: PlaceSearchViewport; view: View; profile: Profile; forecast?: ForecastSnapshot; clearToken: number; onEngage: () => void; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
   const search = useMemo(() => new WorldwidePlaceSearch(), []);
@@ -594,7 +609,10 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
   const bestWeatherRequestSequence = useRef(0);
   const blurTimer = useRef<number | undefined>(undefined);
   const emptyQuery = query.trim() === '';
-  const showBestWeather = emptyQuery && !bestWeatherDismissed && bestWeather.status !== 'idle';
+  const bestWeatherAllowed = view === 'range' && forecast !== undefined && !isStale(forecast.range.source.runUtc, forecast.range.source.staleAfterHours);
+  const recommendation = topBestWeatherRecommendation(bestWeather, profile, bestWeatherAllowed, query, focused);
+  const currentBestWeather = bestWeather.status !== 'ready' || bestWeather.profile === profile;
+  const showBestWeather = bestWeatherAllowed && currentBestWeather && emptyQuery && !bestWeatherDismissed && bestWeather.status !== 'idle';
   const open = focused && (results.length > 0 || Boolean(status) || showBestWeather);
   const prompt = placeSearchPrompt(view);
   const engageInput = () => {
@@ -613,13 +631,12 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
       setQuery('');
       setResults([]);
       setStatus('');
-      setBestWeather({ status: 'idle' });
       setFocused(false);
     });
   }, [clearToken]);
   useEffect(() => {
     const request = ++bestWeatherRequestSequence.current;
-    if (!focused || !emptyQuery || view !== 'range' || !forecast || isStale(forecast.range.source.runUtc, forecast.range.source.staleAfterHours)) {
+    if (!bestWeatherAllowed || !forecast) {
       setBestWeather({ status: 'idle' });
       return;
     }
@@ -631,16 +648,16 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
       lastDate: forecast.index.lastDate,
       runUtc: forecast.range.source.runUtc,
     }, profile, controller.signal)
-      .then(({ results: recommendations }) => {
+      .then(({ results: recommendations, profile: resultProfile }) => {
         if (controller.signal.aborted || request !== bestWeatherRequestSequence.current) return;
-        setBestWeather({ status: 'ready', results: recommendations });
+        setBestWeather({ status: 'ready', profile: resultProfile, results: recommendations });
         telemetry('best-weather-ready', { profile, count: recommendations.length });
       })
       .catch(() => {
         if (!controller.signal.aborted && request === bestWeatherRequestSequence.current) setBestWeather({ status: 'unavailable' });
       });
     return () => controller.abort();
-  }, [emptyQuery, focused, forecast, profile, view]);
+  }, [bestWeatherAllowed, forecast, profile]);
   useEffect(() => {
     const request = ++requestSequence.current;
     const coordinates = parseCoordinates(query);
@@ -678,7 +695,6 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
     setQuery(result.name);
     setResults([]);
     setStatus('');
-    setBestWeather({ status: 'idle' });
     setFocused(false);
     input.current?.blur();
     onFound({ lat: result.latitude, lon: result.longitude, label, allowNearbyClimate: true }, input.current);
@@ -695,7 +711,15 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
     } else if (results[0]) choose(results[0]);
   };
 
+  const openBestWeather = () => {
+    onEngage();
+    setBestWeatherDismissed(false);
+    setFocused(true);
+    input.current?.focus();
+  };
+
   return (
+    <div className="placeSearchGroup">
     <form className="controlSurface placeSearch" role="search" onSubmit={submit} onKeyDown={(event) => {
       if (event.key !== 'Escape' || !open) return;
       event.preventDefault();
@@ -734,6 +758,10 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
         </div>
       )}
     </form>
+    {recommendation && <button className="controlSurface recommendationTrigger" type="button" aria-label={`Best weather: ${recommendation.name}, score ${recommendation.score}. Show all six recommendations.`} aria-controls="place-results" onClick={openBestWeather}>
+      <span><small>Best</small><strong>{recommendation.name}</strong></span><b>{recommendation.score}</b>
+    </button>}
+    </div>
   );
 }
 
@@ -750,6 +778,10 @@ function BestWeatherResults({ state, onChoose }: { state: BestWeatherState; onCh
       </button>
     </li>)}</ul>
   </>;
+}
+
+export function topBestWeatherRecommendation(state: BestWeatherState, profile: Profile, allowed: boolean, query: string, focused: boolean): BestWeatherPlace | undefined {
+  return allowed && query.trim() === '' && !focused && state.status === 'ready' && state.profile === profile ? state.results[0] : undefined;
 }
 
 function PointPanel({ state, point, legend, lens, profile, climateModel, focusIntent, onLensChange, escapeEnabled, onClose }: { state: PointState; point: MapPoint; legend: WeatherPresentation['legend']; lens: Lens; profile: Profile; climateModel: ClimateUiModel; focusIntent: DetailsFocusIntent; onLensChange: (lens: Lens) => void; escapeEnabled: boolean; onClose: () => void }) {
@@ -1145,11 +1177,11 @@ function railMonthLabel(periods: readonly PeriodChoice[], index: number): string
   const month = monthLabel(current);
   return index === 0 || !previous || monthLabel(previous) !== month ? month : '\u00a0';
 }
-export function revealSelectedPeriod(container: Pick<HTMLElement, 'querySelectorAll'> | null, selectedId: string): void {
+export function revealSelectedPeriod(container: Pick<HTMLElement, 'querySelectorAll'> | null, selectedId: string, behavior: ScrollBehavior = 'smooth'): void {
   if (!container) return;
   const selected = Array.from(container.querySelectorAll<HTMLElement>('[data-period-id]')).find((item) => item.dataset.periodId === selectedId);
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest', inline: 'center' });
+  selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : behavior, block: 'nearest', inline: 'center' });
 }
 export function revealFocusedPeriod(period: Pick<HTMLElement, 'scrollIntoView'>): void {
   period.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
@@ -1180,7 +1212,7 @@ export function temperatureRange(minimum: number, maximum: number): string {
   return low === high ? `${low}°` : `${low}–${high}°`;
 }
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
-export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search or see best weather' : 'Search anywhere'; }
+export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search places' : 'Search anywhere'; }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
   if (data.source.basis === 'climate') return { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` };
   const amount = `${format(data.metrics.rainMm, 1)} mm`;

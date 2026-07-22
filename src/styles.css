@@ -69,20 +69,28 @@ button:disabled { cursor: default; }
 .maplibregl-ctrl-bottom-right details.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-button { width: 26px !important; height: 26px !important; background-position: center !important; background-repeat: no-repeat !important; background-size: 16px 16px !important; }
 .maplibregl-ctrl-bottom-right details.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-inner { display: none !important; }
 
-.masthead { position: absolute; z-index: 12; top: 14px; left: var(--space-4); right: var(--space-4); display: grid; grid-template-columns: max-content minmax(260px, 430px); justify-content: space-between; align-items: start; gap: var(--space-4); pointer-events: none; }
+.masthead { position: absolute; z-index: 12; top: 14px; left: var(--space-4); right: var(--space-4); display: grid; grid-template-columns: max-content minmax(360px, 580px); justify-content: space-between; align-items: start; gap: var(--space-4); pointer-events: none; }
 .masthead > * { pointer-events: auto; }
 .mastheadIdentity { display: grid; justify-items: start; min-width: 0; }
 .wordmark { display: flex; align-items: center; gap: var(--space-2); height: var(--control-height); color: var(--ink); font: 600 22px/1 "Iowan Old Style", Baskerville, Georgia, serif; letter-spacing: -.025em; text-shadow: 0 1px 4px rgba(255, 255, 255, .85); }
 .wordmark svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.7; }
 .wordmark svg circle { fill: #f6c867; stroke: none; }
 
-.placeSearch { position: relative; display: flex; align-items: center; min-width: 0; height: var(--control-height); }
+.placeSearchGroup { display: flex; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+.placeSearch { position: relative; display: flex; flex: 1 1 320px; align-items: center; min-width: 0; height: var(--control-height); }
 .placeSearch > svg { flex: 0 0 auto; width: 20px; height: 20px; margin-left: var(--space-3); fill: none; stroke: var(--muted); stroke-width: 1.7; }
 .placeSearch input { width: 100%; min-width: 0; height: 100%; padding: 0 var(--control-height) 0 var(--space-2); border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 14px; }
 .placeSearch input::placeholder { color: var(--muted); opacity: 1; }
 .searchAction { position: absolute; top: -1px; right: -1px; }
 .clearSearch { font-size: 22px; }
 .searchLocation svg { fill: none; stroke: currentColor; stroke-linejoin: round; stroke-width: 1.7; }
+.recommendationTrigger { display: flex; flex: 0 1 154px; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 112px; height: var(--control-height); padding: 0 var(--space-3); color: var(--ink); text-align: left; cursor: pointer; }
+.recommendationTrigger:hover { background: var(--surface-solid); }
+.recommendationTrigger > span { min-width: 0; }
+.recommendationTrigger small, .recommendationTrigger strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recommendationTrigger small { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .06em; line-height: 1; text-transform: uppercase; }
+.recommendationTrigger strong { margin-top: 2px; font-size: 12px; line-height: 1; }
+.recommendationTrigger > b { flex: 0 0 auto; font-size: 18px; line-height: 1; }
 .searchPopover { position: absolute; top: calc(100% + var(--space-2)); left: 0; right: 0; display: flex; max-height: calc(100dvh - 76px); overflow: hidden; flex-direction: column; }
 .searchPopover ul { min-height: 0; max-height: 380px; margin: 0; padding: var(--space-1); overflow-y: auto; list-style: none; }
 .searchPopover li + li { border-top: 1px solid rgba(32, 36, 45, .1); }
@@ -269,7 +277,8 @@ button:disabled { cursor: default; }
   .masthead { top: var(--space-2); left: var(--space-2); right: var(--space-2); display: flex; gap: 0; flex-direction: column; }
   .mastheadIdentity { order: 2; }
   .wordmark, .sampleFlag { display: none; }
-  .placeSearch { order: 1; width: 100%; }
+  .placeSearchGroup { order: 1; width: 100%; }
+  .placeSearch { width: auto; }
   .mapStatus { max-width: calc(100vw - 24px); margin: var(--space-1) var(--space-1) 0; font-size: 12px; }
   .mapStatus .statusSeparator, .mapStatus .statusMeta { display: none; }
   .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right { display: none !important; }
