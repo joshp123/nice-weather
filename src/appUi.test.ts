@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
 
@@ -127,10 +127,48 @@ describe('clear weather copy', () => {
     expect(wetDaytimeDuration(.1)).toBe('about 1 wet hour');
   });
 
-  it('states the real place-search boundary while allowing worldwide coordinates', () => {
+  it('states the forecast and climate place-search scopes', () => {
     expect(placeSearchPrompt('range')).toBe('Search Europe');
     expect(placeSearchPrompt('daily')).toBe('Search Europe');
-    expect(placeSearchPrompt('climate')).toBe('Search Europe or enter coordinates');
+    expect(placeSearchPrompt('climate')).toBe('Search anywhere');
+  });
+
+  it('clears worldwide results before scheduling a bounded forecast search', () => {
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const clear = app.indexOf("    setResults([]);\n    setStatus('');\n    const timer = window.setTimeout");
+    const boundedSearch = app.indexOf('search.search(query, { viewport: viewportRef.current, bounds: searchBounds })');
+
+    expect(clear).toBeGreaterThan(-1);
+    expect(boundedSearch).toBeGreaterThan(clear);
+  });
+
+  it('accepts coordinate and current-location points only inside active coverage', () => {
+    const europe: [number, number, number, number] = [-24, 29, 45, 71.5];
+    const málaga = { lat: 36.7, lon: -4.4 };
+    const singapore = { lat: 1.3, lon: 103.8 };
+
+    expect(pointWithinActiveSearchCoverage(málaga, 'range', europe)).toBe(true);
+    expect(pointWithinActiveSearchCoverage(singapore, 'daily', europe)).toBe(false);
+    expect(pointWithinActiveSearchCoverage(singapore, 'range')).toBe(false);
+    expect(pointWithinActiveSearchCoverage(singapore, 'climate', europe)).toBe(true);
+    expect(pointWithinActiveSearchCoverage(singapore, 'climate')).toBe(true);
+
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    expect(app.match(/pointWithinActiveSearchCoverage\(/g)).toHaveLength(3);
+    expect(app).toContain('const coverage = activeSearchCoverage.current;');
+    expect(app).toContain("setStatus('Outside the forecast area')");
+    expect(app).toContain("setMapNotice('Current location is outside the forecast area.')");
+  });
+
+  it('clears a forecast-area location notice before switching to Climate', () => {
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const handleView = app.indexOf('const handleView = (next: View) => {');
+    const clearNotice = app.indexOf("setMapNotice('');", handleView);
+    const setView = app.indexOf('setView(next);', handleView);
+
+    expect(handleView).toBeGreaterThan(-1);
+    expect(clearNotice).toBeGreaterThan(handleView);
+    expect(setView).toBeGreaterThan(clearNotice);
   });
 
   it('keeps source honesty outside the control labels without repeating the range dates', () => {

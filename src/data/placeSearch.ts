@@ -22,8 +22,16 @@ export type PlaceSearchViewport = {
   longitude: number;
 };
 
+export type PlaceSearchBounds = {
+  west: number;
+  east: number;
+  south: number;
+  north: number;
+};
+
 export type PlaceSearchOptions = {
   viewport?: PlaceSearchViewport;
+  bounds?: PlaceSearchBounds;
 };
 
 export type PlaceSearchResult = {
@@ -83,7 +91,7 @@ type PlaceRecord = {
  * the revalidated pointer and at most one release-scoped shard; it never loads
  * the complete index or makes weather judgements.
  */
-export class EuropePlaceSearch {
+export class WorldwidePlaceSearch {
   private readonly fetcher: Fetcher;
   private readonly shardLimit: number;
   private manifest?: Manifest;
@@ -122,6 +130,7 @@ export class EuropePlaceSearch {
 
     try {
       const viewport = parseViewport(options.viewport);
+      const bounds = parseSearchBounds(options.bounds);
       const pointer = await this.loadPointer(controller.signal);
       if (!this.isCurrent(request)) return [];
       const manifest = await this.loadManifest(pointer, controller.signal, request);
@@ -129,7 +138,7 @@ export class EuropePlaceSearch {
       const prefix = shardPrefix(parsed.name);
       const records = await this.loadShard(manifest, prefix, controller.signal, request);
       if (!this.isCurrent(request)) return [];
-      return rank(records, parsed.name, manifest, viewport, parsed.country).slice(0, 8);
+      return rank(records, parsed.name, manifest, viewport, parsed.country, bounds).slice(0, 8);
     } catch (error) {
       if (!this.isCurrent(request) || controller.signal.aborted) return [];
       throw error;
@@ -341,11 +350,11 @@ function parseSearchQuery(value: string): { name: string; country?: string } | u
   return { name, country: country || undefined };
 }
 
-function rank(records: readonly PlaceRecord[], query: string, manifest: Manifest, viewport?: PlaceSearchViewport, country?: string): PlaceSearchResult[] {
+function rank(records: readonly PlaceRecord[], query: string, manifest: Manifest, viewport?: PlaceSearchViewport, country?: string, bounds?: PlaceSearchBounds): PlaceSearchResult[] {
   const countryCodes = country === undefined ? undefined : matchingCountryCodes(manifest, country);
   const bestById = new Map<number, PlaceRecord>();
   for (const record of records) {
-    if (!record.key.startsWith(query) || countryCodes && !countryCodes.has(record.countryCode)) continue;
+    if (!record.key.startsWith(query) || countryCodes && !countryCodes.has(record.countryCode) || bounds && !recordInBounds(record, bounds)) continue;
     const previous = bestById.get(record.geonameId);
     if (!previous || compareMatches(record, previous, query, viewport) < 0) bestById.set(record.geonameId, record);
   }
@@ -427,6 +436,22 @@ function parseViewport(value: PlaceSearchViewport | undefined): PlaceSearchViewp
     throw new Error('Invalid place-search viewport.');
   }
   return value;
+}
+
+function parseSearchBounds(value: PlaceSearchBounds | undefined): PlaceSearchBounds | undefined {
+  if (value === undefined) return undefined;
+  if (![value.west, value.east, value.south, value.north].every(Number.isFinite) ||
+      value.west < -180 || value.east > 180 || value.south < -90 || value.north > 90 ||
+      value.west >= value.east || value.south >= value.north) {
+    throw new Error('Invalid place-search bounds.');
+  }
+  return value;
+}
+
+function recordInBounds(record: PlaceRecord, bounds: PlaceSearchBounds): boolean {
+  const latitude = record.latitudeE5 / 100_000;
+  const longitude = record.longitudeE5 / 100_000;
+  return longitude >= bounds.west && longitude <= bounds.east && latitude >= bounds.south && latitude <= bounds.north;
 }
 
 function parseBounds(value: unknown): Bounds {

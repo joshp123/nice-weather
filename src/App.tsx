@@ -3,7 +3,7 @@ import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsF
 import { forecastRunStatus, imageAssetUrl, isStale, loadManifest, loadPoint, StaleReleaseError } from './data/api';
 import { loadBestWeather, type BestWeatherPlace } from './data/bestWeather';
 import { ClimateDataError, WorldwideClimateClient, type ClimateCatalog, type ClimateField, type ClimateIndex, type ClimatePointEvidence } from './data/climateClient';
-import { EuropePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
+import { WorldwidePlaceSearch, type PlaceSearchBounds, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
 import { StaleWindReleaseError, WindFrameLoader, type WindGrid } from './data/wind';
 import type { MapPoint, OverlayState, ScalarOverlay } from './map/WeatherMap';
@@ -61,6 +61,7 @@ export default function App() {
   const staleReloadedRelease = useRef<string | undefined>(undefined);
   const staleReloadedClimateIndex = useRef<string | undefined>(undefined);
   const windLoader = useRef(new WindFrameLoader());
+  const activeSearchCoverage = useRef<{ view: View; bounds?: WeatherManifest['bounds'] }>({ view: 'range' });
   const climateClient = useMemo(() => new WorldwideClimateClient(), []);
 
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function App() {
   }, [climateClient, climateRetry]);
 
   const manifest = loadState.status === 'ready' ? loadState.manifest : undefined;
+  activeSearchCoverage.current = { view, bounds: manifest?.bounds };
   const periods = useMemo(() => periodsFor(manifest, view), [manifest, view]);
   const period = periods.find((item) => item.id === periodId) ?? periods[0];
   const climateModel = climateUiModel(climateState.status === 'ready' ? climateState.index : undefined);
@@ -272,6 +274,7 @@ export default function App() {
 
   const handleView = (next: View) => {
     if (next === 'climate' && !climateModel.available) return;
+    setMapNotice('');
     telemetry('view-changed', { view: next });
     if (view === 'climate' && next !== 'climate' && selectedPoint && manifest && !pointWithinBounds(selectedPoint, manifest.bounds)) {
       setSelectedPoint(undefined);
@@ -329,6 +332,11 @@ export default function App() {
           {manifest && <PeriodStatus manifest={manifest} view={view} period={period} climate={climateModel} />}
         </div>
         <PlaceSearch viewport={viewport} manifest={manifest} profile={profile} view={view} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onLocate={() => locate((point) => {
+          const coverage = activeSearchCoverage.current;
+          if (!pointWithinActiveSearchCoverage(point, coverage.view, coverage.bounds)) {
+            setMapNotice('Current location is outside the forecast area.');
+            return;
+          }
           setMapSelectionToken((value) => value + 1);
           selectPoint({ ...point, label: 'Current location' });
         }, setMapNotice)} onFound={(point, origin) => {
@@ -568,7 +576,7 @@ export function ScoreRamp({ manifest, probability = false }: { manifest: Weather
 }
 
 function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, onLocate, onFound }: { viewport: PlaceSearchViewport; manifest?: WeatherManifest; profile: Profile; view: View; clearToken: number; onEngage: () => void; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
-  const search = useMemo(() => new EuropePlaceSearch(), []);
+  const search = useMemo(() => new WorldwidePlaceSearch(), []);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
   const [query, setQuery] = useState('');
@@ -586,6 +594,10 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
   const bestAvailability = bestWeatherAvailability(manifest);
   const open = focused && (showBest || results.length > 0 || Boolean(status));
   const prompt = placeSearchPrompt(view);
+  const searchBounds = useMemo<PlaceSearchBounds | undefined>(() => {
+    if (view === 'climate' || !manifest) return undefined;
+    return { west: manifest.bounds[0], south: manifest.bounds[1], east: manifest.bounds[2], north: manifest.bounds[3] };
+  }, [manifest, view]);
 
   useEffect(() => () => {
     search.clear();
@@ -602,19 +614,21 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
   useEffect(() => {
     const request = ++requestSequence.current;
     const coordinates = parseCoordinates(query);
-    if (coordinates || query.trim().length < 3) {
+    if (coordinates || query.trim().length < 3 || (view !== 'climate' && !searchBounds)) {
       setResults([]);
       setStatus('');
       return;
     }
+    setResults([]);
+    setStatus('');
     const timer = window.setTimeout(() => {
       setStatus('Searching…');
-      search.search(query, { viewport: viewportRef.current })
+      search.search(query, { viewport: viewportRef.current, bounds: searchBounds })
         .then((matches) => { if (request === requestSequence.current) { setResults(matches); setStatus(matches.length ? '' : 'No matching place'); } })
         .catch((error: Error) => { if (request === requestSequence.current) { console.error('[nice-weather] Place search failed.', error); setResults([]); setStatus('Place search is unavailable'); } });
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [query, search]);
+  }, [query, search, searchBounds, view]);
 
   useEffect(() => {
     if (!showBest) return;
@@ -660,6 +674,11 @@ function PlaceSearch({ viewport, manifest, profile, view, clearToken, onEngage, 
     event.preventDefault();
     const coordinates = parseCoordinates(query);
     if (coordinates) {
+      if (!pointWithinActiveSearchCoverage(coordinates, view, manifest?.bounds)) {
+        setResults([]);
+        setStatus('Outside the forecast area');
+        return;
+      }
       setFocused(false);
       input.current?.blur();
       onFound({ ...coordinates, label: `${coordinates.lat.toFixed(3)}°, ${coordinates.lon.toFixed(3)}°` }, input.current);
@@ -875,6 +894,10 @@ export function pointWithinBounds(point: Pick<MapPoint, 'lat' | 'lon'>, bounds: 
   return point.lon >= bounds[0] && point.lon <= bounds[2] && point.lat >= bounds[1] && point.lat <= bounds[3];
 }
 
+export function pointWithinActiveSearchCoverage(point: Pick<MapPoint, 'lat' | 'lon'>, view: View, bounds?: readonly [number, number, number, number]): boolean {
+  return view === 'climate' || Boolean(bounds && pointWithinBounds(point, bounds));
+}
+
 export function climateFieldFor(lens: Lens, profile: Profile): ClimateField {
   if (lens === 'comfort') return 'comfort_good';
   if (lens === 'dry') return 'dry_good';
@@ -1070,7 +1093,7 @@ export function temperatureRange(minimum: number, maximum: number): string {
   return low === high ? `${low}°` : `${low}–${high}°`;
 }
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
-export function placeSearchPrompt(view: View): string { return view === 'climate' ? 'Search Europe or enter coordinates' : 'Search Europe'; }
+export function placeSearchPrompt(view: View): string { return view === 'climate' ? 'Search anywhere' : 'Search Europe'; }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
   if (data.source.basis === 'climate') return { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` };
   const amount = `${format(data.metrics.rainMm, 1)} mm`;

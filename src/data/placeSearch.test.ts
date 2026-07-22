@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { EuropePlaceSearch, normalizePlaceQuery } from './placeSearch';
+import { WorldwidePlaceSearch, normalizePlaceQuery } from './placeSearch';
 
 describe('nice-latin-fold-v1', () => {
   it.each([
@@ -19,10 +19,10 @@ describe('nice-latin-fold-v1', () => {
   });
 });
 
-describe('EuropePlaceSearch', () => {
+describe('WorldwidePlaceSearch', () => {
   it('rejects short and coordinate queries without loading the index', async () => {
     const fetcher = vi.fn();
-    const client = new EuropePlaceSearch({ fetcher });
+    const client = new WorldwidePlaceSearch({ fetcher });
     await expect(client.search('Łó')).resolves.toEqual([]);
     await expect(client.search('52.37, 4.90')).resolves.toEqual([]);
     expect(fetcher).not.toHaveBeenCalled();
@@ -30,7 +30,7 @@ describe('EuropePlaceSearch', () => {
 
   it('rejects absurd raw input before normalization but keeps a 160-character place key', async () => {
     const fetcher = vi.fn();
-    const client = new EuropePlaceSearch({ fetcher });
+    const client = new WorldwidePlaceSearch({ fetcher });
     await expect(client.search('a'.repeat(513))).resolves.toEqual([]);
     expect(fetcher).not.toHaveBeenCalled();
 
@@ -141,6 +141,34 @@ describe('EuropePlaceSearch', () => {
     expect(nearMalta.map((place) => place.geonameId)).toEqual([20, 10]);
   });
 
+  it('limits forecast searches to explicit product bounds while climate searches stay worldwide', async () => {
+    const shards = { vic: sorted([
+      row('victoria', 'Victoria', 'MT', '01', 36.04, 14.24, 7_000, 3, 10),
+      row('victoria', 'Victoria', 'NZ', '01', -41.29, 174.78, 215_000, 3, 20),
+    ]) };
+    const manifest = manifestFixture(shards);
+    manifest.productBounds = { west: -180, east: 180, south: -90, north: 90 };
+    const harness = await searchHarness(shards, 6, { manifest });
+
+    const worldwide = await harness.client.search('Victoria');
+    const forecast = await harness.client.search('Victoria', {
+      bounds: { west: -24, east: 45, south: 29, north: 71.5 },
+    });
+
+    expect(worldwide.map((place) => place.geonameId)).toEqual([20, 10]);
+    expect(forecast.map((place) => place.geonameId)).toEqual([10]);
+  });
+
+  it('rejects invalid search bounds before loading the index', async () => {
+    const fetcher = vi.fn();
+    const client = new WorldwidePlaceSearch({ fetcher });
+
+    await expect(client.search('Victoria', {
+      bounds: { west: -24, east: Number.NaN, south: 29, north: 71.5 },
+    })).rejects.toThrow('Invalid place-search bounds');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('ranks across the antimeridian by the short wrapped distance', async () => {
     const shards = { dat: sorted([
       row('dateline', 'Dateline West', 'NZ', '01', -20, -179, 2_000, 2, 20),
@@ -177,7 +205,7 @@ describe('EuropePlaceSearch', () => {
       if (path.endsWith('/bet.json')) return jsonResponse(shard(betaRecords));
       throw new Error(`Unexpected ${path}`);
     });
-    const client = new EuropePlaceSearch({ fetcher });
+    const client = new WorldwidePlaceSearch({ fetcher });
 
     const stale = client.search('alpha');
     const current = client.search('beta');
@@ -207,7 +235,7 @@ describe('EuropePlaceSearch', () => {
   });
 
   it('rejects unknown or corrupt pointer, manifest and shard contracts', async () => {
-    const pointerExtra = new EuropePlaceSearch({ fetcher: async () => jsonResponse({ releaseId: RELEASE, manifestSha256: 'a'.repeat(64), extra: true }) });
+    const pointerExtra = new WorldwidePlaceSearch({ fetcher: async () => jsonResponse({ releaseId: RELEASE, manifestSha256: 'a'.repeat(64), extra: true }) });
     await expect(pointerExtra.search('malaga')).rejects.toThrow('pointer fields');
 
     const wrongHash = await searchHarness({ mal: [row('malaga', 'Málaga', 'ES', '51', 36.7, -4.4, 1, 1, 1)] }, 2, { pointerHash: '0'.repeat(64) });
@@ -232,7 +260,7 @@ describe('EuropePlaceSearch', () => {
     const cancel = vi.fn();
     const body = new ReadableStream<Uint8Array>({ cancel });
     const fetcher = vi.fn(async () => new Response(body, { headers: { 'Content-Length': '1025' } }));
-    const client = new EuropePlaceSearch({ fetcher });
+    const client = new WorldwidePlaceSearch({ fetcher });
 
     await expect(client.search('malaga')).rejects.toThrow('pointer is unexpectedly large');
     expect(cancel).toHaveBeenCalledOnce();
@@ -247,7 +275,7 @@ describe('EuropePlaceSearch', () => {
       },
       cancel,
     });
-    const client = new EuropePlaceSearch({ fetcher: async () => new Response(stream) });
+    const client = new WorldwidePlaceSearch({ fetcher: async () => new Response(stream) });
 
     await expect(client.search('malaga')).rejects.toThrow('pointer is unexpectedly large');
     expect(cancel).toHaveBeenCalledOnce();
@@ -266,7 +294,7 @@ describe('EuropePlaceSearch', () => {
       return new Response('', { status: 404 });
     });
 
-    await expect(new EuropePlaceSearch({ fetcher }).search('malaga')).resolves.toEqual([
+    await expect(new WorldwidePlaceSearch({ fetcher }).search('malaga')).resolves.toEqual([
       expect.objectContaining({ geonameId: 1 }),
     ]);
   });
@@ -310,7 +338,7 @@ async function searchHarness(
     return new Response('', { status: 404 });
   });
   return {
-    client: new EuropePlaceSearch({ fetcher, shardCacheSize }),
+    client: new WorldwidePlaceSearch({ fetcher, shardCacheSize }),
     requested: () => requests,
     count: (suffix: string) => requests.filter((path) => path.endsWith(suffix)).length,
   };
