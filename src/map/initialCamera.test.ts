@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { drawLand, viewportBounds, visibleTiles } from './canvasFallback';
 import { canonicalWorldRect, constrainWorldwideCamera, initialWorldwideCamera, minimumWorldwideCoverZoom } from './initialCamera';
@@ -109,6 +110,13 @@ describe('initial worldwide camera', () => {
     const tiles = visibleTiles(viewportBounds(4096, 1440, ultrawide), 3);
     expect(tiles.every(({ worldX }) => worldX >= 0 && worldX < 8)).toBe(true);
     expect(new Set(tiles.map(({ id }) => `${id.z}/${id.x}/${id.y}`)).size).toBe(tiles.length);
+  });
+
+  it('lets MapLibre own its non-repeating world constraint without singular full-world bounds', () => {
+    const source = readFileSync(new URL('./WeatherMap.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('maxBounds: worldwide ? undefined : EUROPE_MAX_BOUNDS');
+    expect(source).toContain('map.setMaxBounds(null);');
+    expect(source).not.toContain('WORLD_MAX_BOUNDS');
   });
 
   it('rejects an unusable map size', () => {

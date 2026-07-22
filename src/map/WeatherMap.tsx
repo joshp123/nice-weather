@@ -10,7 +10,6 @@ import { ScalarTileLayer, type GeographicBounds, type ScalarPaletteColour, type 
 
 const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
 const EUROPE_MAX_BOUNDS: [[number, number], [number, number]] = [[-36, 20], [58, 77]];
-const WORLD_MAX_BOUNDS: [[number, number], [number, number]] = [[-180, -85.0511287798066], [180, 85.0511287798066]];
 const SCALAR_LAYER_ID = 'weather-score-scalar';
 
 export type MapPoint = { lat: number; lon: number; label?: string; allowNearbyClimate?: boolean };
@@ -215,7 +214,10 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
         zoom: initialCamera.zoom,
         minZoom: worldwide ? minimumWorldwideCoverZoom(initialWidth, initialHeight) : 2.5,
         maxZoom: 9,
-        maxBounds: worldwide ? WORLD_MAX_BOUNDS : EUROPE_MAX_BOUNDS,
+        // With world copies disabled, MapLibre already constrains the map to
+        // one canonical world. Exact -180/180 max bounds wrap to the same x
+        // coordinate inside MapLibre and make its initial transform singular.
+        maxBounds: worldwide ? undefined : EUROPE_MAX_BOUNDS,
         attributionControl: false,
         dragRotate: false,
         pitchWithRotate: false,
@@ -346,7 +348,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
     if (worldwide) {
-      map.setMaxBounds(WORLD_MAX_BOUNDS);
+      map.setMaxBounds(null);
       const container = map.getContainer();
       if (container.clientWidth > 0 && container.clientHeight > 0) map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
       telemetry('map-coverage-changed', { coverage: 'worldwide' });
