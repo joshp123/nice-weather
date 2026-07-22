@@ -34,31 +34,35 @@ type Config struct {
 // Summary contains bounded operational evidence and no source keys or
 // authentication material.
 type Summary struct {
-	Source                      string
-	Block                       agera5.BlockCoordinate
-	FirstDate                   time.Time
-	LastDate                    time.Time
-	ExpectedDays                int
-	ProcessedDays               int
-	Width                       int
-	Height                      int
-	CompleteCells               int
-	NoDataCells                 int
-	SparseOcean                 bool
-	TemperatureRepairs          int
-	MaximumTemperatureRepairC   float64
-	DewPointRepairs             int
-	MaximumDewPointRepairC      float64
-	Responses                   int
-	Chunks                      int
-	FetchedBytes                int64
-	CompressedChunkBytes        int64
-	DecodedChunkBytes           int64
-	MaximumCompressedChunkBytes int64
-	ChunkResponseLimitBytes     int64
-	PeakRetainedDecodedBytes    int64
-	SampledPeakHeapBytes        uint64
-	Elapsed                     time.Duration
+	Source                              string
+	Block                               agera5.BlockCoordinate
+	FirstDate                           time.Time
+	LastDate                            time.Time
+	ExpectedDays                        int
+	ProcessedDays                       int
+	Width                               int
+	Height                              int
+	CompleteCells                       int
+	NoDataCells                         int
+	SparseOcean                         bool
+	TemperatureRepairs                  int
+	MaximumTemperatureRepairC           float64
+	ComfortTemperatureRepairs           int
+	ComfortTemperatureBelowRangeRepairs int
+	ComfortTemperatureAboveRangeRepairs int
+	MaximumComfortTemperatureRepairC    float64
+	DewPointRepairs                     int
+	MaximumDewPointRepairC              float64
+	Responses                           int
+	Chunks                              int
+	FetchedBytes                        int64
+	CompressedChunkBytes                int64
+	DecodedChunkBytes                   int64
+	MaximumCompressedChunkBytes         int64
+	ChunkResponseLimitBytes             int64
+	PeakRetainedDecodedBytes            int64
+	SampledPeakHeapBytes                uint64
+	Elapsed                             time.Duration
 }
 
 type execution struct {
@@ -146,7 +150,10 @@ func run(ctx context.Context, config Config, execute executeFunc) (summary Summa
 		Width: runResult.result.Width, Height: runResult.result.Height,
 		CompleteCells: stats.CompleteCells, NoDataCells: stats.NoDataCells, SparseOcean: stats.SparseOcean,
 		TemperatureRepairs: stats.TemperatureRepairs, MaximumTemperatureRepairC: stats.MaximumTemperatureRepair,
-		DewPointRepairs: stats.DewPointRepairs, MaximumDewPointRepairC: stats.MaximumDewPointRepair,
+		ComfortTemperatureRepairs: stats.ComfortTemperatureRepairs, MaximumComfortTemperatureRepairC: stats.MaximumComfortTemperatureRepair,
+		ComfortTemperatureBelowRangeRepairs: stats.ComfortTemperatureBelowRangeRepairs,
+		ComfortTemperatureAboveRangeRepairs: stats.ComfortTemperatureAboveRangeRepairs,
+		DewPointRepairs:                     stats.DewPointRepairs, MaximumDewPointRepairC: stats.MaximumDewPointRepair,
 		Responses: metrics.Responses, Chunks: metrics.Chunks, FetchedBytes: metrics.FetchedBytes,
 		CompressedChunkBytes: metrics.CompressedChunkBytes, DecodedChunkBytes: metrics.DecodedChunkBytes,
 		MaximumCompressedChunkBytes: metrics.MaximumCompressedChunkBytes, ChunkResponseLimitBytes: metrics.ChunkResponseLimitBytes,

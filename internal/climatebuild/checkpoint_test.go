@@ -20,6 +20,8 @@ func TestCheckpointRoundTripIsDeterministicAndMonthMajor(t *testing.T) {
 	checkpoint := checkpointFixture(t, agera5.BlockCoordinate{Latitude: 112, Longitude: 112})
 	checkpoint.TemperatureRepairs = 7
 	checkpoint.MaximumTemperatureRepair = 1.25
+	checkpoint.ComfortTemperatureRepairs = 4
+	checkpoint.MaximumComfortTemperatureRepair = 5.25
 	checkpoint.DewPointRepairs = 3
 	checkpoint.MaximumDewPointRepair = 2.5
 	root := t.TempDir()
@@ -79,7 +81,7 @@ func TestCheckpointRoundTripIsDeterministicAndMonthMajor(t *testing.T) {
 	}
 }
 
-func TestCheckpointLoadsLegacyV1HeaderWithZeroDewPointTelemetry(t *testing.T) {
+func TestCheckpointLoadsLegacyV1HeaderWithZeroExtendedRepairTelemetry(t *testing.T) {
 	checkpoint := checkpointFixture(t, agera5.BlockCoordinate{Latitude: 112, Longitude: 112})
 	checkpoint.TemperatureRepairs = 7
 	checkpoint.MaximumTemperatureRepair = 1.25
@@ -91,15 +93,15 @@ func TestCheckpointLoadsLegacyV1HeaderWithZeroDewPointTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allZero(encoded[216:232]) {
-		t.Fatal("zero dew-point telemetry changed the legacy v1 reserved bytes")
+	if !allZero(encoded[216:248]) {
+		t.Fatal("zero extended repair telemetry changed the legacy v1 reserved bytes")
 	}
 	wantLegacyDigest := sha256.Sum256(encoded[0:184])
 	if got := [sha256.Size]byte(encoded[184:216]); got != wantLegacyDigest {
 		t.Fatal("zero dew-point telemetry changed the legacy v1 header checksum")
 	}
 	loaded, found, err := LoadCheckpoint(path, checkpoint.Identity)
-	if err != nil || !found || loaded.DewPointRepairs != 0 || loaded.MaximumDewPointRepair != 0 {
+	if err != nil || !found || loaded.DewPointRepairs != 0 || loaded.MaximumDewPointRepair != 0 || loaded.ComfortTemperatureRepairs != 0 || loaded.MaximumComfortTemperatureRepair != 0 {
 		t.Fatalf("load legacy v1 checkpoint: found=%t checkpoint=%+v err=%v", found, loaded, err)
 	}
 }
@@ -168,7 +170,7 @@ func TestLoadCheckpointRejectsCorruptTruncatedAndTrailingFiles(t *testing.T) {
 		"repair telemetry": append([]byte(nil), valid...),
 	}
 	tests["corrupt payload"][checkpointHeaderBytes+17] ^= 0x40
-	tests["reserved header"][240] = 1
+	tests["reserved header"][249] = 1
 	binary.LittleEndian.PutUint64(tests["repair telemetry"][40:48], 1)
 	binary.LittleEndian.PutUint64(tests["repair telemetry"][48:56], 0x3ff0000000000000) // 1°C
 	for name, data := range tests {
@@ -275,6 +277,12 @@ func TestCheckpointRejectsInvalidIdentityAndRepairTelemetry(t *testing.T) {
 	badDewTelemetry.MaximumDewPointRepair = 0.1
 	if err := WriteCheckpoint(filepath.Join(root, "dew-telemetry.nwc"), badDewTelemetry); err == nil || !strings.Contains(err.Error(), "nonzero maximum") {
 		t.Fatalf("bad dew-point telemetry error = %v", err)
+	}
+	badComfortTelemetry := checkpoint
+	badComfortTelemetry.ComfortTemperatureRepairs = 0
+	badComfortTelemetry.MaximumComfortTemperatureRepair = 0.1
+	if err := WriteCheckpoint(filepath.Join(root, "comfort-telemetry.nwc"), badComfortTelemetry); err == nil || !strings.Contains(err.Error(), "nonzero maximum") {
+		t.Fatalf("bad daytime-range telemetry error = %v", err)
 	}
 	for _, maximum := range []float64{2, 0.1} {
 		impossible := checkpoint

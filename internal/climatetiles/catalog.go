@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -27,27 +28,28 @@ import (
 )
 
 const (
-	CatalogVersion = 1
+	CatalogVersion = 2
 	MaximumZoom    = 4
 
 	CatalogFilename = "catalog.json"
 
-	SourceDataset                 = "AgERA5"
-	SourceVersion                 = "2.0"
-	SourceKind                    = "topography-corrected-interpolated-era5"
-	SourceLocalDay                = "agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time"
-	SourceLandMask                = "natural-earth-5.1.1-centre-on-land"
-	ProbabilityUnit               = "whole-percent"
-	ProbabilityDenominator        = "complete-real-days-in-reference-month"
-	ProbabilityThreshold          = "canonical-rating-good-or-better"
-	ProbabilityGoodMinimumScore   = 55
-	ProbabilityNoDataValue        = 255
-	DeliveryGridResolutionDegrees = 0.1
-	AtmosphericEvidenceKilometres = 30
-	PrecipitationEvidenceDegrees  = 0.25
-	maximumCatalogBytes           = 32 * 1024 * 1024
-	maximumPointBlocks            = 20_000
-	maximumScalarTiles            = 20_000
+	SourceDataset                        = "AgERA5"
+	SourceVersion                        = "2.0"
+	SourceKind                           = "topography-corrected-interpolated-era5"
+	SourceLocalDay                       = "agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time"
+	SourceLandMask                       = "natural-earth-5.1.1-centre-on-land"
+	ProbabilityUnit                      = "whole-percent"
+	ProbabilityDenominator               = "complete-real-days-in-reference-month"
+	ProbabilityThreshold                 = "canonical-rating-good-or-better"
+	ProbabilityGoodMinimumScore          = 55
+	ProbabilityNoDataValue               = 255
+	DeliveryGridResolutionDegrees        = 0.1
+	AtmosphericEvidenceKilometres        = 30
+	PrecipitationEvidenceDegrees         = 0.25
+	materialDaytimeTemperatureToleranceC = 5
+	maximumCatalogBytes                  = 32 * 1024 * 1024
+	maximumPointBlocks                   = 20_000
+	maximumScalarTiles                   = 20_000
 )
 
 var (
@@ -126,6 +128,13 @@ type Provenance struct {
 	DerivationContract   string `json:"derivationContract"`
 }
 
+// SourceQuality records material AgERA5-only repairs over the complete
+// reference window. It is source provenance, not a selected-month count.
+type SourceQuality struct {
+	ReferenceWindowMaterialDaytimeTemperatureRepairs uint64  `json:"referenceWindowMaterialDaytimeTemperatureRepairs"`
+	MaximumReferenceWindowDaytimeAdjustmentC         float64 `json:"maximumReferenceWindowDaytimeAdjustmentC"`
+}
+
 type PointBlock struct {
 	LatitudeBlock  int    `json:"latitudeBlock"`
 	LongitudeBlock int    `json:"longitudeBlock"`
@@ -156,16 +165,17 @@ type ScalarTile struct {
 // Catalog describes one complete month. Point blocks retain native 0.1
 // degree evidence; scalar tiles carry seven evaluated whole-percent fields.
 type Catalog struct {
-	Version     int                  `json:"version"`
-	ReleaseID   string               `json:"releaseId"`
-	Period      string               `json:"period"`
-	Geometry    Geometry             `json:"geometry"`
-	Source      Source               `json:"source"`
-	Provenance  Provenance           `json:"provenance"`
-	Probability ProbabilitySemantics `json:"probability"`
-	MaximumZoom uint8                `json:"maximumZoom"`
-	PointBlocks []PointBlock         `json:"pointBlocks"`
-	ScalarTiles []ScalarTile         `json:"scalarTiles"`
+	Version       int                  `json:"version"`
+	ReleaseID     string               `json:"releaseId"`
+	Period        string               `json:"period"`
+	Geometry      Geometry             `json:"geometry"`
+	Source        Source               `json:"source"`
+	Provenance    Provenance           `json:"provenance"`
+	SourceQuality SourceQuality        `json:"sourceQuality"`
+	Probability   ProbabilitySemantics `json:"probability"`
+	MaximumZoom   uint8                `json:"maximumZoom"`
+	PointBlocks   []PointBlock         `json:"pointBlocks"`
+	ScalarTiles   []ScalarTile         `json:"scalarTiles"`
 }
 
 // NewCatalog applies the one current worldwide climate contract and sorts the
@@ -408,6 +418,14 @@ func validateCatalog(catalog Catalog) error {
 	}
 	if !validEvidenceSHA256(catalog.Provenance.SourceEvidenceSHA256) || !validEvidenceSHA256(catalog.Provenance.LandMaskSetSHA256) || catalog.Provenance.DerivationContract != climatebuild.CheckpointDerivationContract {
 		return errors.New("climate catalog checkpoint provenance is invalid")
+	}
+	quality := catalog.SourceQuality
+	if quality.ReferenceWindowMaterialDaytimeTemperatureRepairs == 0 {
+		if math.Float64bits(quality.MaximumReferenceWindowDaytimeAdjustmentC) != 0 {
+			return errors.New("climate catalog without material daytime-range repairs has a nonzero maximum adjustment")
+		}
+	} else if math.IsNaN(quality.MaximumReferenceWindowDaytimeAdjustmentC) || math.IsInf(quality.MaximumReferenceWindowDaytimeAdjustmentC, 0) || quality.MaximumReferenceWindowDaytimeAdjustmentC <= materialDaytimeTemperatureToleranceC || quality.MaximumReferenceWindowDaytimeAdjustmentC > 170 {
+		return errors.New("climate catalog material daytime-range repair maximum is invalid")
 	}
 	if len(catalog.PointBlocks) == 0 || len(catalog.PointBlocks) > maximumPointBlocks || len(catalog.ScalarTiles) == 0 || len(catalog.ScalarTiles) > maximumScalarTiles {
 		return errors.New("climate catalog asset counts are invalid")

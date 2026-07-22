@@ -201,6 +201,8 @@ func TestLowerLevelsAverageAvailableChildScalars(t *testing.T) {
 
 func TestCatalogIsDeterministicAndCarriesCheckpointProvenance(t *testing.T) {
 	checkpoint := patchCheckpoint(t)
+	checkpoint.ComfortTemperatureRepairs = 7
+	checkpoint.MaximumComfortTemperatureRepair = 5.237
 	first, _ := publishFixture(t, "deterministic", checkpoint)
 	second, _ := publishFixture(t, "deterministic", checkpoint)
 	firstJSON, _ := json.Marshal(first)
@@ -210,6 +212,9 @@ func TestCatalogIsDeterministicAndCarriesCheckpointProvenance(t *testing.T) {
 	}
 	if first.Provenance.SourceEvidenceSHA256 == "" || first.Provenance.LandMaskSetSHA256 == "" || first.Provenance.DerivationContract != climatebuild.CheckpointDerivationContract {
 		t.Fatalf("catalog provenance = %+v", first.Provenance)
+	}
+	if first.SourceQuality.ReferenceWindowMaterialDaytimeTemperatureRepairs != 7 || first.SourceQuality.MaximumReferenceWindowDaytimeAdjustmentC != 5.237 {
+		t.Fatalf("catalog source quality = %+v", first.SourceQuality)
 	}
 }
 

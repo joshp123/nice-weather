@@ -55,7 +55,9 @@ func TestLiveCanaryReadsBoundedStdinAndReturnsOnlySafeMetrics(t *testing.T) {
 		return execution{
 			result: climatebuild.Result{Width: 32, Height: 16, Stats: climatebuild.Stats{
 				ExpectedDays: 365, ProcessedDays: 365, CompleteCells: 500, NoDataCells: 12,
-				TemperatureRepairs: 17, MaximumTemperatureRepair: 1.25, PeakRetainedDecodedBytes: 38_928_384,
+				TemperatureRepairs: 17, MaximumTemperatureRepair: 1.25,
+				ComfortTemperatureRepairs: 3, ComfortTemperatureBelowRangeRepairs: 2, ComfortTemperatureAboveRangeRepairs: 1,
+				MaximumComfortTemperatureRepair: 5.24, PeakRetainedDecodedBytes: 38_928_384,
 				DewPointRepairs: 2, MaximumDewPointRepair: 2.25,
 			}},
 			metrics: agera5.ClientMetrics{
@@ -67,7 +69,7 @@ func TestLiveCanaryReadsBoundedStdinAndReturnsOnlySafeMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !executed || summary.Source != "agera5" || summary.ExpectedDays != 365 || summary.Chunks != 9 || summary.FetchedBytes != 22_000_000 || summary.ChunkResponseLimitBytes != 4_325_392 || summary.TemperatureRepairs != 17 || summary.MaximumTemperatureRepairC != 1.25 || summary.DewPointRepairs != 2 || summary.MaximumDewPointRepairC != 2.25 {
+	if !executed || summary.Source != "agera5" || summary.ExpectedDays != 365 || summary.Chunks != 9 || summary.FetchedBytes != 22_000_000 || summary.ChunkResponseLimitBytes != 4_325_392 || summary.TemperatureRepairs != 17 || summary.MaximumTemperatureRepairC != 1.25 || summary.ComfortTemperatureRepairs != 3 || summary.ComfortTemperatureBelowRangeRepairs != 2 || summary.ComfortTemperatureAboveRangeRepairs != 1 || summary.MaximumComfortTemperatureRepairC != 5.24 || summary.DewPointRepairs != 2 || summary.MaximumDewPointRepairC != 2.25 {
 		t.Fatalf("live summary = %+v", summary)
 	}
 	if strings.Contains(summary.Source, token) {

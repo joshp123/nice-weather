@@ -54,23 +54,27 @@ type CheckpointIdentity struct {
 // Checkpoint is one complete AgERA5 spatial block. Months are January through
 // December; every plane is row-major in Identity's logical geometry.
 type Checkpoint struct {
-	Identity                 CheckpointIdentity
-	Months                   [checkpointMonthCount][]delivery.ClimateDistributionRecord
-	TemperatureRepairs       int
-	MaximumTemperatureRepair float64
-	DewPointRepairs          int
-	MaximumDewPointRepair    float64
+	Identity                        CheckpointIdentity
+	Months                          [checkpointMonthCount][]delivery.ClimateDistributionRecord
+	TemperatureRepairs              int
+	MaximumTemperatureRepair        float64
+	ComfortTemperatureRepairs       int
+	MaximumComfortTemperatureRepair float64
+	DewPointRepairs                 int
+	MaximumDewPointRepair           float64
 }
 
 type checkpointHeader struct {
-	identity                 CheckpointIdentity
-	recordCount              uint32
-	payloadBytes             uint32
-	temperatureRepairs       uint64
-	maximumTemperatureRepair float64
-	dewPointRepairs          uint64
-	maximumDewPointRepair    float64
-	payloadSHA256            [sha256.Size]byte
+	identity                        CheckpointIdentity
+	recordCount                     uint32
+	payloadBytes                    uint32
+	temperatureRepairs              uint64
+	maximumTemperatureRepair        float64
+	comfortTemperatureRepairs       uint64
+	maximumComfortTemperatureRepair float64
+	dewPointRepairs                 uint64
+	maximumDewPointRepair           float64
+	payloadSHA256                   [sha256.Size]byte
 }
 
 // WriteCheckpoint transactionally replaces path with a complete checkpoint.
@@ -189,11 +193,13 @@ func LoadCheckpoint(path string, expected CheckpointIdentity) (Checkpoint, bool,
 	}
 
 	checkpoint := Checkpoint{
-		Identity:                 header.identity,
-		TemperatureRepairs:       int(header.temperatureRepairs),
-		MaximumTemperatureRepair: header.maximumTemperatureRepair,
-		DewPointRepairs:          int(header.dewPointRepairs),
-		MaximumDewPointRepair:    header.maximumDewPointRepair,
+		Identity:                        header.identity,
+		TemperatureRepairs:              int(header.temperatureRepairs),
+		MaximumTemperatureRepair:        header.maximumTemperatureRepair,
+		ComfortTemperatureRepairs:       int(header.comfortTemperatureRepairs),
+		MaximumComfortTemperatureRepair: header.maximumComfortTemperatureRepair,
+		DewPointRepairs:                 int(header.dewPointRepairs),
+		MaximumDewPointRepair:           header.maximumDewPointRepair,
 	}
 	cells := expected.Width * expected.Height
 	for month := range checkpoint.Months {
@@ -225,6 +231,9 @@ func validateCheckpoint(checkpoint Checkpoint) error {
 	}
 	maximumRepairs := checkpointReferenceDays * cells
 	if err := validateRepairTelemetry("temperature", checkpoint.TemperatureRepairs, checkpoint.MaximumTemperatureRepair, maximumRepairs, 0); err != nil {
+		return err
+	}
+	if err := validateRepairTelemetry("material daytime-range", checkpoint.ComfortTemperatureRepairs, checkpoint.MaximumComfortTemperatureRepair, maximumRepairs, materialComfortTemperatureCrossingC); err != nil {
 		return err
 	}
 	if err := validateRepairTelemetry("dew-point", checkpoint.DewPointRepairs, checkpoint.MaximumDewPointRepair, maximumRepairs, materialDewPointCrossingC); err != nil {
@@ -275,6 +284,8 @@ func encodeCheckpointHeader(checkpoint Checkpoint, payloadSHA256 [sha256.Size]by
 	copy(header[152:184], payloadSHA256[:])
 	binary.LittleEndian.PutUint64(header[216:224], uint64(checkpoint.DewPointRepairs))
 	binary.LittleEndian.PutUint64(header[224:232], math.Float64bits(checkpoint.MaximumDewPointRepair))
+	binary.LittleEndian.PutUint64(header[232:240], uint64(checkpoint.ComfortTemperatureRepairs))
+	binary.LittleEndian.PutUint64(header[240:248], math.Float64bits(checkpoint.MaximumComfortTemperatureRepair))
 	headerSHA256 := checkpointHeaderSHA256(header[:])
 	copy(header[184:216], headerSHA256[:])
 	return header
@@ -308,7 +319,7 @@ func decodeCheckpointHeader(encoded []byte) (checkpointHeader, error) {
 	if firstYear != CheckpointFirstYear || lastYear != CheckpointLastYear {
 		return checkpointHeader{}, fmt.Errorf("%w: reference window is %d-%d; want %d-%d", ErrCheckpointMismatch, firstYear, lastYear, CheckpointFirstYear, CheckpointLastYear)
 	}
-	if !allZero(encoded[36:40]) || !allZero(encoded[232:]) {
+	if !allZero(encoded[36:40]) || !allZero(encoded[248:]) {
 		return checkpointHeader{}, errors.New("climate checkpoint reserved header bytes are nonzero")
 	}
 	var derivation [sha256.Size]byte
@@ -326,12 +337,14 @@ func decodeCheckpointHeader(encoded []byte) (checkpointHeader, error) {
 			Width:  int(binary.LittleEndian.Uint16(encoded[24:26])),
 			Height: int(binary.LittleEndian.Uint16(encoded[26:28])),
 		},
-		recordCount:              binary.LittleEndian.Uint32(encoded[28:32]),
-		payloadBytes:             binary.LittleEndian.Uint32(encoded[32:36]),
-		temperatureRepairs:       binary.LittleEndian.Uint64(encoded[40:48]),
-		maximumTemperatureRepair: math.Float64frombits(binary.LittleEndian.Uint64(encoded[48:56])),
-		dewPointRepairs:          binary.LittleEndian.Uint64(encoded[216:224]),
-		maximumDewPointRepair:    math.Float64frombits(binary.LittleEndian.Uint64(encoded[224:232])),
+		recordCount:                     binary.LittleEndian.Uint32(encoded[28:32]),
+		payloadBytes:                    binary.LittleEndian.Uint32(encoded[32:36]),
+		temperatureRepairs:              binary.LittleEndian.Uint64(encoded[40:48]),
+		maximumTemperatureRepair:        math.Float64frombits(binary.LittleEndian.Uint64(encoded[48:56])),
+		dewPointRepairs:                 binary.LittleEndian.Uint64(encoded[216:224]),
+		maximumDewPointRepair:           math.Float64frombits(binary.LittleEndian.Uint64(encoded[224:232])),
+		comfortTemperatureRepairs:       binary.LittleEndian.Uint64(encoded[232:240]),
+		maximumComfortTemperatureRepair: math.Float64frombits(binary.LittleEndian.Uint64(encoded[240:248])),
 	}
 	copy(header.identity.NaturalEarthMaskSHA256[:], encoded[56:88])
 	copy(header.identity.SourceEvidenceSHA256[:], encoded[120:152])
@@ -355,10 +368,13 @@ func validateCheckpointHeader(header checkpointHeader) error {
 		return fmt.Errorf("climate checkpoint declares %d records and %d payload bytes; want %d and %d", header.recordCount, header.payloadBytes, recordCount, payloadBytes)
 	}
 	maximumRepairs := checkpointReferenceDays * header.identity.Width * header.identity.Height
-	if header.temperatureRepairs > uint64(^uint(0)>>1) || header.dewPointRepairs > uint64(^uint(0)>>1) {
+	if header.temperatureRepairs > uint64(^uint(0)>>1) || header.comfortTemperatureRepairs > uint64(^uint(0)>>1) || header.dewPointRepairs > uint64(^uint(0)>>1) {
 		return errors.New("climate checkpoint repair count exceeds this platform")
 	}
 	if err := validateRepairTelemetry("temperature", int(header.temperatureRepairs), header.maximumTemperatureRepair, maximumRepairs, 0); err != nil {
+		return err
+	}
+	if err := validateRepairTelemetry("material daytime-range", int(header.comfortTemperatureRepairs), header.maximumComfortTemperatureRepair, maximumRepairs, materialComfortTemperatureCrossingC); err != nil {
 		return err
 	}
 	if err := validateRepairTelemetry("dew-point", int(header.dewPointRepairs), header.maximumDewPointRepair, maximumRepairs, materialDewPointCrossingC); err != nil {
@@ -395,15 +411,18 @@ func allZero(values []byte) bool {
 	return true
 }
 
-// Legacy v1 checkpoints hashed the original header through byte 183. The
-// optional dew-point repair extension uses formerly reserved bytes and adds
-// them to the checksum only when present. A legacy all-zero extension remains
-// byte-for-byte valid and decodes with zero dew-point repairs.
+// Legacy v1 checkpoints hashed the original header through byte 183. Optional
+// dew-point and material daytime-range telemetry use formerly reserved bytes
+// and join the checksum only when present. All-zero extensions remain
+// byte-for-byte compatible with completed legacy checkpoints.
 func checkpointHeaderSHA256(encoded []byte) [sha256.Size]byte {
 	digest := sha256.New()
 	_, _ = digest.Write(encoded[0:184])
 	if !allZero(encoded[216:232]) {
 		_, _ = digest.Write(encoded[216:232])
+	}
+	if !allZero(encoded[232:248]) {
+		_, _ = digest.Write(encoded[232:248])
 	}
 	var result [sha256.Size]byte
 	copy(result[:], digest.Sum(nil))

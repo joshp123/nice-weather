@@ -185,6 +185,78 @@ func TestNormalizeOrdersAgERA5CrossedExtremaAtProviderBoundary(t *testing.T) {
 	}
 }
 
+func TestNormalizeClampsExactLiveAgERA5DaytimeMeanBelowDailyRange(t *testing.T) {
+	// Official AgERA5 v2 block 88,90, cell 4,22, 2009-06-19.
+	metrics, repairs := normalize(rawValues{
+		271.15441895, 276.39099121, 282.12991333, 265,
+		0, 0, 10_000_000, .2, 2,
+	})
+	assertNear(t, metrics.ComfortableTempC, 3.24099121)
+	assertNear(t, metrics.MinTempC, 3.24099121)
+	assertNear(t, metrics.MaxTempC, 8.97991333)
+	assertNear(t, repairs.comfortTemperature, 5.23657226)
+	if repairs.comfortTemperatureDirection != -1 {
+		t.Fatalf("repair direction = %d; want below-range", repairs.comfortTemperatureDirection)
+	}
+	if err := metrics.Validate(); err != nil {
+		t.Fatalf("AgERA5 daytime-range repair did not satisfy the strict generic contract: %v", err)
+	}
+}
+
+func TestNormalizeClampsOnlyAgERA5DaytimeMeanBeyondExistingTolerance(t *testing.T) {
+	tests := []struct {
+		name       string
+		comfort    float64
+		want       float64
+		adjustment float64
+		direction  int8
+	}{
+		{name: "below minimum within tolerance", comfort: 289, want: 289, adjustment: 0, direction: 0},
+		{name: "below minimum at tolerance", comfort: 285, want: 285, adjustment: 0, direction: 0},
+		{name: "below minimum beyond tolerance", comfort: 284, want: 290, adjustment: 6, direction: -1},
+		{name: "inside range", comfort: 300, want: 300, adjustment: 0, direction: 0},
+		{name: "above maximum within tolerance", comfort: 307.5, want: 307.5, adjustment: 0, direction: 0},
+		{name: "above maximum at tolerance", comfort: 310, want: 310, adjustment: 0, direction: 0},
+		{name: "above maximum beyond tolerance", comfort: 311, want: 305, adjustment: 6, direction: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metrics, repairs := normalize(rawValues{test.comfort, 290, 305, 285, 0, 0, 10_000_000, .2, 2})
+			assertNear(t, metrics.ComfortableTempC, test.want-273.15)
+			assertNear(t, repairs.comfortTemperature, test.adjustment)
+			if repairs.comfortTemperatureDirection != test.direction {
+				t.Fatalf("repair direction = %d; want %d", repairs.comfortTemperatureDirection, test.direction)
+			}
+			if err := metrics.Validate(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestNormalizeDoesNotLaunderInvalidDaytimeOrRangeTemperature(t *testing.T) {
+	tests := []struct {
+		name   string
+		values rawValues
+	}{
+		{name: "nonfinite daytime", values: rawValues{math.Inf(1), 290, 305, 285, 0, 0, 10_000_000, .2, 2}},
+		{name: "unsupported daytime", values: rawValues{344.15, 290, 305, 285, 0, 0, 10_000_000, .2, 2}},
+		{name: "unsupported minimum", values: rawValues{300, 172, 305, 285, 0, 0, 10_000_000, .2, 2}},
+		{name: "unsupported maximum", values: rawValues{300, 290, 344.15, 285, 0, 0, 10_000_000, .2, 2}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metrics, repairs := normalize(test.values)
+			if repairs.comfortTemperature != 0 {
+				t.Fatalf("invalid source temperature was repaired: %+v", repairs)
+			}
+			if err := metrics.Validate(); err == nil {
+				t.Fatal("strict generic validation accepted invalid source temperature")
+			}
+		})
+	}
+}
+
 func TestNormalizeCapsExactLiveAgERA5DewPointCrossingAtOrderedMaximum(t *testing.T) {
 	// Official AgERA5 v2 block 104,35, cell 9,16, 2009-03-10. The
 	// independently bias-corrected dew point is physically above Tmax.
@@ -260,6 +332,7 @@ func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
 	coordinate := agera5.BlockCoordinate{Latitude: 7, Longitude: 8}
 	crossingDate := time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)
 	dewPointCrossingDate := time.Date(2024, time.February, 15, 0, 0, 0, 0, time.UTC)
+	comfortCrossingDate := time.Date(2024, time.March, 16, 0, 0, 0, 0, time.UTC)
 	value := func(field agera5.Field, date time.Time, latitudeOffset, longitudeOffset int) (float32, bool) {
 		if date.Equal(crossingDate) {
 			switch field {
@@ -272,6 +345,9 @@ func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
 		if date.Equal(dewPointCrossingDate) && field == agera5.MeanDewPoint {
 			return 304, true
 		}
+		if date.Equal(comfortCrossingDate) && field == agera5.DaytimeMeanTemperature {
+			return 284, true
+		}
 		return completeValue(field, date, latitudeOffset, longitudeOffset)
 	}
 	result, err := BuildLandBlock(context.Background(), fixtureSource(window, 1, 1, value), coordinate, window, []bool{true})
@@ -282,6 +358,13 @@ func TestBuildLandBlockReportsAgERA5TemperatureRepairs(t *testing.T) {
 		t.Fatalf("temperature repairs = %d; want 1", result.Stats.TemperatureRepairs)
 	}
 	assertNear(t, result.Stats.MaximumTemperatureRepair, float64(float32(292.2)-float32(292)))
+	if result.Stats.ComfortTemperatureRepairs != 1 {
+		t.Fatalf("material daytime-range repairs = %d; want 1", result.Stats.ComfortTemperatureRepairs)
+	}
+	if result.Stats.ComfortTemperatureBelowRangeRepairs != 1 || result.Stats.ComfortTemperatureAboveRangeRepairs != 0 {
+		t.Fatalf("material daytime-range directions = below %d above %d", result.Stats.ComfortTemperatureBelowRangeRepairs, result.Stats.ComfortTemperatureAboveRangeRepairs)
+	}
+	assertNear(t, result.Stats.MaximumComfortTemperatureRepair, float64(float32(291.15)-float32(284)))
 	if result.Stats.DewPointRepairs != 1 {
 		t.Fatalf("dew-point repairs = %d; want 1", result.Stats.DewPointRepairs)
 	}

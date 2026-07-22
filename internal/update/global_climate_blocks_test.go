@@ -163,6 +163,9 @@ func (block globalClimateTestBlock) Value(timeOffset, latitudeOffset, longitudeO
 	}
 	switch block.reference.field {
 	case agera5.DaytimeMeanTemperature:
+		if block.repair && timeOffset == 2 {
+			return 284, true, nil
+		}
 		return 295, true, nil
 	case agera5.MinimumTemperature:
 		if block.repair && timeOffset == 0 {
@@ -247,14 +250,14 @@ func TestGlobalClimateBlocksBuildOneLandCheckpointAndResumeWithoutFetch(t *testi
 	if built.Built != 1 || built.Reused != 0 || built.WaterSkipped != built.Blocks-1 || len(built.Completed) != 1 || built.Completed[0].Block != block {
 		t.Fatalf("built summary = %+v", built)
 	}
-	if built.TemperatureRepairs != 1 || math.Abs(built.MaximumInversionC-1) > 1e-9 || built.DewPointRepairs != 1 || math.Abs(built.MaximumDewPointCapC-2.5) > 1e-9 || built.CheckpointBytes <= 0 {
+	if built.TemperatureRepairs != 1 || math.Abs(built.MaximumInversionC-1) > 1e-9 || built.ComfortTemperatureRepairs != 1 || math.Abs(built.MaximumComfortTemperatureAdjustmentC-6) > 1e-9 || built.DewPointRepairs != 1 || math.Abs(built.MaximumDewPointCapC-2.5) > 1e-9 || built.CheckpointBytes <= 0 {
 		t.Fatalf("build evidence = %+v", built)
 	}
 	checkpoint, found, err := climatebuild.LoadCheckpoint(globalClimateCheckpointPath(root, block), built.Completed[0])
 	if err != nil || !found {
 		t.Fatalf("load checkpoint found=%t error=%v", found, err)
 	}
-	if checkpoint.TemperatureRepairs != 1 || checkpoint.DewPointRepairs != 1 || checkpoint.MaximumDewPointRepair != 2.5 || len(checkpoint.Months[0]) != 16*32 {
+	if checkpoint.TemperatureRepairs != 1 || checkpoint.ComfortTemperatureRepairs != 1 || checkpoint.MaximumComfortTemperatureRepair != 6 || checkpoint.DewPointRepairs != 1 || checkpoint.MaximumDewPointRepair != 2.5 || len(checkpoint.Months[0]) != 16*32 {
 		t.Fatalf("checkpoint = %+v", checkpoint)
 	}
 

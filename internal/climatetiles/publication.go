@@ -367,8 +367,8 @@ func buildIndex(climateRoot, indexID string, state IndexState, months []MonthRef
 	}
 	first := catalogs[0]
 	for _, catalog := range catalogs[1:] {
-		if catalog.Geometry != first.Geometry || catalog.Source != first.Source || catalog.Provenance != first.Provenance || !sameProbability(catalog.Probability, first.Probability) {
-			return Index{}, errors.New("climate months do not share identical geometry, source, provenance and probability contracts")
+		if catalog.Geometry != first.Geometry || catalog.Source != first.Source || catalog.Provenance != first.Provenance || catalog.SourceQuality != first.SourceQuality || !sameProbability(catalog.Probability, first.Probability) {
+			return Index{}, errors.New("climate months do not share identical geometry, source, provenance, quality and probability contracts")
 		}
 	}
 	index := Index{

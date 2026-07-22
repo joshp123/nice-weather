@@ -52,27 +52,29 @@ type GlobalClimateConfig struct {
 // GlobalClimateSummary is bounded production evidence. It contains no token,
 // source object key, URL query or decoded source chunk.
 type GlobalClimateSummary struct {
-	ReleaseID              string
-	Pointer                climatetiles.Pointer
-	IndexState             climatetiles.IndexState
-	MonthsAvailable        int
-	SelectedMonthInstalled bool
-	SourceResponses        int
-	SourceResponseBytes    int64
-	BlocksReused           int
-	BlocksBuilt            int
-	BlocksSkipped          int
-	UnsupportedLandCells   int
-	CheckpointBytes        int64
-	ArtifactBytes          int64
-	PointBlocks            int
-	ScalarTiles            int
-	TemperatureRepairs     int64
-	MaximumInversionC      float64
-	DewPointRepairs        int64
-	MaximumDewPointCapC    float64
-	MainPointerUnchanged   bool
-	Elapsed                time.Duration
+	ReleaseID                            string
+	Pointer                              climatetiles.Pointer
+	IndexState                           climatetiles.IndexState
+	MonthsAvailable                      int
+	SelectedMonthInstalled               bool
+	SourceResponses                      int
+	SourceResponseBytes                  int64
+	BlocksReused                         int
+	BlocksBuilt                          int
+	BlocksSkipped                        int
+	UnsupportedLandCells                 int
+	CheckpointBytes                      int64
+	ArtifactBytes                        int64
+	PointBlocks                          int
+	ScalarTiles                          int
+	TemperatureRepairs                   int64
+	MaximumInversionC                    float64
+	ComfortTemperatureRepairs            int64
+	MaximumComfortTemperatureAdjustmentC float64
+	DewPointRepairs                      int64
+	MaximumDewPointCapC                  float64
+	MainPointerUnchanged                 bool
+	Elapsed                              time.Duration
 }
 
 type globalClimateDependencies struct {
@@ -202,6 +204,8 @@ func runGlobalClimate(ctx context.Context, config GlobalClimateConfig, dependenc
 	summary.CheckpointBytes = blocks.CheckpointBytes
 	summary.TemperatureRepairs = blocks.TemperatureRepairs
 	summary.MaximumInversionC = blocks.MaximumInversionC
+	summary.ComfortTemperatureRepairs = blocks.ComfortTemperatureRepairs
+	summary.MaximumComfortTemperatureAdjustmentC = blocks.MaximumComfortTemperatureAdjustmentC
 	summary.DewPointRepairs = blocks.DewPointRepairs
 	summary.MaximumDewPointCapC = blocks.MaximumDewPointCapC
 

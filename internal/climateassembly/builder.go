@@ -53,15 +53,17 @@ type cacheEntry struct {
 // monthCache retains only one month from each loaded twelve-month checkpoint.
 // Its fixed entry ceiling is independent of world size and tile count.
 type monthCache struct {
-	ctx         context.Context
-	month       int
-	loader      CheckpointLoader
-	identities  map[agera5.BlockCoordinate]climatebuild.CheckpointIdentity
-	expected    map[agera5.BlockCoordinate][sha256.Size]byte
-	entries     map[agera5.BlockCoordinate]cacheEntry
-	recent      *list.List
-	peakEntries int
-	peakRecords int
+	ctx           context.Context
+	month         int
+	loader        CheckpointLoader
+	identities    map[agera5.BlockCoordinate]climatebuild.CheckpointIdentity
+	expected      map[agera5.BlockCoordinate][sha256.Size]byte
+	entries       map[agera5.BlockCoordinate]cacheEntry
+	recent        *list.List
+	peakEntries   int
+	peakRecords   int
+	qualityBlocks map[agera5.BlockCoordinate]struct{}
+	sourceQuality climatetiles.SourceQuality
 }
 
 // BuildMonth writes one complete native point-block set and its seven-field
@@ -84,6 +86,9 @@ func BuildMonth(ctx context.Context, config Config) (climatetiles.Catalog, error
 	if len(pointBlocks) != len(config.Checkpoints) {
 		return climatetiles.Catalog{}, fmt.Errorf("climate month wrote %d point blocks for %d supplied checkpoint identities", len(pointBlocks), len(config.Checkpoints))
 	}
+	if len(cache.qualityBlocks) != len(config.Checkpoints) {
+		return climatetiles.Catalog{}, fmt.Errorf("climate month measured source quality for %d of %d checkpoints", len(cache.qualityBlocks), len(config.Checkpoints))
+	}
 
 	writer, err := tiledelivery.NewWriter(config.Stage.Root, config.Stage.ReleaseID)
 	if err != nil {
@@ -104,7 +109,9 @@ func BuildMonth(ctx context.Context, config Config) (climatetiles.Catalog, error
 	if err := ctx.Err(); err != nil {
 		return climatetiles.Catalog{}, err
 	}
-	return climatetiles.NewCatalog(config.Stage.ReleaseID, config.Period, provenance, pointBlocks, scalars), nil
+	catalog := climatetiles.NewCatalog(config.Stage.ReleaseID, config.Period, provenance, pointBlocks, scalars)
+	catalog.SourceQuality = cache.sourceQuality
+	return catalog, nil
 }
 
 func validateConfig(ctx context.Context, config Config) (climatetiles.Provenance, map[agera5.BlockCoordinate]climatebuild.CheckpointIdentity, error) {
@@ -225,6 +232,7 @@ func newMonthCache(ctx context.Context, month int, loader CheckpointLoader, iden
 		ctx: ctx, month: month, loader: loader, identities: identities,
 		expected: make(map[agera5.BlockCoordinate][sha256.Size]byte, len(identities)),
 		entries:  make(map[agera5.BlockCoordinate]cacheEntry, checkpointCacheEntries), recent: list.New(),
+		qualityBlocks: make(map[agera5.BlockCoordinate]struct{}, len(identities)),
 	}
 }
 
@@ -246,6 +254,15 @@ func (cache *monthCache) get(block agera5.BlockCoordinate) (monthBlock, bool, er
 	}
 	if checkpoint.Identity != identity {
 		return monthBlock{}, false, fmt.Errorf("climate loader returned a different identity for block %+v", block)
+	}
+	if _, measured := cache.qualityBlocks[block]; !measured {
+		repairs := uint64(checkpoint.ComfortTemperatureRepairs)
+		if ^uint64(0)-cache.sourceQuality.ReferenceWindowMaterialDaytimeTemperatureRepairs < repairs {
+			return monthBlock{}, false, errors.New("climate daytime-range repair count overflows catalogue telemetry")
+		}
+		cache.sourceQuality.ReferenceWindowMaterialDaytimeTemperatureRepairs += repairs
+		cache.sourceQuality.MaximumReferenceWindowDaytimeAdjustmentC = math.Max(cache.sourceQuality.MaximumReferenceWindowDaytimeAdjustmentC, checkpoint.MaximumComfortTemperatureRepair)
+		cache.qualityBlocks[block] = struct{}{}
 	}
 	records := checkpoint.Months[cache.month]
 	if len(records) != identity.Width*identity.Height {

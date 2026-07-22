@@ -24,11 +24,17 @@ var (
 	ErrIncompleteCell    = errors.New("AgERA5 cell has incomplete daily coverage")
 )
 
-// The generic weather contract permits up to 2°C of cross-field tolerance.
-// AgERA5 independently bias-corrects daily fields, so only a crossing beyond
-// that existing materiality boundary is capped at the ordered daily maximum.
-// This keeps every previously accepted checkpoint byte-equivalent.
-const materialDewPointCrossingC = 2
+const (
+	// Preserve the generic weather contract's existing 5°C tolerance. Clamping
+	// only larger AgERA5 crossings fixes source values that would otherwise fail
+	// while keeping every previously completed checkpoint byte-equivalent.
+	materialComfortTemperatureCrossingC = 5
+
+	// The generic weather contract permits up to 2°C of dew-point tolerance.
+	// AgERA5 derives daily fields through variable-specific regressions, so only
+	// a crossing beyond that existing materiality boundary is capped.
+	materialDewPointCrossingC = 2
+)
 
 const (
 	fieldDaytimeTemperature = iota
@@ -142,23 +148,27 @@ func (block providerBlock) Reference() ChunkReference { return block.Block.Refer
 
 // Stats makes sparse-ocean and complete-cell outcomes explicit.
 type Stats struct {
-	ExpectedDays             int
-	ProcessedDays            int
-	SourceTimeChunks         int
-	ChunksFetched            int
-	ChunksAbsent             int
-	LogicalCells             int
-	LandCells                int
-	WaterCells               int
-	CompleteCells            int
-	UnsupportedLandCells     int
-	NoDataCells              int
-	SparseOcean              bool
-	TemperatureRepairs       int
-	MaximumTemperatureRepair float64
-	DewPointRepairs          int
-	MaximumDewPointRepair    float64
-	PeakRetainedDecodedBytes int64
+	ExpectedDays                        int
+	ProcessedDays                       int
+	SourceTimeChunks                    int
+	ChunksFetched                       int
+	ChunksAbsent                        int
+	LogicalCells                        int
+	LandCells                           int
+	WaterCells                          int
+	CompleteCells                       int
+	UnsupportedLandCells                int
+	NoDataCells                         int
+	SparseOcean                         bool
+	TemperatureRepairs                  int
+	MaximumTemperatureRepair            float64
+	ComfortTemperatureRepairs           int
+	ComfortTemperatureBelowRangeRepairs int
+	ComfortTemperatureAboveRangeRepairs int
+	MaximumComfortTemperatureRepair     float64
+	DewPointRepairs                     int
+	MaximumDewPointRepair               float64
+	PeakRetainedDecodedBytes            int64
 }
 
 // Result contains January through December record planes in row-major order.
@@ -332,6 +342,17 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 					result.Stats.TemperatureRepairs++
 					if repairs.temperature > result.Stats.MaximumTemperatureRepair {
 						result.Stats.MaximumTemperatureRepair = repairs.temperature
+					}
+				}
+				if repairs.comfortTemperature > 0 {
+					result.Stats.ComfortTemperatureRepairs++
+					if repairs.comfortTemperatureDirection < 0 {
+						result.Stats.ComfortTemperatureBelowRangeRepairs++
+					} else {
+						result.Stats.ComfortTemperatureAboveRangeRepairs++
+					}
+					if repairs.comfortTemperature > result.Stats.MaximumComfortTemperatureRepair {
+						result.Stats.MaximumComfortTemperatureRepair = repairs.comfortTemperature
 					}
 				}
 				if repairs.dewPoint > 0 {
@@ -575,8 +596,10 @@ func readCellDay(blocks fieldBlocks, timeOffset, latitudeOffset, longitudeOffset
 }
 
 type repairMagnitudes struct {
-	temperature float64
-	dewPoint    float64
+	temperature                 float64
+	comfortTemperature          float64
+	comfortTemperatureDirection int8
+	dewPoint                    float64
 }
 
 func normalize(values rawValues) (weather.DailyMetrics, repairMagnitudes) {
@@ -586,6 +609,24 @@ func normalize(values rawValues) (weather.DailyMetrics, repairMagnitudes) {
 		repairs.temperature = minimum - maximum
 		minimum, maximum = maximum, minimum
 	}
+	// AgERA5 derives its daytime mean and 24-hour extrema through separate
+	// grid- and variable-specific regressions. Clamp only finite, otherwise
+	// valid source temperatures that exceed the generic contract's existing
+	// 5°C tolerance. Generic weather validation remains unchanged.
+	comfort := values[fieldDaytimeTemperature]
+	comfortC, minimumC, maximumC := comfort-273.15, minimum-273.15, maximum-273.15
+	if finite(comfort, minimum, maximum) && comfortC >= -100 && comfortC <= 70 && minimumC >= -100 && minimumC <= 70 && maximumC >= -100 && maximumC <= 70 {
+		switch {
+		case comfort < minimum-materialComfortTemperatureCrossingC:
+			repairs.comfortTemperature = minimum - comfort
+			repairs.comfortTemperatureDirection = -1
+			comfort = minimum
+		case comfort > maximum+materialComfortTemperatureCrossingC:
+			repairs.comfortTemperature = comfort - maximum
+			repairs.comfortTemperatureDirection = 1
+			comfort = maximum
+		}
+	}
 	dewPoint := values[fieldDewPoint]
 	dewPointC := dewPoint - 273.15
 	if finite(dewPoint) && dewPointC >= -100 && dewPointC <= 70 && dewPoint > maximum+materialDewPointCrossingC {
@@ -593,7 +634,7 @@ func normalize(values rawValues) (weather.DailyMetrics, repairMagnitudes) {
 		dewPoint = maximum
 	}
 	return weather.DailyMetrics{
-		ComfortableTempC: values[fieldDaytimeTemperature] - 273.15,
+		ComfortableTempC: comfort - 273.15,
 		MinTempC:         minimum - 273.15,
 		MaxTempC:         maximum - 273.15,
 		RainMM:           values[fieldPrecipitation],

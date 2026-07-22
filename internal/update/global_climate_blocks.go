@@ -32,22 +32,24 @@ const (
 // only land-block checkpoint identities, in canonical north-to-south then
 // west-to-east order. Water-only blocks have no checkpoint by design.
 type GlobalClimateBlockSummary struct {
-	Blocks               int
-	SourceCells          int
-	IncludedCells        int
-	LandCells            int
-	UnsupportedLandCells int
-	WaterCells           int
-	CroppedCells         int
-	Reused               int
-	Built                int
-	WaterSkipped         int
-	CheckpointBytes      int64
-	TemperatureRepairs   int64
-	MaximumInversionC    float64
-	DewPointRepairs      int64
-	MaximumDewPointCapC  float64
-	Completed            []climatebuild.CheckpointIdentity
+	Blocks                               int
+	SourceCells                          int
+	IncludedCells                        int
+	LandCells                            int
+	UnsupportedLandCells                 int
+	WaterCells                           int
+	CroppedCells                         int
+	Reused                               int
+	Built                                int
+	WaterSkipped                         int
+	CheckpointBytes                      int64
+	TemperatureRepairs                   int64
+	MaximumInversionC                    float64
+	ComfortTemperatureRepairs            int64
+	MaximumComfortTemperatureAdjustmentC float64
+	DewPointRepairs                      int64
+	MaximumDewPointCapC                  float64
+	Completed                            []climatebuild.CheckpointIdentity
 }
 
 type globalClimateBlockTask struct {
@@ -56,23 +58,25 @@ type globalClimateBlockTask struct {
 }
 
 type globalClimateBlockOutcome struct {
-	index                int
-	identity             climatebuild.CheckpointIdentity
-	sourceCells          int
-	includedCells        int
-	landCells            int
-	unsupportedLandCells int
-	waterCells           int
-	croppedCells         int
-	reused               bool
-	built                bool
-	waterSkipped         bool
-	checkpointBytes      int64
-	temperatureRepairs   int
-	maximumInversion     float64
-	dewPointRepairs      int
-	maximumDewPointCap   float64
-	err                  error
+	index                               int
+	identity                            climatebuild.CheckpointIdentity
+	sourceCells                         int
+	includedCells                       int
+	landCells                           int
+	unsupportedLandCells                int
+	waterCells                          int
+	croppedCells                        int
+	reused                              bool
+	built                               bool
+	waterSkipped                        bool
+	checkpointBytes                     int64
+	temperatureRepairs                  int
+	maximumInversion                    float64
+	comfortTemperatureRepairs           int
+	maximumComfortTemperatureAdjustment float64
+	dewPointRepairs                     int
+	maximumDewPointCap                  float64
+	err                                 error
 }
 
 // RunGlobalClimateBlocks builds or resumes every AgERA5 land block that
@@ -306,6 +310,8 @@ func runGlobalClimateBlock(
 		outcome.reused = true
 		outcome.temperatureRepairs = checkpoint.TemperatureRepairs
 		outcome.maximumInversion = checkpoint.MaximumTemperatureRepair
+		outcome.comfortTemperatureRepairs = checkpoint.ComfortTemperatureRepairs
+		outcome.maximumComfortTemperatureAdjustment = checkpoint.MaximumComfortTemperatureRepair
 		outcome.dewPointRepairs = checkpoint.DewPointRepairs
 		outcome.maximumDewPointCap = checkpoint.MaximumDewPointRepair
 		outcome.checkpointBytes, outcome.err = globalClimateCheckpointBytes(path)
@@ -330,12 +336,14 @@ func runGlobalClimateBlock(
 		return outcome
 	}
 	checkpoint = climatebuild.Checkpoint{
-		Identity:                 outcome.identity,
-		Months:                   result.Months,
-		TemperatureRepairs:       result.Stats.TemperatureRepairs,
-		MaximumTemperatureRepair: result.Stats.MaximumTemperatureRepair,
-		DewPointRepairs:          result.Stats.DewPointRepairs,
-		MaximumDewPointRepair:    result.Stats.MaximumDewPointRepair,
+		Identity:                        outcome.identity,
+		Months:                          result.Months,
+		TemperatureRepairs:              result.Stats.TemperatureRepairs,
+		MaximumTemperatureRepair:        result.Stats.MaximumTemperatureRepair,
+		ComfortTemperatureRepairs:       result.Stats.ComfortTemperatureRepairs,
+		MaximumComfortTemperatureRepair: result.Stats.MaximumComfortTemperatureRepair,
+		DewPointRepairs:                 result.Stats.DewPointRepairs,
+		MaximumDewPointRepair:           result.Stats.MaximumDewPointRepair,
 	}
 	if err := climatebuild.WriteCheckpoint(path, checkpoint); err != nil {
 		outcome.err = fmt.Errorf("write global climate block %+v checkpoint: %w", task.block, err)
@@ -344,6 +352,8 @@ func runGlobalClimateBlock(
 	outcome.built = true
 	outcome.temperatureRepairs = checkpoint.TemperatureRepairs
 	outcome.maximumInversion = checkpoint.MaximumTemperatureRepair
+	outcome.comfortTemperatureRepairs = checkpoint.ComfortTemperatureRepairs
+	outcome.maximumComfortTemperatureAdjustment = checkpoint.MaximumComfortTemperatureRepair
 	outcome.dewPointRepairs = checkpoint.DewPointRepairs
 	outcome.maximumDewPointCap = checkpoint.MaximumDewPointRepair
 	outcome.checkpointBytes, outcome.err = globalClimateCheckpointBytes(path)
@@ -411,6 +421,8 @@ func summarizeGlobalClimateBlocks(outcomes []globalClimateBlockOutcome) (GlobalC
 		summary.CheckpointBytes += outcome.checkpointBytes
 		summary.TemperatureRepairs += int64(outcome.temperatureRepairs)
 		summary.MaximumInversionC = math.Max(summary.MaximumInversionC, outcome.maximumInversion)
+		summary.ComfortTemperatureRepairs += int64(outcome.comfortTemperatureRepairs)
+		summary.MaximumComfortTemperatureAdjustmentC = math.Max(summary.MaximumComfortTemperatureAdjustmentC, outcome.maximumComfortTemperatureAdjustment)
 		summary.DewPointRepairs += int64(outcome.dewPointRepairs)
 		summary.MaximumDewPointCapC = math.Max(summary.MaximumDewPointCapC, outcome.maximumDewPointCap)
 		switch {

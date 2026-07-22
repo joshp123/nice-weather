@@ -119,11 +119,12 @@ func main() {
 					Year:  *year, StagingParent: *staging, TokenReader: os.Stdin, Synthetic: *synthetic,
 				})
 				if err == nil {
-					fmt.Printf("AgERA5 canary: %s block %d,%d; %s through %s; %d/%d days; %d complete + %d no-data cells in %dx%d; %d extrema repairs (largest %.3f C), %d dew-point caps (largest %.3f C); transfer %d bytes in %d responses/%d chunks; compressed %d bytes (largest %d, response limit %d); decoded %d bytes total, %d retained peak; sampled peak heap %d bytes; %s\n",
+					fmt.Printf("AgERA5 canary: %s block %d,%d; %s through %s; %d/%d days; %d complete + %d no-data cells in %dx%d; %d extrema repairs (largest %.3f C), %d daytime-range clamps (%d below, %d above; largest %.3f C), %d dew-point caps (largest %.3f C); transfer %d bytes in %d responses/%d chunks; compressed %d bytes (largest %d, response limit %d); decoded %d bytes total, %d retained peak; sampled peak heap %d bytes; %s\n",
 						summary.Source, summary.Block.Latitude, summary.Block.Longitude,
 						summary.FirstDate.Format(time.DateOnly), summary.LastDate.Format(time.DateOnly),
 						summary.ProcessedDays, summary.ExpectedDays, summary.CompleteCells, summary.NoDataCells,
 						summary.Width, summary.Height, summary.TemperatureRepairs, summary.MaximumTemperatureRepairC,
+						summary.ComfortTemperatureRepairs, summary.ComfortTemperatureBelowRangeRepairs, summary.ComfortTemperatureAboveRangeRepairs, summary.MaximumComfortTemperatureRepairC,
 						summary.DewPointRepairs, summary.MaximumDewPointRepairC,
 						summary.FetchedBytes, summary.Responses, summary.Chunks,
 						summary.CompressedChunkBytes, summary.MaximumCompressedChunkBytes, summary.ChunkResponseLimitBytes,
@@ -278,8 +279,9 @@ func runClimateWorldCommand(
 		summary.CheckpointBytes, summary.ArtifactBytes); err != nil {
 		return fmt.Errorf("write climate-world output summary: %w", err)
 	}
-	if _, err := fmt.Fprintf(stdout, "Quality: %d structurally unsupported land cells left transparent; %d crossed-extrema repairs, largest %.3f C; %d dew-point caps, largest %.3f C; main weather release unchanged; elapsed %s.\n",
+	if _, err := fmt.Fprintf(stdout, "Quality: %d structurally unsupported land cells left transparent; %d crossed-extrema repairs, largest %.3f C; %d daytime-range clamps beyond 5 C tolerance, largest %.3f C; %d dew-point caps, largest %.3f C; main weather release unchanged; elapsed %s.\n",
 		summary.UnsupportedLandCells, summary.TemperatureRepairs, summary.MaximumInversionC,
+		summary.ComfortTemperatureRepairs, summary.MaximumComfortTemperatureAdjustmentC,
 		summary.DewPointRepairs, summary.MaximumDewPointCapC, summary.Elapsed.Round(time.Second)); err != nil {
 		return fmt.Errorf("write climate-world quality summary: %w", err)
 	}

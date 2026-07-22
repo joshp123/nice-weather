@@ -287,6 +287,8 @@ func TestValidateReleaseRejectsUnsafeIncompleteOrDishonestCatalog(t *testing.T) 
 		{"wrong source", func(c *Catalog) { c.Source.Kind = "native-0.1-degree-atmosphere" }, "geometry, source or probability"},
 		{"wrong probability", func(c *Catalog) { c.Probability.Denominator = "monthly-mean-day" }, "geometry, source or probability"},
 		{"wrong provenance", func(c *Catalog) { c.Provenance.LandMaskSetSHA256 = strings.Repeat("0", 64) }, "checkpoint provenance"},
+		{"quality maximum without repairs", func(c *Catalog) { c.SourceQuality.MaximumReferenceWindowDaytimeAdjustmentC = 6 }, "without material daytime-range repairs"},
+		{"quality repairs without maximum", func(c *Catalog) { c.SourceQuality.ReferenceWindowMaterialDaytimeTemperatureRepairs = 1 }, "repair maximum is invalid"},
 		{"missing field tile", func(c *Catalog) { c.ScalarTiles = c.ScalarTiles[:len(c.ScalarTiles)-1] }, "complete field/zoom coverage"},
 		{"missing zoom", func(c *Catalog) {
 			filtered := c.ScalarTiles[:0]
