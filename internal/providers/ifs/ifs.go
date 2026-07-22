@@ -21,7 +21,11 @@ import (
 )
 
 const (
-	DefaultRoot        = "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com"
+	// ECMWF publishes the same immutable open-data objects through several
+	// official cloud replicas. Google Cloud is the single production transport
+	// origin because its range endpoint remains reliable under the forecast
+	// build's bounded request pattern.
+	DefaultRoot        = "https://storage.googleapis.com/ecmwf-open-data"
 	GridDegrees        = 0.25
 	MaxIndexBytes      = 32 << 20
 	MaxIndexLineBytes  = 2 << 20

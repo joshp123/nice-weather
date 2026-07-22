@@ -56,6 +56,21 @@ func TestProductURLsUsePublicQuarterDegreeIFSControlPath(t *testing.T) {
 	}
 }
 
+func TestDefaultRootUsesTheOfficialGoogleReplicaWithoutChangingProductIdentity(t *testing.T) {
+	client := NewClient(nil)
+	if client.Root != "https://storage.googleapis.com/ecmwf-open-data" {
+		t.Fatalf("default root = %q", client.Root)
+	}
+	got, err := client.IndexURL(runAt(12), 360)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://storage.googleapis.com/ecmwf-open-data/20260719/12z/ifs/0p25/oper/20260719120000-360h-oper-fc.index"
+	if got != want {
+		t.Fatalf("default URL\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestParseIndexRequiresEverySelectedField(t *testing.T) {
 	messages, err := ParseIndex(strings.NewReader(completeIndex(runAt(0), 360, 100, 20)))
 	if err != nil {

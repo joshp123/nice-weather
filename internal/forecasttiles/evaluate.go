@@ -228,6 +228,16 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 		}
 		return weather.OptionalFloat{Value: total / availableWeight, Available: true}
 	}
+	boundedOptional := func(read func(weather.DailyMetrics) weather.OptionalFloat, low, high float64) weather.OptionalFloat {
+		field := optional(read)
+		if field.Available {
+			// Every contributor was already strictly validated. A weighted mean
+			// therefore belongs to the same closed interval, but the final
+			// floating-point division can cross an endpoint by one rounding step.
+			field.Value = math.Max(low, math.Min(high, field.Value))
+		}
+		return field
+	}
 	result := weather.DailyMetrics{
 		ComfortableTempC:   value(func(item weather.DailyMetrics) float64 { return item.ComfortableTempC }),
 		MinTempC:           value(func(item weather.DailyMetrics) float64 { return item.MinTempC }),
@@ -241,12 +251,12 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 			return delivery.DailyPointRecord{}, false, errors.New("interpolate weather: source resolution differs")
 		}
 	}
-	result.WetTimeFraction = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.WetTimeFraction })
+	result.WetTimeFraction = boundedOptional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.WetTimeFraction }, 0, 1)
 	result.SolarEnergyMJm2 = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.SolarEnergyMJm2 })
-	result.CloudCoverPercent = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.CloudCoverPercent })
+	result.CloudCoverPercent = boundedOptional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.CloudCoverPercent }, 0, 100)
 	result.GustKPH = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.GustKPH })
 	result.DewPointC = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.DewPointC })
-	result.RelativeHumidityPercent = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.RelativeHumidityPercent })
+	result.RelativeHumidityPercent = boundedOptional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.RelativeHumidityPercent }, 0, 100)
 	var err error
 	record, err := scoreRecord(result)
 	return record, err == nil, err

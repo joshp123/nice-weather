@@ -126,6 +126,41 @@ func TestInterpolateRecordUsesIndependentMaskedOptionalFields(t *testing.T) {
 	}
 }
 
+func TestInterpolateRecordKeepsBoundedEvidenceInsideItsPhysicalRange(t *testing.T) {
+	for _, endpoint := range []float64{0, 1} {
+		endpoint := endpoint
+		t.Run(fmt.Sprintf("endpoint_%g", endpoint), func(t *testing.T) {
+			day := weather.DailyMetrics{
+				ComfortableTempC: 24, MinTempC: 20, MaxTempC: 28, RainMM: 0, WindSpeedKPH: 8,
+				WetTimeFraction:         weather.OptionalFloat{Value: endpoint, Available: true},
+				CloudCoverPercent:       weather.OptionalFloat{Value: endpoint * 100, Available: true},
+				DewPointC:               weather.OptionalFloat{Value: 24, Available: true},
+				RelativeHumidityPercent: weather.OptionalFloat{Value: endpoint * 100, Available: true},
+				NativeResolutionKM:      28, Valid: true,
+			}
+			window := pipeline.DailyMetricsWindow{
+				Spec: delivery.GridSpec{
+					Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 2}, Rows: 2, Cols: 2,
+				},
+				Metrics: []weather.DailyMetrics{day, day, day, day},
+			}
+			for _, fraction := range []float64{.00035, .5, .99965} {
+				record, ok, err := interpolateRecord(.5+fraction, 1.5-fraction, window)
+				if err != nil || !ok {
+					t.Fatalf("bounded interpolation failed at %.8f: available=%t error=%v", fraction, ok, err)
+				}
+				wantWet := uint16(endpoint * 1000)
+				wantPercent := uint8(endpoint * 100)
+				if record.Weather.WetTimePermille != wantWet || record.Weather.CloudPercent != wantPercent || record.Weather.HumidityPercent != wantPercent {
+					t.Fatalf("bounded fields at %.8f = wet %d cloud %d humidity %d; want %d, %d, %d", fraction,
+						record.Weather.WetTimePermille, record.Weather.CloudPercent, record.Weather.HumidityPercent,
+						wantWet, wantPercent, wantPercent)
+				}
+			}
+		})
+	}
+}
+
 func TestLandMaskKeepsPredicateAndExactIdentityTogether(t *testing.T) {
 	identity := LandIdentity{
 		Authority: LandAuthorityNaturalEarth, Dataset: LandDatasetNaturalEarth10M, Version: LandVersionNaturalEarth511,
