@@ -22,7 +22,10 @@ import (
 	"github.com/ringsaturn/tzf"
 )
 
-const globalCanarySourceID = "ecmwf-ifs-control"
+const (
+	globalCanarySourceID = "ecmwf-ifs-control"
+	iconEUSourceID       = "dwd-icon-eu"
+)
 
 const (
 	globalCanaryMaxZoom                = 3
@@ -315,7 +318,14 @@ func validateGlobalCanaryStaged(run time.Time, steps []int, staged []stagedFrame
 }
 
 func prepareGlobalCanaryDay(ctx context.Context, decoder *pipeline.Decoder, selected []stagedFrame, scratch string) (pipeline.PreparedSeries, func() error, error) {
-	series, frames, err := prepareGlobalCanaryFrames(ctx, decoder, selected, scratch)
+	return prepareStagedDay(ctx, decoder, selected, scratch, globalCanarySourceID, "worldwide IFS")
+}
+
+// prepareStagedDay converts one provider's already staged day envelope once.
+// The returned close function owns every prepared backing file and removes it
+// after the exact day/tier assembly finishes.
+func prepareStagedDay(ctx context.Context, decoder *pipeline.Decoder, staged []stagedFrame, scratch, sourceID, progressLabel string) (pipeline.PreparedSeries, func() error, error) {
+	series, frames, err := prepareStagedFrames(ctx, decoder, staged, scratch, sourceID, progressLabel)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -475,26 +485,33 @@ func cleanGlobalCanaryTransactions(out string) error {
 	return nil
 }
 
-func globalCanaryPrepareRequest(frame stagedFrame, scratch string) pipeline.DecodeRequest {
+func stagedPrepareRequest(frame stagedFrame, scratch, sourceID string) pipeline.DecodeRequest {
 	return pipeline.DecodeRequest{
-		Path: frame.path, SourceID: globalCanarySourceID, Field: frame.field, Run: frame.run.UTC(),
+		Path: frame.path, SourceID: sourceID, Field: frame.field, Run: frame.run.UTC(),
 		NativeResolutionKM: frame.resolution, CellDegrees: frame.spacing, ScratchDirectory: scratch,
 	}
 }
 
-func prepareGlobalCanaryFrames(ctx context.Context, decoder *pipeline.Decoder, staged []stagedFrame, scratch string) (pipeline.PreparedSeries, []*pipeline.PreparedFrame, error) {
+func globalCanaryPrepareRequest(frame stagedFrame, scratch string) pipeline.DecodeRequest {
+	return stagedPrepareRequest(frame, scratch, globalCanarySourceID)
+}
+
+func prepareStagedFrames(ctx context.Context, decoder *pipeline.Decoder, staged []stagedFrame, scratch, sourceID, progressLabel string) (pipeline.PreparedSeries, []*pipeline.PreparedFrame, error) {
+	if sourceID == "" || progressLabel == "" {
+		return nil, nil, errors.New("prepared forecast source identity is required")
+	}
 	frames := make([]*pipeline.PreparedFrame, len(staged))
 	var completed atomic.Int64
 	err := runWorkers(ctx, len(staged), func(workerCtx context.Context, index int) error {
 		item := staged[index]
-		prepared, err := decoder.PrepareFrame(workerCtx, globalCanaryPrepareRequest(item, scratch))
+		prepared, err := decoder.PrepareFrame(workerCtx, stagedPrepareRequest(item, scratch, sourceID))
 		if err != nil {
 			return fmt.Errorf("prepare %s step %d: %w", item.field, item.step, err)
 		}
 		frames[index] = prepared
 		count := completed.Add(1)
 		if count%25 == 0 || count == int64(len(staged)) {
-			fmt.Printf("prepared %d/%d worldwide IFS fields\n", count, len(staged))
+			fmt.Printf("prepared %d/%d %s fields\n", count, len(staged), progressLabel)
 		}
 		return nil
 	})
@@ -550,7 +567,7 @@ func globalCanaryWebMercatorLandPredicate(ctx context.Context, authority *LandAu
 	if err != nil {
 		return nil, err
 	}
-	if zoom > 4 {
+	if zoom > 5 {
 		return nil, errors.New("display land mask zoom exceeds the bounded canary limit")
 	}
 	width := int(tiledelivery.TileSize) << zoom
@@ -586,7 +603,7 @@ func globalCanaryWebMercatorLandPredicate(ctx context.Context, authority *LandAu
 }
 
 func webMercatorTouchedLandPredicate(pixels []byte, zoom uint8) (forecasttiles.TouchesLand, error) {
-	if zoom > 4 {
+	if zoom > 5 {
 		return nil, errors.New("display land mask zoom exceeds the bounded canary limit")
 	}
 	width := int(tiledelivery.TileSize) << zoom

@@ -74,6 +74,32 @@ func main() {
 					summary.StageElapsed.Round(time.Millisecond), summary.PrepareElapsed.Round(time.Millisecond), summary.TileElapsed.Round(time.Millisecond), summary.Elapsed.Round(time.Millisecond))
 			}
 		}
+	case "forecast-world":
+		flags := flag.NewFlagSet("forecast-world", flag.ContinueOnError)
+		out := flags.String("out", "./artifacts", "artifact directory")
+		staging := flags.String("staging", "./.cache/forecast-staging", "source and prepared-file staging directory")
+		cache := flags.String("cache", "./.cache/weather", "Natural Earth cache directory")
+		if err = flags.Parse(os.Args[2:]); err == nil {
+			if flags.NArg() != 0 {
+				err = errors.New("forecast-world accepts no positional arguments")
+			} else {
+				ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				var summary weatherupdate.ForecastProductionSummary
+				summary, err = weatherupdate.RunForecastProduction(ctx, weatherupdate.ForecastProductionConfig{
+					ArtifactRoot: *out, StagingRoot: *staging, CacheRoot: *cache,
+				})
+				if err == nil {
+					fmt.Printf("forecast publication: %s; IFS %s; ICON-EU %s; %d global + %d Europe-detail days %s through %s; staged %d files/%d bytes; max prepared %d files/%d bytes; built %d and reused %d products; installed %d files/%d bytes; stage=%s prepare=%s build=%s publish=%s total=%s\n",
+						summary.IndexID, summary.IFSRun.Format(time.RFC3339), formatOptionalTime(summary.ICONRun),
+						summary.GlobalDays, summary.EuropeDays, summary.FirstDate.Format(time.DateOnly), summary.LastDate.Format(time.DateOnly),
+						summary.StagedFiles, summary.StagedBytes, summary.MaxPreparedFiles, summary.MaxPreparedBytes,
+						summary.BuiltProducts, summary.ReusedProducts, summary.OutputFiles, summary.OutputBytes,
+						summary.StageElapsed.Round(time.Millisecond), summary.PrepareElapsed.Round(time.Millisecond), summary.BuildElapsed.Round(time.Millisecond),
+						summary.PublishElapsed.Round(time.Millisecond), summary.Elapsed.Round(time.Millisecond))
+				}
+			}
+		}
 	case "agera5-canary":
 		flags := flag.NewFlagSet("agera5-canary", flag.ContinueOnError)
 		blockLatitude := flags.Int("block-lat", -1, "AgERA5 latitude block index (required, 0-112)")
@@ -160,7 +186,14 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|agera5-canary|climate-world|serve|places|best-weather> [options]")
+	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|forecast-world|agera5-canary|climate-world|serve|places|best-weather> [options]")
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return "not selected"
+	}
+	return value.Format(time.RFC3339)
 }
 
 type globalClimateRunner func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error)
