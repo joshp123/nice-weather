@@ -31,9 +31,10 @@ type fixtureTier struct {
 }
 
 type fixtureRange struct {
-	ReleaseID string                       `json:"releaseId"`
-	RunUTC    string                       `json:"runUtc"`
-	Inputs    []forecastrange.InputCatalog `json:"inputs"`
+	ReleaseID       string                       `json:"releaseId"`
+	RunUTC          string                       `json:"runUtc"`
+	StaleAfterHours int                          `json:"staleAfterHours"`
+	Inputs          []forecastrange.InputCatalog `json:"inputs"`
 }
 
 func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
@@ -77,6 +78,54 @@ func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
 	}
 	if after := readFile(t, filepath.Join(artifacts, "forecast", pointer.Current.Path)); string(after) != string(indexBefore) {
 		t.Fatal("idempotent publication changed immutable index")
+	}
+}
+
+func TestLegacyFreshnessCanOnlyBeRead(t *testing.T) {
+	useFixtureTierLoader(t)
+	artifacts := publicationFixture(t)
+	createRun(t, artifacts, "run-legacy", "2026-07-23", "2026-07-22T12:00:00Z", nil)
+	pointer, err := Publish(context.Background(), artifacts, "run-legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index Index
+	if err := json.Unmarshal(readFile(t, filepath.Join(artifacts, "forecast", pointer.Current.Path)), &index); err != nil {
+		t.Fatal(err)
+	}
+	index.Range.StaleAfterHours = 18
+	var storedRange fixtureRange
+	rangePath := rangeFile(artifacts, "run-legacy")
+	if err := json.Unmarshal(readFile(t, rangePath), &storedRange); err != nil {
+		t.Fatal(err)
+	}
+	storedRange.StaleAfterHours = 18
+	writeFixtureJSON(t, rangePath, storedRange)
+	rangePayload := readFile(t, rangePath)
+	index.Range.CatalogBytes = uint64(len(rangePayload))
+	index.Range.CatalogSHA256 = digest(string(rangePayload))
+	payload, err := json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = append(payload, '\n')
+	if _, err := parseIndex(payload); err != nil {
+		t.Fatalf("read legacy index: %v", err)
+	}
+	if _, err := marshalIndex(index); err == nil || !strings.Contains(err.Error(), "range reference is invalid") {
+		t.Fatalf("marshal legacy index error = %v", err)
+	}
+	indexPath := filepath.Join(artifacts, "forecast", pointer.Current.Path)
+	if err := os.WriteFile(indexPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pointer.Current.SHA256 = digest(string(payload))
+	writeFixtureJSON(t, filepath.Join(artifacts, "forecast", "current.json"), pointer)
+	if _, current, err := ValidateCurrent(artifacts); err != nil || current.Range.StaleAfterHours != 18 {
+		t.Fatalf("ValidateCurrent legacy index = %+v, %v", current.Range, err)
+	}
+	if again, err := Publish(context.Background(), artifacts, "run-legacy"); err != nil || !samePointer(pointer, again) {
+		t.Fatalf("idempotent legacy publication = %+v, %v", again, err)
 	}
 }
 
@@ -469,7 +518,7 @@ func overwriteRange(t *testing.T, artifacts, id, startDate, run string) {
 			Bytes: uint64(len(payload)), SHA256: digest(string(payload)),
 		}
 	}
-	writeFixtureJSON(t, rangeFile(artifacts, id), fixtureRange{ReleaseID: id, RunUTC: run, Inputs: inputs})
+	writeFixtureJSON(t, rangeFile(artifacts, id), fixtureRange{ReleaseID: id, RunUTC: run, StaleAfterHours: forecastrange.StaleAfterHours, Inputs: inputs})
 }
 
 func rangeFile(artifacts, id string) string {
@@ -557,9 +606,13 @@ func useFixtureTierLoader(t *testing.T) {
 		for index, input := range fixture.Inputs {
 			dates[index] = input.Date
 		}
+		staleAfterHours := fixture.StaleAfterHours
+		if staleAfterHours == 0 {
+			staleAfterHours = forecastrange.StaleAfterHours
+		}
 		return forecastrange.Catalog{
 			ReleaseID: fixture.ReleaseID, Period: forecastrange.Period, Dates: dates, Inputs: fixture.Inputs,
-			Source: forecastrange.Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: fixture.RunUTC, NativeResolutionKM: 28, StaleAfterHours: forecastrange.StaleAfterHours},
+			Source: forecastrange.Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: fixture.RunUTC, NativeResolutionKM: 28, StaleAfterHours: staleAfterHours},
 		}, payload, nil
 	}
 	t.Cleanup(func() { loadInstalledTier, loadInstalledRange = original, originalRange })

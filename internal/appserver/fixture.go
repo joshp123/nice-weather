@@ -66,7 +66,7 @@ func generateFixture(root, releaseName string, temperatureOffset float64) error 
 		Profiles:        []delivery.Profile{{ID: "nice", Label: "Nice"}, {ID: "cycling", Label: "Cycling"}},
 		Legend:          fixtureLegend,
 		Palette:         fixturePalette,
-		Forecast:        delivery.ForecastCatalog{UpdatedAt: fixtureTime.Add(-2 * time.Hour).Format(time.RFC3339), StaleAfterHours: 18},
+		Forecast:        delivery.ForecastCatalog{UpdatedAt: fixtureTime.Add(-2 * time.Hour).Format(time.RFC3339), StaleAfterHours: 36},
 		Climate:         &delivery.ClimateCatalog{Label: "Typical year (sample data)", ReferencePeriod: "1981–2010"},
 	}
 	forecastDays := make([][]weather.DailyMetrics, 0, 14)

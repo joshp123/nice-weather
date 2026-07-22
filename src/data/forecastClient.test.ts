@@ -94,6 +94,15 @@ describe('WorldwideForecastClient', () => {
     ]);
   });
 
+  it('reads the previous immutable freshness contract but rejects mixed metadata', async () => {
+    await expect(new WorldwideForecastClient(fetchFixture(await snapshotFixture(land, 18, 18))).loadSnapshot()).resolves.toMatchObject({
+      index: { range: { staleAfterHours: 18 } },
+      range: { source: { staleAfterHours: 36 } },
+    });
+    await expect(new WorldwideForecastClient(fetchFixture(await snapshotFixture(land, 18, 36))).loadSnapshot()).rejects.toMatchObject({ code: 'invalid' });
+    await expect(new WorldwideForecastClient(fetchFixture(await snapshotFixture(land, 36, 18))).loadSnapshot()).rejects.toMatchObject({ code: 'invalid' });
+  });
+
   it('requires exact Natural Earth source and mask provenance on every daily catalogue', async () => {
     const load = async (identity = land) => {
       const fixture = await snapshotFixture(identity);
@@ -157,7 +166,7 @@ function catalog(tier: 'global' | 'europe-detail', zoom: 3 | 5, scalarCoverage: 
   };
 }
 
-async function snapshotFixture(landIdentity: Record<string, unknown> = land): Promise<Map<string, Uint8Array>> {
+async function snapshotFixture(landIdentity: Record<string, unknown> = land, indexStaleAfterHours: 18 | 36 = 36, rangeStaleAfterHours: 18 | 36 = indexStaleAfterHours): Promise<Map<string, Uint8Array>> {
   const dates = Array.from({ length: 14 }, (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`);
   const dailyScores = {
     unit: 'canonical-score-0-100', noDataValue: 255,
@@ -194,7 +203,7 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land): Pr
     version: 1,
     productContract: 'nice-weather-forecast-range-v1',
     releaseId: 'run-test', period: 'next-14-days', dates,
-    source: { provider: 'ecmwf-ifs', tier: 'global', product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, staleAfterHours: 18 },
+    source: { provider: 'ecmwf-ifs', tier: 'global', product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, staleAfterHours: rangeStaleAfterHours },
     grid: { projection: 'EPSG:3857-XYZ', zoom: 3, tileSize: 256, rows: 2048, columns: 2048 },
     scores: { ...dailyScores, mediaType: 'application/vnd.nice-weather.score-tile' },
     pointBlockLayout: { rows: 64, columns: 64, headerBytes: 256, recordBytes: 44, mediaType: 'application/vnd.nice-weather.forecast-range-block' },
@@ -208,7 +217,7 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land): Pr
     version: 2, productContract: 'nice-weather-forecast-run-v3', indexId: 'run-test', firstDate: dates[0], lastDate: dates[13],
     tierSelection: { method: 'choose-one-complete-tier-before-colour', priority: ['europe-detail', 'global'], blend: false },
     days: dates.map((date, index) => ({ date, tiers: [tiers[index]] })),
-    range: { period: 'next-14-days', provider: 'ecmwf-ifs', tier: 'global', product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, staleAfterHours: 18, catalogPath: 'runs/run-test/forecast-ranges/next-14-days/global/catalog.json', catalogBytes: rangeBytes.byteLength, catalogSha256: sha(rangeBytes) },
+    range: { period: 'next-14-days', provider: 'ecmwf-ifs', tier: 'global', product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, staleAfterHours: indexStaleAfterHours, catalogPath: 'runs/run-test/forecast-ranges/next-14-days/global/catalog.json', catalogBytes: rangeBytes.byteLength, catalogSha256: sha(rangeBytes) },
   };
   const indexBytes = json(index);
   const pointerBytes = json({ version: 1, current: { indexId: 'run-test', path: 'runs/run-test/index.json', sha256: sha(indexBytes) } });
@@ -218,6 +227,14 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land): Pr
     ['/forecast/runs/run-test/forecast-ranges/next-14-days/global/catalog.json', rangeBytes],
     [`/forecast/runs/run-test/forecast-days/${dates[0]}/global/catalog.json`, dailyBytes],
   ]);
+}
+
+function fetchFixture(fixture: Map<string, Uint8Array>): typeof fetch {
+  return async (input) => {
+    const bytes = fixture.get(String(input));
+    if (!bytes) return new Response(null, { status: 404 });
+    return new Response(arrayBuffer(bytes), { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Length': String(bytes.byteLength) } });
+  };
 }
 
 function json(value: unknown): Uint8Array { return new TextEncoder().encode(`${JSON.stringify(value)}\n`); }

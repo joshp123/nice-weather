@@ -26,14 +26,27 @@ import (
 )
 
 const (
-	CatalogVersion      = 1
-	ProductContract     = "nice-weather-forecast-range-v1"
-	Period              = "next-14-days"
-	StaleAfterHours     = 18
-	MaximumCatalogBytes = 512 * 1024
-	CatalogFilename     = "catalog.json"
-	MaxZoom             = uint8(3)
+	CatalogVersion  = 1
+	ProductContract = "nice-weather-forecast-range-v1"
+	Period          = "next-14-days"
+	// The only complete worldwide fourteen-day source is the daily IFS 12 UTC
+	// run. Its final long-range tranche is normally not available until about
+	// 19:34 UTC on the following day, so the newest usable run can be more than
+	// 31 hours old. Thirty-six hours allows normal dissemination and build time
+	// while still failing closed when a daily run is missed.
+	StaleAfterHours       = 36
+	legacyStaleAfterHours = 18
+	MaximumCatalogBytes   = 512 * 1024
+	CatalogFilename       = "catalog.json"
+	MaxZoom               = uint8(3)
 )
+
+// SupportsStaleAfterHours accepts the immediately previous publication long
+// enough for its immutable run to age out. New catalogues always write
+// StaleAfterHours; readers apply the current policy to either representation.
+func SupportsStaleAfterHours(hours int) bool {
+	return hours == StaleAfterHours || hours == legacyStaleAfterHours
+}
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
@@ -189,17 +202,22 @@ func Parse(encoded []byte) (Catalog, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Catalog{}, errors.New("forecast range catalogue has trailing JSON")
 	}
-	if err := Validate(catalog); err != nil {
+	if err := validateCatalog(catalog, true); err != nil {
 		return Catalog{}, err
 	}
 	return catalog, nil
 }
 
 func Validate(catalog Catalog) error {
+	return validateCatalog(catalog, false)
+}
+
+func validateCatalog(catalog Catalog, allowLegacyStaleAfter bool) error {
 	if catalog.Version != CatalogVersion || catalog.ProductContract != ProductContract || !validIdentifier(catalog.ReleaseID) || catalog.Period != Period {
 		return errors.New("forecast range catalogue identity is invalid")
 	}
-	if catalog.Source.Provider != forecastpoints.ProviderIFS || catalog.Source.Tier != forecastpoints.TierGlobal || catalog.Source.Product != forecastcatalog.ProductIFSControl || catalog.Source.NativeResolutionKM != 28 || catalog.Source.StaleAfterHours != StaleAfterHours {
+	staleAfterValid := catalog.Source.StaleAfterHours == StaleAfterHours || allowLegacyStaleAfter && catalog.Source.StaleAfterHours == legacyStaleAfterHours
+	if catalog.Source.Provider != forecastpoints.ProviderIFS || catalog.Source.Tier != forecastpoints.TierGlobal || catalog.Source.Product != forecastcatalog.ProductIFSControl || catalog.Source.NativeResolutionKM != 28 || !staleAfterValid {
 		return errors.New("forecast range source must be the global IFS product")
 	}
 	run, err := time.Parse(time.RFC3339, catalog.Source.RunUTC)

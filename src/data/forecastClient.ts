@@ -35,7 +35,7 @@ type TierReference = Readonly<{
 }>;
 type RangeReference = Readonly<{
   period: 'next-14-days'; provider: 'ecmwf-ifs'; tier: 'global'; product: string; runUtc: string; nativeResolutionKm: 28;
-  staleAfterHours: 18; catalogPath: string; catalogBytes: number; catalogSha256: string;
+  staleAfterHours: 18 | 36; catalogPath: string; catalogBytes: number; catalogSha256: string;
 }>;
 
 export type ForecastIndex = Readonly<{
@@ -56,7 +56,7 @@ export type DayForecastProduct = Readonly<{ indexId: string; date: string; tiers
 
 export type RangeForecastCatalog = Readonly<{
   version: 1; productContract: 'nice-weather-forecast-range-v1'; releaseId: string; period: 'next-14-days'; dates: readonly string[];
-  source: Readonly<{ provider: 'ecmwf-ifs'; tier: 'global'; product: string; runUtc: string; nativeResolutionKm: 28; staleAfterHours: 18 }>;
+  source: Readonly<{ provider: 'ecmwf-ifs'; tier: 'global'; product: string; runUtc: string; nativeResolutionKm: 28; staleAfterHours: 36 }>;
   pointBlocks: readonly Readonly<{ row: number; column: number; omitted: boolean; path?: string; bytes?: number; sha256?: string; payloadSha256?: string }>[];
   scalarCoverage: readonly ForecastCoverage[]; scalarTiles: readonly ForecastScalarTile[]; root: string;
 }>;
@@ -271,8 +271,8 @@ function parseTier(value: unknown, dateValue: string, indexId: string): TierRefe
 function parseRangeReference(value: unknown, indexId: string): RangeReference {
   const row = exact(value, ['period', 'provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'staleAfterHours', 'catalogPath', 'catalogBytes', 'catalogSha256']);
   const catalogPath = safePath(row.catalogPath);
-  if (row.period !== 'next-14-days' || row.provider !== 'ecmwf-ifs' || row.tier !== 'global' || row.nativeResolutionKm !== 28 || row.staleAfterHours !== 18 || catalogPath !== `runs/${indexId}/forecast-ranges/next-14-days/global/catalog.json`) throw new ForecastDataError('invalid');
-  return Object.freeze({ period: 'next-14-days', provider: 'ecmwf-ifs', tier: 'global', product: text(row.product), runUtc: timestamp(row.runUtc), nativeResolutionKm: 28, staleAfterHours: 18, catalogPath, catalogBytes: boundedInteger(row.catalogBytes, 1, CATALOG_BYTES), catalogSha256: sha(row.catalogSha256) });
+  if (row.period !== 'next-14-days' || row.provider !== 'ecmwf-ifs' || row.tier !== 'global' || row.nativeResolutionKm !== 28 || !supportedStaleAfterHours(row.staleAfterHours) || catalogPath !== `runs/${indexId}/forecast-ranges/next-14-days/global/catalog.json`) throw new ForecastDataError('invalid');
+  return Object.freeze({ period: 'next-14-days', provider: 'ecmwf-ifs', tier: 'global', product: text(row.product), runUtc: timestamp(row.runUtc), nativeResolutionKm: 28, staleAfterHours: row.staleAfterHours, catalogPath, catalogBytes: boundedInteger(row.catalogBytes, 1, CATALOG_BYTES), catalogSha256: sha(row.catalogSha256) });
 }
 
 function parseDaily(value: unknown, index: ForecastIndex, reference: TierReference, root: string): DailyForecastCatalog {
@@ -305,8 +305,8 @@ function parseRange(value: unknown, index: ForecastIndex, root: string): RangeFo
   if (row.version !== 1 || row.productContract !== 'nice-weather-forecast-range-v1' || row.releaseId !== index.indexId || row.period !== 'next-14-days') throw new ForecastDataError('invalid');
   const dates = list(row.dates).map(date); if (JSON.stringify(dates) !== JSON.stringify(index.days.map(({ date }) => date))) throw new ForecastDataError('invalid');
   const sourceRow = exact(row.source, ['provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'staleAfterHours']);
-  if (sourceRow.provider !== 'ecmwf-ifs' || sourceRow.tier !== 'global' || sourceRow.nativeResolutionKm !== 28 || sourceRow.staleAfterHours !== 18 || timestamp(sourceRow.runUtc) !== index.range.runUtc) throw new ForecastDataError('invalid');
-  const source = Object.freeze({ provider: 'ecmwf-ifs' as const, tier: 'global' as const, product: text(sourceRow.product), runUtc: index.range.runUtc, nativeResolutionKm: 28 as const, staleAfterHours: 18 as const });
+  if (sourceRow.provider !== 'ecmwf-ifs' || sourceRow.tier !== 'global' || sourceRow.nativeResolutionKm !== 28 || !supportedStaleAfterHours(sourceRow.staleAfterHours) || sourceRow.staleAfterHours !== index.range.staleAfterHours || timestamp(sourceRow.runUtc) !== index.range.runUtc) throw new ForecastDataError('invalid');
+  const source = Object.freeze({ provider: 'ecmwf-ifs' as const, tier: 'global' as const, product: text(sourceRow.product), runUtc: index.range.runUtc, nativeResolutionKm: 28 as const, staleAfterHours: 36 as const });
   if (source.product !== index.range.product) throw new ForecastDataError('invalid');
   const grid = exact(row.grid, ['projection', 'zoom', 'tileSize', 'rows', 'columns']); if (grid.projection !== 'EPSG:3857-XYZ' || grid.zoom !== 3 || grid.tileSize !== 256 || grid.rows !== 2048 || grid.columns !== 2048) throw new ForecastDataError('invalid');
   parseScores(row.scores, true);
@@ -326,6 +326,8 @@ function parseRange(value: unknown, index: ForecastIndex, root: string): RangeFo
   validateScalarCollections(scalarCoverage, scalarTiles, 3);
   return Object.freeze({ version: 1, productContract: 'nice-weather-forecast-range-v1', releaseId: index.indexId, period: 'next-14-days', dates: Object.freeze(dates), source, pointBlocks, scalarCoverage, scalarTiles, root });
 }
+
+function supportedStaleAfterHours(value: unknown): value is 18 | 36 { return value === 18 || value === 36; }
 
 function parseScores(value: unknown, range = false) {
   const fields = exact(value, range ? ['unit', 'noDataValue', 'mediaType', 'profiles', 'fields'] : ['unit', 'noDataValue', 'profiles', 'fields']);

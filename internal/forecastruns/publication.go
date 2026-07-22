@@ -155,7 +155,13 @@ func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer,
 	if err != nil {
 		return Pointer{}, err
 	}
-	candidate, err := buildIndex(forecastRoot, indexID, true)
+	// Re-publishing the exact visible immutable run is a read-only idempotent
+	// operation. This also lets the one previous freshness contract age out;
+	// every genuinely new candidate still passes the strict current contract.
+	if hasCurrent && current.Current.IndexID == indexID {
+		return current, nil
+	}
+	candidate, err := buildIndex(forecastRoot, indexID, true, false)
 	if err != nil {
 		return Pointer{}, err
 	}
@@ -165,12 +171,6 @@ func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer,
 	}
 	sum := sha256.Sum256(payload)
 	candidateReference := IndexReference{IndexID: indexID, Path: indexPath(indexID), SHA256: hex.EncodeToString(sum[:])}
-	if hasCurrent && current.Current == candidateReference {
-		if !sameIndex(candidate, currentIndex) {
-			return Pointer{}, errors.New("current forecast pointer names different run content")
-		}
-		return current, nil
-	}
 	if hasCurrent {
 		candidateRun, _ := baselineRun(candidate)
 		currentRun, _ := baselineRun(currentIndex)
@@ -365,7 +365,7 @@ func loadIndexMetadataReference(forecastRoot string, reference IndexReference) (
 	return index, nil
 }
 
-func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
+func buildIndex(forecastRoot, indexID string, allowIndex, allowLegacyStaleAfter bool) (Index, error) {
 	runRoot := filepath.Join(forecastRoot, "runs", indexID)
 	entries, err := readRealDirectory(runRoot)
 	if err != nil {
@@ -466,7 +466,7 @@ func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 		return Index{}, err
 	}
 	index.Range = rangeReference
-	if err := validateIndexShape(index); err != nil {
+	if err := validateIndexShapeForRead(index, allowLegacyStaleAfter); err != nil {
 		return Index{}, err
 	}
 	return index, nil
@@ -647,6 +647,10 @@ func validateTierTree(root string, catalog forecastcatalog.Catalog) error {
 }
 
 func validateIndexShape(index Index) error {
+	return validateIndexShapeForRead(index, false)
+}
+
+func validateIndexShapeForRead(index Index, allowLegacyStaleAfter bool) error {
 	if index.Version != IndexVersion || index.ProductContract != ProductContract || !validIdentifier(index.IndexID) || len(index.Days) != 14 ||
 		index.FirstDate != index.Days[0].Date || index.LastDate != index.Days[13].Date ||
 		index.TierSelection.Method != SelectionMethod || index.TierSelection.Blend ||
@@ -687,20 +691,21 @@ func validateIndexShape(index Index) error {
 			}
 		}
 	}
-	if err := validateRangeReference(index); err != nil {
+	if err := validateRangeReference(index, allowLegacyStaleAfter); err != nil {
 		return err
 	}
 	return nil
 }
 
-func validateRangeReference(index Index) error {
+func validateRangeReference(index Index, allowLegacyStaleAfter bool) error {
 	wantPath := filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename))
 	run, err := time.Parse(time.RFC3339, index.Range.RunUTC)
 	baseline := index.Days[0].Tiers[len(index.Days[0].Tiers)-1]
+	staleAfterValid := index.Range.StaleAfterHours == forecastrange.StaleAfterHours || allowLegacyStaleAfter && forecastrange.SupportsStaleAfterHours(index.Range.StaleAfterHours)
 	if index.Range.Period != forecastrange.Period || index.Range.Provider != forecastpoints.ProviderIFS ||
 		index.Range.Tier != forecastpoints.TierGlobal || index.Range.Product != forecastcatalog.ProductIFSControl ||
 		index.Range.RunUTC != baseline.RunUTC || err != nil || run.Location() != time.UTC || run.Nanosecond() != 0 ||
-		index.Range.NativeResolutionKM != 28 || index.Range.StaleAfterHours != forecastrange.StaleAfterHours ||
+		index.Range.NativeResolutionKM != 28 || !staleAfterValid ||
 		index.Range.CatalogPath != wantPath || index.Range.CatalogBytes == 0 || index.Range.CatalogBytes > forecastrange.MaximumCatalogBytes ||
 		!validSHA256(index.Range.CatalogSHA256) {
 		return errors.New("forecast run range reference is invalid")
@@ -740,7 +745,7 @@ func validateIndexReference(forecastRoot string, reference IndexReference) (Inde
 	if index.IndexID != reference.IndexID {
 		return Index{}, errors.New("forecast index path and identity differ")
 	}
-	rebuilt, err := buildIndex(forecastRoot, index.IndexID, true)
+	rebuilt, err := buildIndex(forecastRoot, index.IndexID, true, true)
 	if err != nil {
 		return Index{}, err
 	}
@@ -832,7 +837,7 @@ func validateIndexReferenceShape(reference IndexReference) error {
 }
 
 func baselineRun(index Index) (time.Time, error) {
-	if err := validateIndexShape(index); err != nil {
+	if err := validateIndexShapeForRead(index, true); err != nil {
 		return time.Time{}, err
 	}
 	return time.Parse(time.RFC3339, index.Days[0].Tiers[len(index.Days[0].Tiers)-1].RunUTC)
@@ -861,7 +866,7 @@ func parseIndex(payload []byte) (Index, error) {
 	if err := decodeExactJSON(payload, &index); err != nil {
 		return Index{}, err
 	}
-	if err := validateIndexShape(index); err != nil {
+	if err := validateIndexShapeForRead(index, true); err != nil {
 		return Index{}, err
 	}
 	return index, nil

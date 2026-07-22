@@ -62,7 +62,7 @@ func newReleaseWriter(root, name string, generated time.Time, domain product.Dom
 		Profiles: []delivery.Profile{{ID: delivery.ProfileNice, Label: "Nice"}, {ID: delivery.ProfileCycling, Label: "Cycling"}},
 		Legend:   delivery.CanonicalLegend(),
 		Palette:  delivery.CanonicalPalette(),
-		Forecast: delivery.ForecastCatalog{UpdatedAt: generated.UTC().Format(time.RFC3339), StaleAfterHours: 18},
+		Forecast: delivery.ForecastCatalog{UpdatedAt: generated.UTC().Format(time.RFC3339), StaleAfterHours: 36},
 		Climate:  &delivery.ClimateCatalog{Label: "Typical month", ReferencePeriod: "1981–2010"},
 	}}, nil
 }

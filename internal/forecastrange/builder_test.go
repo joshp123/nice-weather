@@ -601,3 +601,13 @@ func TestWorstCaseWorldCatalogueFitsStaticDeliveryLimit(t *testing.T) {
 	}
 	t.Logf("worst-case world catalogue: %d bytes", len(encoded))
 }
+
+func TestLegacyFreshnessCannotBeMarshalledIntoANewCatalogue(t *testing.T) {
+	catalog := Catalog{
+		Version: CatalogVersion, ProductContract: ProductContract, ReleaseID: "legacy", Period: Period,
+		Source: Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: "2026-07-22T12:00:00Z", NativeResolutionKM: 28, StaleAfterHours: legacyStaleAfterHours},
+	}
+	if _, err := Marshal(catalog); err == nil || !strings.Contains(err.Error(), "source must be the global IFS product") {
+		t.Fatalf("Marshal legacy freshness error = %v", err)
+	}
+}

@@ -562,10 +562,14 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog Catalog) (uin
 }
 
 func ValidateFiles(root string, catalog Catalog) error {
+	return validateFiles(root, catalog, false)
+}
+
+func validateFiles(root string, catalog Catalog, allowLegacyStaleAfter bool) error {
 	if root == "" || !filepath.IsAbs(root) {
 		return errors.New("forecast range root must be absolute")
 	}
-	if err := Validate(catalog); err != nil {
+	if err := validateCatalog(catalog, allowLegacyStaleAfter); err != nil {
 		return err
 	}
 	maxCounts := make(map[[2]uint32][2]uint32, len(catalog.ScalarCoverage))
@@ -726,7 +730,7 @@ func validateInstalled(root string) (Catalog, []byte, error) {
 	if err := validateTree(root, catalog); err != nil {
 		return Catalog{}, nil, err
 	}
-	if err := ValidateFiles(root, catalog); err != nil {
+	if err := validateFiles(root, catalog, true); err != nil {
 		return Catalog{}, nil, err
 	}
 	after, err := readRegularBounded(filepath.Join(root, CatalogFilename), MaximumCatalogBytes)

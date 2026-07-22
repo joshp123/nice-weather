@@ -281,7 +281,7 @@ func validManifest(checksum string) Manifest {
 		Legend:   CanonicalLegend(),
 		Palette:  CanonicalPalette(),
 		Forecast: ForecastCatalog{
-			UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 18,
+			UpdatedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC).Format(time.RFC3339), StaleAfterHours: 36,
 			Window: ForecastWindow{
 				ID: "next-14-days", Label: "Next 14 days", StartDate: "2026-07-18", EndDate: "2026-07-31", DayCount: ForecastPointDayCount, GridResolutionKM: 28,
 				Point: manifestPointAsset(PointKindForecastWindow, strings.Repeat("3", 64)),
