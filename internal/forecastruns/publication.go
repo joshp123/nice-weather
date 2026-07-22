@@ -126,8 +126,9 @@ type Index struct {
 
 // Publish validates one already installed run, installs its immutable index,
 // then changes current.json last. Cooperative publishers are serialized. A
-// candidate whose IFS run is not newer than the visible run is stale unless it
-// is byte-for-byte the current index; an intentional older move uses Rollback.
+// candidate is newer when its IFS baseline advances, or when the same IFS
+// baseline gains a newer ICON-EU refinement. An intentional older move uses
+// Rollback.
 func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer, resultErr error) {
 	if ctx == nil || !validIdentifier(indexID) {
 		return Pointer{}, errors.New("forecast publication requires a context and safe index ID")
@@ -174,7 +175,11 @@ func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer,
 	if hasCurrent {
 		candidateRun, _ := baselineRun(candidate)
 		currentRun, _ := baselineRun(currentIndex)
-		if !candidateRun.After(currentRun) {
+		advances, err := forecastEvidenceAdvances(candidate, currentIndex)
+		if err != nil {
+			return Pointer{}, err
+		}
+		if !advances {
 			return Pointer{}, fmt.Errorf("refuse stale forecast run %s; current IFS run is %s", candidateRun.Format(time.RFC3339), currentRun.Format(time.RFC3339))
 		}
 		if candidate.FirstDate < currentIndex.FirstDate || candidate.LastDate < currentIndex.LastDate {
@@ -841,6 +846,59 @@ func baselineRun(index Index) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return time.Parse(time.RFC3339, index.Days[0].Tiers[len(index.Days[0].Tiers)-1].RunUTC)
+}
+
+func forecastEvidenceAdvances(candidate, current Index) (bool, error) {
+	candidateBaseline, err := baselineRun(candidate)
+	if err != nil {
+		return false, err
+	}
+	currentBaseline, err := baselineRun(current)
+	if err != nil {
+		return false, err
+	}
+	if !candidateBaseline.Equal(currentBaseline) {
+		return candidateBaseline.After(currentBaseline), nil
+	}
+	for day := range candidate.Days {
+		candidateGlobal := candidate.Days[day].Tiers[len(candidate.Days[day].Tiers)-1]
+		currentGlobal := current.Days[day].Tiers[len(current.Days[day].Tiers)-1]
+		if candidateGlobal.SourceEvidenceSHA256 != currentGlobal.SourceEvidenceSHA256 {
+			return false, nil
+		}
+		if len(current.Days[day].Tiers) == 2 && len(candidate.Days[day].Tiers) != 2 {
+			return false, nil
+		}
+	}
+	candidateRefinement, candidateHasRefinement, err := refinementRun(candidate)
+	if err != nil {
+		return false, err
+	}
+	currentRefinement, currentHasRefinement, err := refinementRun(current)
+	if err != nil {
+		return false, err
+	}
+	if !candidateHasRefinement {
+		return false, nil
+	}
+	return !currentHasRefinement || candidateRefinement.After(currentRefinement), nil
+}
+
+func refinementRun(index Index) (time.Time, bool, error) {
+	if err := validateIndexShapeForRead(index, true); err != nil {
+		return time.Time{}, false, err
+	}
+	for _, day := range index.Days {
+		if len(day.Tiers) != 2 {
+			continue
+		}
+		run, err := time.Parse(time.RFC3339, day.Tiers[0].RunUTC)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		return run, true, nil
+	}
+	return time.Time{}, false, nil
 }
 
 func marshalIndex(index Index) ([]byte, error) {

@@ -391,6 +391,66 @@ func TestStaleRunRequiresExplicitDeterministicRollback(t *testing.T) {
 	}
 }
 
+func TestSameIFSRunCanPublishNewerEuropeRefinement(t *testing.T) {
+	useFixtureTierLoader(t)
+	artifacts := publicationFixture(t)
+	const ifsRun = "2026-07-21T12:00:00Z"
+	europeDays := []int{0, 1, 2, 3, 4}
+	createRun(t, artifacts, "icon-midnight", "2026-07-22", ifsRun, europeDays)
+	current, err := Publish(context.Background(), artifacts, "icon-midnight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	createRun(t, artifacts, "icon-six", "2026-07-22", ifsRun, europeDays)
+	for _, day := range europeDays {
+		date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		overwriteTier(t, artifacts, "icon-six", date, forecastpoints.TierEurope, "2026-07-22T06:00:00Z", digest("icon-six-evidence-"+date))
+	}
+	next, err := Publish(context.Background(), artifacts, "icon-six")
+	if err != nil || next.Previous == nil || *next.Previous != current.Current {
+		t.Fatalf("newer Europe refinement publication = %+v, %v", next, err)
+	}
+	visible, index, err := ValidateCurrent(artifacts)
+	if err != nil || visible.Current.IndexID != "icon-six" || index.Days[0].Tiers[0].RunUTC != "2026-07-22T06:00:00Z" {
+		t.Fatalf("visible Europe refinement = %+v %+v, %v", visible, index, err)
+	}
+	for _, stale := range []struct {
+		id      string
+		iconRun string
+	}{
+		{id: "icon-midnight-again", iconRun: "2026-07-22T00:00:00Z"},
+		{id: "icon-six-again", iconRun: "2026-07-22T06:00:00Z"},
+	} {
+		createRun(t, artifacts, stale.id, "2026-07-22", ifsRun, europeDays)
+		for _, day := range europeDays {
+			date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+			overwriteTier(t, artifacts, stale.id, date, forecastpoints.TierEurope, stale.iconRun, digest(stale.id+"-evidence-"+date))
+		}
+		if _, err := Publish(context.Background(), artifacts, stale.id); err == nil || !strings.Contains(err.Error(), "stale forecast run") {
+			t.Fatalf("same or older Europe refinement %s error = %v", stale.iconRun, err)
+		}
+	}
+	createRun(t, artifacts, "changed-baseline", "2026-07-22", ifsRun, europeDays)
+	overwriteTier(t, artifacts, "changed-baseline", "2026-07-22", forecastpoints.TierGlobal, ifsRun, digest("changed-ifs-evidence"))
+	overwriteRange(t, artifacts, "changed-baseline", "2026-07-22", ifsRun)
+	for _, day := range europeDays {
+		date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		overwriteTier(t, artifacts, "changed-baseline", date, forecastpoints.TierEurope, "2026-07-22T12:00:00Z", digest("changed-baseline-icon-"+date))
+	}
+	if _, err := Publish(context.Background(), artifacts, "changed-baseline"); err == nil || !strings.Contains(err.Error(), "stale forecast run") {
+		t.Fatalf("changed evidence under same IFS run error = %v", err)
+	}
+
+	createRun(t, artifacts, "reduced-refinement", "2026-07-22", ifsRun, []int{0, 1, 2, 3})
+	for day := 0; day < 4; day++ {
+		date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		overwriteTier(t, artifacts, "reduced-refinement", date, forecastpoints.TierEurope, "2026-07-22T12:00:00Z", digest("reduced-refinement-icon-"+date))
+	}
+	if _, err := Publish(context.Background(), artifacts, "reduced-refinement"); err == nil || !strings.Contains(err.Error(), "stale forecast run") {
+		t.Fatalf("reduced Europe refinement error = %v", err)
+	}
+}
+
 func TestNewerProviderRunCannotMoveForecastHorizonBackwards(t *testing.T) {
 	useFixtureTierLoader(t)
 	artifacts := publicationFixture(t)
