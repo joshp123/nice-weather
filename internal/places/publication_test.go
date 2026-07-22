@@ -83,6 +83,9 @@ func TestPublishInstallsImmutableReleaseAndRotatesPointerLast(t *testing.T) {
 	if got, err := ValidateCurrent(artifactRoot); err != nil || got != first {
 		t.Fatalf("current pointer = %+v, %v; want %+v", got, err, first)
 	}
+	if got, err := LoadCurrentPointer(artifactRoot); err != nil || got != first {
+		t.Fatalf("pointer metadata = %+v, %v; want %+v", got, err, first)
+	}
 	installed := filepath.Join(artifactRoot, "places", "releases", "places-a")
 	if _, err := ValidateRelease(installed); err != nil {
 		t.Fatalf("installed release is invalid: %v", err)

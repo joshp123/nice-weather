@@ -147,7 +147,7 @@ describe('clear weather copy', () => {
   });
 
   it('states the forecast and climate place-search scopes', () => {
-    expect(placeSearchPrompt('range')).toBe('Search anywhere');
+    expect(placeSearchPrompt('range')).toBe('Search or see best weather');
     expect(placeSearchPrompt('daily')).toBe('Search anywhere');
     expect(placeSearchPrompt('climate')).toBe('Search anywhere');
   });

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
 import { forecastRunStatus, isStale } from './data/api';
+import { loadBestWeather, type BestWeatherPlace } from './data/bestWeather';
 import { ClimateDataError, WorldwideClimateClient, type ClimateCatalog, type ClimateField, type ClimateIndex, type ClimatePointEvidence } from './data/climateClient';
 import { ForecastDataError, WorldwideForecastClient, forecastDetailDeclared, type DayForecastProduct, type ForecastField, type ForecastSnapshot } from './data/forecastClient';
 import { WorldwidePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
@@ -370,7 +371,7 @@ export default function App() {
             selectedForecast={pointState.status === 'ready' && pointState.kind === 'forecast' ? pointState.data : undefined}
           />
         </div>
-        <PlaceSearch viewport={viewport} view={view} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onLocate={() => locate((point) => {
+        <PlaceSearch viewport={viewport} view={view} profile={profile} forecast={forecastState.status === 'ready' ? forecastState.snapshot : undefined} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onLocate={() => locate((point) => {
           setMapSelectionToken((value) => value + 1);
           selectPoint({ ...point, label: 'Current location' });
         }, setMapNotice)} onFound={(point, origin) => {
@@ -577,7 +578,13 @@ export function ScoreRamp({ manifest, probability = false }: { manifest: Weather
   </div>;
 }
 
-function PlaceSearch({ viewport, view, clearToken, onEngage, onLocate, onFound }: { viewport: PlaceSearchViewport; view: View; clearToken: number; onEngage: () => void; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
+type BestWeatherState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'unavailable' }
+  | { status: 'ready'; results: BestWeatherPlace[] };
+
+function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, onLocate, onFound }: { viewport: PlaceSearchViewport; view: View; profile: Profile; forecast?: ForecastSnapshot; clearToken: number; onEngage: () => void; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
   const search = useMemo(() => new WorldwidePlaceSearch(), []);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
@@ -585,15 +592,21 @@ function PlaceSearch({ viewport, view, clearToken, onEngage, onLocate, onFound }
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
   const [status, setStatus] = useState('');
   const [focused, setFocused] = useState(false);
+  const [bestWeather, setBestWeather] = useState<BestWeatherState>({ status: 'idle' });
+  const [bestWeatherDismissed, setBestWeatherDismissed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
+  const bestWeatherRequestSequence = useRef(0);
   const blurTimer = useRef<number | undefined>(undefined);
-  const open = focused && (results.length > 0 || Boolean(status));
+  const emptyQuery = query.trim() === '';
+  const showBestWeather = emptyQuery && !bestWeatherDismissed && bestWeather.status !== 'idle';
+  const open = focused && (results.length > 0 || Boolean(status) || showBestWeather);
   const prompt = placeSearchPrompt(view);
   const engageInput = () => {
     window.clearTimeout(blurTimer.current);
     blurTimer.current = undefined;
     setFocused(true);
+    setBestWeatherDismissed(false);
   };
 
   useEffect(() => () => {
@@ -605,9 +618,34 @@ function PlaceSearch({ viewport, view, clearToken, onEngage, onLocate, onFound }
       setQuery('');
       setResults([]);
       setStatus('');
+      setBestWeather({ status: 'idle' });
       setFocused(false);
     });
   }, [clearToken]);
+  useEffect(() => {
+    const request = ++bestWeatherRequestSequence.current;
+    if (!focused || !emptyQuery || view !== 'range' || !forecast || isStale(forecast.range.source.runUtc, forecast.range.source.staleAfterHours)) {
+      setBestWeather({ status: 'idle' });
+      return;
+    }
+    const controller = new AbortController();
+    setBestWeather({ status: 'loading' });
+    loadBestWeather({
+      indexId: forecast.index.indexId,
+      firstDate: forecast.index.firstDate,
+      lastDate: forecast.index.lastDate,
+      runUtc: forecast.range.source.runUtc,
+    }, profile, controller.signal)
+      .then(({ results: recommendations }) => {
+        if (controller.signal.aborted || request !== bestWeatherRequestSequence.current) return;
+        setBestWeather({ status: 'ready', results: recommendations });
+        telemetry('best-weather-ready', { profile, count: recommendations.length });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted && request === bestWeatherRequestSequence.current) setBestWeather({ status: 'unavailable' });
+      });
+    return () => controller.abort();
+  }, [emptyQuery, focused, forecast, profile, view]);
   useEffect(() => {
     const request = ++requestSequence.current;
     const coordinates = parseCoordinates(query);
@@ -640,15 +678,16 @@ function PlaceSearch({ viewport, view, clearToken, onEngage, onLocate, onFound }
     return () => window.clearTimeout(timer);
   }, [query, search]);
 
-  const choose = (result: PlaceSearchResult) => {
+  const choose = (result: PlaceSearchResult | BestWeatherPlace, source: 'search' | 'best-weather' = 'search') => {
     const label = [result.name, result.admin1, result.country].filter((item, index, all) => item && all.indexOf(item) === index).join(', ');
     setQuery(result.name);
     setResults([]);
     setStatus('');
+    setBestWeather({ status: 'idle' });
     setFocused(false);
     input.current?.blur();
     onFound({ lat: result.latitude, lon: result.longitude, label }, input.current);
-    telemetry('search-selected', { geonameId: result.geonameId, country: result.countryCode });
+    telemetry(source === 'search' ? 'search-selected' : 'best-weather-selected', { geonameId: result.geonameId, country: result.countryCode, profile });
   };
 
   const submit = (event: React.FormEvent) => {
@@ -668,6 +707,7 @@ function PlaceSearch({ viewport, view, clearToken, onEngage, onLocate, onFound }
       event.stopPropagation();
       setResults([]);
       setStatus('');
+      setBestWeatherDismissed(true);
       input.current?.focus();
     }}>
       <SearchIcon />
@@ -686,16 +726,35 @@ function PlaceSearch({ viewport, view, clearToken, onEngage, onLocate, onFound }
         setQuery(event.target.value);
       }} aria-expanded={open} aria-controls="place-results" />
       {query
-        ? <button className="iconButton searchAction clearSearch" type="button" aria-label="Clear search" onClick={() => { setQuery(''); setResults([]); setStatus(''); input.current?.focus(); }}>×</button>
+        ? <button className="iconButton searchAction clearSearch" type="button" aria-label="Clear search" onClick={() => { setQuery(''); setResults([]); setStatus(''); setBestWeatherDismissed(false); input.current?.focus(); }}>×</button>
         : <button className="iconButton searchAction searchLocation" type="button" aria-label="Use my location" onClick={onLocate}><LocationIcon /></button>}
       {open && (
         <div id="place-results" className="controlSurface searchPopover">
-          {results.length > 0 ? <ul aria-label="Places">{results.map((result) => <li key={result.geonameId}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(result)}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(', ')}</span></button></li>)}</ul> : <p role="status">{status}</p>}
-          {search.attribution && <small>Place names: <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a></small>}
+          {results.length > 0
+            ? <ul aria-label="Places">{results.map((result) => <li key={result.geonameId}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(result)}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(', ')}</span></button></li>)}</ul>
+            : showBestWeather
+              ? <BestWeatherResults state={bestWeather} onChoose={(result) => choose(result, 'best-weather')} />
+              : <p role="status">{status}</p>}
+          {(search.attribution || bestWeather.status === 'ready') && <small>Place names: <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a></small>}
         </div>
       )}
     </form>
   );
+}
+
+function BestWeatherResults({ state, onChoose }: { state: BestWeatherState; onChoose: (result: BestWeatherPlace) => void }) {
+  if (state.status === 'idle') return null;
+  if (state.status === 'loading') return <p role="status">Finding the best weather…</p>;
+  if (state.status === 'unavailable') return <p role="status">Best weather is not available right now.</p>;
+  return <>
+    <div className="bestWeatherHeading"><strong>Best weather</strong><span>Next 14 days</span></div>
+    <ul aria-label="Best weather worldwide">{state.results.map((result) => <li key={result.geonameId}>
+      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onChoose(result)}>
+        <span className="bestPlace"><strong>{result.name}</strong><small>{[result.admin1, result.country].filter(Boolean).join(', ')}</small></span>
+        <span className="bestScore"><strong>{result.score}</strong><small>{result.niceDays} of 14 nice</small></span>
+      </button>
+    </li>)}</ul>
+  </>;
 }
 
 function PointPanel({ state, point, legend, lens, profile, climateModel, focusIntent, onLensChange, escapeEnabled, onClose }: { state: PointState; point: MapPoint; legend: WeatherPresentation['legend']; lens: Lens; profile: Profile; climateModel: ClimateUiModel; focusIntent: DetailsFocusIntent; onLensChange: (lens: Lens) => void; escapeEnabled: boolean; onClose: () => void }) {
@@ -1103,7 +1162,7 @@ export function temperatureRange(minimum: number, maximum: number): string {
   return low === high ? `${low}°` : `${low}–${high}°`;
 }
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
-export function placeSearchPrompt(_view: View): string { return 'Search anywhere'; }
+export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search or see best weather' : 'Search anywhere'; }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
   if (data.source.basis === 'climate') return { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` };
   const amount = `${format(data.metrics.rainMm, 1)} mm`;

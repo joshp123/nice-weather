@@ -1,5 +1,5 @@
 // Package destinations turns canonical forecast-window judgements and the
-// complete Europe place index into a small, geographically useful shortlist.
+// complete place index into a small, geographically useful shortlist.
 package destinations
 
 import (
@@ -17,6 +17,8 @@ const (
 	bucketDegrees      = 0.5
 	primarySpacingKM   = 400.0
 	secondarySpacingKM = 250.0
+	worldSpacingKM     = 1_500.0
+	worldFallbackKM    = 900.0
 )
 
 type Lookup func(profile string, longitude, latitude float64) (delivery.RangeRecord, bool, error)
@@ -51,18 +53,33 @@ type bucket struct{ latitude, longitude int }
 // for each profile. The 0.5-degree buckets only remove near-duplicates; they do
 // not alter or smooth any weather score.
 func Evaluate(walk Walk, lookup Lookup) (map[string][]Result, error) {
+	return evaluate(walk, lookup, []float64{primarySpacingKM, secondarySpacingKM, 0})
+}
+
+// EvaluateWorldwide applies the same canonical evidence and place-quality
+// rules as Evaluate, but requires useful global separation before relaxing to
+// the established local deduplication distance. It has no country or city
+// allow-list: every settlement in the validated place release competes.
+func EvaluateWorldwide(walk Walk, lookup Lookup) (map[string][]Result, error) {
+	return evaluate(walk, lookup, []float64{worldSpacingKM, worldFallbackKM, primarySpacingKM, 0})
+}
+
+func evaluate(walk Walk, lookup Lookup, spacings []float64) (map[string][]Result, error) {
 	if walk == nil || lookup == nil {
 		return nil, errors.New("destination walk and lookup are required")
+	}
+	if len(spacings) == 0 || spacings[len(spacings)-1] != 0 {
+		return nil, errors.New("destination spacing policy must end with an unspaced fallback")
 	}
 	profiles := []string{delivery.ProfileNice, delivery.ProfileCycling}
 	best := map[string]map[bucket]candidate{
 		delivery.ProfileNice: {}, delivery.ProfileCycling: {},
 	}
 	if err := walk(func(place places.Candidate) error {
-		// Recommendations are useful positions for a traveller, not a contest to
-		// find the warmest named rock. Keep ordinary towns and significant
-		// administrative centres while excluding uninhabited and tiny localities.
-		if place.Population < 5_000 && place.FeatureRank < 4 {
+		// Recommendations are viable bases for a traveller, not a contest to find
+		// the warmest named settlement. Keep population centres and national
+		// capitals; the complete place search still accepts smaller destinations.
+		if place.Population < 50_000 && place.FeatureRank < 5 {
 			return nil
 		}
 		key := bucket{
@@ -115,19 +132,33 @@ func Evaluate(walk Walk, lookup Lookup) (map[string][]Result, error) {
 			}
 			return 0
 		})
-		selected := selectSpaced(ordered, primarySpacingKM, nil)
-		if len(selected) < resultCount {
-			selected = selectSpaced(ordered, secondarySpacingKM, selected)
-		}
-		if len(selected) < resultCount {
-			selected = selectSpaced(ordered, 0, selected)
+		var selected []Result
+		for _, spacing := range spacings {
+			if len(selected) == resultCount {
+				break
+			}
+			selected = selectSpaced(ordered, spacing, selected)
 		}
 		if len(selected) != resultCount {
 			return nil, fmt.Errorf("only %d %s destinations have a complete forecast window; need %d", len(selected), profile, resultCount)
 		}
-		result[profile] = selected
+		result[profile] = orderSelected(ordered, selected)
 	}
 	return result, nil
+}
+
+func orderSelected(ordered []candidate, selected []Result) []Result {
+	wanted := make(map[int64]bool, len(selected))
+	for _, item := range selected {
+		wanted[item.GeoNameID] = true
+	}
+	result := make([]Result, 0, len(selected))
+	for _, item := range ordered {
+		if wanted[item.result.GeoNameID] {
+			result = append(result, item.result)
+		}
+	}
+	return result
 }
 
 func selectSpaced(ordered []candidate, minimumKM float64, selected []Result) []Result {

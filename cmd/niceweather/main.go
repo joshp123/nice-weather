@@ -97,6 +97,16 @@ func main() {
 						summary.BuiltProducts, summary.ReusedProducts, summary.OutputFiles, summary.OutputBytes,
 						summary.StageElapsed.Round(time.Millisecond), summary.PrepareElapsed.Round(time.Millisecond), summary.BuildElapsed.Round(time.Millisecond),
 						summary.PublishElapsed.Round(time.Millisecond), summary.Elapsed.Round(time.Millisecond))
+					var best destinations.WorldwideBuildSummary
+					var built bool
+					best, built, err = buildBestWeatherWhenReady(ctx, *out)
+					if err != nil {
+						err = fmt.Errorf("worldwide forecast published, but best-weather artifact failed: %w", err)
+					} else if built {
+						fmt.Printf("best weather worldwide: %d places -> %d bytes in %s\n", best.ScannedPlaces, best.Bytes, best.Elapsed.Round(time.Millisecond))
+					} else {
+						fmt.Println("best weather: waiting for the worldwide place index")
+					}
 				}
 			}
 		}
@@ -152,12 +162,15 @@ func main() {
 			summary, err = places.BuildAndPublishGlobal(ctx, *source, *out, *sourceDate, *releaseID, domain.Bounds())
 			if err == nil {
 				fmt.Printf("places: %d places, %d keys, %d shards, %.1f MiB gzip\n", summary.PlaceCount, summary.SearchKeyCount, summary.ShardCount, float64(summary.GzipBytes)/(1024*1024))
-				var best destinations.BuildSummary
-				best, err = destinations.BuildCurrent(ctx, *out)
+				var best destinations.WorldwideBuildSummary
+				var built bool
+				best, built, err = buildBestWeatherWhenReady(ctx, *out)
 				if err != nil {
 					err = fmt.Errorf("place index published, but best-weather artifact failed: %w", err)
-				} else {
+				} else if built {
 					fmt.Printf("best weather: %d places -> %d bytes in %s\n", best.ScannedPlaces, best.Bytes, best.Elapsed.Round(time.Millisecond))
+				} else {
+					fmt.Println("best weather: waiting for the worldwide forecast")
 				}
 			}
 		}
@@ -167,8 +180,8 @@ func main() {
 		if err = flags.Parse(os.Args[2:]); err == nil {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			var summary destinations.BuildSummary
-			summary, err = destinations.BuildCurrent(ctx, *out)
+			var summary destinations.WorldwideBuildSummary
+			summary, err = destinations.BuildWorldwideCurrent(ctx, *out)
 			if err == nil {
 				fmt.Printf("best weather: %d places -> %d bytes in %s\n", summary.ScannedPlaces, summary.Bytes, summary.Elapsed.Round(time.Millisecond))
 			}
@@ -195,6 +208,19 @@ func formatOptionalTime(value time.Time) string {
 		return "not selected"
 	}
 	return value.Format(time.RFC3339)
+}
+
+func buildBestWeatherWhenReady(ctx context.Context, artifactRoot string) (destinations.WorldwideBuildSummary, bool, error) {
+	for _, pointer := range []string{filepath.Join(artifactRoot, "forecast", "current.json"), filepath.Join(artifactRoot, "places", "current.json")} {
+		if _, err := os.Stat(pointer); err != nil {
+			if os.IsNotExist(err) {
+				return destinations.WorldwideBuildSummary{}, false, nil
+			}
+			return destinations.WorldwideBuildSummary{}, false, err
+		}
+	}
+	summary, err := destinations.BuildWorldwideCurrent(ctx, artifactRoot)
+	return summary, err == nil, err
 }
 
 type globalClimateRunner func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error)

@@ -140,6 +140,28 @@ func ValidateCurrent(artifactRoot string) (Pointer, error) {
 	return validateCurrent(placeRoot)
 }
 
+// LoadCurrentPointer reads and validates only the small mutable pointer. It is
+// useful when a consumer has already validated and walked the complete release
+// and needs to prove that publication did not change during that work.
+func LoadCurrentPointer(artifactRoot string) (Pointer, error) {
+	placeRoot, err := existingPublicationRoot(artifactRoot)
+	if err != nil {
+		return Pointer{}, err
+	}
+	payload, err := readRegularBounded(filepath.Join(placeRoot, "current.json"), maximumPointerBytes)
+	if err != nil {
+		return Pointer{}, fmt.Errorf("read place pointer: %w", err)
+	}
+	var pointer Pointer
+	if err := decodeExactJSON(payload, &pointer); err != nil {
+		return Pointer{}, fmt.Errorf("decode place pointer: %w", err)
+	}
+	if !validReleaseID(pointer.ReleaseID) || !validSHA256(pointer.ManifestSHA256) {
+		return Pointer{}, errors.New("place pointer is invalid")
+	}
+	return pointer, nil
+}
+
 // ValidateRelease verifies the complete immutable place-index schema, every
 // shard checksum and the cross-file counts used by the browser reader.
 func ValidateRelease(root string) (Summary, error) {

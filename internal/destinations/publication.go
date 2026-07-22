@@ -39,6 +39,8 @@ type Pointer struct {
 	SHA256         string `json:"sha256"`
 }
 
+func (Pointer) publicationPointer() {}
+
 type BuildSummary struct {
 	ScannedPlaces int
 	Bytes         int
@@ -104,7 +106,9 @@ func BuildCurrent(ctx context.Context, artifactRoot string) (BuildSummary, error
 	return BuildSummary{ScannedPlaces: scanned, Bytes: len(payload), Elapsed: time.Since(started), Pointer: pointer}, nil
 }
 
-func publish(root, relative string, payload []byte, pointer Pointer) error {
+type publicationPointer interface{ publicationPointer() }
+
+func publish(root, relative string, payload []byte, pointer publicationPointer) error {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return err

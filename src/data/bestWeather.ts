@@ -1,7 +1,7 @@
 import type { Profile } from './types';
 import { readBoundedResponse } from './boundedResponse';
 
-const SCHEMA = 'nice-best-weather-v1';
+const SCHEMA = 'nice-best-weather-world-v1';
 
 export type BestWeatherPlace = {
   geonameId: number;
@@ -16,20 +16,28 @@ export type BestWeatherPlace = {
 };
 
 export type BestWeather = {
-  releaseId: string;
+  forecastIndexId: string;
   placeReleaseId: string;
   profile: Profile;
   startDate: string;
   endDate: string;
-  generatedAt: string;
+  forecastRunUtc: string;
   results: BestWeatherPlace[];
 };
 
-export async function loadBestWeather(releaseId: string, profile: Profile, signal?: AbortSignal): Promise<BestWeather> {
+export type BestWeatherForecast = {
+  indexId: string;
+  firstDate: string;
+  lastDate: string;
+  runUtc: string;
+};
+
+export async function loadBestWeather(forecast: BestWeatherForecast, profile: Profile, signal?: AbortSignal): Promise<BestWeather> {
+  const { indexId: forecastIndexId } = forecast;
   const pointerResponse = await fetch('/best-weather/current.json', { signal, cache: 'no-cache' });
   if (!pointerResponse.ok) throw new Error('Best weather is unavailable.');
-  const pointer = exactObject(parseJson(await readBoundedResponse(pointerResponse, 'best-weather pointer', 1_024)), ['schema', 'weatherReleaseId', 'placeReleaseId', 'url', 'sha256']);
-  if (pointer.schema !== SCHEMA || pointer.weatherReleaseId !== releaseId || typeof pointer.placeReleaseId !== 'string' || typeof pointer.url !== 'string' || !/^\/best-weather\/releases\/[A-Za-z0-9._-]+\.json$/.test(pointer.url) || !/^[a-f0-9]{64}$/.test(pointer.sha256)) {
+  const pointer = exactObject(parseJson(await readBoundedResponse(pointerResponse, 'best-weather pointer', 1_024)), ['schema', 'forecastIndexId', 'placeReleaseId', 'url', 'sha256']);
+  if (pointer.schema !== SCHEMA || pointer.forecastIndexId !== forecastIndexId || typeof pointer.placeReleaseId !== 'string' || typeof pointer.url !== 'string' || !/^\/best-weather\/releases\/[A-Za-z0-9._-]+\.json$/.test(pointer.url) || !/^[a-f0-9]{64}$/.test(pointer.sha256)) {
     throw new Error('Best weather could not be read.');
   }
   const placePointerResponse = await fetch('/places/current.json', { signal, cache: 'no-cache' });
@@ -40,14 +48,18 @@ export async function loadBestWeather(releaseId: string, profile: Profile, signa
   if (!response.ok) throw new Error('Best weather is unavailable.');
   const bytes = await readBoundedResponse(response, 'best-weather release', 32 * 1024);
   if (bytes.byteLength < 1 || await sha256(bytes) !== pointer.sha256) throw new Error('Best weather could not be read.');
-  const value = exactObject(parseJson(bytes), ['schema', 'weatherReleaseId', 'placeReleaseId', 'startDate', 'endDate', 'generatedAt', 'profiles']);
+  const value = exactObject(parseJson(bytes), ['schema', 'forecastIndexId', 'placeReleaseId', 'startDate', 'endDate', 'forecastRunUtc', 'profiles']);
   const profiles = exactObject(value.profiles, ['nice', 'cycling']);
-  if (value.schema !== SCHEMA || value.weatherReleaseId !== releaseId || value.placeReleaseId !== pointer.placeReleaseId || !date(value.startDate) || !date(value.endDate) || !rfc3339(value.generatedAt) || daysBetween(value.startDate, value.endDate) !== 13 || !Array.isArray(profiles.nice) || !Array.isArray(profiles.cycling) || profiles.nice.length !== 6 || profiles.cycling.length !== 6) {
+  if (value.schema !== SCHEMA || value.forecastIndexId !== forecastIndexId || value.placeReleaseId !== pointer.placeReleaseId || value.startDate !== forecast.firstDate || value.endDate !== forecast.lastDate || value.forecastRunUtc !== forecast.runUtc || !date(value.startDate) || !date(value.endDate) || !rfc3339(value.forecastRunUtc) || daysBetween(value.startDate, value.endDate) !== 13 || !Array.isArray(profiles.nice) || !Array.isArray(profiles.cycling) || profiles.nice.length !== 6 || profiles.cycling.length !== 6) {
     throw new Error('Best weather could not be read.');
   }
   const parsed = { nice: profiles.nice.map(parsePlace), cycling: profiles.cycling.map(parsePlace) };
+  for (const entries of Object.values(parsed)) {
+    const identities = new Set(entries.map(({ geonameId }) => geonameId));
+    if (identities.size !== entries.length || entries.some((item, index) => index > 0 && item.score > entries[index - 1].score)) throw new Error('Best weather could not be read.');
+  }
   const results = parsed[profile];
-  return { releaseId, placeReleaseId: value.placeReleaseId, profile, startDate: value.startDate, endDate: value.endDate, generatedAt: value.generatedAt, results };
+  return { forecastIndexId, placeReleaseId: value.placeReleaseId, profile, startDate: value.startDate, endDate: value.endDate, forecastRunUtc: value.forecastRunUtc, results };
 }
 
 function parsePlace(value: unknown): BestWeatherPlace {
