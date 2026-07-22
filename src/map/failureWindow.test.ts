@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { activateRendererAttempt, decideRendererFailure, recordFailure } from './failureWindow';
 
 describe('sustained map failure window', () => {
@@ -34,5 +35,12 @@ describe('sustained map failure window', () => {
     decision = decideRendererFailure(state, 1, 'context');
     expect(decision.action).toBe('fallback');
     expect(decideRendererFailure(state, 0, 'context').action).toBe('ignore');
+  });
+
+  it('keeps the active MapLibre failure callback stable across equivalent parent renders', () => {
+    const source = readFileSync(new URL('./WeatherMap.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('const handleActiveFailure = useCallback((reason: MapFailureReason) => {\n    handleFailure(reason, rendererAttempt);\n  }, [handleFailure, rendererAttempt]);');
+    expect(source).toContain('onFailure={handleActiveFailure}');
+    expect(source).not.toContain('onFailure={(reason) => handleFailure(reason, rendererAttempt)}');
   });
 });

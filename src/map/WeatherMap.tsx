@@ -73,6 +73,9 @@ export function WeatherMap(props: Props) {
     telemetry('map-renderer-fallback', { reason });
     setRenderer('canvas');
   }, []);
+  const handleActiveFailure = useCallback((reason: MapFailureReason) => {
+    handleFailure(reason, rendererAttempt);
+  }, [handleFailure, rendererAttempt]);
   useEffect(() => () => window.clearTimeout(retryTimer.current), []);
   useLayoutEffect(() => {
     const generation = ++overlayGeneration.current;
@@ -146,7 +149,7 @@ export function WeatherMap(props: Props) {
     <div className="mapCanvas mapStack" data-testid="weather-map" role="region" tabIndex={0} aria-label="Weather score map" aria-describedby="map-instructions" aria-keyshortcuts="Enter ArrowLeft ArrowRight ArrowUp ArrowDown + -" onKeyDown={keyboard}>
       <p id="map-instructions" className="srOnly">Use arrow keys to pan the map. Use plus and minus to zoom. Press Enter to show weather at the centre.</p>
       {renderer === 'maplibre'
-        ? <MapLibreMap key={rendererAttempt} {...rendererProps} command={command} onFailure={(reason) => handleFailure(reason, rendererAttempt)} />
+        ? <MapLibreMap key={rendererAttempt} {...rendererProps} command={command} onFailure={handleActiveFailure} />
         : <CanvasFallback
             scalarOverlay={props.scalarOverlay}
             worldwide={props.worldwide}
