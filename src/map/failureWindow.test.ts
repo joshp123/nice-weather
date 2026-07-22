@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordFailure } from './failureWindow';
+import { activateRendererAttempt, decideRendererFailure, recordFailure } from './failureWindow';
 
 describe('sustained map failure window', () => {
   it('does not treat one parallel failure burst as sustained', () => {
@@ -20,5 +20,19 @@ describe('sustained map failure window', () => {
   it('discards failures outside the bounded window', () => {
     const result = recordFailure([0, 100, 200, 300], 6_000);
     expect(result).toEqual({ failures: [6_000], sustained: false });
+  });
+
+  it('retries one context-loss incident once despite duplicate callbacks', () => {
+    let state = { activeAttempt: 0, retryUsed: false, retryPending: false };
+    let decision = decideRendererFailure(state, 0, 'context');
+    state = decision.state;
+    expect(decision.action).toBe('retry');
+    decision = decideRendererFailure(state, 0, 'context');
+    expect(decision.action).toBe('ignore');
+
+    state = activateRendererAttempt(state, 1);
+    decision = decideRendererFailure(state, 1, 'context');
+    expect(decision.action).toBe('fallback');
+    expect(decideRendererFailure(state, 0, 'context').action).toBe('ignore');
   });
 });

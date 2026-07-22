@@ -3,7 +3,8 @@ import maplibregl, { type GeoJSONSource, type Map, type MapSourceDataEvent } fro
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { WindGrid } from '../data/wind';
 import { telemetry } from '../telemetry';
-import { recordFailure } from './failureWindow';
+import { activateRendererAttempt, decideRendererFailure, recordFailure, type RendererFailureReason } from './failureWindow';
+import { CanvasFallback } from './canvasFallback';
 import { ScalarTileLayer, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 import { baseOverlayBefore, scoreOverlayBefore, windFeatures, windLayerLayout } from './windLayer';
 
@@ -43,18 +44,36 @@ type Props = {
   onSelect: (point: MapPoint, intent?: { focusDetails?: boolean }) => void;
   onViewportChange?: (viewport: { latitude: number; longitude: number; zoom: number; bounds: GeographicBounds }) => void;
   onReady?: (elapsedMs: number) => void;
-  onOverlayReady?: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => void;
+  onOverlayReady?: (elapsedMs: number, renderer: 'maplibre' | 'canvas', assetUrl: string) => void;
   onOverlayState?: (state: OverlayState) => void;
 };
 
 export function WeatherMap(props: Props) {
-  const [unavailable, setUnavailable] = useState(false);
+  const [renderer, setRenderer] = useState<'maplibre' | 'canvas'>('maplibre');
+  const [rendererAttempt, setRendererAttempt] = useState(0);
+  const recovery = useRef({ activeAttempt: 0, retryUsed: false, retryPending: false });
+  const retryTimer = useRef<number | undefined>(undefined);
+  recovery.current = activateRendererAttempt(recovery.current, rendererAttempt);
   const [command, setCommand] = useState<MapCommand | undefined>(undefined);
   const [verifiedOverlay, setVerifiedOverlay] = useState<string | undefined>();
   const overlayGeneration = useRef(0);
   const onOverlayStateRef = useRef(props.onOverlayState);
   onOverlayStateRef.current = props.onOverlayState;
-  const handleFailure = useCallback(() => setUnavailable(true), []);
+  const handleFailure = useCallback((reason: MapFailureReason, failedAttempt: number) => {
+    const decision = decideRendererFailure(recovery.current, failedAttempt, reason);
+    recovery.current = decision.state;
+    if (decision.action === 'ignore') return;
+    if (decision.action === 'retry') {
+      retryTimer.current = window.setTimeout(() => setRendererAttempt((value) => value + 1), 180);
+      telemetry('map-renderer-retry', { reason });
+      return;
+    }
+    window.clearTimeout(retryTimer.current);
+    retryTimer.current = undefined;
+    telemetry('map-renderer-fallback', { reason });
+    setRenderer('canvas');
+  }, []);
+  useEffect(() => () => window.clearTimeout(retryTimer.current), []);
   useLayoutEffect(() => {
     const generation = ++overlayGeneration.current;
     setVerifiedOverlay(undefined);
@@ -101,7 +120,7 @@ export function WeatherMap(props: Props) {
     ...props,
     overlayUrl: verifiedOverlay,
     targetOverlayUrl: props.overlayUrl,
-    onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => {
+    onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre' | 'canvas', assetUrl: string) => {
       if (assetUrl !== targetOverlay) return;
       onOverlayStateRef.current?.({ status: 'ready', assetUrl });
       props.onOverlayReady?.(elapsedMs, renderer, assetUrl);
@@ -113,6 +132,7 @@ export function WeatherMap(props: Props) {
     },
   };
   const keyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     const commands: Record<string, MapCommand['type']> = {
       Enter: 'select', ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '_': 'zoom-out',
     };
@@ -125,24 +145,34 @@ export function WeatherMap(props: Props) {
   return (
     <div className="mapCanvas mapStack" data-testid="weather-map" role="region" tabIndex={0} aria-label="Weather score map" aria-describedby="map-instructions" aria-keyshortcuts="Enter ArrowLeft ArrowRight ArrowUp ArrowDown + -" onKeyDown={keyboard}>
       <p id="map-instructions" className="srOnly">Use arrow keys to pan the map. Use plus and minus to zoom. Press Enter to show weather at the centre.</p>
-      {unavailable
-        ? <MapUnavailable />
-        : <MapLibreMap {...rendererProps} command={command} onFailure={handleFailure} />}
+      {renderer === 'maplibre'
+        ? <MapLibreMap key={rendererAttempt} {...rendererProps} command={command} onFailure={(reason) => handleFailure(reason, rendererAttempt)} />
+        : <CanvasFallback
+            scalarOverlay={props.scalarOverlay}
+            worldwide={props.worldwide}
+            bounds={props.bounds ?? DEFAULT_BOUNDS}
+            selectedPoint={props.selectedPoint}
+            focusPoint={props.focusPoint}
+            command={command}
+            onSelect={props.onSelect}
+            onViewportChange={props.onViewportChange}
+            onReady={props.onReady}
+            onOverlayReady={(elapsedMs, nextRenderer, assetUrl) => rendererProps.onRendererOverlayReady(elapsedMs, nextRenderer, assetUrl)}
+            onOverlayError={rendererProps.onRendererOverlayError}
+          />}
     </div>
   );
 }
 
-function MapUnavailable() {
-  return <div className="mapUnavailable" role="alert"><div><strong>The map is not available</strong><p>Nice Weather needs WebGL. Open this page in a current version of Safari or Chrome.</p></div></div>;
-}
+type MapFailureReason = RendererFailureReason;
 
 type RendererProps = Props & {
   targetOverlayUrl?: string;
-  onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => void;
+  onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre' | 'canvas', assetUrl: string) => void;
   onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => void;
 };
 
-function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = false, windGrid, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: () => void }) {
+function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = false, windGrid, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: (reason: MapFailureReason) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -185,7 +215,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       });
     } catch (error) {
       console.warn('[nice-weather] WebGL map unavailable.', error);
-      onFailure();
+      onFailure('init');
       return;
     }
     mapRef.current = map;
@@ -222,9 +252,18 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     const deadline = window.setTimeout(() => {
       if (!loadedRef.current) {
         console.warn('[nice-weather] WebGL map did not render in time.');
-        onFailure();
+        onFailure('timeout');
       }
-    }, 8_000);
+    }, 5_000);
+    const markReady = () => {
+      if (loadedRef.current) return;
+      loadedRef.current = true;
+      setMapLoaded(true);
+      window.clearTimeout(deadline);
+      window.requestAnimationFrame(collapseInitialAttribution);
+      reportViewport();
+      onReadyRef.current?.(Math.round(performance.now() - startedAt));
+    };
     map.once('style.load', () => {
       const currentBounds = boundsRef.current;
       const compact = window.matchMedia('(max-width: 680px)').matches;
@@ -233,15 +272,10 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
         animate: false,
       });
       setStyleLoaded(true);
+      map.once('render', markReady);
+      map.triggerRepaint();
     });
-    map.on('load', () => {
-      loadedRef.current = true;
-      setMapLoaded(true);
-      window.clearTimeout(deadline);
-      window.requestAnimationFrame(collapseInitialAttribution);
-      reportViewport();
-      onReadyRef.current?.(Math.round(performance.now() - startedAt));
-    });
+    map.on('load', markReady);
     map.on('moveend', () => {
       reportViewport();
     });
@@ -250,7 +284,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       const message = event.error?.message ?? 'Map rendering error';
       console.warn('[nice-weather] map', message);
       if (/shader|webgl|context/i.test(message)) {
-        onFailure();
+        onFailure('context');
         return;
       }
       const sourceID = (event as maplibregl.ErrorEvent & { sourceId?: string }).sourceId;
@@ -259,16 +293,18 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       baseMapFailures = failureWindow.failures;
       if (failureWindow.sustained) {
         console.warn('[nice-weather] Base map requests keep failing; the map is unavailable.');
-        onFailure();
+        onFailure('base-map');
       }
     });
-    map.getCanvas().addEventListener('webglcontextlost', onFailure, { once: true });
+    const onContextLost = () => onFailure('context');
+    map.getCanvas().addEventListener('webglcontextlost', onContextLost, { once: true });
     return () => {
       resizeObserver.disconnect();
       window.cancelAnimationFrame(resizeFrame);
       window.clearTimeout(deadline);
       window.clearTimeout(attributionDeadline);
       markerRef.current?.remove();
+      map.getCanvas().removeEventListener('webglcontextlost', onContextLost);
       map.remove();
       mapRef.current = null;
       loadedRef.current = false;

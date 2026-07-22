@@ -3,6 +3,25 @@ export type FailureWindow = {
   sustained: boolean;
 };
 
+export type RendererFailureReason = 'init' | 'context' | 'timeout' | 'base-map';
+export type RendererRecoveryState = Readonly<{
+  activeAttempt: number;
+  retryUsed: boolean;
+  retryPending: boolean;
+}>;
+
+export function activateRendererAttempt(previous: RendererRecoveryState, activeAttempt: number): RendererRecoveryState {
+  return previous.activeAttempt === activeAttempt ? previous : { ...previous, activeAttempt, retryPending: false };
+}
+
+export function decideRendererFailure(previous: RendererRecoveryState, failedAttempt: number, reason: RendererFailureReason): { state: RendererRecoveryState; action: 'ignore' | 'retry' | 'fallback' } {
+  if (failedAttempt !== previous.activeAttempt || previous.retryPending) return { state: previous, action: 'ignore' };
+  if ((reason === 'init' || reason === 'context') && !previous.retryUsed) {
+    return { state: { ...previous, retryUsed: true, retryPending: true }, action: 'retry' };
+  }
+  return { state: previous, action: 'fallback' };
+}
+
 export function recordFailure(
   previous: readonly number[],
   now: number,
