@@ -374,7 +374,17 @@ func buildBlock(ctx context.Context, source Source, coordinate agera5.BlockCoord
 
 	if !sawPresent {
 		if land != nil && result.Stats.LandCells > 0 {
-			return Result{}, fmt.Errorf("%w: land block has no source evidence", ErrIncompleteCell)
+			if result.Stats.LandCells != 1 {
+				return Result{}, fmt.Errorf("%w: fully absent block covers %d Natural Earth centre-land cells; only one isolated source-unsupported cell may remain transparent", ErrIncompleteCell, result.Stats.LandCells)
+			}
+			// The official AgERA5 store is sparse by whole source block. A tiny
+			// island can therefore be present in the independent Natural Earth
+			// centre mask while every provider object for its surrounding ocean
+			// block is structurally absent. Preserve that one cell as explicit
+			// no-data; never interpolate weather or relax partial-source failures.
+			result.Stats.UnsupportedLandCells = 1
+			result.Stats.NoDataCells = result.Stats.LogicalCells
+			return result, nil
 		}
 		result.Stats.SparseOcean = true
 		result.Stats.NoDataCells = result.Stats.LogicalCells

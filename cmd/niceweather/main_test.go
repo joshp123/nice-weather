@@ -63,7 +63,7 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 	for _, want := range []string{
 		"building November", "2006-2025", "111 reused", "222 built", "333 water-only skipped",
 		"73 responses", "987654321 bytes", "agera5-month-11-test installed", "3/12 months available", "preview index pointer preview-index-test", "666 point blocks", "777 scalar tiles",
-		"444 checkpoint bytes", "555 artifact bytes", "4 structurally unsupported land cells", "8 crossed-extrema repairs", "largest 0.301 C", "13 daytime-range clamps beyond 5 C tolerance", "largest 5.237 C", "5 dew-point caps", "largest 2.104 C",
+		"444 checkpoint bytes", "555 artifact bytes", "4 AgERA5-unsupported land cells", "8 crossed-extrema repairs", "largest 0.301 C", "13 daytime-range clamps beyond 5 C tolerance", "largest 5.237 C", "5 dew-point caps", "largest 2.104 C",
 		"main weather release unchanged", "elapsed 1m30s",
 	} {
 		if !strings.Contains(stdout.String(), want) {

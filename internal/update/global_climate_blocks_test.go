@@ -45,6 +45,7 @@ type globalClimateTestSource struct {
 	unsupportedBlock     agera5.BlockCoordinate
 	unsupportedLatitude  int
 	unsupportedLongitude int
+	absentBlock          *agera5.BlockCoordinate
 }
 
 func (source *globalClimateTestSource) Shape(block agera5.BlockCoordinate) (int, int, error) {
@@ -101,6 +102,9 @@ func (source *globalClimateTestSource) Fetch(ctx context.Context, raw climatebui
 	}
 	if source.fetchErr != nil {
 		return nil, source.fetchErr
+	}
+	if source.absentBlock != nil && reference.block == *source.absentBlock {
+		return nil, agera5.ErrChunkNotFound
 	}
 	height, width, err := agera5.BlockShape(reference.block)
 	if err != nil {
@@ -340,6 +344,30 @@ func TestGlobalClimateBlocksCountStructurallyUnsupportedLandAcrossBuildAndResume
 	}
 	if resumed.UnsupportedLandCells != 1 || resumed.Reused != 1 || resumed.Built != 0 {
 		t.Fatalf("resumed support summary = %+v", resumed)
+	}
+}
+
+func TestGlobalClimateBlocksPublishOneFullyAbsentLandCellAsUnsupported(t *testing.T) {
+	root := t.TempDir()
+	mask := globalClimateMask(t)
+	block := agera5.BlockCoordinate{Latitude: 109, Longitude: 0}
+	setGlobalClimateLand(t, &mask, 1750, 1)
+
+	built, err := RunGlobalClimateBlocks(context.Background(), root, &globalClimateTestSource{absentBlock: &block}, mask, testSourceDigest(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if built.LandCells != 1 || built.UnsupportedLandCells != 1 || built.Built != 1 || built.Reused != 0 || len(built.Completed) != 1 {
+		t.Fatalf("fully absent isolated-land summary = %+v", built)
+	}
+	checkpoint, found, err := climatebuild.LoadCheckpoint(globalClimateCheckpointPath(root, block), built.Completed[0])
+	if err != nil || !found {
+		t.Fatalf("load isolated-land checkpoint found=%t error=%v", found, err)
+	}
+	for month := range checkpoint.Months {
+		if checkpoint.Months[month][6*32+1].Valid {
+			t.Fatalf("month %d invented evidence for source-unsupported land", month+1)
+		}
 	}
 }
 

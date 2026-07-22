@@ -404,8 +404,20 @@ func TestBuildLandBlockKeepsStructurallyUnsupportedLandInvalid(t *testing.T) {
 	for reference := range absentBlock.blocks {
 		absentBlock.absent[reference] = true
 	}
-	if _, err := BuildLandBlock(context.Background(), absentBlock, coordinate, window, []bool{true}); !errors.Is(err, ErrIncompleteCell) || !strings.Contains(err.Error(), "land block has no source evidence") {
-		t.Fatalf("absent land-block error = %v", err)
+	absentResult, err := BuildLandBlock(context.Background(), absentBlock, coordinate, window, []bool{true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absentResult.Stats.LandCells != 1 || absentResult.Stats.UnsupportedLandCells != 1 || absentResult.Stats.CompleteCells != 0 || absentResult.Stats.NoDataCells != 1 || absentResult.Stats.SparseOcean || absentResult.Months[0][0].Valid {
+		t.Fatalf("isolated absent land result = %+v, record = %+v", absentResult.Stats, absentResult.Months[0][0])
+	}
+
+	absentMaterialBlock := fixtureSource(window, 2, 1, completeValue)
+	for reference := range absentMaterialBlock.blocks {
+		absentMaterialBlock.absent[reference] = true
+	}
+	if _, err := BuildLandBlock(context.Background(), absentMaterialBlock, coordinate, window, []bool{true, true}); !errors.Is(err, ErrIncompleteCell) || !strings.Contains(err.Error(), "fully absent block covers 2 Natural Earth centre-land cells") {
+		t.Fatalf("material absent land-block error = %v", err)
 	}
 }
 

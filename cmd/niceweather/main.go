@@ -279,7 +279,7 @@ func runClimateWorldCommand(
 		summary.CheckpointBytes, summary.ArtifactBytes); err != nil {
 		return fmt.Errorf("write climate-world output summary: %w", err)
 	}
-	if _, err := fmt.Fprintf(stdout, "Quality: %d structurally unsupported land cells left transparent; %d crossed-extrema repairs, largest %.3f C; %d daytime-range clamps beyond 5 C tolerance, largest %.3f C; %d dew-point caps, largest %.3f C; main weather release unchanged; elapsed %s.\n",
+	if _, err := fmt.Fprintf(stdout, "Quality: %d AgERA5-unsupported land cells left transparent; %d crossed-extrema repairs, largest %.3f C; %d daytime-range clamps beyond 5 C tolerance, largest %.3f C; %d dew-point caps, largest %.3f C; main weather release unchanged; elapsed %s.\n",
 		summary.UnsupportedLandCells, summary.TemperatureRepairs, summary.MaximumInversionC,
 		summary.ComfortTemperatureRepairs, summary.MaximumComfortTemperatureAdjustmentC,
 		summary.DewPointRepairs, summary.MaximumDewPointCapC, summary.Elapsed.Round(time.Second)); err != nil {
