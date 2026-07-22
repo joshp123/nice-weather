@@ -180,6 +180,15 @@ func TestPublishRejectsIncompleteOrCorruptReleaseWithoutChangingCurrent(t *testi
 				t.Fatal(err)
 			}
 		}},
+		{"noncanonical country label", func(t *testing.T, root string) {
+			rewritePlaceManifest(t, root, func(value *manifest) { value.Countries["ES"] += " " })
+		}},
+		{"noncanonical admin label", func(t *testing.T, root string) {
+			rewritePlaceManifest(t, root, func(value *manifest) { value.Admins["ES.51"] += " " })
+		}},
+		{"noncanonical browser whitespace", func(t *testing.T, root string) {
+			rewritePlaceManifest(t, root, func(value *manifest) { value.Countries["ES"] = "\ufeff" + value.Countries["ES"] })
+		}},
 		{"altered shard", func(t *testing.T, root string) {
 			path := firstShard(t, root)
 			if err := os.WriteFile(path, []byte(`{"v":1,"r":[]}`), 0o644); err != nil {
@@ -212,6 +221,27 @@ func TestPublishRejectsIncompleteOrCorruptReleaseWithoutChangingCurrent(t *testi
 	}
 	if _, err := Publish(artifactRoot, goodSource, "../escape"); err == nil {
 		t.Fatal("path-escaping release ID was accepted")
+	}
+}
+
+func rewritePlaceManifest(t *testing.T, root string, change func(*manifest)) {
+	t.Helper()
+	path := filepath.Join(root, "manifest.json")
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value manifest
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	change(&value)
+	payload, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

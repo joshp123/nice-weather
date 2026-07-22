@@ -774,13 +774,15 @@ func validateManifest(got manifest) error {
 		return errors.New("place manifest contains no countries")
 	}
 	for code, label := range got.Countries {
-		if len(code) != 2 || code != strings.ToUpper(code) || strings.TrimSpace(label) == "" {
+		canonical, err := canonicalDisplayLabel(label)
+		if len(code) != 2 || code != strings.ToUpper(code) || err != nil || canonical != label {
 			return errors.New("place country metadata is invalid")
 		}
 	}
 	for code, label := range got.Admins {
 		parts := strings.SplitN(code, ".", 2)
-		if !adminKeyPattern.MatchString(code) || got.Countries[parts[0]] == "" || strings.TrimSpace(label) == "" {
+		canonical, err := canonicalDisplayLabel(label)
+		if !adminKeyPattern.MatchString(code) || got.Countries[parts[0]] == "" || err != nil || canonical != label {
 			return errors.New("place admin metadata is invalid")
 		}
 	}

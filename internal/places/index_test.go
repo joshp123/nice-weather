@@ -33,6 +33,55 @@ func TestNormalizePlaceNames(t *testing.T) {
 	}
 }
 
+func TestGeoNamesDisplayLabelsAreCanonicalAtIngestion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fields := make([]string, 19)
+	fields[0], fields[4], fields[8], fields[15] = "BQ", "Bonaire, Saint Eustatius and Saba ", "NA", "nl,pap,en"
+	if err := os.WriteFile(filepath.Join(root, "countryInfo.txt"), []byte(strings.Join(fields, "\t")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "admin1CodesASCII.txt"), []byte("BQ.01\tBonaire \tBonaire\t1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	countries, err := readCountries(filepath.Join(root, "countryInfo.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admins, err := readAdmins(filepath.Join(root, "admin1CodesASCII.txt"), []string{"BQ"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countries["BQ"].name != "Bonaire, Saint Eustatius and Saba" || admins["BQ.01"] != "Bonaire" {
+		t.Fatalf("labels were not canonicalised: country=%q admin=%q", countries["BQ"].name, admins["BQ.01"])
+	}
+}
+
+func TestGeoNamesDisplayLabelsRejectInvalidBrowserText(t *testing.T) {
+	t.Parallel()
+	trimmed, err := canonicalDisplayLabel("\ufeff Bonaire \ufeff")
+	if err != nil || trimmed != "Bonaire" {
+		t.Fatalf("browser whitespace trim = %q, %v", trimmed, err)
+	}
+	for name, value := range map[string]string{
+		"empty":         " \t ",
+		"browser empty": "\ufeff",
+		"control":       "Bonaire\x00",
+		"C1 control":    "Bonaire\u0080",
+		"C1 whitespace": "Bonaire\u0085",
+		"overlong":      strings.Repeat("x", maximumDisplayLabelUnits+1),
+		"invalid UTF8":  string([]byte{0xff}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := canonicalDisplayLabel(value); err == nil {
+				t.Fatalf("canonicalDisplayLabel(%q) succeeded", value)
+			}
+		})
+	}
+}
+
 func TestGlobalBuildPreservesEuropeanDetailAndCoversTheWorld(t *testing.T) {
 	t.Parallel()
 	source := makeGlobalSource(t, []globalSourcePlace{

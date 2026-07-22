@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 
@@ -37,6 +39,7 @@ const (
 	maximumSourceManifestBytes = 4 * 1024
 	maximumShardCount          = 8_000
 	maximumShardGzipBytes      = 320 * 1024
+	maximumDisplayLabelUnits   = 160
 	globalSourceManifestName   = "source-manifest.json"
 	globalSourceSchema         = "nice-geonames-source-v1"
 )
@@ -461,6 +464,10 @@ func readCountries(path string) (map[string]country, error) {
 		if len(fields) != 19 {
 			return fmt.Errorf("line %d: country row has %d fields", line, len(fields))
 		}
+		name, err := canonicalDisplayLabel(fields[4])
+		if err != nil {
+			return fmt.Errorf("line %d: invalid country label: %w", line, err)
+		}
 		languages := make([]string, 0)
 		for language := range strings.SplitSeq(fields[15], ",") {
 			language = strings.Split(language, "-")[0]
@@ -468,7 +475,7 @@ func readCountries(path string) (map[string]country, error) {
 				languages = append(languages, language)
 			}
 		}
-		result[fields[0]] = country{name: fields[4], continent: fields[8], languages: languages}
+		result[fields[0]] = country{name: name, continent: fields[8], languages: languages}
 		return nil
 	})
 	return result, err
@@ -566,11 +573,46 @@ func readAdmins(path string, countries []string) (map[string]string, error) {
 			return fmt.Errorf("line %d: admin row has %d fields", line, len(fields))
 		}
 		if len(fields[0]) >= 3 && allowed[fields[0][:2]] {
-			result[fields[0]] = fields[1]
+			label, err := canonicalDisplayLabel(fields[1])
+			if err != nil {
+				return fmt.Errorf("line %d: invalid admin label: %w", line, err)
+			}
+			result[fields[0]] = label
 		}
 		return nil
 	})
 	return result, err
+}
+
+func canonicalDisplayLabel(value string) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", errors.New("label is not valid UTF-8")
+	}
+	value = strings.TrimFunc(value, browserTrimSpace)
+	if value == "" {
+		return "", errors.New("label is empty")
+	}
+	units := 0
+	for _, current := range value {
+		if unicode.IsControl(current) {
+			return "", errors.New("label contains a control character")
+		}
+		units += utf16.RuneLen(current)
+	}
+	if units > maximumDisplayLabelUnits {
+		return "", fmt.Errorf("label exceeds %d UTF-16 units", maximumDisplayLabelUnits)
+	}
+	return value, nil
+}
+
+func browserTrimSpace(value rune) bool {
+	switch value {
+	case '\u0009', '\u000a', '\u000b', '\u000c', '\u000d', '\u0020', '\u00a0', '\u1680',
+		'\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	default:
+		return value >= '\u2000' && value <= '\u200a'
+	}
 }
 
 func readPlaces(ctx context.Context, path string, config buildConfig, countries map[string]country, places map[int64]*place) error {
