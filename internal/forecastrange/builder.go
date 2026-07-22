@@ -73,7 +73,7 @@ type loadedInput struct {
 	reference InputCatalog
 	catalog   forecastcatalog.Catalog
 	root      string
-	points    map[tileKey]forecastcatalog.DisplayPointTile
+	points    map[tileKey]forecastcatalog.DailyPointBlock
 }
 
 func Build(ctx context.Context, config Config) (result Product, resultErr error) {
@@ -258,38 +258,47 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 	stats.CatalogBytes = uint64(len(encoded))
 	stats.OutputFiles = stats.PointFiles + stats.ScalarFiles + 1
 	stats.OutputBytes = stats.PointBytes + stats.ScalarBytes + stats.CatalogBytes
-	stats.EstimatedWorkingBytes = stats.MaxInputPointRecords*uint64(unsafe.Sizeof(delivery.DisplayScoreRecord{})) + uint64(tiledelivery.TileSize*tiledelivery.TileSize)*uint64(unsafe.Sizeof(delivery.RangePointRecord{})) + stats.MaxDecodedBlockBytes + stats.MaxScalarBytes
+	stats.EstimatedWorkingBytes = stats.MaxInputPointRecords*uint64(unsafe.Sizeof(delivery.DailyPointRecord{})) + uint64(tiledelivery.TileSize*tiledelivery.TileSize)*uint64(unsafe.Sizeof(delivery.RangePointRecord{})) + stats.MaxDecodedBlockBytes + stats.MaxScalarBytes
 	return Product{Root: final, Catalog: catalog, Stats: stats}, nil
 }
 
 func buildTileRecords(ctx context.Context, inputs []loadedInput, x, y uint32) ([]delivery.RangePointRecord, uint64, error) {
-	var daily [delivery.ForecastPointDayCount][]delivery.DisplayScoreRecord
+	var daily [delivery.ForecastPointDayCount][]delivery.DailyPointRecord
 	var bytes uint64
-	key := tileKey{MaxZoom, x, y}
 	for index, input := range inputs {
-		point, ok := input.points[key]
-		if !ok {
-			continue
+		daily[index] = make([]delivery.DailyPointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
+		blocksPerTile := uint32(tiledelivery.TileSize / tiledelivery.PointBlockSize)
+		for blockY := uint32(0); blockY < blocksPerTile; blockY++ {
+			for blockX := uint32(0); blockX < blocksPerTile; blockX++ {
+				point, ok := input.points[tileKey{MaxZoom, x*blocksPerTile + blockX, y*blocksPerTile + blockY}]
+				if !ok {
+					continue
+				}
+				path := filepath.Join(input.root, filepath.FromSlash(point.Path))
+				if err := rejectSymlinkPath(input.root, point.Path); err != nil {
+					return nil, 0, err
+				}
+				reader, err := tiledelivery.OpenPoint(path)
+				if err != nil {
+					return nil, 0, err
+				}
+				meta := reader.Metadata()
+				if meta.ReleaseID != input.catalog.ReleaseID || meta.Period != input.catalog.LocalDate || meta.ID.Tier != input.catalog.Tier || meta.ID.Zoom != point.Zoom || meta.ID.X != point.X || meta.ID.Y != point.Y || meta.Bytes != point.Bytes || meta.SHA256 != point.SHA256 || meta.PayloadSHA256 != point.PayloadSHA256 {
+					_ = reader.Close()
+					return nil, 0, errors.New("daily point block does not match its catalogue")
+				}
+				block, readErr := reader.Records()
+				closeErr := reader.Close()
+				if readErr != nil || closeErr != nil {
+					return nil, 0, errors.Join(readErr, closeErr)
+				}
+				for row := 0; row < tiledelivery.PointBlockSize; row++ {
+					destination := (int(blockY)*tiledelivery.PointBlockSize+row)*tiledelivery.TileSize + int(blockX)*tiledelivery.PointBlockSize
+					copy(daily[index][destination:destination+tiledelivery.PointBlockSize], block[row*tiledelivery.PointBlockSize:(row+1)*tiledelivery.PointBlockSize])
+				}
+				bytes += point.Bytes
+			}
 		}
-		path := filepath.Join(input.root, filepath.FromSlash(point.Path))
-		if err := rejectSymlinkPath(input.root, point.Path); err != nil {
-			return nil, 0, err
-		}
-		reader, err := tiledelivery.OpenPoint(path)
-		if err != nil {
-			return nil, 0, err
-		}
-		meta := reader.Metadata()
-		if meta.ReleaseID != input.catalog.ReleaseID || meta.Period != input.catalog.LocalDate || meta.ID.Tier != input.catalog.Tier || meta.ID.Zoom != point.Zoom || meta.ID.X != point.X || meta.ID.Y != point.Y || meta.Bytes != point.Bytes || meta.SHA256 != point.SHA256 || meta.PayloadSHA256 != point.PayloadSHA256 {
-			_ = reader.Close()
-			return nil, 0, errors.New("daily display point does not match its catalogue")
-		}
-		daily[index], err = reader.Records()
-		closeErr := reader.Close()
-		if err != nil || closeErr != nil {
-			return nil, 0, errors.Join(err, closeErr)
-		}
-		bytes += point.Bytes
 	}
 	records := make([]delivery.RangePointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
 	for recordIndex := range records {
@@ -298,10 +307,10 @@ func buildTileRecords(ctx context.Context, inputs []loadedInput, x, y uint32) ([
 				return nil, 0, err
 			}
 		}
-		var displays [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord
+		var displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord
 		complete := true
 		for day := range displays {
-			if daily[day] == nil || !daily[day][recordIndex].Valid {
+			if daily[day] == nil || !daily[day][recordIndex].Weather.Valid {
 				complete = false
 				break
 			}
@@ -319,12 +328,12 @@ func buildTileRecords(ctx context.Context, inputs []loadedInput, x, y uint32) ([
 	return records, bytes, nil
 }
 
-func rangeRecord(displays [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord) (delivery.RangePointRecord, error) {
+func rangeRecord(displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord) (delivery.RangePointRecord, error) {
 	nice := make([]weather.Result, delivery.ForecastPointDayCount)
 	cycling := make([]weather.Result, delivery.ForecastPointDayCount)
 	var niceDays, cyclingDays [delivery.ForecastPointDayCount]uint8
 	for index, display := range displays {
-		if !display.Valid {
+		if !display.Weather.Valid {
 			return delivery.RangePointRecord{}, errors.New("forecast range contains an unavailable stored day")
 		}
 		nice[index] = storedResult(display.NiceScore, display.Thermal, display.Dryness, display.Sun, display.NiceWind)
@@ -648,8 +657,8 @@ func loadInputs(config Config) ([]loadedInput, Source, []string, error) {
 		} else if catalog.Evidence.RunUTC != run {
 			return nil, Source{}, nil, errors.New("forecast range input catalogues mix IFS runs")
 		}
-		points := make(map[tileKey]forecastcatalog.DisplayPointTile, len(catalog.DisplayPoints))
-		for _, point := range catalog.DisplayPoints {
+		points := make(map[tileKey]forecastcatalog.DailyPointBlock, len(catalog.DailyPointBlocks))
+		for _, point := range catalog.DailyPointBlocks {
 			points[tileKey{point.Zoom, point.X, point.Y}] = point
 		}
 		loaded[index] = loadedInput{reference: reference, catalog: catalog, root: filepath.Dir(filepath.Join(config.Root, filepath.FromSlash(reference.Path))), points: points}

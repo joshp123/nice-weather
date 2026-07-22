@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -51,13 +52,13 @@ func TestBuildExactWorldRangeProductPreservesStoredFingerprintsAndScalarParity(t
 	if product.Root != filepath.Join(runRoot, productDirectory, Period, forecastpoints.TierGlobal) || len(product.Catalog.PointBlocks) != 32*32 || len(product.Catalog.ScalarCoverage) != 8*8 {
 		t.Fatalf("range product shape = root %q blocks %d coverage %d", product.Root, len(product.Catalog.PointBlocks), len(product.Catalog.ScalarCoverage))
 	}
-	if product.Stats.MaxInputPointBytes != delivery.ForecastPointDayCount*tiledelivery.PointTileBytes || product.Stats.MaxInputPointRecords != delivery.ForecastPointDayCount*tiledelivery.TileSize*tiledelivery.TileSize || product.Stats.MaxRangeBlockBytes > uint64(BlockRows)*uint64(BlockColumns)*delivery.RangePointRecordBytes || product.Stats.CatalogBytes > MaximumCatalogBytes {
+	if product.Stats.MaxInputPointBytes != delivery.ForecastPointDayCount*2*tiledelivery.PointBlockBytes || product.Stats.MaxInputPointRecords != delivery.ForecastPointDayCount*tiledelivery.TileSize*tiledelivery.TileSize || product.Stats.MaxRangeBlockBytes > uint64(BlockRows)*uint64(BlockColumns)*delivery.RangePointRecordBytes || product.Stats.CatalogBytes > MaximumCatalogBytes {
 		t.Fatalf("range bounds = %+v", product.Stats)
 	}
 	if product.Stats.OutputFiles != product.Stats.PointFiles+product.Stats.ScalarFiles+1 || product.Stats.OutputBytes != product.Stats.PointBytes+product.Stats.ScalarBytes+product.Stats.CatalogBytes || product.Stats.OutputBytes > 64<<20 {
 		t.Fatalf("range storage totals = %+v", product.Stats)
 	}
-	if product.Stats.EstimatedWorkingBytes == 0 || product.Stats.EstimatedWorkingBytes > 32<<20 {
+	if product.Stats.EstimatedWorkingBytes == 0 || product.Stats.EstimatedWorkingBytes > 40<<20 {
 		t.Fatalf("range bounded working set = %+v", product.Stats)
 	}
 
@@ -347,49 +348,68 @@ func TestRangeAntimeridianPointAndScalarOutputsStayAvailable(t *testing.T) {
 	}
 }
 
-func rangeFixture(t *testing.T, missingDay int) (string, []InputCatalog, [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord) {
+func rangeFixture(t *testing.T, missingDay int) (string, []InputCatalog, [delivery.ForecastPointDayCount]delivery.DailyPointRecord) {
 	t.Helper()
 	runRoot := filepath.Join(t.TempDir(), "range-run")
 	if err := os.MkdirAll(runRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	inputs := make([]InputCatalog, delivery.ForecastPointDayCount)
-	var selected [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord
+	var selected [delivery.ForecastPointDayCount]delivery.DailyPointRecord
 	first := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	for day := 0; day < delivery.ForecastPointDayCount; day++ {
 		date := first.AddDate(0, 0, day).Format(time.DateOnly)
-		display := delivery.DisplayScoreRecord{Thermal: uint8(61 + day%5), Dryness: uint8(70 + day%4), Sun: uint8(55 + day%7), NiceScore: uint8(30 + day*4), NiceWind: uint8(80 - day), CyclingScore: uint8(22 + day*3), CyclingWind: uint8(60 - day), Valid: true}
-		selected[day] = display
+		point := fixtureDailyPoint(t, day)
+		selected[day] = point
 		include := day != missingDay
-		inputs[day] = writeDailyCatalogFixture(t, runRoot, "range-run", date, display, include)
+		inputs[day] = writeDailyCatalogFixture(t, runRoot, "range-run", date, point, include)
 	}
 	return runRoot, inputs, selected
 }
 
-func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, selected delivery.DisplayScoreRecord, includeSelected bool) InputCatalog {
+func fixtureDailyPoint(t *testing.T, day int) delivery.DailyPointRecord {
+	t.Helper()
+	temperature := 21 + float64(day%7)
+	metrics := weather.DailyMetrics{
+		ComfortableTempC: temperature, MinTempC: temperature - 4, MaxTempC: temperature + 4,
+		RainMM: float64(day%3) * .4, WindSpeedKPH: 10 + float64(day),
+		DewPointC:          weather.OptionalFloat{Value: 13 + float64(day%4), Available: true},
+		CloudCoverPercent:  weather.OptionalFloat{Value: 20 + float64(day%5)*8, Available: true},
+		WetTimeFraction:    weather.OptionalFloat{Value: float64(day%3) * .05, Available: true},
+		NativeResolutionKM: 28, Valid: true,
+	}
+	weatherRecord, err := delivery.RecordFromWeather(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, err := delivery.DailyPointRecordFromWeather(weatherRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return point
+}
+
+func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, selected delivery.DailyPointRecord, includeSelected bool) InputCatalog {
 	t.Helper()
 	dayRoot := filepath.Join(runRoot, "forecast-days", date, forecastpoints.TierGlobal)
 	if err := os.MkdirAll(dayRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	points := []forecasttiles.PointTile{}
-	{
+	writePointBlock := func(blockX, blockY uint32, recordRow, recordColumn int, record delivery.DailyPointRecord) {
 		stage := t.TempDir()
 		writer, err := tiledelivery.NewWriter(stage, releaseID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, _ := tiledelivery.NewID(forecastpoints.TierGlobal, MaxZoom, int64(fixtureTileX), int64(fixtureTileY))
-		records := make([]delivery.DisplayScoreRecord, tiledelivery.TileSize*tiledelivery.TileSize)
-		records[0] = delivery.DisplayScoreRecord{Thermal: 60, Dryness: 60, Sun: 60, NiceScore: 60, NiceWind: 60, CyclingScore: 60, CyclingWind: 60, Valid: true}
-		if includeSelected {
-			records[fixtureRow*tiledelivery.TileSize+fixtureCol] = selected
-		}
+		id, _ := tiledelivery.NewPointID(forecastpoints.TierGlobal, MaxZoom, int64(blockX), int64(blockY))
+		records := make([]delivery.DailyPointRecord, tiledelivery.PointBlockSize*tiledelivery.PointBlockSize)
+		records[recordRow*tiledelivery.PointBlockSize+recordColumn] = record
 		asset, err := writer.Write(id, date, records)
 		if err != nil {
 			t.Fatal(err)
 		}
-		relative := filepath.ToSlash(filepath.Join("points", date, forecastpoints.TierGlobal, "3", "4", "2.nwt"))
+		relative := filepath.ToSlash(filepath.Join("points", date, forecastpoints.TierGlobal, fmt.Sprint(MaxZoom), fmt.Sprint(blockX), fmt.Sprintf("%d.nwt", blockY)))
 		destination := filepath.Join(dayRoot, filepath.FromSlash(relative))
 		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 			t.Fatal(err)
@@ -397,7 +417,15 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 		if err := os.Rename(asset.Path, destination); err != nil {
 			t.Fatal(err)
 		}
-		points = append(points, forecasttiles.PointTile{Zoom: MaxZoom, X: fixtureTileX, Y: fixtureTileY, Path: relative, Bytes: asset.Bytes, SHA256: asset.SHA256, PayloadSHA256: asset.PayloadSHA256})
+		points = append(points, forecasttiles.PointTile{Zoom: MaxZoom, X: blockX, Y: blockY, Path: relative, Bytes: asset.Bytes, SHA256: asset.SHA256, PayloadSHA256: asset.PayloadSHA256, DataRecords: asset.DataRecords, NoDataRecords: asset.NoDataRecords})
+	}
+	blocksPerTile := uint32(tiledelivery.TileSize / tiledelivery.PointBlockSize)
+	base := fixtureDailyPoint(t, 0)
+	writePointBlock(fixtureTileX*blocksPerTile, fixtureTileY*blocksPerTile, 0, 0, base)
+	if includeSelected {
+		blockX := fixtureTileX*blocksPerTile + uint32(fixtureCol/tiledelivery.PointBlockSize)
+		blockY := fixtureTileY*blocksPerTile + uint32(fixtureRow/tiledelivery.PointBlockSize)
+		writePointBlock(blockX, blockY, fixtureRow%tiledelivery.PointBlockSize, fixtureCol%tiledelivery.PointBlockSize, selected)
 	}
 
 	grid := delivery.GridSpec{Bounds: delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}, Rows: 720, Cols: 1440}
@@ -503,15 +531,27 @@ func mutateInputCatalog(t *testing.T, root string, input *InputCatalog, mutate f
 func constantRangeRecord(t *testing.T, score uint8) delivery.RangePointRecord {
 	t.Helper()
 	display := delivery.DisplayScoreRecord{Thermal: score, Dryness: score, Sun: score, NiceScore: score, NiceWind: score, CyclingScore: score, CyclingWind: score, Valid: true}
-	var days [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord
+	var days [delivery.ForecastPointDayCount]delivery.DailyPointRecord
 	for index := range days {
-		days[index] = display
+		days[index] = storedDailyPoint(display)
 	}
 	record, err := rangeRecord(days)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return record
+}
+
+func storedDailyPoint(display delivery.DisplayScoreRecord) delivery.DailyPointRecord {
+	if !display.Valid {
+		return delivery.DailyPointRecord{}
+	}
+	return delivery.DailyPointRecord{
+		Weather: delivery.DailyRecord{Valid: true},
+		Thermal: display.Thermal, Dryness: display.Dryness, Sun: display.Sun,
+		NiceScore: display.NiceScore, NiceWind: display.NiceWind,
+		CyclingScore: display.CyclingScore, CyclingWind: display.CyclingWind,
+	}
 }
 
 func findScalar(t *testing.T, catalog Catalog, field forecasttiles.Field, zoom uint8, x, y uint32) ScalarTile {
@@ -531,9 +571,9 @@ func fixtureDigest(value string) string {
 }
 
 func TestStoredRangeRecordUsesSummarizeRangeWithoutRescoring(t *testing.T) {
-	var displays [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord
+	var displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord
 	for index := range displays {
-		displays[index] = delivery.DisplayScoreRecord{Thermal: uint8(50 + index), Dryness: 80, Sun: 70, NiceScore: uint8(20 + index*5), NiceWind: 90, CyclingScore: uint8(10 + index*4), CyclingWind: 40, Valid: true}
+		displays[index] = storedDailyPoint(delivery.DisplayScoreRecord{Thermal: uint8(50 + index), Dryness: 80, Sun: 70, NiceScore: uint8(20 + index*5), NiceWind: 90, CyclingScore: uint8(10 + index*4), CyclingWind: 40, Valid: true})
 	}
 	record, err := rangeRecord(displays)
 	if err != nil {

@@ -42,13 +42,40 @@ func TestScoreRecordUsesExactQuantizedDailyPointEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := delivery.DisplayScoreRecord{
-		Thermal: point.Thermal, Dryness: point.Dryness, Sun: point.Sun,
-		NiceScore: point.NiceScore, NiceWind: point.NiceWind,
-		CyclingScore: point.CyclingScore, CyclingWind: point.CyclingWind, Valid: true,
-	}
+	want := point
 	if got != want {
 		t.Fatalf("scalar source = %+v; quantized daily point = %+v", got, want)
+	}
+}
+
+func TestInterpolateRecordScoresOneInterpolatedPhysicalDay(t *testing.T) {
+	day := func(temperature float64) weather.DailyMetrics {
+		return weather.DailyMetrics{
+			ComfortableTempC: temperature, MinTempC: temperature - 2, MaxTempC: temperature + 2,
+			RainMM: 0, WindSpeedKPH: 8, CloudCoverPercent: weather.OptionalFloat{Value: 10, Available: true},
+			DewPointC: weather.OptionalFloat{Value: 12, Available: true}, NativeResolutionKM: 28, Valid: true,
+		}
+	}
+	window := pipeline.DailyMetricsWindow{
+		Spec:    delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 2}, Rows: 2, Cols: 2},
+		Metrics: []weather.DailyMetrics{day(12), day(36), day(36), day(12)},
+	}
+	got, ok, err := interpolateRecord(1, 1, window)
+	if err != nil || !ok {
+		t.Fatalf("interpolated record unavailable: %t, %v", ok, err)
+	}
+	want, err := scoreRecord(day(24))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("physical-first record = %+v; want canonical 24C record %+v", got, want)
+	}
+	cold, _ := scoreRecord(day(12))
+	hot, _ := scoreRecord(day(36))
+	oldInterpolatedScore := uint8(math.Round((float64(cold.NiceScore) + float64(hot.NiceScore)) / 2))
+	if got.NiceScore == oldInterpolatedScore {
+		t.Fatalf("fixture is not nonlinear: canonical=%d old score interpolation=%d", got.NiceScore, oldInterpolatedScore)
 	}
 }
 
@@ -157,11 +184,9 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 			produced[[2]uint32{outcome.X, outcome.Y}] = struct{}{}
 		}
 	}
-	if len(produced) != len(catalog.Points) {
-		t.Fatalf("produced outcomes=%d point tiles=%d", len(produced), len(catalog.Points))
-	}
+	blocksPerTile := uint32(tiledelivery.TileSize / tiledelivery.PointBlockSize)
 	for _, point := range catalog.Points {
-		if _, ok := produced[[2]uint32{point.X, point.Y}]; !ok {
+		if _, ok := produced[[2]uint32{point.X / blocksPerTile, point.Y / blocksPerTile}]; !ok {
 			t.Fatalf("point has no produced outcome: %+v", point)
 		}
 	}
@@ -171,7 +196,11 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		point := findPoint(t, catalog, id)
+		pointID, _, _, err := tiledelivery.PointAt(config.Tier, config.MaxZoom, longitude, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		point := findPoint(t, catalog, pointID)
 		reader, err := tiledelivery.OpenPoint(filepath.Join(builtDir(config), filepath.FromSlash(point.Path)))
 		if err != nil {
 			t.Fatal(err)
@@ -200,7 +229,7 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 
 	waterID, _, _, _ := tiledelivery.At(config.Tier, config.MaxZoom, 0, 50)
 	for _, point := range catalog.Points {
-		if point.Zoom == waterID.Zoom && point.X == waterID.X && point.Y == waterID.Y {
+		if point.Zoom == waterID.Zoom && point.X/blocksPerTile == waterID.X && point.Y/blocksPerTile == waterID.Y {
 			t.Fatalf("all-water tile was published: %+v", point)
 		}
 	}
@@ -246,7 +275,7 @@ func TestICONCoastalSourceCellAnchorsOneTromsoTexelWithPointScalarParity(t *test
 		t.Fatal(err)
 	}
 	point := points[row*tiledelivery.TileSize+column]
-	if !point.Valid {
+	if !point.Weather.Valid {
 		t.Fatal("Tromso display point lost all-touched ICON source-cell support")
 	}
 	scalar := texture[(row+tiledelivery.ScalarGutter)*tiledelivery.ScalarTextureSize+column+tiledelivery.ScalarGutter]
@@ -259,7 +288,7 @@ func TestICONCoastalSourceCellAnchorsOneTromsoTexelWithPointScalarParity(t *test
 				continue
 			}
 			neighbour := (row+rowOffset)*tiledelivery.TileSize + column + columnOffset
-			if points[neighbour].Valid {
+			if points[neighbour].Weather.Valid {
 				t.Fatalf("surrounding water texel %d/%d inherited blocky source-cell support", rowOffset, columnOffset)
 			}
 		}
@@ -363,7 +392,7 @@ func TestBuildDayCatalogIsDeterministicAndBulkWorkingSetIsTileBounded(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Stats.MaxDisplayRecords != z2Stats.MaxDisplayRecords || catalog.Stats.MaxMetricCells > z2Stats.MaxMetricCells || catalog.Stats.MaxScalarBytes > 20*tiledelivery.ScalarTileBytes {
+	if catalog.Stats.MaxDisplayRecords != z2Stats.MaxDisplayRecords || catalog.Stats.MaxMetricCells > z2Stats.MaxMetricCells || catalog.Stats.MaxScalarBytes > 32*tiledelivery.ScalarTileBytes {
 		t.Fatalf("bulk working set grew with world tile count: z2=%+v z3=%+v", z2Stats, catalog.Stats)
 	}
 }
@@ -400,11 +429,12 @@ func TestBuildRegionalTierPublishesOnlyItsSupportedGeography(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inside, _, _, _ := tiledelivery.At(config.Tier, config.MaxZoom, 5, 50)
+	inside, _, _, _ := tiledelivery.PointAt(config.Tier, config.MaxZoom, 5, 50)
 	_ = findPoint(t, catalog, inside)
 	outside, _, _, _ := tiledelivery.At(config.Tier, config.MaxZoom, -100, 50)
+	blocksPerTile := uint32(tiledelivery.TileSize / tiledelivery.PointBlockSize)
 	for _, point := range catalog.Points {
-		if point.Zoom == outside.Zoom && point.X == outside.X && point.Y == outside.Y {
+		if point.Zoom == outside.Zoom && point.X/blocksPerTile == outside.X && point.Y/blocksPerTile == outside.Y {
 			t.Fatalf("regional tier wrapped or escaped its source support: %+v", point)
 		}
 	}
@@ -565,7 +595,7 @@ func builtDir(config Config) string {
 	return filepath.Join(config.Root, "forecast-days", config.Period, config.Tier)
 }
 
-func findPoint(t *testing.T, catalog Catalog, id tiledelivery.ID) PointTile {
+func findPoint(t *testing.T, catalog Catalog, id tiledelivery.PointID) PointTile {
 	t.Helper()
 	for _, point := range catalog.Points {
 		if point.Zoom == id.Zoom && point.X == id.X && point.Y == id.Y {

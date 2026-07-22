@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/weather"
 )
 
 func TestXYZBoundsAndCanonicalAddresses(t *testing.T) {
@@ -116,13 +117,13 @@ func TestAntimeridianWrapAndMercatorLatitudePolicy(t *testing.T) {
 
 func TestEuropePointTileUsesExactMercatorRecord(t *testing.T) {
 	const longitude, latitude = -4.4214, 36.7213
-	id, row, col, err := At("europe-detail", 7, longitude, latitude)
+	id, row, col, err := PointAt("europe-detail", 7, longitude, latitude)
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-	want := displayRecord(86)
-	records[row*TileSize+col] = want
+	records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+	want := dailyRecord(t, 24)
+	records[row*PointBlockSize+col] = want
 	writer, err := NewWriter(t.TempDir(), "release-canary")
 	if err != nil {
 		t.Fatal(err)
@@ -131,10 +132,10 @@ func TestEuropePointTileUsesExactMercatorRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asset.Omitted || asset.Bytes != pointHeaderSize+TileSize*TileSize*delivery.DisplayScoreRecordBytes {
+	if asset.Omitted || asset.Bytes != PointBlockBytes {
 		t.Fatalf("asset = %+v", asset)
 	}
-	t.Logf("direct 256x256 display-score tile: %d bytes", asset.Bytes)
+	t.Logf("direct 64x64 daily point block: %d bytes", asset.Bytes)
 	for _, fragment := range []string{"release-canary", "day-01", "europe-detail"} {
 		if !strings.Contains(asset.Path, fragment) {
 			t.Fatalf("path %q lacks %q", asset.Path, fragment)
@@ -150,11 +151,11 @@ func TestEuropePointTileUsesExactMercatorRecord(t *testing.T) {
 		t.Fatalf("point = %+v, %t, %v; want %+v", got, ok, err, want)
 	}
 	all, err := reader.Records()
-	if err != nil || len(all) != TileSize*TileSize || all[row*TileSize+col] != want {
-		t.Fatalf("complete point plane = %d records, selected=%+v, err=%v", len(all), all[row*TileSize+col], err)
+	if err != nil || len(all) != PointBlockSize*PointBlockSize || all[row*PointBlockSize+col] != want {
+		t.Fatalf("complete point plane = %d records, selected=%+v, err=%v", len(all), all[row*PointBlockSize+col], err)
 	}
 	// Adjacent water/no-data remains absent; it cannot inherit the land record.
-	waterLongitude := longitude + (asset.Bounds.East-asset.Bounds.West)/TileSize
+	waterLongitude := longitude + (asset.Bounds.East-asset.Bounds.West)/PointBlockSize
 	if _, ok, err := reader.At(waterLongitude, latitude); err != nil || ok {
 		t.Fatalf("water point = %t, %v", ok, err)
 	}
@@ -173,9 +174,9 @@ func TestEuropePointTileUsesExactMercatorRecord(t *testing.T) {
 func TestPointTileRejectsPayloadCorruption(t *testing.T) {
 	root := t.TempDir()
 	writer, _ := NewWriter(root, "release-canary")
-	id, _ := NewID("global", 2, 1, 1)
-	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-	records[0] = displayRecord(50)
+	id, _ := NewPointID("global", 2, 1, 1)
+	records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+	records[0] = dailyRecord(t, 20)
 	asset, err := writer.Write(id, "day-01", records)
 	if err != nil {
 		t.Fatal(err)
@@ -198,8 +199,8 @@ func TestPointTileRejectsPayloadCorruption(t *testing.T) {
 func TestAllWaterTileIsOmitted(t *testing.T) {
 	root := t.TempDir()
 	writer, _ := NewWriter(root, "release-canary")
-	id, _ := NewID("global", 2, 1, 1)
-	asset, err := writer.Write(id, "day-01", make([]delivery.DisplayScoreRecord, TileSize*TileSize))
+	id, _ := NewPointID("global", 2, 1, 1)
+	asset, err := writer.Write(id, "day-01", make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,9 +219,9 @@ func TestAllWaterTileIsOmitted(t *testing.T) {
 func TestIdentityPreflightWritesNothing(t *testing.T) {
 	root := t.TempDir()
 	writer, _ := NewWriter(root, "release-canary")
-	id, _ := NewID("global", 2, 1, 1)
-	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-	records[0] = displayRecord(50)
+	id, _ := NewPointID("global", 2, 1, 1)
+	records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+	records[0] = dailyRecord(t, 20)
 	if _, err := writer.Write(id, "BAD PERIOD", records); err == nil {
 		t.Fatal("accepted invalid period")
 	}
@@ -238,12 +239,12 @@ func TestProductionIdentitiesAreAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := NewID("europe-detail", 2, 1, 1)
+	id, err := NewPointID("europe-detail", 2, 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-	records[0] = displayRecord(50)
+	records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+	records[0] = dailyRecord(t, 20)
 	if _, err := writer.Write(id, "2026-07-20", records); err != nil {
 		t.Fatal(err)
 	}
@@ -254,20 +255,20 @@ func TestPointTileIsImmutableForDataAndOmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, _ := NewID("global", 2, 1, 1)
-	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-	records[0] = displayRecord(50)
+	id, _ := NewPointID("global", 2, 1, 1)
+	records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+	records[0] = dailyRecord(t, 20)
 	asset, err := writer.Write(id, "day-01", records)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	replacement := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-	replacement[0] = displayRecord(90)
+	replacement := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+	replacement[0] = dailyRecord(t, 28)
 	if _, err := writer.Write(id, "day-01", replacement); err == nil {
 		t.Fatal("overwrote an immutable point tile")
 	}
-	if _, err := writer.Write(id, "day-01", make([]delivery.DisplayScoreRecord, TileSize*TileSize)); err == nil {
+	if _, err := writer.Write(id, "day-01", make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)); err == nil {
 		t.Fatal("reported an existing point tile as omitted")
 	}
 
@@ -278,7 +279,7 @@ func TestPointTileIsImmutableForDataAndOmission(t *testing.T) {
 	defer reader.Close()
 	bounds, _ := id.Bounds()
 	record, ok, err := reader.At(bounds.West, bounds.North)
-	if err != nil || !ok || record.NiceScore != 50 {
+	if err != nil || !ok || record != records[0] {
 		t.Fatalf("immutable record = %+v, %t, %v", record, ok, err)
 	}
 }
@@ -288,19 +289,19 @@ func TestConcurrentPointTilePublicationHasOneWinner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, _ := NewID("global", 2, 1, 1)
+	id, _ := NewPointID("global", 2, 1, 1)
 	const writers = 8
 	results := make(chan error, writers)
 	var wait sync.WaitGroup
 	for index := 0; index < writers; index++ {
 		wait.Add(1)
-		go func(score uint8) {
+		go func(offset int) {
 			defer wait.Done()
-			records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
-			records[0] = displayRecord(score)
+			records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
+			records[0] = dailyRecord(t, 20+float64(offset))
 			_, err := writer.Write(id, "day-01", records)
 			results <- err
-		}(uint8(50 + index))
+		}(index)
 	}
 	wait.Wait()
 	close(results)
@@ -315,8 +316,21 @@ func TestConcurrentPointTilePublicationHasOneWinner(t *testing.T) {
 	}
 }
 
-func displayRecord(score uint8) delivery.DisplayScoreRecord {
-	return delivery.DisplayScoreRecord{Thermal: score, Dryness: score, Sun: score, NiceScore: score, NiceWind: score, CyclingScore: score, CyclingWind: score, Valid: true}
+func dailyRecord(t *testing.T, temperature float64) delivery.DailyPointRecord {
+	t.Helper()
+	weatherRecord, err := delivery.RecordFromWeather(weather.DailyMetrics{
+		ComfortableTempC: temperature, MinTempC: temperature - 2, MaxTempC: temperature + 2,
+		RainMM: 0, WindSpeedKPH: 8, CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
+		DewPointC: weather.OptionalFloat{Value: 12, Available: true}, NativeResolutionKM: 28, Valid: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := delivery.DailyPointRecordFromWeather(weatherRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-14 }

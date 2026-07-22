@@ -815,16 +815,16 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 	currentDate, previousDate := "2026-07-23", "2026-07-22"
 	pointRaw := []byte(strings.Repeat("forecast-point-block-", 16))
 	scalarRaw := []byte(strings.Repeat("\x32", 1024))
-	displayRaw := []byte(strings.Repeat("display", 64))
+	displayRaw := []byte(strings.Repeat("daily-point", 64))
 	rangePointRaw := []byte(strings.Repeat("forecast-range-point-", 16))
 	rangeScalarRaw := []byte(strings.Repeat("\x47", 1024))
 
 	makeIndex := func(id, date string, point, display, scalar, rangePoint, rangeScalar []byte) (forecastruns.Index, []byte, forecastruns.IndexReference, string, string, string, string, string, string, []byte) {
 		catalog := forecastcatalog.Catalog{
 			ReleaseID: id, LocalDate: date, Tier: forecastpoints.TierGlobal,
-			PointBlocks:   []forecastcatalog.PointBlock{{Path: "point.nwf", Bytes: uint64(len(point)), SHA256: sha256Hex(point), MediaType: forecastpoints.MediaType}},
-			DisplayPoints: []forecastcatalog.DisplayPointTile{{Path: "display.nwt", Bytes: uint64(len(display)), SHA256: sha256Hex(display), MediaType: tiledelivery.PointMediaType}},
-			ScalarTiles:   []forecastcatalog.ScalarTile{{Path: "score.nws", Bytes: uint64(len(scalar)), SHA256: sha256Hex(scalar), MediaType: tiledelivery.ScalarMediaType}},
+			PointBlocks:      []forecastcatalog.PointBlock{{Path: "point.nwf", Bytes: uint64(len(point)), SHA256: sha256Hex(point), MediaType: forecastpoints.MediaType}},
+			DailyPointBlocks: []forecastcatalog.DailyPointBlock{{Path: "display.nwt", Bytes: uint64(len(display)), SHA256: sha256Hex(display), MediaType: tiledelivery.PointMediaType}},
+			ScalarTiles:      []forecastcatalog.ScalarTile{{Path: "score.nws", Bytes: uint64(len(scalar)), SHA256: sha256Hex(scalar), MediaType: tiledelivery.ScalarMediaType}},
 		}
 		catalogRaw, err := json.Marshal(catalog)
 		if err != nil {

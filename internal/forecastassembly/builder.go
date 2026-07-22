@@ -424,8 +424,11 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog forecasttiles
 		if readErr != nil || closeErr != nil {
 			return 0, errors.Join(readErr, closeErr)
 		}
+		blocksPerTile := uint32(tiledelivery.TileSize / tiledelivery.PointBlockSize)
+		tileX, tileY := point.X/blocksPerTile, point.Y/blocksPerTile
+		blockX, blockY := int(point.X%blocksPerTile), int(point.Y%blocksPerTile)
 		for _, field := range forecastFields() {
-			scalar, ok := scalars[scalarKey{field: field, x: point.X, y: point.Y}]
+			scalar, ok := scalars[scalarKey{field: field, x: tileX, y: tileY}]
 			if !ok {
 				return 0, fmt.Errorf("max-zoom point tile %d/%d has no %s scalar", point.X, point.Y, field)
 			}
@@ -434,7 +437,9 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog forecasttiles
 				return 0, err
 			}
 			for index, record := range records {
-				row, column := index/tiledelivery.TileSize, index%tiledelivery.TileSize
+				row, column := index/tiledelivery.PointBlockSize, index%tiledelivery.PointBlockSize
+				row += blockY * tiledelivery.PointBlockSize
+				column += blockX * tiledelivery.PointBlockSize
 				got := encoded[(row+tiledelivery.ScalarGutter)*tiledelivery.ScalarTextureSize+column+tiledelivery.ScalarGutter]
 				want, valid, err := displayField(record, field)
 				if err != nil {
@@ -466,8 +471,8 @@ func forecastFields() []forecasttiles.Field {
 	}
 }
 
-func displayField(record delivery.DisplayScoreRecord, field forecasttiles.Field) (uint8, bool, error) {
-	if !record.Valid {
+func displayField(record delivery.DailyPointRecord, field forecasttiles.Field) (uint8, bool, error) {
+	if !record.Weather.Valid {
 		return 0, false, nil
 	}
 	switch field {
@@ -514,7 +519,7 @@ func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catal
 	stats := Stats{
 		ExpectedPointBlocks: catalog.Coverage.ExpectedPointBlocks, AvailablePointBlocks: catalog.Coverage.AvailablePointBlocks,
 		OmittedPointBlocks: catalog.Coverage.OmittedPointBlocks, PointFiles: catalog.Coverage.AvailablePointBlocks,
-		DisplayPointFiles: uint32(len(catalog.DisplayPoints)), ScalarFiles: uint32(len(catalog.ScalarTiles)), CatalogBytes: catalogBytes, ParityRecords: parityRecords,
+		DisplayPointFiles: uint32(len(catalog.DailyPointBlocks)), ScalarFiles: uint32(len(catalog.ScalarTiles)), CatalogBytes: catalogBytes, ParityRecords: parityRecords,
 		MaxMetricCells: max(native.maxMetricCells, scalars.Stats.MaxMetricCells), MaxPointRecords: native.maxPointRecords,
 		MaxDisplayRecords: scalars.Stats.MaxDisplayRecords, MaxScalarBytes: scalars.Stats.MaxScalarBytes,
 	}
@@ -524,7 +529,7 @@ func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catal
 	for _, scalar := range catalog.ScalarTiles {
 		stats.ScalarBytes += scalar.Bytes
 	}
-	for _, point := range catalog.DisplayPoints {
+	for _, point := range catalog.DailyPointBlocks {
 		stats.DisplayPointBytes += point.Bytes
 	}
 	stats.OutputFiles = stats.PointFiles + stats.DisplayPointFiles + stats.ScalarFiles + 1
@@ -534,7 +539,7 @@ func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catal
 		frameCount += uint64(len(frames))
 	}
 	metricBytes := uint64(unsafe.Sizeof(weather.DailyMetrics{}))
-	displayBytes := uint64(unsafe.Sizeof(delivery.DisplayScoreRecord{}))
+	displayBytes := uint64(unsafe.Sizeof(delivery.DailyPointRecord{}))
 	pointBytes := uint64(unsafe.Sizeof(delivery.DailyPointRecord{}))
 	// Each aggregation can retain the source Float32 windows, cumulative
 	// normalization scratch, local-time windows, accumulators and output

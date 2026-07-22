@@ -609,7 +609,7 @@ func validateTierTree(root string, catalog forecastcatalog.Catalog) error {
 			}
 		}
 	}
-	for _, point := range catalog.DisplayPoints {
+	for _, point := range catalog.DailyPointBlocks {
 		if err := add(point.Path); err != nil {
 			return err
 		}

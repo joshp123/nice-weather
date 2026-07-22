@@ -399,7 +399,7 @@ func (app *application) addForecastRun(snapshot *forecastSnapshot, reference for
 					}
 				}
 			}
-			for _, point := range catalog.DisplayPoints {
+			for _, point := range catalog.DailyPointBlocks {
 				if err := addCatalogForecastAsset(snapshot.assets, tierRoot, point.Path, point.Bytes, point.SHA256, point.MediaType); err != nil {
 					return err
 				}

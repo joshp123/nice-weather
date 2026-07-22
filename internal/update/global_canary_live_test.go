@@ -110,19 +110,9 @@ func auditLiveGlobalCanaryDay(t *testing.T, catalogPath string) forecasttiles.Ca
 	}
 
 	missing := 0
-	for y := int64(0); y < 8; y++ {
-		for x := int64(0); x < 8; x++ {
-			id, _ := tiledelivery.NewID("global", 3, x, y)
-			found := false
-			for _, point := range catalog.Points {
-				if point.Zoom == id.Zoom && point.X == id.X && point.Y == id.Y {
-					found = true
-					break
-				}
-			}
-			if !found {
-				missing++
-			}
+	for _, outcome := range catalog.MaxZoomOutcomes {
+		if outcome.Omitted {
+			missing++
 		}
 	}
 	if missing != 4 {
@@ -131,21 +121,25 @@ func auditLiveGlobalCanaryDay(t *testing.T, catalogPath string) forecasttiles.Ca
 	return catalog
 }
 
-func liveCanaryPointAndScalar(t *testing.T, base string, catalog forecasttiles.Catalog, longitude, latitude float64) (delivery.DisplayScoreRecord, uint8, bool) {
+func liveCanaryPointAndScalar(t *testing.T, base string, catalog forecasttiles.Catalog, longitude, latitude float64) (delivery.DailyPointRecord, uint8, bool) {
 	t.Helper()
 	id, row, col, err := tiledelivery.At("global", 3, longitude, latitude)
 	if err != nil {
 		t.Fatal(err)
 	}
+	pointID, _, _, err := tiledelivery.PointAt("global", 3, longitude, latitude)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var pointPath, scalarPath, scalarSHA string
 	for _, point := range catalog.Points {
-		if point.Zoom == id.Zoom && point.X == id.X && point.Y == id.Y {
+		if point.Zoom == pointID.Zoom && point.X == pointID.X && point.Y == pointID.Y {
 			pointPath = point.Path
 			break
 		}
 	}
 	if pointPath == "" {
-		return delivery.DisplayScoreRecord{}, 0, false
+		return delivery.DailyPointRecord{}, 0, false
 	}
 	for _, asset := range catalog.Scalars {
 		if asset.Field == forecasttiles.FieldNiceScore && asset.Zoom == id.Zoom && asset.X == id.X && asset.Y == id.Y {
@@ -163,7 +157,7 @@ func liveCanaryPointAndScalar(t *testing.T, base string, catalog forecasttiles.C
 		t.Fatal(err)
 	}
 	if !valid {
-		return delivery.DisplayScoreRecord{}, 0, false
+		return delivery.DailyPointRecord{}, 0, false
 	}
 	payload, _, err := tiledelivery.ReadScalar(filepath.Join(base, filepath.FromSlash(scalarPath)), scalarSHA)
 	if err != nil {

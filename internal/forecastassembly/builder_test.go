@@ -104,10 +104,10 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 		t.Fatal(err)
 	}
 	const islandLongitude, islandLatitude = .02, .02
-	if len(parsed.DisplayPoints) != 1 {
-		t.Fatalf("tiny-island display points = %d; want 1", len(parsed.DisplayPoints))
+	if len(parsed.DailyPointBlocks) != 1 {
+		t.Fatalf("tiny-island daily point blocks = %d; want 1", len(parsed.DailyPointBlocks))
 	}
-	displayReader, err := tiledelivery.OpenPoint(filepath.Join(product.Root, filepath.FromSlash(parsed.DisplayPoints[0].Path)))
+	displayReader, err := tiledelivery.OpenPoint(filepath.Join(product.Root, filepath.FromSlash(parsed.DailyPointBlocks[0].Path)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 		t.Fatal(err)
 	}
 	native, nativeValid, err := opened.RecordAt(islandLongitude, islandLatitude)
-	if err != nil || !nativeValid || native.Weather.Valid != display.Valid {
+	if err != nil || !nativeValid || native.Weather.Valid != display.Weather.Valid {
 		t.Fatalf("tiny-island native/display selection: native=%+v valid=%t display=%+v err=%v", native, nativeValid, display, err)
 	}
 	for _, removed := range []string{"forecast-tiles.json"} {

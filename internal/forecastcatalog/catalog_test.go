@@ -17,6 +17,7 @@ import (
 	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
+	"nice-weather-finder/internal/weather"
 )
 
 func TestCatalogBindsCompleteIFSBlockSetAndCanonicalScalars(t *testing.T) {
@@ -33,7 +34,7 @@ func TestCatalogBindsCompleteIFSBlockSetAndCanonicalScalars(t *testing.T) {
 	if catalog.Grid != catalogGrid(spec.grid) || catalog.Evidence.Product != ProductIFSControl || catalog.Evidence.NativeResolutionKM != 28 || catalog.ScalarMaxZoom != 3 {
 		t.Fatalf("IFS identity = %+v %+v z%d", catalog.Grid, catalog.Evidence, catalog.ScalarMaxZoom)
 	}
-	if catalog.Coverage != (Coverage{ExpectedPointBlocks: 276, AvailablePointBlocks: 1, OmittedPointBlocks: 275, ExpectedMaxZoomTiles: 64, AvailableMaxZoomTiles: 1, OmittedMaxZoomTiles: 63, ScalarTiles: 28, DisplayPointTiles: 1}) {
+	if catalog.Coverage != (Coverage{ExpectedPointBlocks: 276, AvailablePointBlocks: 1, OmittedPointBlocks: 275, ExpectedMaxZoomTiles: 64, AvailableMaxZoomTiles: 1, OmittedMaxZoomTiles: 63, ScalarTiles: 28, DailyPointBlocks: 1}) {
 		t.Fatalf("coverage = %+v", catalog.Coverage)
 	}
 	if len(catalog.Scores.Fields) != 7 || len(catalog.Scores.Profiles) != 2 || catalog.Scores.Fields[3].Profile != "nice" || catalog.Scores.Fields[5].Profile != "cycling" {
@@ -63,7 +64,7 @@ func TestCatalogRequiresExactLandProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version != 2 || catalog.Land.SourceArchiveSHA256 != strings.Repeat("b", 64) || catalog.Land.MaskSHA256 != strings.Repeat("c", 64) {
+	if catalog.Version != 3 || catalog.Land.SourceArchiveSHA256 != strings.Repeat("b", 64) || catalog.Land.MaskSHA256 != strings.Repeat("c", 64) {
 		t.Fatalf("catalog land identity = v%d %+v", catalog.Version, catalog.Land)
 	}
 	mutations := []func(*forecasttiles.LandIdentity){
@@ -95,6 +96,15 @@ func TestCatalogBindsExactICONEuropeDetailContract(t *testing.T) {
 	}
 	if catalog.Coverage.ExpectedPointBlocks != 198 || catalog.PointBlocks[197].Row != 10 || catalog.PointBlocks[197].Column != 17 || catalog.PointBlocks[197].Rows != 40 || catalog.PointBlocks[197].Columns != 16 {
 		t.Fatalf("ICON point coverage = %+v last=%+v", catalog.Coverage, catalog.PointBlocks[197])
+	}
+	candidate := catalog
+	extra := candidate.DailyPointBlocks[0]
+	extra.X, extra.Y = 0, 0
+	extra.Path = fmt.Sprintf("points/%s/%s/%d/0/0.nwt", candidate.LocalDate, candidate.Tier, candidate.ScalarMaxZoom)
+	candidate.DailyPointBlocks = append(append([]DailyPointBlock(nil), candidate.DailyPointBlocks...), extra)
+	candidate.Coverage.DailyPointBlocks++
+	if err := Validate(candidate); err == nil || !strings.Contains(err.Error(), "exactly match scalar coverage") {
+		t.Fatalf("extra regional point parent error = %v", err)
 	}
 }
 
@@ -192,7 +202,7 @@ func TestCatalogWorstCaseJSONFitsHardBound(t *testing.T) {
 		config := testConfig(pair[0], pair[1])
 		spec, _ := specFor(config.Provider, config.Tier)
 		coordinates := allSupportedTiles(spec)
-		catalog, err := New(config, pointOutcomes(t, config, spec, true), scalarCatalog(t, config, spec, coordinates))
+		catalog, err := New(config, pointOutcomes(t, config, spec, true), fullyPopulatedScalarCatalog(t, config, spec, coordinates))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -259,20 +269,20 @@ func TestValidateFilesChecksPointAndScalarBytes(t *testing.T) {
 			})
 		}
 		if coordinate.Zoom == spec.maxZoom {
-			id, err := tiledelivery.NewID(config.Tier, coordinate.Zoom, int64(coordinate.X), int64(coordinate.Y))
+			id, err := tiledelivery.NewPointID(config.Tier, coordinate.Zoom, int64(coordinate.X)*4, int64(coordinate.Y)*4)
 			if err != nil {
 				t.Fatal(err)
 			}
-			records := make([]delivery.DisplayScoreRecord, tiledelivery.TileSize*tiledelivery.TileSize)
-			records[0] = delivery.DisplayScoreRecord{Thermal: 60, Dryness: 60, Sun: 60, NiceScore: 60, NiceWind: 60, CyclingScore: 60, CyclingWind: 60, Valid: true}
+			records := make([]delivery.DailyPointRecord, tiledelivery.PointBlockSize*tiledelivery.PointBlockSize)
+			records[0] = catalogDailyRecord(t)
 			written, err := writer.Write(id, config.LocalDate, records)
 			if err != nil {
 				t.Fatal(err)
 			}
-			path := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X, coordinate.Y)
+			path := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X*4, coordinate.Y*4)
 			scalars.Points = append(scalars.Points, forecasttiles.PointTile{
-				Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path, Bytes: written.Bytes,
-				SHA256: written.SHA256, PayloadSHA256: written.PayloadSHA256,
+				Zoom: coordinate.Zoom, X: coordinate.X * 4, Y: coordinate.Y * 4, Path: path, Bytes: written.Bytes,
+				SHA256: written.SHA256, PayloadSHA256: written.PayloadSHA256, DataRecords: 1, NoDataRecords: tiledelivery.PointBlockSize*tiledelivery.PointBlockSize - 1,
 			})
 		}
 	}
@@ -305,7 +315,7 @@ func TestParseRejectsUnknownAndTrailingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded, _ := Marshal(catalog)
-	unknown := bytes.Replace(encoded, []byte(`"version":2`), []byte(`"unknown":true,"version":2`), 1)
+	unknown := bytes.Replace(encoded, []byte(`"version":3`), []byte(`"unknown":true,"version":3`), 1)
 	if _, err := Parse(unknown); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("unknown field error = %v", err)
 	}
@@ -378,10 +388,9 @@ func scalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []til
 		}
 		if _, ok := produced[coordinate]; ok {
 			outcome.Omitted, outcome.DataRecords, outcome.NoDataRecords = false, 1, tiledelivery.TileSize*tiledelivery.TileSize-1
-			path := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X, coordinate.Y)
 			catalog.Points = append(catalog.Points, forecasttiles.PointTile{
-				Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path, Bytes: tiledelivery.PointTileBytes,
-				SHA256: fixtureSHA(uint32(80_000 + index)), PayloadSHA256: fixtureSHA(uint32(90_000 + index)),
+				Zoom: coordinate.Zoom, X: coordinate.X * 4, Y: coordinate.Y * 4, Path: fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X*4, coordinate.Y*4), Bytes: tiledelivery.PointBlockBytes,
+				SHA256: fixtureSHA(uint32(80_000 + index)), PayloadSHA256: fixtureSHA(uint32(90_000 + index)), DataRecords: 1, NoDataRecords: tiledelivery.PointBlockSize*tiledelivery.PointBlockSize - 1,
 			})
 		}
 		catalog.MaxZoomOutcomes = append(catalog.MaxZoomOutcomes, outcome)
@@ -397,6 +406,32 @@ func scalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []til
 				Bytes: tiledelivery.ScalarTileBytes, SHA256: fixtureSHA(uint32(fieldIndex*20_000 + index + 1)),
 				DataTexels: 1, NoDataTexels: tiledelivery.ScalarTileBytes - 1,
 			})
+		}
+	}
+	return catalog
+}
+
+func fullyPopulatedScalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []tileCoordinate) forecasttiles.Catalog {
+	t.Helper()
+	catalog := scalarCatalog(t, config, spec, coordinates)
+	catalog.Points = nil
+	for outcomeIndex := range catalog.MaxZoomOutcomes {
+		outcome := &catalog.MaxZoomOutcomes[outcomeIndex]
+		if outcome.Omitted {
+			continue
+		}
+		outcome.DataRecords = tiledelivery.TileSize * tiledelivery.TileSize
+		outcome.NoDataRecords = 0
+		for blockY := uint32(0); blockY < tiledelivery.TileSize/tiledelivery.PointBlockSize; blockY++ {
+			for blockX := uint32(0); blockX < tiledelivery.TileSize/tiledelivery.PointBlockSize; blockX++ {
+				x, y := outcome.X*4+blockX, outcome.Y*4+blockY
+				catalog.Points = append(catalog.Points, forecasttiles.PointTile{
+					Zoom: outcome.Zoom, X: x, Y: y,
+					Path:  fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, outcome.Zoom, x, y),
+					Bytes: tiledelivery.PointBlockBytes, SHA256: fixtureSHA(x*1000 + y + 1), PayloadSHA256: fixtureSHA(x*1000 + y + 100_000),
+					DataRecords: tiledelivery.PointBlockSize * tiledelivery.PointBlockSize,
+				})
+			}
 		}
 	}
 	return catalog
@@ -486,5 +521,18 @@ func catalogEqual(left, right Catalog) bool {
 		left.Provider == right.Provider && left.Tier == right.Tier && left.Grid == right.Grid && left.Evidence == right.Evidence && left.Land == right.Land &&
 		left.ScalarMaxZoom == right.ScalarMaxZoom && left.Scores.Unit == right.Scores.Unit && left.Scores.NoDataValue == right.Scores.NoDataValue &&
 		slices.Equal(left.Scores.Profiles, right.Scores.Profiles) && slices.Equal(left.Scores.Fields, right.Scores.Fields) &&
-		left.Coverage == right.Coverage && slices.Equal(left.PointBlocks, right.PointBlocks) && slices.Equal(left.DisplayPoints, right.DisplayPoints) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)
+		left.Coverage == right.Coverage && slices.Equal(left.PointBlocks, right.PointBlocks) && slices.Equal(left.DailyPointBlocks, right.DailyPointBlocks) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)
+}
+
+func catalogDailyRecord(t *testing.T) delivery.DailyPointRecord {
+	t.Helper()
+	record, err := delivery.RecordFromWeather(weather.DailyMetrics{ComfortableTempC: 24, MinTempC: 20, MaxTempC: 27, WindSpeedKPH: 8, CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true}, DewPointC: weather.OptionalFloat{Value: 12, Available: true}, NativeResolutionKM: 28, Valid: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, err := delivery.DailyPointRecordFromWeather(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return point
 }

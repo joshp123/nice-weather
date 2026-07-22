@@ -26,7 +26,7 @@ func pointEntry(staging string, asset tiledelivery.PointAsset) (PointTile, error
 	if err != nil {
 		return PointTile{}, err
 	}
-	return PointTile{Zoom: asset.ID.Zoom, X: asset.ID.X, Y: asset.ID.Y, Path: relative, Bytes: asset.Bytes, SHA256: asset.SHA256, PayloadSHA256: asset.PayloadSHA256}, nil
+	return PointTile{Zoom: asset.ID.Zoom, X: asset.ID.X, Y: asset.ID.Y, Path: relative, Bytes: asset.Bytes, SHA256: asset.SHA256, PayloadSHA256: asset.PayloadSHA256, DataRecords: asset.DataRecords, NoDataRecords: asset.NoDataRecords}, nil
 }
 
 func scalarEntry(staging string, asset tiledelivery.ScalarAsset, field Field) (ScalarTile, error) {

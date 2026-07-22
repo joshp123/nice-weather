@@ -23,7 +23,7 @@ import (
 	"nice-weather-finder/internal/tiledelivery"
 )
 
-const catalogVersion = 2
+const catalogVersion = 3
 
 const (
 	LandAuthorityNaturalEarth        = "Natural Earth"
@@ -135,6 +135,8 @@ type PointTile struct {
 	Bytes         uint64 `json:"bytes"`
 	SHA256        string `json:"sha256"`
 	PayloadSHA256 string `json:"payloadSha256"`
+	DataRecords   uint32 `json:"dataRecords"`
+	NoDataRecords uint32 `json:"noDataRecords"`
 }
 
 type ScalarTile struct {
@@ -269,15 +271,27 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 			if outcome.Omitted {
 				continue
 			}
-			point, err := writer.Write(id, config.Period, records)
-			if err != nil {
-				return Catalog{}, err
+			blocksPerTile := tiledelivery.TileSize / tiledelivery.PointBlockSize
+			for blockY := 0; blockY < blocksPerTile; blockY++ {
+				for blockX := 0; blockX < blocksPerTile; blockX++ {
+					pointID, err := tiledelivery.NewPointID(config.Tier, id.Zoom, int64(id.X)*int64(blocksPerTile)+int64(blockX), int64(id.Y)*int64(blocksPerTile)+int64(blockY))
+					if err != nil {
+						return Catalog{}, err
+					}
+					point, err := writer.Write(pointID, config.Period, dailyPointBlock(records, blockY, blockX))
+					if err != nil {
+						return Catalog{}, err
+					}
+					if point.Omitted {
+						continue
+					}
+					pointCatalog, err := pointEntry(staging, point)
+					if err != nil {
+						return Catalog{}, err
+					}
+					catalog.Points = append(catalog.Points, pointCatalog)
+				}
 			}
-			pointCatalog, err := pointEntry(staging, point)
-			if err != nil {
-				return Catalog{}, err
-			}
-			catalog.Points = append(catalog.Points, pointCatalog)
 			for _, field := range fields {
 				scalarID, err := scalarID(config.Tier, field, id.Zoom, id.X, id.Y)
 				if err != nil {
@@ -297,7 +311,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 				}
 				catalog.Scalars = append(catalog.Scalars, scalarCatalog)
 			}
-			catalog.Stats.MaxScalarBytes = max(catalog.Stats.MaxScalarBytes, uint64(len(texture))*delivery.DisplayScoreRecordBytes+tiledelivery.ScalarTileBytes)
+			catalog.Stats.MaxScalarBytes = max(catalog.Stats.MaxScalarBytes, uint64(len(texture))*delivery.DailyPointRecordBytes+tiledelivery.ScalarTileBytes)
 		}
 	}
 
@@ -494,10 +508,10 @@ func preparedEvidenceFrom(metadata pipeline.PreparedFrameMetadata) preparedEvide
 	}
 }
 
-func maxZoomOutcome(id tiledelivery.ID, records []delivery.DisplayScoreRecord) MaxZoomOutcome {
+func maxZoomOutcome(id tiledelivery.ID, records []delivery.DailyPointRecord) MaxZoomOutcome {
 	outcome := MaxZoomOutcome{Zoom: id.Zoom, X: id.X, Y: id.Y}
 	for _, record := range records {
-		if record.Valid {
+		if record.Weather.Valid {
 			outcome.DataRecords++
 		} else {
 			outcome.NoDataRecords++
@@ -505,4 +519,13 @@ func maxZoomOutcome(id tiledelivery.ID, records []delivery.DisplayScoreRecord) M
 	}
 	outcome.Omitted = outcome.DataRecords == 0
 	return outcome
+}
+
+func dailyPointBlock(records []delivery.DailyPointRecord, blockY, blockX int) []delivery.DailyPointRecord {
+	result := make([]delivery.DailyPointRecord, tiledelivery.PointBlockSize*tiledelivery.PointBlockSize)
+	for row := 0; row < tiledelivery.PointBlockSize; row++ {
+		source := (blockY*tiledelivery.PointBlockSize+row)*tiledelivery.TileSize + blockX*tiledelivery.PointBlockSize
+		copy(result[row*tiledelivery.PointBlockSize:(row+1)*tiledelivery.PointBlockSize], records[source:source+tiledelivery.PointBlockSize])
+	}
+	return result
 }

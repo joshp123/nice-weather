@@ -2,6 +2,7 @@ package forecasttiles
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -81,9 +82,9 @@ func tileSourceWindow(source delivery.GridSpec, id tiledelivery.ID) (pipeline.Gr
 	}, true
 }
 
-func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land TouchesLand) ([]delivery.DisplayScoreRecord, []delivery.DisplayScoreRecord, error) {
-	texture := make([]delivery.DisplayScoreRecord, tiledelivery.ScalarTextureSize*tiledelivery.ScalarTextureSize)
-	records := make([]delivery.DisplayScoreRecord, tiledelivery.TileSize*tiledelivery.TileSize)
+func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land TouchesLand) ([]delivery.DailyPointRecord, []delivery.DailyPointRecord, error) {
+	texture := make([]delivery.DailyPointRecord, tiledelivery.ScalarTextureSize*tiledelivery.ScalarTextureSize)
+	records := make([]delivery.DailyPointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
 	worldPixels := int64(tiledelivery.TileSize) * (int64(1) << id.Zoom)
 	westPixel := int64(id.X) * tiledelivery.TileSize
 	northPixel := int64(id.Y) * tiledelivery.TileSize
@@ -179,7 +180,7 @@ func sourceCellLandAnchor(longitude, latitude float64, target delivery.GridBound
 	return land(sourceCell)
 }
 
-func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DisplayScoreRecord, bool, error) {
+func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DailyPointRecord, bool, error) {
 	span := window.Spec.Bounds.East - window.Spec.Bounds.West
 	for longitude < window.Spec.Bounds.West {
 		longitude += 360
@@ -193,62 +194,82 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 	y := (window.Spec.Bounds.North-latitude)/cellHeight - .5
 	x0, y0 := int(math.Floor(x)), int(math.Floor(y))
 	if x0 < 0 || y0 < 0 || x0+1 >= int(window.Spec.Cols) || y0+1 >= int(window.Spec.Rows) {
-		return delivery.DisplayScoreRecord{}, false, nil
+		return delivery.DailyPointRecord{}, false, nil
 	}
 	indexes := [4]int{y0*int(window.Spec.Cols) + x0, y0*int(window.Spec.Cols) + x0 + 1, (y0+1)*int(window.Spec.Cols) + x0, (y0+1)*int(window.Spec.Cols) + x0 + 1}
-	records := [4]delivery.DisplayScoreRecord{}
+	metrics := [4]weather.DailyMetrics{}
 	for index, sourceIndex := range indexes {
-		metrics := window.Metrics[sourceIndex]
-		if !metrics.Valid {
-			return delivery.DisplayScoreRecord{}, false, nil
-		}
-		var err error
-		records[index], err = scoreRecord(metrics)
-		if err != nil {
-			return delivery.DisplayScoreRecord{}, false, err
-		}
-		if !records[index].Valid {
-			return delivery.DisplayScoreRecord{}, false, nil
+		metrics[index] = window.Metrics[sourceIndex]
+		if !metrics[index].Valid {
+			return delivery.DailyPointRecord{}, false, nil
 		}
 	}
 	tx, ty := x-float64(x0), y-float64(y0)
 	weights := [4]float64{(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty}
-	value := func(read func(delivery.DisplayScoreRecord) uint8) uint8 {
+	value := func(read func(weather.DailyMetrics) float64) float64 {
 		total := 0.0
-		for index := range records {
-			total += weights[index] * float64(read(records[index]))
+		for index := range metrics {
+			total += weights[index] * read(metrics[index])
 		}
-		return uint8(math.Round(total))
+		return total
 	}
-	return delivery.DisplayScoreRecord{
-		Thermal:      value(func(r delivery.DisplayScoreRecord) uint8 { return r.Thermal }),
-		Dryness:      value(func(r delivery.DisplayScoreRecord) uint8 { return r.Dryness }),
-		Sun:          value(func(r delivery.DisplayScoreRecord) uint8 { return r.Sun }),
-		NiceScore:    value(func(r delivery.DisplayScoreRecord) uint8 { return r.NiceScore }),
-		NiceWind:     value(func(r delivery.DisplayScoreRecord) uint8 { return r.NiceWind }),
-		CyclingScore: value(func(r delivery.DisplayScoreRecord) uint8 { return r.CyclingScore }),
-		CyclingWind:  value(func(r delivery.DisplayScoreRecord) uint8 { return r.CyclingWind }),
-		Valid:        true,
-	}, true, nil
+	optional := func(name string, read func(weather.DailyMetrics) weather.OptionalFloat) (weather.OptionalFloat, error) {
+		available := read(metrics[0]).Available
+		for index := 1; index < len(metrics); index++ {
+			if read(metrics[index]).Available != available {
+				return weather.OptionalFloat{}, fmt.Errorf("interpolate %s: source availability differs", name)
+			}
+		}
+		if !available {
+			return weather.OptionalFloat{}, nil
+		}
+		return weather.OptionalFloat{Value: value(func(item weather.DailyMetrics) float64 { return read(item).Value }), Available: true}, nil
+	}
+	result := weather.DailyMetrics{
+		ComfortableTempC:   value(func(item weather.DailyMetrics) float64 { return item.ComfortableTempC }),
+		MinTempC:           value(func(item weather.DailyMetrics) float64 { return item.MinTempC }),
+		MaxTempC:           value(func(item weather.DailyMetrics) float64 { return item.MaxTempC }),
+		RainMM:             value(func(item weather.DailyMetrics) float64 { return item.RainMM }),
+		WindSpeedKPH:       value(func(item weather.DailyMetrics) float64 { return item.WindSpeedKPH }),
+		NativeResolutionKM: metrics[0].NativeResolutionKM, Valid: true,
+	}
+	for index := 1; index < len(metrics); index++ {
+		if metrics[index].NativeResolutionKM != result.NativeResolutionKM {
+			return delivery.DailyPointRecord{}, false, errors.New("interpolate weather: source resolution differs")
+		}
+	}
+	var err error
+	if result.WetTimeFraction, err = optional("wet time", func(item weather.DailyMetrics) weather.OptionalFloat { return item.WetTimeFraction }); err != nil {
+		return delivery.DailyPointRecord{}, false, err
+	}
+	if result.SolarEnergyMJm2, err = optional("solar energy", func(item weather.DailyMetrics) weather.OptionalFloat { return item.SolarEnergyMJm2 }); err != nil {
+		return delivery.DailyPointRecord{}, false, err
+	}
+	if result.CloudCoverPercent, err = optional("cloud cover", func(item weather.DailyMetrics) weather.OptionalFloat { return item.CloudCoverPercent }); err != nil {
+		return delivery.DailyPointRecord{}, false, err
+	}
+	if result.GustKPH, err = optional("gust", func(item weather.DailyMetrics) weather.OptionalFloat { return item.GustKPH }); err != nil {
+		return delivery.DailyPointRecord{}, false, err
+	}
+	if result.DewPointC, err = optional("dew point", func(item weather.DailyMetrics) weather.OptionalFloat { return item.DewPointC }); err != nil {
+		return delivery.DailyPointRecord{}, false, err
+	}
+	if result.RelativeHumidityPercent, err = optional("humidity", func(item weather.DailyMetrics) weather.OptionalFloat { return item.RelativeHumidityPercent }); err != nil {
+		return delivery.DailyPointRecord{}, false, err
+	}
+	record, err := scoreRecord(result)
+	return record, err == nil, err
 }
 
-func scoreRecord(metrics weather.DailyMetrics) (delivery.DisplayScoreRecord, error) {
+func scoreRecord(metrics weather.DailyMetrics) (delivery.DailyPointRecord, error) {
 	weatherRecord, err := delivery.RecordFromWeather(metrics)
 	if err != nil {
-		return delivery.DisplayScoreRecord{}, err
+		return delivery.DailyPointRecord{}, err
 	}
-	point, err := delivery.DailyPointRecordFromWeather(weatherRecord)
-	if err != nil {
-		return delivery.DisplayScoreRecord{}, err
-	}
-	return delivery.DisplayScoreRecord{
-		Thermal: point.Thermal, Dryness: point.Dryness, Sun: point.Sun,
-		NiceScore: point.NiceScore, NiceWind: point.NiceWind,
-		CyclingScore: point.CyclingScore, CyclingWind: point.CyclingWind, Valid: point.Weather.Valid,
-	}, nil
+	return delivery.DailyPointRecordFromWeather(weatherRecord)
 }
 
-func textureSampler(id tiledelivery.ID, texture []delivery.DisplayScoreRecord, field Field) tiledelivery.EvaluatedScoreSampler {
+func textureSampler(id tiledelivery.ID, texture []delivery.DailyPointRecord, field Field) tiledelivery.EvaluatedScoreSampler {
 	west := int64(id.X)*tiledelivery.TileSize - tiledelivery.ScalarGutter
 	north := int64(id.Y)*tiledelivery.TileSize - tiledelivery.ScalarGutter
 	world := int64(tiledelivery.TileSize) * (int64(1) << id.Zoom)
@@ -269,8 +290,8 @@ func textureSampler(id tiledelivery.ID, texture []delivery.DisplayScoreRecord, f
 	}
 }
 
-func fieldValue(record delivery.DisplayScoreRecord, field Field) (uint8, bool, error) {
-	if !record.Valid {
+func fieldValue(record delivery.DailyPointRecord, field Field) (uint8, bool, error) {
+	if !record.Weather.Valid {
 		return 0, false, nil
 	}
 	switch field {

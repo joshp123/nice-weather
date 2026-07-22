@@ -11,10 +11,12 @@ import {
   isStale,
   type DailyForecastCatalog,
   type DayForecastProduct,
+  type ForecastDailyPointBlock,
   type ForecastField,
   type ForecastPointBlock,
   type ForecastScalarTile,
 } from './forecastClient';
+import { WEATHER_PRESENTATION } from '../weatherPresentation';
 
 const fields: readonly ForecastField[] = ['thermal', 'dryness', 'sun', 'nice_score', 'nice_wind', 'cycling_score', 'cycling_wind'];
 const zeroSHA = '0'.repeat(64);
@@ -64,7 +66,11 @@ describe('WorldwideForecastClient', () => {
     if (!existsSync('artifacts/forecast/current.json')) return;
     const pointer = JSON.parse(readFileSync('artifacts/forecast/current.json', 'utf8')) as { current?: { path?: string } };
     const currentIndexPath = pointer.current?.path && resolve('artifacts/forecast', pointer.current.path);
-    if (!currentIndexPath || !existsSync(currentIndexPath) || JSON.parse(readFileSync(currentIndexPath, 'utf8')).productContract !== 'nice-weather-forecast-run-v3') return;
+    if (!currentIndexPath || !existsSync(currentIndexPath)) return;
+    const currentIndex = JSON.parse(readFileSync(currentIndexPath, 'utf8'));
+    if (currentIndex.productContract !== 'nice-weather-forecast-run-v3') return;
+    const currentDailyPath = resolve('artifacts/forecast', currentIndex.days?.[0]?.tiers?.at(-1)?.catalogPath ?? '');
+    if (!existsSync(currentDailyPath) || JSON.parse(readFileSync(currentDailyPath, 'utf8')).version !== 3) return;
     const paths: string[] = [];
     const client = new WorldwideForecastClient(async (input) => {
       const url = String(input); paths.push(url);
@@ -80,6 +86,7 @@ describe('WorldwideForecastClient', () => {
     expect(snapshot.index.days.filter(({ tiers }) => tiers.some(({ tier }) => tier === 'europe-detail'))).toHaveLength(5);
     expect(snapshot.range.dates).toEqual(snapshot.index.days.map(({ date }) => date));
     expect(firstDay.tiers.map(({ tier }) => tier)).toEqual(['europe-detail', 'global']);
+    expect(firstDay.tiers.every(({ dailyPointBlocks }) => dailyPointBlocks.length > 0)).toBe(true);
     expect(paths.filter((path) => path === '/forecast/current.json')).toHaveLength(3);
     expect(paths.every((path) => path.endsWith('.json'))).toBe(true);
   });
@@ -133,9 +140,53 @@ describe('WorldwideForecastClient', () => {
     await expect(load({ ...land, derivationContract: 'nearest-land-v1' as typeof land.derivationContract })).rejects.toMatchObject({ code: 'invalid' });
   });
 
+  it('rejects daily blocks whose record coverage does not exactly match the scalar plane', async () => {
+    const load = async (options: Readonly<{ pointDataRecords?: number; extraPointParent?: boolean }>) => {
+      const client = new WorldwideForecastClient(fetchFixture(await snapshotFixture(land, 36, 36, options)));
+      const snapshot = await client.loadSnapshot();
+      return client.loadDayCatalog(snapshot, snapshot.index.firstDate);
+    };
+
+    await expect(load({ pointDataRecords: 2 })).rejects.toMatchObject({ code: 'invalid' });
+    await expect(load({ extraPointParent: true })).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('decodes facts and both profile judgements from one dense daily block', async () => {
+    const point = denseDailyPointBlock(16, 16);
+    const global = {
+      ...catalog('global', 3, [{ zoom: 3, x: 4, y: 4, omitted: false, dataRecords: 1, noDataRecords: 65_535 }], [pointBlock(5, 11)]),
+      dailyPointBlocks: [point.asset],
+    };
+    const product: DayForecastProduct = { indexId: 'run-test', date: '2026-07-22', tiers: [global] };
+    const pointer = json({ version: 1, current: { indexId: 'run-test', path: 'runs/run-test/index.json', sha256: zeroSHA } });
+    const calls: { url: string; range?: string }[] = [];
+    const client = new WorldwideForecastClient(async (input, init) => {
+      const url = String(input); calls.push({ url, range: new Headers(init?.headers).get('Range') ?? undefined });
+      if (url === '/forecast/current.json') return new Response(arrayBuffer(pointer), { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Length': String(pointer.byteLength) } });
+      if (url === `/forecast/global/${point.asset.path}`) return new Response(arrayBuffer(point.bytes), { status: 206, headers: {
+        'Content-Type': point.asset.mediaType,
+        'Content-Length': String(point.bytes.byteLength),
+        'Content-Range': `bytes 0-${point.bytes.byteLength - 1}/${point.bytes.byteLength}`,
+      } });
+      return new Response(null, { status: 404 });
+    });
+    const presentation = { legend: WEATHER_PRESENTATION.legend, generatedAt: '2026-07-22T06:00:00Z' };
+
+    const nice = await client.loadDailyPoint(product, 0, 0, 'nice', presentation);
+    expect(nice).toMatchObject({
+      score: 88, category: 'Excellent', summary: '24°C · dry · sunny · light wind',
+      components: { comfort: { value: 86 }, dryness: { value: 94 }, sun: { value: 91 }, wind: { value: 72 } },
+      metrics: { temperatureC: 24, minTempC: 18, maxTempC: 28, rainMm: 0, windKmh: 12, dewPointC: 13, gustKmh: 20, solarEnergyMJm2: 18, cloudPct: 20, humidityPct: 48, wetTimeFraction: 0 },
+    });
+    const cycling = await client.loadDailyPoint(product, 0, 0, 'cycling', presentation);
+    expect(cycling).toMatchObject({ score: 76, category: 'Very good', components: { wind: { value: 64 } } });
+    expect(calls.filter(({ url }) => url.endsWith('.nwt'))).toEqual([{ url: `/forecast/global/${point.asset.path}`, range: `bytes=0-${point.bytes.byteLength - 1}` }]);
+    expect(calls.some(({ url }) => url.endsWith('.nwf'))).toBe(false);
+  });
+
   it('chooses one declared tier before colour and never falls through a broken detail field', () => {
-    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false }]);
-    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 16, y: 10, omitted: false }], [pointBlock(5, 8)]);
+    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 65_535 }]);
+    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 16, y: 10, omitted: false, dataRecords: 1, noDataRecords: 65_535 }], [pointBlock(5, 8)]);
     const product: DayForecastProduct = { indexId: 'run-test', date: '2026-07-22', tiers: [detail, global] };
     const client = new WorldwideForecastClient();
 
@@ -155,8 +206,8 @@ describe('WorldwideForecastClient', () => {
   });
 
   it('does not select detail for coordinate bleed in a boundary tile', () => {
-    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false }]);
-    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 13, y: 10, omitted: false }], [pointBlock(5, 0)]);
+    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 65_535 }]);
+    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 13, y: 10, omitted: false, dataRecords: 1, noDataRecords: 65_535 }], [pointBlock(5, 0)]);
     const product: DayForecastProduct = { indexId: 'run-test', date: '2026-07-22', tiers: [detail, global] };
 
     expect(forecastTierForPoint(product, -23.99, 50).tier).toBe('europe-detail');
@@ -164,8 +215,8 @@ describe('WorldwideForecastClient', () => {
   });
 
   it('falls back to global when the detail native point block is missing or omitted', () => {
-    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false }]);
-    const coverage = [{ zoom: 5, x: 16, y: 10, omitted: false }] as const;
+    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 65_535 }]);
+    const coverage = [{ zoom: 5, x: 16, y: 10, omitted: false, dataRecords: 1, noDataRecords: 65_535 }] as const;
     const missing = catalog('europe-detail', 5, coverage, []);
     const omitted = catalog('europe-detail', 5, coverage, [pointBlock(5, 8, true)]);
 
@@ -182,7 +233,7 @@ function catalog(tier: 'global' | 'europe-detail', zoom: 3 | 5, scalarCoverage: 
     path: `${field}/${zoom}/${x}/${y}.nws`, bytes: 258 * 258, sha256: zeroSHA,
   }));
   return {
-    version: 2,
+    version: 3,
     releaseId: 'run-test',
     localDate: '2026-07-22',
     provider: tier === 'global' ? 'ecmwf-ifs' : 'dwd-icon-eu',
@@ -193,7 +244,7 @@ function catalog(tier: 'global' | 'europe-detail', zoom: 3 | 5, scalarCoverage: 
     evidence: { product: 'test', runUtc: '2026-07-22T00:00:00Z', nativeResolutionKm: tier === 'global' ? 28 : 7, sourceEvidenceSha256: zeroSHA },
     land,
     scalarMaxZoom: zoom,
-    pointBlocks, displayPoints: [], scalarCoverage, scalarTiles,
+    pointBlocks, dailyPointBlocks: [], scalarCoverage, scalarTiles,
     root: `/forecast/${tier}`,
   };
 }
@@ -205,7 +256,55 @@ function pointBlock(row: number, column: number, omitted = false): ForecastPoint
   };
 }
 
-async function snapshotFixture(landIdentity: Record<string, unknown> = land, indexStaleAfterHours: 18 | 36 = 36, rangeStaleAfterHours: 18 | 36 = indexStaleAfterHours): Promise<Map<string, Uint8Array>> {
+function denseDailyPointBlock(x: number, y: number): { asset: ForecastDailyPointBlock; bytes: Uint8Array } {
+  const payload = new Uint8Array(64 * 64 * 30);
+  const record = payload.subarray(0, 30);
+  const view = new DataView(record.buffer, record.byteOffset, record.byteLength);
+  view.setInt16(0, 240, true);
+  view.setInt16(2, 180, true);
+  view.setInt16(4, 280, true);
+  view.setInt16(6, 130, true);
+  view.setUint16(8, 0, true);
+  view.setUint16(10, 120, true);
+  view.setUint16(12, 200, true);
+  view.setUint16(14, 1800, true);
+  view.setUint16(16, 0, true);
+  record[18] = 20;
+  record[19] = 48;
+  record[20] = 0x7f;
+  record.set([86, 94, 91, 88, 72, 76, 64, 0], 22);
+  const payloadSHA = sha(payload);
+  const header = new Uint8Array(192);
+  const headerView = new DataView(header.buffer);
+  header.set(new TextEncoder().encode('NWFXYZPT'), 0);
+  headerView.setUint16(8, 2, true);
+  headerView.setUint16(10, 192, true);
+  headerView.setUint16(12, 30, true);
+  headerView.setUint16(14, 64, true);
+  header[16] = 3;
+  header[17] = 1;
+  headerView.setUint32(18, x, true);
+  headerView.setUint32(22, y, true);
+  const release = new TextEncoder().encode('run-test'), period = new TextEncoder().encode('2026-07-22'), tier = new TextEncoder().encode('global');
+  header[26] = release.byteLength;
+  header[27] = period.byteLength;
+  header[28] = tier.byteLength;
+  header.set(release, 32);
+  header.set(period, 96);
+  header.set(tier, 128);
+  header.set(Buffer.from(payloadSHA, 'hex'), 160);
+  const bytes = new Uint8Array(header.byteLength + payload.byteLength);
+  bytes.set(header);
+  bytes.set(payload, header.byteLength);
+  const asset = {
+    zoom: 3, x, y, path: `points/2026-07-22/global/3/${x}/${y}.nwt`, bytes: bytes.byteLength,
+    sha256: sha(bytes), payloadSha256: payloadSHA, mediaType: 'application/vnd.nice-weather.daily-point-block',
+    dataRecords: 1, noDataRecords: 4095,
+  } satisfies ForecastDailyPointBlock;
+  return { asset, bytes };
+}
+
+async function snapshotFixture(landIdentity: Record<string, unknown> = land, indexStaleAfterHours: 18 | 36 = 36, rangeStaleAfterHours: 18 | 36 = indexStaleAfterHours, options: Readonly<{ pointDataRecords?: number; extraPointParent?: boolean }> = {}): Promise<Map<string, Uint8Array>> {
   const dates = Array.from({ length: 14 }, (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`);
   const dailyScores = {
     unit: 'canonical-score-0-100', noDataValue: 255,
@@ -216,13 +315,16 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land, ind
       { id: 'cycling_score', profile: 'cycling' }, { id: 'cycling_wind', profile: 'cycling' },
     ],
   };
+  const pointDataRecords = options.pointDataRecords ?? 1;
+  const dailyPointBlocks = [{ zoom: 3, x: 0, y: 0, path: `points/${dates[0]}/global/3/0/0.nwt`, bytes: 192 + 64 * 64 * 30, sha256: zeroSHA, payloadSha256: zeroSHA, mediaType: 'application/vnd.nice-weather.daily-point-block', dataRecords: pointDataRecords, noDataRecords: 4096 - pointDataRecords }];
+  if (options.extraPointParent) dailyPointBlocks.push({ ...dailyPointBlocks[0], x: 4, path: `points/${dates[0]}/global/3/4/0.nwt` });
   const daily = {
-    version: 2, releaseId: 'run-test', localDate: dates[0], provider: 'ecmwf-ifs', tier: 'global',
+    version: 3, releaseId: 'run-test', localDate: dates[0], provider: 'ecmwf-ifs', tier: 'global',
     grid: { projection: 'EPSG:4326', west: -180, east: 180, south: -90, north: 90, rows: 720, columns: 1440, cellDegrees: .25, cellRegistration: 'cell-centre' },
     evidence: { product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, sourceEvidenceSha256: zeroSHA },
     land: landIdentity, scalarMaxZoom: 3, scores: dailyScores, coverage: {}, pointBlocks: [],
-    displayPoints: [{ zoom: 3, x: 0, y: 0, path: 'display/3/0/0.nwt', bytes: 192 + 256 * 256 * 8, sha256: zeroSHA, payloadSha256: zeroSHA, mediaType: 'application/vnd.nice-weather.display-point-tile' }],
-    scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 0 }],
+    dailyPointBlocks,
+    scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 65_535 }],
     scalarTiles: fields.map((field) => ({ field, zoom: 3, x: 0, y: 0, path: `${field}/3/0/0.nws`, bytes: 258 * 258, sha256: zeroSHA, dataTexels: 1, noDataTexels: 0 })),
   };
   const dailyBytes = json(daily);
@@ -248,7 +350,7 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land, ind
     pointBlockLayout: { rows: 64, columns: 64, headerBytes: 256, recordBytes: 44, mediaType: 'application/vnd.nice-weather.forecast-range-block' },
     inputs: tiers.map(({ date, catalogPath, catalogBytes: bytes, catalogSha256: sha256 }) => ({ date, path: catalogPath.replace('runs/run-test/', ''), bytes, sha256 })),
     coverage: {}, pointBlocks: [],
-    scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 0 }],
+    scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 65_535 }],
     scalarTiles: fields.map((field) => ({ field, zoom: 3, x: 0, y: 0, path: `${field}/3/0/0.nws`, bytes: 258 * 258, sha256: zeroSHA, dataTexels: 1, noDataTexels: 0 })),
   };
   const rangeBytes = json(range);

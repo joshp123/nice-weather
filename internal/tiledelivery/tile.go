@@ -21,8 +21,9 @@ import (
 
 const (
 	TileSize       = 256
+	PointBlockSize = 64
 	MaxZoom        = 22
-	PointMediaType = "application/vnd.nice-weather.display-point-tile"
+	PointMediaType = "application/vnd.nice-weather.daily-point-block"
 
 	fixedHeaderBytes = 32
 	releaseIDBytes   = 64
@@ -30,7 +31,7 @@ const (
 	tierIDBytes      = 32
 	digestBytes      = sha256.Size
 	pointHeaderSize  = fixedHeaderBytes + releaseIDBytes + periodIDBytes + tierIDBytes + digestBytes
-	PointTileBytes   = pointHeaderSize + TileSize*TileSize*delivery.DisplayScoreRecordBytes
+	PointBlockBytes  = pointHeaderSize + PointBlockSize*PointBlockSize*delivery.DailyPointRecordBytes
 )
 
 var (
@@ -45,8 +46,17 @@ type ID struct {
 	Y    uint32
 }
 
+// PointID addresses one 64x64 daily-record block within the max-zoom XYZ
+// pixel plane. Four point blocks span one scalar tile axis.
+type PointID struct {
+	Tier string
+	Zoom uint8
+	X    uint32
+	Y    uint32
+}
+
 type PointAsset struct {
-	ID            ID
+	ID            PointID
 	ReleaseID     string
 	Period        string
 	Bounds        delivery.GridBounds
@@ -54,6 +64,8 @@ type PointAsset struct {
 	Bytes         uint64
 	SHA256        string
 	PayloadSHA256 string
+	DataRecords   uint32
+	NoDataRecords uint32
 	Omitted       bool
 }
 
@@ -93,6 +105,35 @@ func (id ID) validate() error {
 		return errors.New("tile ID is not canonical")
 	}
 	return nil
+}
+
+func NewPointID(tier string, zoom uint8, x, y int64) (PointID, error) {
+	if !validIdentifier(tier, tierIDBytes) || zoom > MaxZoom {
+		return PointID{}, errors.New("point block tier or zoom is invalid")
+	}
+	count := int64(uint64(1)<<zoom) * (TileSize / PointBlockSize)
+	if x < 0 || x >= count || y < 0 || y >= count {
+		return PointID{}, errors.New("point block coordinate is outside its zoom")
+	}
+	return PointID{Tier: tier, Zoom: zoom, X: uint32(x), Y: uint32(y)}, nil
+}
+
+func (id PointID) validate() error {
+	canonical, err := NewPointID(id.Tier, id.Zoom, int64(id.X), int64(id.Y))
+	if err != nil || canonical != id {
+		return errors.New("point block ID is not canonical")
+	}
+	return nil
+}
+
+func (id PointID) Bounds() (delivery.GridBounds, error) {
+	if err := id.validate(); err != nil {
+		return delivery.GridBounds{}, err
+	}
+	count := math.Exp2(float64(id.Zoom)) * (TileSize / PointBlockSize)
+	longitude := func(x float64) float64 { return x/count*360 - 180 }
+	latitude := func(y float64) float64 { return math.Atan(math.Sinh(math.Pi*(1-2*y/count))) * 180 / math.Pi }
+	return delivery.GridBounds{West: longitude(float64(id.X)), East: longitude(float64(id.X + 1)), North: latitude(float64(id.Y)), South: latitude(float64(id.Y + 1))}, nil
 }
 
 // Bounds returns exact, unsnapped XYZ geographic edges.
@@ -151,18 +192,30 @@ func At(tier string, zoom uint8, longitude, latitude float64) (ID, int, int, err
 	return id, row, col, nil
 }
 
+// PointAt returns the dense daily block and exact record owned by a map
+// coordinate. It shares the scalar map's max-zoom Web Mercator pixel plane.
+func PointAt(tier string, zoom uint8, longitude, latitude float64) (PointID, int, int, error) {
+	tile, row, column, err := At(tier, zoom, longitude, latitude)
+	if err != nil {
+		return PointID{}, 0, 0, err
+	}
+	blocksPerTile := TileSize / PointBlockSize
+	id, err := NewPointID(tier, zoom, int64(tile.X)*int64(blocksPerTile)+int64(column/PointBlockSize), int64(tile.Y)*int64(blocksPerTile)+int64(row/PointBlockSize))
+	return id, row % PointBlockSize, column % PointBlockSize, err
+}
+
 // Write publishes one immutable point tile. Every record is already evaluated
 // by the canonical server-side scoring path. All-water/no-data tiles are
 // omitted without creating directories.
-func (writer *Writer) Write(id ID, period string, records []delivery.DisplayScoreRecord) (PointAsset, error) {
+func (writer *Writer) Write(id PointID, period string, records []delivery.DailyPointRecord) (PointAsset, error) {
 	if writer == nil || !validIdentifier(period, periodIDBytes) {
 		return PointAsset{}, errors.New("tile writer or period is invalid")
 	}
 	if err := id.validate(); err != nil {
 		return PointAsset{}, err
 	}
-	if len(records) != TileSize*TileSize {
-		return PointAsset{}, fmt.Errorf("tile has %d records; want %d", len(records), TileSize*TileSize)
+	if len(records) != PointBlockSize*PointBlockSize {
+		return PointAsset{}, fmt.Errorf("point block has %d records; want %d", len(records), PointBlockSize*PointBlockSize)
 	}
 	bounds, err := id.Bounds()
 	if err != nil {
@@ -177,9 +230,11 @@ func (writer *Writer) Write(id ID, period string, records []delivery.DisplayScor
 	}
 	anyData := false
 	for _, record := range records {
-		if record.Valid {
+		if record.Weather.Valid {
 			anyData = true
-			break
+			asset.DataRecords++
+		} else {
+			asset.NoDataRecords++
 		}
 	}
 	if !anyData {
@@ -223,38 +278,38 @@ func OpenPoint(path string) (*PointReader, error) {
 	return &PointReader{file: file, meta: meta}, nil
 }
 
-func (reader *PointReader) At(longitude, latitude float64) (delivery.DisplayScoreRecord, bool, error) {
+func (reader *PointReader) At(longitude, latitude float64) (delivery.DailyPointRecord, bool, error) {
 	if reader == nil || reader.file == nil {
-		return delivery.DisplayScoreRecord{}, false, errors.New("point tile reader is closed")
+		return delivery.DailyPointRecord{}, false, errors.New("point tile reader is closed")
 	}
-	id, row, col, err := At(reader.meta.ID.Tier, reader.meta.ID.Zoom, longitude, latitude)
+	id, row, col, err := PointAt(reader.meta.ID.Tier, reader.meta.ID.Zoom, longitude, latitude)
 	if err != nil || id != reader.meta.ID {
-		return delivery.DisplayScoreRecord{}, false, err
+		return delivery.DailyPointRecord{}, false, err
 	}
-	encoded := make([]byte, delivery.DisplayScoreRecordBytes)
-	offset := int64(pointHeaderSize + (row*TileSize+col)*delivery.DisplayScoreRecordBytes)
+	encoded := make([]byte, delivery.DailyPointRecordBytes)
+	offset := int64(pointHeaderSize + (row*PointBlockSize+col)*delivery.DailyPointRecordBytes)
 	if _, err := reader.file.ReadAt(encoded, offset); err != nil {
-		return delivery.DisplayScoreRecord{}, false, err
+		return delivery.DailyPointRecord{}, false, err
 	}
-	record, err := delivery.DecodeDisplayScoreRecord(encoded)
-	return record, record.Valid, err
+	record, err := delivery.DecodeDailyPointRecord(encoded)
+	return record, record.Weather.Valid, err
 }
 
 // Records returns the complete, already checksum-verified row-major record
 // plane. It is intended for bounded build-time parity checks; runtime clients
 // should continue to use At for one selected coordinate.
-func (reader *PointReader) Records() ([]delivery.DisplayScoreRecord, error) {
+func (reader *PointReader) Records() ([]delivery.DailyPointRecord, error) {
 	if reader == nil || reader.file == nil {
 		return nil, errors.New("point tile reader is closed")
 	}
-	payload := make([]byte, TileSize*TileSize*delivery.DisplayScoreRecordBytes)
+	payload := make([]byte, PointBlockSize*PointBlockSize*delivery.DailyPointRecordBytes)
 	if _, err := reader.file.ReadAt(payload, pointHeaderSize); err != nil {
 		return nil, err
 	}
-	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
+	records := make([]delivery.DailyPointRecord, PointBlockSize*PointBlockSize)
 	for index := range records {
-		start := index * delivery.DisplayScoreRecordBytes
-		record, err := delivery.DecodeDisplayScoreRecord(payload[start : start+delivery.DisplayScoreRecordBytes])
+		start := index * delivery.DailyPointRecordBytes
+		record, err := delivery.DecodeDailyPointRecord(payload[start : start+delivery.DailyPointRecordBytes])
 		if err != nil {
 			return nil, fmt.Errorf("decode point tile record %d: %w", index, err)
 		}
@@ -273,11 +328,11 @@ func (reader *PointReader) Close() error {
 	return err
 }
 
-func pointPayload(records []delivery.DisplayScoreRecord) ([]byte, error) {
-	payload := make([]byte, TileSize*TileSize*delivery.DisplayScoreRecordBytes)
+func pointPayload(records []delivery.DailyPointRecord) ([]byte, error) {
+	payload := make([]byte, PointBlockSize*PointBlockSize*delivery.DailyPointRecordBytes)
 	for index, record := range records {
-		start := index * delivery.DisplayScoreRecordBytes
-		if err := delivery.EncodeDisplayScoreRecord(payload[start:start+delivery.DisplayScoreRecordBytes], record); err != nil {
+		start := index * delivery.DailyPointRecordBytes
+		if err := delivery.EncodeDailyPointRecord(payload[start:start+delivery.DailyPointRecordBytes], record); err != nil {
 			return nil, fmt.Errorf("point tile record %d: %w", index, err)
 		}
 	}
@@ -337,13 +392,13 @@ func syncDirectoriesToRoot(root, leaf string) error {
 	}
 }
 
-func encodePointHeader(releaseID, period string, id ID, payloadDigest [sha256.Size]byte) []byte {
+func encodePointHeader(releaseID, period string, id PointID, payloadDigest [sha256.Size]byte) []byte {
 	header := make([]byte, pointHeaderSize)
 	copy(header[:8], pointMagic[:])
-	binary.LittleEndian.PutUint16(header[8:10], 1)
+	binary.LittleEndian.PutUint16(header[8:10], 2)
 	binary.LittleEndian.PutUint16(header[10:12], pointHeaderSize)
-	binary.LittleEndian.PutUint16(header[12:14], delivery.DisplayScoreRecordBytes)
-	binary.LittleEndian.PutUint16(header[14:16], TileSize)
+	binary.LittleEndian.PutUint16(header[12:14], delivery.DailyPointRecordBytes)
+	binary.LittleEndian.PutUint16(header[14:16], PointBlockSize)
 	header[16], header[17] = id.Zoom, 1 // projection 1 is exact XYZ Web Mercator
 	binary.LittleEndian.PutUint32(header[18:22], id.X)
 	binary.LittleEndian.PutUint32(header[22:26], id.Y)
@@ -364,7 +419,7 @@ func validatePointFile(file *os.File) (PointAsset, error) {
 	if _, err := file.ReadAt(header, 0); err != nil {
 		return PointAsset{}, err
 	}
-	if string(header[:8]) != string(pointMagic[:]) || binary.LittleEndian.Uint16(header[8:10]) != 1 || binary.LittleEndian.Uint16(header[10:12]) != pointHeaderSize || binary.LittleEndian.Uint16(header[12:14]) != delivery.DisplayScoreRecordBytes || binary.LittleEndian.Uint16(header[14:16]) != TileSize || header[17] != 1 || !allZero(header[29:fixedHeaderBytes]) {
+	if string(header[:8]) != string(pointMagic[:]) || binary.LittleEndian.Uint16(header[8:10]) != 2 || binary.LittleEndian.Uint16(header[10:12]) != pointHeaderSize || binary.LittleEndian.Uint16(header[12:14]) != delivery.DailyPointRecordBytes || binary.LittleEndian.Uint16(header[14:16]) != PointBlockSize || header[17] != 1 || !allZero(header[29:fixedHeaderBytes]) {
 		return PointAsset{}, errors.New("invalid XYZ point tile header")
 	}
 	releaseLength, periodLength, tierLength := int(header[26]), int(header[27]), int(header[28])
@@ -381,7 +436,7 @@ func validatePointFile(file *os.File) (PointAsset, error) {
 	if !validIdentifier(releaseID, releaseIDBytes) || !validIdentifier(period, periodIDBytes) || !validIdentifier(tier, tierIDBytes) || !allZero(header[releaseStart+releaseLength:periodStart]) || !allZero(header[periodStart+periodLength:tierStart]) || !allZero(header[tierStart+tierLength:digestStart]) {
 		return PointAsset{}, errors.New("invalid XYZ point tile identity")
 	}
-	id, err := NewID(tier, header[16], int64(binary.LittleEndian.Uint32(header[18:22])), int64(binary.LittleEndian.Uint32(header[22:26])))
+	id, err := NewPointID(tier, header[16], int64(binary.LittleEndian.Uint32(header[18:22])), int64(binary.LittleEndian.Uint32(header[22:26])))
 	if err != nil {
 		return PointAsset{}, err
 	}
@@ -389,7 +444,7 @@ func validatePointFile(file *os.File) (PointAsset, error) {
 	if err != nil {
 		return PointAsset{}, err
 	}
-	wantBytes := int64(PointTileBytes)
+	wantBytes := int64(PointBlockBytes)
 	if info.Size() != wantBytes {
 		return PointAsset{}, errors.New("XYZ point tile has invalid size")
 	}
@@ -408,10 +463,30 @@ func validatePointFile(file *os.File) (PointAsset, error) {
 	if err != nil {
 		return PointAsset{}, err
 	}
-	return PointAsset{
+	asset := PointAsset{
 		ID: id, ReleaseID: releaseID, Period: period, Bounds: bounds, Path: file.Name(), Bytes: uint64(wantBytes),
 		SHA256: hex.EncodeToString(wholeDigest.Sum(nil)), PayloadSHA256: hex.EncodeToString(header[digestStart:pointHeaderSize]),
-	}, nil
+	}
+	payload := make([]byte, PointBlockSize*PointBlockSize*delivery.DailyPointRecordBytes)
+	if _, err := file.ReadAt(payload, pointHeaderSize); err != nil {
+		return PointAsset{}, err
+	}
+	for index := 0; index < PointBlockSize*PointBlockSize; index++ {
+		start := index * delivery.DailyPointRecordBytes
+		record, err := delivery.DecodeDailyPointRecord(payload[start : start+delivery.DailyPointRecordBytes])
+		if err != nil {
+			return PointAsset{}, fmt.Errorf("decode point block record %d: %w", index, err)
+		}
+		if record.Weather.Valid {
+			asset.DataRecords++
+		} else {
+			asset.NoDataRecords++
+		}
+	}
+	if asset.DataRecords == 0 {
+		return PointAsset{}, errors.New("all-no-data daily point block must be omitted")
+	}
+	return asset, nil
 }
 
 func validIdentifier(value string, maxBytes int) bool {
