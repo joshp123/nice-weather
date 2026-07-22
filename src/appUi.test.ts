@@ -2,11 +2,35 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
+import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
 
 describe('map controls', () => {
+  it('keeps global views cheap and enables detail only inside the viewport budget', () => {
+    const product = {
+      tiers: [
+        { tier: 'europe-detail', scalarCoverage: [{ zoom: 5, x: 16, y: 10, omitted: false }] },
+        { tier: 'global', scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false }] },
+      ],
+    } as unknown as DayForecastProduct;
+    const world = { west: -180, east: 180, south: -85, north: 85 };
+    const europe = { west: -15, east: 30, south: 35, north: 60 };
+    const ultrawide = { west: -120, east: 120, south: -60, north: 80 };
+
+    expect(forecastMapUsesDetail(product, world, 1.35)).toBe(false);
+    expect(new Set(forecastMapTiles(product, world, 1.35).map(({ id }) => `${id.z}/${id.x}/${id.y}`)).size).toBe(64);
+    expect(forecastTierForPoint(product, 10, 50, forecastMapUsesDetail(product, world, 1.35)).tier).toBe('global');
+    expect(forecastMapUsesDetail(product, europe, 5)).toBe(true);
+    expect(forecastMapTiles(product, europe, 5).every(({ id }) => id.z === 5)).toBe(true);
+    expect(forecastMapTiles(product, europe, 5)).toHaveLength(20);
+    expect(forecastTierForPoint(product, 10, 50, forecastMapUsesDetail(product, europe, 5)).tier).toBe('europe-detail');
+    expect(forecastMapUsesDetail(product, ultrawide, 4)).toBe(false);
+    expect(forecastMapTiles(product, ultrawide, 4).every(({ id }) => id.z === 3)).toBe(true);
+    expect(forecastMapTiles(product, ultrawide, 4).length).toBeLessThanOrEqual(64);
+  });
+
   it('keeps Overall one click away in the complete five-lens instrument', () => {
     expect(LENSES).toEqual([
       { id: 'overall', label: 'Overall score' },
@@ -21,13 +45,8 @@ describe('map controls', () => {
       view: 'range',
       lens: 'comfort',
       panel: 'lenses',
-      windEnabled: false,
-      windFrameIndex: 0,
-      windStatus: 'idle',
       onPanelChange: vi.fn(),
       onChange: vi.fn(),
-      onWindEnabledChange: vi.fn(),
-      onWindFrameChange: vi.fn(),
     }));
     expect(markup).toContain('Choose map lens and explain scores. Active: Comfort');
     expect(markup).toContain('role="group" aria-label="Map lens"');
@@ -63,8 +82,8 @@ describe('map controls', () => {
         legend,
         forecast: { days: [], window: { resolutionKm: 28 } },
       } as unknown as WeatherManifest,
-      view: 'range', lens: 'overall', panel: 'lenses', windEnabled: false, windFrameIndex: 0, windStatus: 'idle',
-      onPanelChange: vi.fn(), onChange: vi.fn(), onWindEnabledChange: vi.fn(), onWindFrameChange: vi.fn(),
+      view: 'range', lens: 'overall', panel: 'lenses',
+      onPanelChange: vi.fn(), onChange: vi.fn(),
     }));
 
     expect(markup).toContain('Warm &amp; sunny');
@@ -128,36 +147,45 @@ describe('clear weather copy', () => {
   });
 
   it('states the forecast and climate place-search scopes', () => {
-    expect(placeSearchPrompt('range')).toBe('Search Europe');
-    expect(placeSearchPrompt('daily')).toBe('Search Europe');
+    expect(placeSearchPrompt('range')).toBe('Search anywhere');
+    expect(placeSearchPrompt('daily')).toBe('Search anywhere');
     expect(placeSearchPrompt('climate')).toBe('Search anywhere');
   });
 
-  it('clears worldwide results before scheduling a bounded forecast search', () => {
+  it('clears worldwide results before scheduling a worldwide search', () => {
     const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     const clear = app.indexOf("    setResults([]);\n    setStatus('');\n    const timer = window.setTimeout");
-    const boundedSearch = app.indexOf('search.search(query, { viewport: viewportRef.current, bounds: searchBounds })');
+    const worldwideSearch = app.indexOf('search.search(query, { viewport: viewportRef.current })');
 
     expect(clear).toBeGreaterThan(-1);
-    expect(boundedSearch).toBeGreaterThan(clear);
+    expect(worldwideSearch).toBeGreaterThan(clear);
+    expect(app).not.toContain('bounds: searchBounds');
   });
 
-  it('accepts coordinate and current-location points only inside active coverage', () => {
+  it('opens restored-focus search interactions from pointer and input events', () => {
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+
+    expect(app).toContain('onPointerDown={engageInput}');
+    expect(app).toContain('onChange={(event) => {\n        engageInput();\n        setQuery(event.target.value);');
+    expect(app).toContain('if (document.activeElement === input.current) setFocused(true);');
+    expect(app).toContain("telemetry('search-results', { count: matches.length, inputActive: document.activeElement === input.current });");
+  });
+
+  it('accepts worldwide forecast coordinate and current-location points', () => {
     const europe: [number, number, number, number] = [-24, 29, 45, 71.5];
     const málaga = { lat: 36.7, lon: -4.4 };
     const singapore = { lat: 1.3, lon: 103.8 };
 
     expect(pointWithinActiveSearchCoverage(málaga, 'range', europe)).toBe(true);
     expect(pointWithinActiveSearchCoverage(singapore, 'daily', europe)).toBe(false);
-    expect(pointWithinActiveSearchCoverage(singapore, 'range')).toBe(false);
+    expect(pointWithinActiveSearchCoverage(singapore, 'range')).toBe(true);
     expect(pointWithinActiveSearchCoverage(singapore, 'climate', europe)).toBe(true);
     expect(pointWithinActiveSearchCoverage(singapore, 'climate')).toBe(true);
 
     const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-    expect(app.match(/pointWithinActiveSearchCoverage\(/g)).toHaveLength(3);
-    expect(app).toContain('const coverage = activeSearchCoverage.current;');
-    expect(app).toContain("setStatus('Outside the forecast area')");
-    expect(app).toContain("setMapNotice('Current location is outside the forecast area.')");
+    expect(app.match(/pointWithinActiveSearchCoverage\(/g)).toHaveLength(1);
+    expect(app).not.toContain('activeSearchCoverage.current');
+    expect(app).not.toContain('Current location is outside the forecast area.');
   });
 
   it('clears a forecast-area location notice before switching to Climate', () => {

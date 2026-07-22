@@ -171,7 +171,7 @@ export class WorldwideClimateClient {
   #pointGeneration = 0;
 
   constructor(options: ClimateClientOptions = {}) {
-    this.#fetcher = options.fetcher ?? fetch;
+    this.#fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
     this.#indexCacheSize = boundedCacheSize(options.indexCacheSize, 2, 1, 4);
     this.#catalogCacheSize = boundedCacheSize(options.catalogCacheSize, 2, 1, 4);
     this.#blockCacheSize = boundedCacheSize(options.blockCacheSize, 16, 1, 64);

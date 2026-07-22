@@ -4,6 +4,7 @@ import {
   coveringTiles,
   FRAGMENT_SOURCE,
   isMercatorProjection,
+  readScalarResponse,
   scalarTextureBytes,
   SCALAR_MEDIA_TYPE,
   SCALAR_NO_DATA,
@@ -63,6 +64,43 @@ describe('scalar tile layer', () => {
     expect(() => validateScores(new Uint8Array(256 * 256))).toThrow(/want 66564/);
   });
 
+  it('accepts the server-faithful browser shape for gzip scalar tiles', async () => {
+    const scores = new Uint8Array(scalarTextureBytes()).fill(SCALAR_NO_DATA);
+    scores[0] = 72;
+    const response = new Response(scores, { headers: {
+      'Content-Type': SCALAR_MEDIA_TYPE,
+      'Content-Encoding': 'gzip',
+      'Content-Length': '391',
+    } });
+
+    await expect(readScalarResponse(response)).resolves.toEqual(scores);
+  });
+
+  it('rejects unsupported scalar encodings and oversized decoded gzip bodies', async () => {
+    const valid = new Uint8Array(scalarTextureBytes()).fill(SCALAR_NO_DATA);
+    const brotli = new Response(valid, { headers: {
+      'Content-Type': SCALAR_MEDIA_TYPE,
+      'Content-Encoding': 'br',
+      'Content-Length': '100',
+    } });
+    await expect(readScalarResponse(brotli)).rejects.toThrow(/unsupported content encoding/);
+
+    const oversized = new Response(new Uint8Array(scalarTextureBytes() + 1), { headers: {
+      'Content-Type': SCALAR_MEDIA_TYPE,
+      'Content-Encoding': 'gzip',
+      'Content-Length': '100',
+    } });
+    await expect(readScalarResponse(oversized)).rejects.toThrow(/unexpectedly large/);
+  });
+
+  it('requires an exact identity scalar length before reading', async () => {
+    const response = new Response(new Uint8Array(scalarTextureBytes()), { headers: {
+      'Content-Type': SCALAR_MEDIA_TYPE,
+      'Content-Length': String(scalarTextureBytes() - 1),
+    } });
+    await expect(readScalarResponse(response)).rejects.toThrow(/invalid content length/);
+  });
+
   it('verifies the indexed scalar body digest', async () => {
     expect(await sha256Hex(new Uint8Array([1, 2, 3]))).toBe('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
     expect(validSHA256('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81')).toBe(true);
@@ -77,5 +115,7 @@ describe('scalar tile layer', () => {
     expect(palette).toBeGreaterThan(interpolate);
     expect(FRAGMENT_SOURCE).toContain('if (score <= 100.0)');
     expect(FRAGMENT_SOURCE).toContain('if (coverage <= 0.0) discard');
+    expect(FRAGMENT_SOURCE).toContain('u_texture_bounds');
+    expect(FRAGMENT_SOURCE.indexOf('sourceUV')).toBeLessThan(interpolate);
   });
 });

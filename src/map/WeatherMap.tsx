@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { WindGrid } from '../data/wind';
 import { telemetry } from '../telemetry';
 import { recordFailure } from './failureWindow';
-import { ScalarTileLayer, type ScalarPaletteColour, type ScalarTileID } from './scalarTileLayer';
+import { ScalarTileLayer, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 import { baseOverlayBefore, scoreOverlayBefore, windFeatures, windLayerLayout } from './windLayer';
 
 const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
@@ -26,6 +26,10 @@ export type ScalarOverlay = Readonly<{
   urlForTile: (tile: ScalarTileID) => string;
   sha256ForTile: (tile: ScalarTileID) => string;
   tileAvailable: (tile: ScalarTileID) => boolean;
+  maxTextures?: number;
+  sourceZoomForMap?: (mapZoom: number) => number;
+  visibleTilesForMap?: (bounds: GeographicBounds, mapZoom: number) => readonly TileDraw[];
+  sourceForTile?: (tile: ScalarTileID) => ScalarTileSource | undefined;
 }>;
 
 type Props = {
@@ -37,7 +41,7 @@ type Props = {
   selectedPoint?: MapPoint;
   focusPoint?: MapPoint & { token: number };
   onSelect: (point: MapPoint, intent?: { focusDetails?: boolean }) => void;
-  onViewportChange?: (viewport: { latitude: number; longitude: number }) => void;
+  onViewportChange?: (viewport: { latitude: number; longitude: number; zoom: number; bounds: GeographicBounds }) => void;
   onReady?: (elapsedMs: number) => void;
   onOverlayReady?: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => void;
   onOverlayState?: (state: OverlayState) => void;
@@ -204,6 +208,16 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       attribution?.classList.remove('maplibregl-compact-show');
     };
     const attributionDeadline = window.setTimeout(collapseInitialAttribution, 750);
+    const reportViewport = () => {
+      const center = map.getCenter();
+      const visible = map.getBounds();
+      onViewportChangeRef.current?.({
+        latitude: center.lat,
+        longitude: center.lng,
+        zoom: map.getZoom(),
+        bounds: { west: visible.getWest(), east: visible.getEast(), south: visible.getSouth(), north: visible.getNorth() },
+      });
+    };
     let baseMapFailures: number[] = [];
     const deadline = window.setTimeout(() => {
       if (!loadedRef.current) {
@@ -225,13 +239,11 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       setMapLoaded(true);
       window.clearTimeout(deadline);
       window.requestAnimationFrame(collapseInitialAttribution);
-      const center = map.getCenter();
-      onViewportChangeRef.current?.({ latitude: center.lat, longitude: center.lng });
+      reportViewport();
       onReadyRef.current?.(Math.round(performance.now() - startedAt));
     });
     map.on('moveend', () => {
-      const center = map.getCenter();
-      onViewportChangeRef.current?.({ latitude: center.lat, longitude: center.lng });
+      reportViewport();
     });
     map.on('click', (event) => onSelectRef.current({ lat: event.lngLat.lat, lon: event.lngLat.lng }));
     map.on('error', (event) => {
@@ -359,12 +371,15 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       id: SCALAR_LAYER_ID,
       minSourceZoom: scalarOverlay.minSourceZoom,
       maxSourceZoom: scalarOverlay.maxSourceZoom,
-      maxTextures: 64,
+      maxTextures: scalarOverlay.maxTextures ?? 64,
       maxRequests: 6,
       palette: scalarOverlay.palette,
       urlForTile: scalarOverlay.urlForTile,
       sha256ForTile: scalarOverlay.sha256ForTile,
       tileAvailable: scalarOverlay.tileAvailable,
+      sourceZoomForMap: scalarOverlay.sourceZoomForMap,
+      visibleTilesForMap: scalarOverlay.visibleTilesForMap,
+      sourceForTile: scalarOverlay.sourceForTile,
       onError: () => fail('load-failed'),
       onContractError: () => fail('load-failed'),
       onRenderProof: ready,

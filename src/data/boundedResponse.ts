@@ -1,11 +1,11 @@
-export async function readBoundedResponse(response: Response, label: string, maximumBytes: number): Promise<Uint8Array<ArrayBuffer>> {
+export async function readBoundedResponse(response: Response, label: string, maximumBytes: number, options: { contentLength?: 'decoded' | 'encoded' } = {}): Promise<Uint8Array<ArrayBuffer>> {
   const contentLength = response.headers.get('Content-Length');
   if (contentLength !== null) {
     if (!/^\d+$/.test(contentLength) || !Number.isSafeInteger(Number(contentLength))) {
       await cancelBody(response.body);
       throw new Error(`Invalid Content-Length for ${label}.`);
     }
-    if (Number(contentLength) > maximumBytes) {
+    if (options.contentLength !== 'encoded' && Number(contentLength) > maximumBytes) {
       await cancelBody(response.body);
       throw new Error(`${label} is unexpectedly large.`);
     }

@@ -1,4 +1,5 @@
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MapLibreMap } from 'maplibre-gl';
+import { readBoundedResponse } from '../data/boundedResponse';
 
 export const SCALAR_TILE_SIZE = 256;
 export const SCALAR_TILE_GUTTER = 1;
@@ -8,6 +9,12 @@ export const SCALAR_MEDIA_TYPE = 'application/vnd.nice-weather.score-tile';
 
 export type ScalarTileID = Readonly<{ z: number; x: number; y: number }>;
 export type ScalarPaletteColour = Readonly<[number, number, number, number]>;
+export type ScalarTileSource = Readonly<{
+  key: string;
+  url: string;
+  sha256: string;
+  textureBounds?: readonly [west: number, north: number, east: number, south: number];
+}>;
 
 export type ScalarTileLayerOptions = Readonly<{
   id: string;
@@ -19,6 +26,9 @@ export type ScalarTileLayerOptions = Readonly<{
   urlForTile: (tile: ScalarTileID) => string;
   sha256ForTile?: (tile: ScalarTileID) => string;
   tileAvailable?: (tile: ScalarTileID) => boolean;
+  sourceZoomForMap?: (mapZoom: number) => number;
+  visibleTilesForMap?: (bounds: GeographicBounds, mapZoom: number) => readonly TileDraw[];
+  sourceForTile?: (tile: ScalarTileID) => ScalarTileSource | undefined;
   onError?: (tile: ScalarTileID, error: Error) => void;
   onContractError?: (tile: ScalarTileID, error: Error) => void;
   onRenderProof?: (visibleFragments: boolean) => void;
@@ -38,12 +48,14 @@ export type TileDraw = Readonly<{
 
 type TileTexture = {
   texture: WebGLTexture;
+  textureBounds: readonly [number, number, number, number];
   lastUsed: number;
 };
 
 type QueuedTile = {
   id: ScalarTileID;
   key: string;
+  source: ScalarTileSource;
 };
 
 const VERTEX_SOURCE = `#version 300 es
@@ -66,6 +78,7 @@ export const FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
 uniform sampler2D u_scores;
 uniform sampler2D u_palette;
+uniform vec4 u_texture_bounds;
 in vec2 v_uv;
 out vec4 fragColor;
 
@@ -81,7 +94,8 @@ void accumulate(inout float weightedScore, inout float coverage, float score, fl
 }
 
 void main() {
-  vec2 samplePosition = v_uv * ${SCALAR_TILE_SIZE}.0 + vec2(0.5);
+  vec2 sourceUV = mix(u_texture_bounds.xy, u_texture_bounds.zw, v_uv);
+  vec2 samplePosition = sourceUV * ${SCALAR_TILE_SIZE}.0 + vec2(0.5);
   ivec2 base = ivec2(floor(samplePosition));
   vec2 fraction = fract(samplePosition);
   float weightedScore = 0.0;
@@ -109,6 +123,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
   private paletteTexture?: WebGLTexture;
   private matrixLocation?: WebGLUniformLocation;
   private boundsLocation?: WebGLUniformLocation;
+  private textureBoundsLocation?: WebGLUniformLocation;
   private scoresLocation?: WebGLUniformLocation;
   private paletteLocation?: WebGLUniformLocation;
   private renderQuery?: WebGLQuery;
@@ -116,7 +131,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
   private renderedPixels = false;
   private renderProofFailed = false;
   private readonly textures = new Map<string, TileTexture>();
-  private readonly uploads = new Map<string, Uint8Array>();
+  private readonly uploads = new Map<string, { scores: Uint8Array; textureBounds: readonly [number, number, number, number] }>();
   private readonly requests = new Map<string, AbortController>();
   private readonly failed = new Set<string>();
   private readonly unavailable = new Set<string>();
@@ -156,6 +171,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
 
     this.matrixLocation = requiredUniform(gl, this.program, 'u_matrix');
     this.boundsLocation = requiredUniform(gl, this.program, 'u_tile_bounds');
+    this.textureBoundsLocation = requiredUniform(gl, this.program, 'u_texture_bounds');
     this.scoresLocation = requiredUniform(gl, this.program, 'u_scores');
     this.paletteLocation = requiredUniform(gl, this.program, 'u_palette');
     this.paletteTexture = uploadPalette(gl, this.options.palette);
@@ -164,7 +180,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
   }
 
   render(gl: WebGLRenderingContext | WebGL2RenderingContext, input: CustomRenderMethodInput): void {
-    if (this.removed || !this.map || !this.program || !this.vertexArray || !this.paletteTexture || !this.matrixLocation || !this.boundsLocation || !this.scoresLocation || !this.paletteLocation) return;
+    if (this.removed || !this.map || !this.program || !this.vertexArray || !this.paletteTexture || !this.matrixLocation || !this.boundsLocation || !this.textureBoundsLocation || !this.scoresLocation || !this.paletteLocation) return;
     const gl2 = gl as WebGL2RenderingContext;
     this.pollRenderProof(gl2);
     this.refreshVisible();
@@ -196,6 +212,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
       entry.lastUsed = ++this.clock;
       const scale = 2 ** draw.id.z;
       gl2.uniform4f(this.boundsLocation, draw.worldX / scale, draw.id.y / scale, (draw.worldX + 1) / scale, (draw.id.y + 1) / scale);
+      gl2.uniform4f(this.textureBoundsLocation, ...entry.textureBounds);
       gl2.activeTexture(gl2.TEXTURE0);
       gl2.bindTexture(gl2.TEXTURE_2D, entry.texture);
       gl2.drawArrays(gl2.TRIANGLES, 0, 6);
@@ -231,6 +248,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
     this.program = undefined;
     this.matrixLocation = undefined;
     this.boundsLocation = undefined;
+    this.textureBoundsLocation = undefined;
     this.scoresLocation = undefined;
     this.paletteLocation = undefined;
     this.renderQuery = undefined;
@@ -257,10 +275,23 @@ export class ScalarTileLayer implements CustomLayerInterface {
   private refreshVisible(): void {
     if (!this.map) return;
     const bounds = this.map.getBounds();
-    this.visible = boundedCoveringTiles({
+    const geographicBounds = {
       west: bounds.getWest(), east: bounds.getEast(),
       south: bounds.getSouth(), north: bounds.getNorth(),
-    }, Math.floor(this.map.getZoom()), this.options.minSourceZoom, this.options.maxSourceZoom, this.options.maxTextures);
+    };
+    if (this.options.visibleTilesForMap) {
+      const visible = this.options.visibleTilesForMap(geographicBounds, this.map.getZoom());
+      if (visible.some(({ id, worldX }) => !validTileID(id) || !Number.isInteger(worldX) || modulo(worldX, 2 ** id.z) !== id.x)) throw new Error('Scalar visible-tile resolver returned an invalid tile.');
+      this.visible = [...visible];
+      if (uniqueTileCount(this.visible) > this.options.maxTextures) throw new Error('Texture budget cannot cover the resolved scalar tiles.');
+    } else if (this.options.sourceZoomForMap) {
+      const zoom = this.options.sourceZoomForMap(this.map.getZoom());
+      if (!Number.isInteger(zoom) || zoom < this.options.minSourceZoom || zoom > this.options.maxSourceZoom) throw new Error('Scalar source resolver returned an invalid zoom.');
+      this.visible = coveringTiles(geographicBounds, zoom);
+      if (uniqueTileCount(this.visible) > this.options.maxTextures) throw new Error('Texture budget cannot cover the resolved scalar zoom.');
+    } else {
+      this.visible = boundedCoveringTiles(geographicBounds, Math.floor(this.map.getZoom()), this.options.minSourceZoom, this.options.maxSourceZoom, this.options.maxTextures);
+    }
     const wanted = new Map<string, ScalarTileID>();
     for (const draw of this.visible) wanted.set(tileKey(draw.id), draw.id);
 
@@ -282,11 +313,16 @@ export class ScalarTileLayer implements CustomLayerInterface {
     this.queue = this.queue.filter(({ key }) => wanted.has(key));
     const queued = new Set(this.queue.map(({ key }) => key));
     for (const [key, id] of wanted) {
-      if (this.options.tileAvailable && !this.options.tileAvailable(id)) {
+      const source = this.options.sourceForTile?.(id) ?? (this.options.tileAvailable && !this.options.tileAvailable(id) ? undefined : {
+        key,
+        url: this.options.urlForTile(id),
+        sha256: this.options.sha256ForTile?.(id) ?? '',
+      });
+      if (!source) {
         this.unavailable.add(key);
         continue;
       }
-      if (!this.textures.has(key) && !this.uploads.has(key) && !this.requests.has(key) && !this.failed.has(key) && !queued.has(key)) this.queue.push({ id, key });
+      if (!this.textures.has(key) && !this.uploads.has(key) && !this.requests.has(key) && !this.failed.has(key) && !queued.has(key)) this.queue.push({ id, key, source });
     }
     this.pumpRequests();
   }
@@ -317,17 +353,20 @@ export class ScalarTileLayer implements CustomLayerInterface {
 
   private async fetchTile(tile: QueuedTile, controller: AbortController): Promise<void> {
     try {
-      const response = await fetch(this.options.urlForTile(tile.id), { signal: controller.signal, cache: 'force-cache', credentials: 'omit' });
-      if (!response.ok) throw new Error(`score tile returned HTTP ${response.status}`);
-      if (response.headers.get('content-type') !== SCALAR_MEDIA_TYPE) {
-        this.options.onContractError?.(tile.id, new Error(`score tile returned ${response.headers.get('content-type') ?? 'no content type'}; want ${SCALAR_MEDIA_TYPE}`));
+      const response = await fetch(tile.source.url, { signal: controller.signal, cache: 'force-cache', credentials: 'omit' });
+      let scores: Uint8Array;
+      try {
+        scores = await readScalarResponse(response);
+      } catch (error) {
+        this.options.onContractError?.(tile.id, asError(error));
+        throw error;
       }
-      const scores = new Uint8Array(await response.arrayBuffer());
-      validateScores(scores);
-      const expectedSHA256 = this.options.sha256ForTile?.(tile.id);
-      if (this.options.sha256ForTile && !validSHA256(expectedSHA256)) throw new Error('score tile index has no valid SHA-256');
+      const expectedSHA256 = tile.source.sha256;
+      if (!validSHA256(expectedSHA256)) throw new Error('score tile index has no valid SHA-256');
       if (expectedSHA256 && await sha256Hex(scores) !== expectedSHA256) throw new Error('score tile SHA-256 does not match its index');
-      if (!controller.signal.aborted && !this.removed) this.uploads.set(tile.key, scores);
+      const textureBounds = tile.source.textureBounds ?? [0, 0, 1, 1] as const;
+      if (!validTextureBounds(textureBounds)) throw new Error('score tile source has invalid texture bounds');
+      if (!controller.signal.aborted && !this.removed) this.uploads.set(tile.key, { scores, textureBounds });
     } catch (cause) {
       if (!controller.signal.aborted) {
         this.failed.add(tile.key);
@@ -343,7 +382,8 @@ export class ScalarTileLayer implements CustomLayerInterface {
   }
 
   private flushUploads(gl: WebGL2RenderingContext): void {
-    for (const [key, scores] of this.uploads) {
+    for (const [key, upload] of this.uploads) {
+      const { scores, textureBounds } = upload;
       const texture = requireResource(gl.createTexture(), 'score texture');
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -353,7 +393,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      this.textures.set(key, { texture, lastUsed: ++this.clock });
+      this.textures.set(key, { texture, textureBounds, lastUsed: ++this.clock });
       this.uploads.delete(key);
     }
   }
@@ -373,6 +413,18 @@ export class ScalarTileLayer implements CustomLayerInterface {
 
 export function scalarTextureBytes(): number {
   return SCALAR_TEXTURE_SIZE * SCALAR_TEXTURE_SIZE;
+}
+
+export async function readScalarResponse(response: Response): Promise<Uint8Array<ArrayBuffer>> {
+  if (!response.ok) throw new Error(`score tile returned HTTP ${response.status}`);
+  if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== SCALAR_MEDIA_TYPE) throw new Error('score tile has an invalid media type');
+  const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase() || 'identity';
+  if (encoding !== 'identity' && encoding !== 'gzip') throw new Error('score tile has an unsupported content encoding');
+  const expectedBytes = scalarTextureBytes();
+  if (encoding === 'identity' && response.headers.get('Content-Length') !== String(expectedBytes)) throw new Error('score tile has an invalid content length');
+  const scores = await readBoundedResponse(response, 'score tile', expectedBytes, { contentLength: encoding === 'gzip' ? 'encoded' : 'decoded' });
+  validateScores(scores);
+  return scores;
 }
 
 // MapLibre 5.24 returns undefined for its default projection. An explicit
@@ -422,6 +474,10 @@ function uniqueTileCount(tiles: readonly TileDraw[]): number {
   return new Set(tiles.map(({ id }) => tileKey(id))).size;
 }
 
+function validTileID(tile: ScalarTileID): boolean {
+  return Number.isInteger(tile.z) && tile.z >= 0 && tile.z <= 22 && Number.isInteger(tile.x) && tile.x >= 0 && tile.x < 2 ** tile.z && Number.isInteger(tile.y) && tile.y >= 0 && tile.y < 2 ** tile.z;
+}
+
 function tileKey(tile: ScalarTileID): string {
   return `${tile.z}/${tile.x}/${tile.y}`;
 }
@@ -443,6 +499,12 @@ function validateOptions(options: ScalarTileLayerOptions): void {
   if (!options.id || !Number.isInteger(options.minSourceZoom) || !Number.isInteger(options.maxSourceZoom) || options.minSourceZoom < 0 || options.maxSourceZoom > 22 || options.minSourceZoom > options.maxSourceZoom) throw new Error('Scalar tile zoom limits are invalid.');
   if (!Number.isInteger(options.maxTextures) || options.maxTextures < 1 || !Number.isInteger(options.maxRequests) || options.maxRequests < 1) throw new Error('Scalar tile resource limits are invalid.');
   if (options.palette.length !== 101 || options.palette.some((colour) => colour.length !== 4 || colour.some((channel) => !Number.isInteger(channel) || channel < 0 || channel > 255))) throw new Error('Scalar tile palette must contain 101 RGBA colours.');
+}
+
+function validTextureBounds(bounds: readonly number[]): bounds is readonly [number, number, number, number] {
+  return bounds.length === 4 && bounds.every(Number.isFinite) &&
+    bounds[0] >= 0 && bounds[1] >= 0 && bounds[2] <= 1 && bounds[3] <= 1 &&
+    bounds[0] < bounds[2] && bounds[1] < bounds[3];
 }
 
 export function validateScores(scores: Uint8Array): void {

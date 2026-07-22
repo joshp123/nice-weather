@@ -14,6 +14,21 @@ const FIELDS: ClimateField[] = ['comfort_good', 'dry_good', 'bright_good', 'nice
 const DERIVATION = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
 
 describe('WorldwideClimateClient year index', () => {
+  it('calls the default browser fetch with the global receiver', async () => {
+    const harness = climateHarness();
+    const browserFetch = vi.fn(async function (this: typeof globalThis, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      if (this !== globalThis) throw new TypeError('Illegal invocation');
+      return harness.fetcher(input, init);
+    });
+    vi.stubGlobal('fetch', browserFetch);
+    try {
+      await expect(new WorldwideClimateClient().loadIndex()).resolves.toMatchObject({ indexId: INDEX_ID });
+      expect(browserFetch).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('is lazy and loads the exact immutable index before any month catalogue', async () => {
     const harness = climateHarness();
     expect(harness.fetcher).not.toHaveBeenCalled();
