@@ -64,6 +64,7 @@ export type ClimatePointEvidence = Readonly<{
   releaseId: string;
   period: string;
   sourceCell: Readonly<{ latitude: number; longitude: number }>;
+  usedAdjacentCell: boolean;
   comfortGoodPercent: number;
   dryGoodPercent: number;
   brightGoodPercent: number;
@@ -212,7 +213,7 @@ export class WorldwideClimateClient {
     }
   }
 
-  async loadPoint(period: string, longitude: number, latitude: number, signal?: AbortSignal): Promise<ClimatePointEvidence | undefined> {
+  async loadPoint(period: string, longitude: number, latitude: number, signal?: AbortSignal, allowAdjacent = false): Promise<ClimatePointEvidence | undefined> {
     if (!periodID(period)) throw new ClimateDataError('invalid');
     this.#activePoint?.abort(new ClimateDataError('stale'));
     const controller = new AbortController();
@@ -233,28 +234,19 @@ export class WorldwideClimateClient {
         await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
         return undefined;
       }
-      const block = catalog.pointBlocks.find((candidate) =>
-        candidate.latitudeBlock === location.latitudeBlock && candidate.longitudeBlock === location.longitudeBlock);
-      if (!block) {
-        await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
-        return undefined;
+      let evidence = await this.#recordAt(catalog, location, false, combined, generation, controller);
+      if (!evidence && allowAdjacent) {
+        const wrappedLongitude = wrapLongitude(longitude);
+        const candidates = adjacentLocations(location, catalog).sort((left, right) => {
+          const distance = geographicDistanceKm(latitude, wrappedLongitude, left.latitude, left.longitude) -
+            geographicDistanceKm(latitude, wrappedLongitude, right.latitude, right.longitude);
+          return Math.abs(distance) > 1e-9 ? distance : left.latitudeIndex - right.latitudeIndex || left.longitudeIndex - right.longitudeIndex;
+        });
+        for (const candidate of candidates) {
+          evidence = await this.#recordAt(catalog, candidate, true, combined, generation, controller);
+          if (evidence) break;
+        }
       }
-
-      const url = climateAssetUrl(catalog.releaseId, block.path);
-      const blockKey = `${url}:${block.sha256}`;
-      let blockBytes = touch(this.#blockCache, blockKey);
-      if (!blockBytes) {
-        blockBytes = await this.#loadBlock(url, catalog, block, combined);
-        this.#assertCurrent(generation, controller, combined);
-        insertBounded(this.#blockCache, blockKey, blockBytes, this.#blockCacheSize);
-      }
-
-      const row = location.latitudeIndex - block.latitudeBlock * 16;
-      const column = location.longitudeIndex - block.longitudeBlock * 32;
-      if (row < 0 || row >= block.latitudeCount || column < 0 || column >= block.longitudeCount) throw new ClimateDataError('invalid');
-      const start = HEADER_BYTES + (row * block.longitudeCount + column) * RECORD_BYTES;
-      if (!Number.isSafeInteger(start) || start + RECORD_BYTES > block.bytes) throw new ClimateDataError('invalid');
-      const evidence = decodeRecord(blockBytes.subarray(start, start + RECORD_BYTES), catalog.releaseId, catalog.period, location);
 
       await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
       return evidence;
@@ -402,6 +394,29 @@ export class WorldwideClimateClient {
     parseHeader(bytes.subarray(0, HEADER_BYTES), catalog, block);
     if (await digestHex(bytes.subarray(HEADER_BYTES)) !== block.payloadSha256) throw new ClimateDataError('invalid');
     return bytes;
+  }
+
+  async #recordAt(catalog: ClimateCatalog, location: PointLocation, usedAdjacentCell: boolean, signal: AbortSignal, generation: number, controller: AbortController): Promise<ClimatePointEvidence | undefined> {
+    this.#assertCurrent(generation, controller, signal);
+    const block = catalog.pointBlocks.find((candidate) =>
+      candidate.latitudeBlock === location.latitudeBlock && candidate.longitudeBlock === location.longitudeBlock);
+    if (!block) return undefined;
+
+    const url = climateAssetUrl(catalog.releaseId, block.path);
+    const blockKey = `${url}:${block.sha256}`;
+    let blockBytes = touch(this.#blockCache, blockKey);
+    if (!blockBytes) {
+      blockBytes = await this.#loadBlock(url, catalog, block, signal);
+      this.#assertCurrent(generation, controller, signal);
+      insertBounded(this.#blockCache, blockKey, blockBytes, this.#blockCacheSize);
+    }
+
+    const row = location.latitudeIndex - block.latitudeBlock * 16;
+    const column = location.longitudeIndex - block.longitudeBlock * 32;
+    if (row < 0 || row >= block.latitudeCount || column < 0 || column >= block.longitudeCount) throw new ClimateDataError('invalid');
+    const start = HEADER_BYTES + (row * block.longitudeCount + column) * RECORD_BYTES;
+    if (!Number.isSafeInteger(start) || start + RECORD_BYTES > block.bytes) throw new ClimateDataError('invalid');
+    return decodeRecord(blockBytes.subarray(start, start + RECORD_BYTES), catalog.releaseId, catalog.period, location, usedAdjacentCell);
   }
 
   #assertCurrent(generation: number, controller: AbortController, signal: AbortSignal): void {
@@ -553,7 +568,7 @@ function validateScalarTiles(tiles: readonly ClimateScalarTile[]): void {
 
 function locatePoint(longitude: number, latitude: number, catalog: ClimateCatalog): PointLocation | undefined {
   if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) throw new ClimateDataError('invalid');
-  const wrapped = ((longitude + 180) % 360 + 360) % 360 - 180;
+  const wrapped = wrapLongitude(longitude);
   const geometry = catalog.geometry;
   if (wrapped < geometry.west || wrapped > geometry.east || latitude < geometry.south || latitude > geometry.north) return undefined;
   let cropColumn = Math.floor((wrapped - geometry.west) / geometry.cellResolutionDegrees);
@@ -570,6 +585,44 @@ function locatePoint(longitude: number, latitude: number, catalog: ClimateCatalo
   };
 }
 
+function adjacentLocations(location: PointLocation, catalog: ClimateCatalog): PointLocation[] {
+  const geometry = catalog.geometry;
+  const minimumLongitudeIndex = Math.round((geometry.west + 180 + geometry.cellResolutionDegrees / 2) / geometry.cellResolutionDegrees);
+  const maximumLongitudeIndex = minimumLongitudeIndex + geometry.columns - 1;
+  const minimumLatitudeIndex = Math.round((geometry.south + 90 + geometry.cellResolutionDegrees / 2) / geometry.cellResolutionDegrees);
+  const maximumLatitudeIndex = minimumLatitudeIndex + geometry.rows - 1;
+  const result: PointLocation[] = [];
+  for (let latitudeOffset = -1; latitudeOffset <= 1; latitudeOffset++) {
+    for (let longitudeOffset = -1; longitudeOffset <= 1; longitudeOffset++) {
+      if (latitudeOffset === 0 && longitudeOffset === 0) continue;
+      const latitudeIndex = location.latitudeIndex + latitudeOffset;
+      const longitudeIndex = location.longitudeIndex + longitudeOffset;
+      if (latitudeIndex < minimumLatitudeIndex || latitudeIndex > maximumLatitudeIndex || longitudeIndex < minimumLongitudeIndex || longitudeIndex > maximumLongitudeIndex) continue;
+      result.push({
+        latitude: cleanCoordinate(-90 + latitudeIndex * geometry.cellResolutionDegrees),
+        longitude: cleanCoordinate(-180 + longitudeIndex * geometry.cellResolutionDegrees),
+        latitudeIndex,
+        longitudeIndex,
+        latitudeBlock: Math.floor(latitudeIndex / 16),
+        longitudeBlock: Math.floor(longitudeIndex / 32),
+      });
+    }
+  }
+  return result;
+}
+
+function wrapLongitude(longitude: number): number {
+  return ((longitude + 180) % 360 + 360) % 360 - 180;
+}
+
+function geographicDistanceKm(latitudeA: number, longitudeA: number, latitudeB: number, longitudeB: number): number {
+  const radians = Math.PI / 180;
+  const latitudeDelta = (latitudeB - latitudeA) * radians;
+  const longitudeDelta = wrapLongitude(longitudeB - longitudeA) * radians;
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(latitudeA * radians) * Math.cos(latitudeB * radians) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 function parseHeader(bytes: Uint8Array, catalog: ClimateCatalog, block: ClimatePointBlock): void {
   if (bytes.byteLength !== HEADER_BYTES || ascii(bytes.subarray(0, 8)) !== 'NWAG5CLM') throw new ClimateDataError('invalid');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -580,7 +633,7 @@ function parseHeader(bytes: Uint8Array, catalog: ClimateCatalog, block: ClimateP
   if (hex(bytes.subarray(128, 160)) !== block.payloadSha256) throw new ClimateDataError('invalid');
 }
 
-function decodeRecord(bytes: Uint8Array, releaseId: string, period: string, location: PointLocation): ClimatePointEvidence | undefined {
+function decodeRecord(bytes: Uint8Array, releaseId: string, period: string, location: PointLocation, usedAdjacentCell: boolean): ClimatePointEvidence | undefined {
   if (bytes.byteLength !== RECORD_BYTES || (bytes[0] & ~1) !== 0) throw new ClimateDataError('invalid');
   if (bytes[0] === 0) {
     if (!allZero(bytes.subarray(1))) throw new ClimateDataError('invalid');
@@ -590,7 +643,7 @@ function decodeRecord(bytes: Uint8Array, releaseId: string, period: string, loca
   const nice = decodeProfile(bytes.subarray(4, 20));
   const cycling = decodeProfile(bytes.subarray(20, 36));
   if (cycling.calmGoodPercent > nice.calmGoodPercent) throw new ClimateDataError('invalid');
-  return deepFreeze({ releaseId, period, sourceCell: { latitude: location.latitude, longitude: location.longitude }, comfortGoodPercent: bytes[1], dryGoodPercent: bytes[2], brightGoodPercent: bytes[3], nice, cycling });
+  return deepFreeze({ releaseId, period, sourceCell: { latitude: location.latitude, longitude: location.longitude }, usedAdjacentCell, comfortGoodPercent: bytes[1], dryGoodPercent: bytes[2], brightGoodPercent: bytes[3], nice, cycling });
 }
 
 function decodeProfile(bytes: Uint8Array): ClimateProfileEvidence {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastRangeMeta, LayerLegend, LENSES, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
@@ -270,7 +270,7 @@ describe('clear weather copy', () => {
   it('shows profile-aware distribution evidence and all four delivered components', () => {
     const data = climateEvidence();
     const nice = renderToStaticMarkup(createElement(ClimateDetails, {
-      data, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+      data, point: { lat: 36.72, lon: -4.42 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
     }));
     expect(climateSummary(data, 'nice')).toBe('68% nice · 9% awful · median 71');
     for (const copy of ['Nice days', 'Awful days', 'Chance of a poor week', 'Median score', 'Comfort', 'Dry', 'Bright', 'Calm']) expect(nice).toContain(copy);
@@ -281,7 +281,7 @@ describe('clear weather copy', () => {
     expect(nice).not.toMatch(/monthly average|temperature|rain/i);
 
     const cycling = renderToStaticMarkup(createElement(ClimateDetails, {
-      data, profile: 'cycling', lens: 'wind', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+      data, point: { lat: 36.72, lon: -4.42 }, profile: 'cycling', lens: 'wind', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
     }));
     expect(climateSummary(data, 'cycling')).toBe('59% good for cycling · 13% awful · median 64');
     expect(cycling).toContain('<dt>Good cycling days</dt>');
@@ -289,6 +289,18 @@ describe('clear weather copy', () => {
     expect(cycling).toContain('<strong>Calm</strong>');
     expect(cycling).toContain('<em>52%</em>');
     expect(cycling).toContain('aria-pressed="true"');
+  });
+
+  it('qualifies adjacent climate evidence with the real source distance only', () => {
+    const exact = climateEvidence();
+    expect(nearbyClimateCellQualifier(exact, { lat: 37.2, lon: -7.31667 })).toBe('');
+
+    const adjacent = { ...exact, sourceCell: { latitude: 37.2, longitude: -7.4 }, usedAdjacentCell: true };
+    expect(nearbyClimateCellQualifier(adjacent, { lat: 37.2, lon: -7.31667 })).toBe(' · nearest climate cell 7 km away');
+    const rendered = renderToStaticMarkup(createElement(ClimateDetails, {
+      data: adjacent, point: { lat: 37.2, lon: -7.31667 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+    }));
+    expect(rendered).toContain('about 30 km weather detail · nearest climate cell 7 km away');
   });
 
   it('names the overall climate lens for the selected profile', () => {
@@ -439,6 +451,7 @@ function climateEvidence(): ClimatePointEvidence {
     releaseId: 'climate-month-11',
     period: 'month-11',
     sourceCell: { latitude: 36.7, longitude: -4.4 },
+    usedAdjacentCell: false,
     comfortGoodPercent: 77,
     dryGoodPercent: 82,
     brightGoodPercent: 74,

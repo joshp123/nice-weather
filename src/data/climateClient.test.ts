@@ -84,12 +84,43 @@ describe('WorldwideClimateClient year index', () => {
 
     expect(malaga).toEqual({
       releaseId: RELEASE, period: PERIOD, sourceCell: { latitude: 36.7, longitude: -4.4 },
+      usedAdjacentCell: false,
       comfortGoodPercent: 74, dryGoodPercent: 82, brightGoodPercent: 68,
       nice: expect.objectContaining({ medianScore: 72, calmGoodPercent: 80, poorWeekPermille: 120, goodOrBetterPercent: 70, awfulPercent: 5 }),
       cycling: expect.objectContaining({ medianScore: 65, calmGoodPercent: 70, poorWeekPermille: 210, goodOrBetterPercent: 55, awfulPercent: 10 }),
     });
     expect(malaga?.nice.ratingShares).toEqual({ awful: 50, poor: 100, mixed: 150, good: 250, veryGood: 300, excellent: 150 });
     expect(harness.blocksFor(79, 54)).toBe(1);
+  });
+
+  it.each([
+    ['Isla Cristina', -7.31667, 37.2, -7.4, 37.2],
+    ['Islantilla', -7.23742, 37.20572, -7.2, 37.3],
+    ['Venice', 12.334, 45.437, 12.3, 45.5],
+    ['Faro', -7.93, 37.019, -7.9, 37.1],
+    ['Brighton', -0.14, 50.828, -0.1, 50.9],
+  ])('uses the nearest real adjacent cell for coastal %s', async (_name, longitude, latitude, sourceLongitude, sourceLatitude) => {
+    const harness = climateHarness();
+
+    const evidence = await harness.client.loadPoint(PERIOD, longitude, latitude, undefined, true);
+
+    expect(evidence).toMatchObject({
+      sourceCell: { longitude: sourceLongitude, latitude: sourceLatitude },
+      usedAdjacentCell: true,
+    });
+  });
+
+  it('prefers exact data, breaks equal-distance ties deterministically and never searches beyond the adjacent ring', async () => {
+    const harness = climateHarness();
+
+    await expect(harness.client.loadPoint(PERIOD, -4.42034, 36.72016, undefined, true)).resolves.toMatchObject({
+      sourceCell: { latitude: 36.7, longitude: -4.4 }, usedAdjacentCell: false,
+    });
+    await expect(harness.client.loadPoint(PERIOD, 10, 10, undefined, true)).resolves.toMatchObject({
+      sourceCell: { latitude: 9.9, longitude: 10 }, usedAdjacentCell: true,
+    });
+    await expect(harness.client.loadPoint(PERIOD, -7.31667, 37.2)).resolves.toBeUndefined();
+    await expect(harness.client.loadPoint(PERIOD, 20, 0, undefined, true)).resolves.toBeUndefined();
   });
 
   it('keeps the deliberate global crop and exact edge mapping', async () => {
@@ -352,13 +383,13 @@ describe('WorldwideClimateClient year index', () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
-  it('cancels a superseded point read even when its fetch ignores abort', async () => {
+  it('cancels a superseded adjacent-cell read even when its fetch ignores abort', async () => {
     const base = climateHarness();
     let releaseFirst!: (value: Response) => void;
     let delayed = true;
     let firstSignal: AbortSignal | undefined;
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      if (delayed && String(input).includes('/points/')) {
+      if (delayed && String(input).includes('/points/month-07/081/053.nwc')) {
         delayed = false;
         firstSignal = init?.signal as AbortSignal;
         return new Promise((resolve) => { releaseFirst = resolve; });
@@ -366,13 +397,24 @@ describe('WorldwideClimateClient year index', () => {
       return base.fetcher(input, init);
     });
     const client = new WorldwideClimateClient({ fetcher });
-    const stale = client.loadPoint(PERIOD, -4.42, 36.72);
+    const stale = client.loadPoint(PERIOD, -7.2, 40, undefined, true);
     await vi.waitFor(() => expect(firstSignal).toBeDefined());
     const current = client.loadPoint(PERIOD, 179.94, 0);
     releaseFirst(new Response('', { status: 500 }));
     await expect(stale).rejects.toMatchObject({ code: 'stale' });
     await expect(current).resolves.toMatchObject({ sourceCell: { latitude: 0, longitude: 179.9 } });
     expect(firstSignal?.aborted).toBe(true);
+  });
+
+  it('fails closed when the pointer rotates after an adjacent-cell read', async () => {
+    const fixture = makeFixture();
+    let reads = 0;
+    const harness = climateHarness(fixture, { pointer: () => {
+      reads++;
+      return reads <= 2 ? fixture.pointer : { version: 2, indexId: 'next-index', indexSha256: 'b'.repeat(64) };
+    } });
+
+    await expect(harness.client.loadPoint(PERIOD, -7.31667, 37.2, undefined, true)).rejects.toMatchObject({ code: 'stale' });
   });
 
   it('keeps whole-block caching bounded', async () => {
@@ -453,22 +495,38 @@ function makeFixture(periods: string[] = [PERIOD], state: 'preview' | 'complete'
 function makeMonth(period: string): MonthFixture {
   const monthNumber = period.slice(-2);
   const releaseId = `climate-2026-${monthNumber}`;
-  const coordinates: Array<[number, number, number, number]> = [[56, 0, 900, 1], [56, 112, 900, 3599], [79, 54, 1267, 1756], [3, 56, 50, 1800], [109, 56, 1750, 1800]];
-  coordinates.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+  const coordinates: Array<[number, number, number, number]> = [
+    [56, 0, 900, 1], [56, 112, 900, 3599], [79, 54, 1267, 1756], [3, 56, 50, 1800], [109, 56, 1750, 1800],
+    [79, 53, 1272, 1726], [79, 54, 1273, 1728], [84, 60, 1355, 1923], [79, 53, 1271, 1721], [88, 56, 1409, 1799],
+    [62, 59, 999, 1900], [62, 59, 1001, 1900], [81, 53, 1300, 1727],
+  ];
+  const coordinatesByBlock = new Map<string, Array<[number, number]>>();
+  for (const [latitudeBlock, longitudeBlock, latitudeIndex, longitudeIndex] of coordinates) {
+    const key = `${latitudeBlock}/${longitudeBlock}`;
+    const values = coordinatesByBlock.get(key) ?? [];
+    values.push([latitudeIndex, longitudeIndex]);
+    coordinatesByBlock.set(key, values);
+  }
+  const blocks = [...coordinatesByBlock.entries()].map(([key, values]) => {
+    const [latitudeBlock, longitudeBlock] = key.split('/').map(Number);
+    return { latitudeBlock, longitudeBlock, values };
+  }).sort((left, right) => left.latitudeBlock - right.latitudeBlock || left.longitudeBlock - right.longitudeBlock);
   const files = new Map<string, Uint8Array>();
   const pointBlocks: any[] = [];
-  for (const [latitudeBlock, longitudeBlock, latitudeIndex, longitudeIndex] of coordinates) {
+  for (const { latitudeBlock, longitudeBlock, values } of blocks) {
     const latitudeCount = latitudeBlock === 112 ? 9 : 16;
     const longitudeCount = longitudeBlock === 112 ? 16 : 32;
     const payload = new Uint8Array(latitudeCount * longitudeCount * 36);
-    const index = (latitudeIndex - latitudeBlock * 16) * longitudeCount + longitudeIndex - longitudeBlock * 32;
-    payload.set(validRecord(), index * 36);
+    for (const [latitudeIndex, longitudeIndex] of values) {
+      const index = (latitudeIndex - latitudeBlock * 16) * longitudeCount + longitudeIndex - longitudeBlock * 32;
+      payload.set(validRecord(), index * 36);
+    }
     const payloadSha256 = digest(payload);
     const header = blockHeader(releaseId, period, latitudeBlock, longitudeBlock, latitudeCount, longitudeCount, payloadSha256);
     const file = new Uint8Array(header.length + payload.length);
     file.set(header); file.set(payload, header.length);
     files.set(`${latitudeBlock}/${longitudeBlock}`, file);
-    pointBlocks.push({ latitudeBlock, longitudeBlock, latitudeCount, longitudeCount, path: `points/${period}/${String(latitudeBlock).padStart(3, '0')}/${String(longitudeBlock).padStart(3, '0')}.nwc`, bytes: file.byteLength, sha256: digest(file), payloadSha256, mediaType: BLOCK_TYPE, dataRecords: 1, noDataRecords: latitudeCount * longitudeCount - 1 });
+    pointBlocks.push({ latitudeBlock, longitudeBlock, latitudeCount, longitudeCount, path: `points/${period}/${String(latitudeBlock).padStart(3, '0')}/${String(longitudeBlock).padStart(3, '0')}.nwc`, bytes: file.byteLength, sha256: digest(file), payloadSha256, mediaType: BLOCK_TYPE, dataRecords: values.length, noDataRecords: latitudeCount * longitudeCount - values.length });
   }
   const scalarTiles = FIELDS.flatMap((field) => Array.from({ length: 5 }, (_, zoom) => ({ field, zoom, x: 0, y: 0, path: `scores/${period}/${field}/${zoom}/0/0.nws`, bytes: 258 * 258, sha256: 'd'.repeat(64), mediaType: SCALAR_TYPE, dataTexels: 1, noDataTexels: 258 * 258 - 1 })));
   const catalog: any = {

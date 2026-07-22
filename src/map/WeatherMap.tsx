@@ -12,7 +12,7 @@ const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
 const EUROPE_MAX_BOUNDS: [[number, number], [number, number]] = [[-36, 20], [58, 77]];
 const SCALAR_LAYER_ID = 'weather-score-scalar';
 
-export type MapPoint = { lat: number; lon: number; label?: string };
+export type MapPoint = { lat: number; lon: number; label?: string; allowNearbyClimate?: boolean };
 export type OverlayState =
   | { status: 'idle' }
   | { status: 'loading' | 'ready'; assetUrl: string }

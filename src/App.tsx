@@ -220,7 +220,7 @@ export default function App() {
       if (climateCatalogState.status !== 'ready') return () => controller.abort();
       const startedAt = performance.now();
       const activeCatalog = climateCatalogState.catalog;
-      climateClient.loadPoint(activePeriodId, selectedPoint.lon, selectedPoint.lat, controller.signal)
+      climateClient.loadPoint(activePeriodId, selectedPoint.lon, selectedPoint.lat, controller.signal, selectedPoint.allowNearbyClimate === true)
         .then((data) => {
           if (!data) {
             setPointState({ status: 'error', message: 'No recent climate record is available for this point.' });
@@ -690,7 +690,7 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
     setBestWeather({ status: 'idle' });
     setFocused(false);
     input.current?.blur();
-    onFound({ lat: result.latitude, lon: result.longitude, label }, input.current);
+    onFound({ lat: result.latitude, lon: result.longitude, label, allowNearbyClimate: true }, input.current);
     telemetry(source === 'search' ? 'search-selected' : 'best-weather-selected', { geonameId: result.geonameId, country: result.countryCode, profile });
   };
 
@@ -781,7 +781,7 @@ function PointPanel({ state, point, legend, lens, profile, climateModel, focusIn
         {state.status === 'loading' && <PointSkeleton label={point.label} />}
         {state.status === 'error' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><strong>Weather unavailable</strong><p>{state.message}</p></div>}
         {state.status === 'ready' && (state.kind === 'climate'
-          ? <ClimateDetails data={state.data} profile={profile} lens={lens} onLensChange={onLensChange} climateModel={climateModel} />
+          ? <ClimateDetails data={state.data} point={point} profile={profile} lens={lens} onLensChange={onLensChange} climateModel={climateModel} />
           : state.data.kind === 'range'
             ? <RangeDetails data={state.data} legend={legend} />
             : <DailyDetails data={state.data} legend={legend} lens={lens} onLensChange={onLensChange} />)}
@@ -799,7 +799,7 @@ function ClimatePointHeading({ data, point, profile, climateModel }: { data: Cli
   return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>{outcome.daysLabel}</span></div></div>;
 }
 
-export function ClimateDetails({ data, profile, lens, onLensChange, climateModel }: { data: ClimatePointEvidence; profile: Profile; lens: Lens; onLensChange: (lens: Lens) => void; climateModel: ClimateUiModel }) {
+export function ClimateDetails({ data, point, profile, lens, onLensChange, climateModel }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; lens: Lens; onLensChange: (lens: Lens) => void; climateModel: ClimateUiModel }) {
   const evidence = data[profile];
   const outcome = climateOutcomeCopy(profile);
   return <>
@@ -812,8 +812,22 @@ export function ClimateDetails({ data, profile, lens, onLensChange, climateModel
       <div><dd>{evidence.medianScore}</dd><dt>Median score</dt></div>
     </dl>
     <ClimateComponentRows data={data} profile={profile} active={lens} onChange={onLensChange} />
-    <p className="sourceLine">Recent daily climate · {climateModel.referencePeriod} · worldwide · about 30 km weather detail</p>
+    <p className="sourceLine">Recent daily climate · {climateModel.referencePeriod} · worldwide · about 30 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
   </>;
+}
+
+export function nearbyClimateCellQualifier(data: ClimatePointEvidence, point: Pick<MapPoint, 'lat' | 'lon'>): string {
+  if (!data.usedAdjacentCell) return '';
+  const kilometres = Math.max(1, Math.round(pointDistanceKm(point, data.sourceCell)));
+  return ` · nearest climate cell ${kilometres} km away`;
+}
+
+function pointDistanceKm(point: Pick<MapPoint, 'lat' | 'lon'>, source: ClimatePointEvidence['sourceCell']): number {
+  const radians = Math.PI / 180;
+  const latitudeDelta = (source.latitude - point.lat) * radians;
+  const longitudeDelta = ((((source.longitude - point.lon) + 180) % 360 + 360) % 360 - 180) * radians;
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(point.lat * radians) * Math.cos(source.latitude * radians) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
 function ClimateComponentRows({ data, profile, active, onChange }: { data: ClimatePointEvidence; profile: Profile; active: Lens; onChange: (lens: Lens) => void }) {
