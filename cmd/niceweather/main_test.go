@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/climatetiles"
+	"nice-weather-finder/internal/delivery"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -72,6 +73,60 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 	}
 	if lines := strings.Count(strings.TrimSpace(stdout.String()), "\n") + 1; lines != 4 {
 		t.Fatalf("summary grew beyond four bounded lines: %d\n%s", lines, stdout.String())
+	}
+}
+
+func TestVerifyClimateCommandUsesReadOnlyGateAndPrintsProductEvidence(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	called := 0
+	verify := func(root string, probes []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error) {
+		called++
+		if root != "/verified/artifacts" || len(probes) != len(defaultClimateVerificationProbes()) {
+			t.Fatalf("verification input = %q, %d probes", root, len(probes))
+		}
+		profile := delivery.ClimateProfileDistribution{RatingShares: delivery.ClimateRatingShares{Good: 600, VeryGood: 200, Excellent: 100}}
+		return climatetiles.PublicationVerification{
+			Pointer: climatetiles.Pointer{IndexID: "typical-2006-2025"},
+			Index:   climatetiles.Index{ReferencePeriod: climatetiles.ReferencePeriod{FirstYear: 2006, LastYear: 2025}},
+			Probes: []climatetiles.VerificationProbeResult{
+				{Probe: climatetiles.VerificationProbe{Label: "Málaga in November"}, Record: delivery.ClimateDistributionRecord{ComfortGoodPercent: 82, DryGoodPercent: 91, BrightGoodPercent: 88, Nice: profile, Cycling: profile, Valid: true}},
+				{Probe: climatetiles.VerificationProbe{Label: "Gulf of Guinea in January"}},
+			},
+		}, nil
+	}
+	if err := runVerifyClimateCommand([]string{"--out", "/verified/artifacts"}, &stdout, &stderr, verify); err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 || stderr.Len() != 0 {
+		t.Fatalf("called=%d stderr=%q", called, stderr.String())
+	}
+	for _, want := range []string{
+		"Climate publication valid: 12 months, 2006-2025, index typical-2006-2025.",
+		"Málaga in November: Nice 90%; awful 0%; poor week 0.0%; median 0; cycling 90%; comfort 82%; dry 91%; bright 88%; calm 0%; point and scalar match.",
+		"Gulf of Guinea in January: no data; scalar map is transparent.",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout does not contain %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestVerifyClimateCommandRejectsArgumentsAndPropagatesFailure(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := runVerifyClimateCommand([]string{"unexpected"}, &stdout, &stderr, func(string, []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error) {
+		t.Fatal("verification ran after an invalid positional argument")
+		return climatetiles.PublicationVerification{}, nil
+	}); err == nil || !strings.Contains(err.Error(), "accepts no positional arguments") {
+		t.Fatalf("positional argument error = %v", err)
+	}
+	want := errors.New("publication invalid")
+	if err := runVerifyClimateCommand(nil, &stdout, &stderr, func(string, []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error) {
+		return climatetiles.PublicationVerification{}, want
+	}); !errors.Is(err, want) {
+		t.Fatalf("verification error = %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("printed success before validation: %q", stdout.String())
 	}
 }
 

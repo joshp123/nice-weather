@@ -351,24 +351,29 @@ func ValidateCurrentIndex(artifactRoot string) (Pointer, Index, error) {
 }
 
 func buildIndex(climateRoot, indexID string, state IndexState, months []MonthReference) (Index, error) {
+	index, _, err := buildIndexWithCatalogs(climateRoot, indexID, state, months)
+	return index, err
+}
+
+func buildIndexWithCatalogs(climateRoot, indexID string, state IndexState, months []MonthReference) (Index, []Catalog, error) {
 	if err := validateMonthReferenceOrder(state, months); err != nil {
-		return Index{}, err
+		return Index{}, nil, err
 	}
 	var catalogs []Catalog
 	for _, reference := range months {
 		catalog, digest, err := validateReleaseDigest(filepath.Join(climateRoot, "releases", reference.ReleaseID))
 		if err != nil {
-			return Index{}, fmt.Errorf("validate climate month %s: %w", reference.Period, err)
+			return Index{}, nil, fmt.Errorf("validate climate month %s: %w", reference.Period, err)
 		}
 		if reference != (MonthReference{Period: catalog.Period, ReleaseID: catalog.ReleaseID, CatalogSHA256: digest}) {
-			return Index{}, fmt.Errorf("climate month %s does not match its exact release and catalog digest", reference.Period)
+			return Index{}, nil, fmt.Errorf("climate month %s does not match its exact release and catalog digest", reference.Period)
 		}
 		catalogs = append(catalogs, catalog)
 	}
 	first := catalogs[0]
 	for _, catalog := range catalogs[1:] {
 		if catalog.Geometry != first.Geometry || catalog.Source != first.Source || catalog.Provenance != first.Provenance || catalog.SourceQuality != first.SourceQuality || !sameProbability(catalog.Probability, first.Probability) {
-			return Index{}, errors.New("climate months do not share identical geometry, source, provenance, quality and probability contracts")
+			return Index{}, nil, errors.New("climate months do not share identical geometry, source, provenance, quality and probability contracts")
 		}
 	}
 	index := Index{
@@ -378,9 +383,9 @@ func buildIndex(climateRoot, indexID string, state IndexState, months []MonthRef
 		Months:          append([]MonthReference(nil), months...),
 	}
 	if err := validateIndexShape(index); err != nil {
-		return Index{}, err
+		return Index{}, nil, err
 	}
-	return index, nil
+	return index, catalogs, nil
 }
 
 func validateMonthReferenceOrder(state IndexState, months []MonthReference) error {
@@ -435,37 +440,42 @@ func sameProbability(left, right ProbabilitySemantics) bool {
 }
 
 func validateIndexAt(climateRoot, indexID string) (*Index, string, error) {
+	index, digest, _, err := validateIndexAtWithCatalogs(climateRoot, indexID)
+	return index, digest, err
+}
+
+func validateIndexAtWithCatalogs(climateRoot, indexID string) (*Index, string, []Catalog, error) {
 	filename := filepath.Join(climateRoot, "indexes", indexID+".json")
 	payload, err := readRegularBounded(filename, maximumIndexBytes)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	var index Index
 	if err := decodeExactJSON(payload, &index); err != nil {
-		return nil, "", fmt.Errorf("decode climate index: %w", err)
+		return nil, "", nil, fmt.Errorf("decode climate index: %w", err)
 	}
 	if index.IndexID != indexID {
-		return nil, "", errors.New("climate index path and identity differ")
+		return nil, "", nil, errors.New("climate index path and identity differ")
 	}
 	if err := validateIndexFile(filename, index); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
-	want, err := buildIndex(climateRoot, index.IndexID, index.State, index.Months)
+	want, catalogs, err := buildIndexWithCatalogs(climateRoot, index.IndexID, index.State, index.Months)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	if !sameIndex(index, want) {
-		return nil, "", errors.New("climate index common contract does not match its month releases")
+		return nil, "", nil, errors.New("climate index common contract does not match its month releases")
 	}
 	after, err := readRegularBounded(filename, maximumIndexBytes)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	beforeSum, afterSum := sha256.Sum256(payload), sha256.Sum256(after)
 	if beforeSum != afterSum {
-		return nil, "", errors.New("climate index changed during validation")
+		return nil, "", nil, errors.New("climate index changed during validation")
 	}
-	return &index, hex.EncodeToString(beforeSum[:]), nil
+	return &index, hex.EncodeToString(beforeSum[:]), catalogs, nil
 }
 
 func sameIndex(left, right Index) bool {
@@ -581,23 +591,36 @@ func validateExistingPointer(climateRoot string) (Pointer, Index, bool, error) {
 }
 
 func validateCurrentIndex(climateRoot string) (Pointer, Index, error) {
-	payload, err := readRegularBounded(filepath.Join(climateRoot, "current.json"), maximumPointerBytes)
+	pointer, index, _, err := validateCurrentPublication(climateRoot)
+	return pointer, index, err
+}
+
+func validateCurrentPublication(climateRoot string) (Pointer, Index, []Catalog, error) {
+	pointer, err := readCurrentPointer(climateRoot)
 	if err != nil {
-		return Pointer{}, Index{}, fmt.Errorf("read climate pointer: %w", err)
+		return Pointer{}, Index{}, nil, err
 	}
-	var pointer Pointer
-	if err := decodeExactJSON(payload, &pointer); err != nil || pointer.Version != PointerVersion || !validReleaseID(pointer.IndexID) || !validSHA256(pointer.IndexSHA256) {
-		return Pointer{}, Index{}, errors.New("climate pointer is invalid")
-	}
-	index, digest, err := validateIndexAt(climateRoot, pointer.IndexID)
+	index, digest, catalogs, err := validateIndexAtWithCatalogs(climateRoot, pointer.IndexID)
 	if err != nil {
-		return Pointer{}, Index{}, fmt.Errorf("validate current climate index: %w", err)
+		return Pointer{}, Index{}, nil, fmt.Errorf("validate current climate index: %w", err)
 	}
 	want := Pointer{Version: PointerVersion, IndexID: index.IndexID, IndexSHA256: digest}
 	if pointer != want {
-		return Pointer{}, Index{}, errors.New("climate pointer checksum does not match index")
+		return Pointer{}, Index{}, nil, errors.New("climate pointer checksum does not match index")
 	}
-	return pointer, *index, nil
+	return pointer, *index, catalogs, nil
+}
+
+func readCurrentPointer(climateRoot string) (Pointer, error) {
+	payload, err := readRegularBounded(filepath.Join(climateRoot, "current.json"), maximumPointerBytes)
+	if err != nil {
+		return Pointer{}, fmt.Errorf("read climate pointer: %w", err)
+	}
+	var pointer Pointer
+	if err := decodeExactJSON(payload, &pointer); err != nil || pointer.Version != PointerVersion || !validReleaseID(pointer.IndexID) || !validSHA256(pointer.IndexSHA256) {
+		return Pointer{}, errors.New("climate pointer is invalid")
+	}
+	return pointer, nil
 }
 
 func validateReleaseDigest(releaseRoot string) (Catalog, string, error) {
