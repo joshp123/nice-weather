@@ -79,7 +79,7 @@ type forecastProductionDependencies struct {
 	stageIFS       func(context.Context, ifs.Run, []int, string) ([]stagedFrame, error)
 	stageDWD       func(context.Context, dwd.Run, []int, string) ([]stagedFrame, error)
 	newDecoder     func(delivery.GridBounds) (*pipeline.Decoder, error)
-	land           func(context.Context, *pipeline.Decoder, string, string, uint8) (forecasttiles.TouchesLand, error)
+	land           func(context.Context, *pipeline.Decoder, string, string, uint8) (forecasttiles.LandMask, error)
 	locate         func() (forecasttiles.LocateTimezone, error)
 	prepare        func(context.Context, *pipeline.Decoder, []stagedFrame, string, string, string) (pipeline.PreparedSeries, func() error, error)
 	build          func(context.Context, forecastassembly.Config) (forecastassembly.Product, error)
@@ -121,9 +121,9 @@ func RunForecastProduction(ctx context.Context, config ForecastProductionConfig)
 		newDecoder: func(bounds delivery.GridBounds) (*pipeline.Decoder, error) {
 			return pipeline.NewDecoder(nil, bounds)
 		},
-		land: func(ctx context.Context, decoder *pipeline.Decoder, cache, scratch string, zoom uint8) (forecasttiles.TouchesLand, error) {
+		land: func(ctx context.Context, decoder *pipeline.Decoder, cache, scratch string, zoom uint8) (forecasttiles.LandMask, error) {
 			authority := NewLandAuthority(cache, httpClient, decoder.Runner)
-			return globalCanaryWebMercatorLandPredicate(ctx, authority, scratch, zoom)
+			return globalCanaryWebMercatorLandMask(ctx, authority, scratch, zoom)
 		},
 		locate:     globalTimezoneLocator,
 		prepare:    prepareStagedDay,
@@ -332,7 +332,7 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	if err != nil {
 		return summary, fmt.Errorf("prepare global forecast land mask: %w", err)
 	}
-	var europeLand forecasttiles.TouchesLand
+	var europeLand forecasttiles.LandMask
 	if summary.EuropeDays > 0 {
 		europeLand, err = dependencies.land(ctx, europeDecoder, cacheRoot, sourceRoot, 5)
 		if err != nil {
@@ -443,7 +443,7 @@ func buildForecastProductionTier(
 	decoder *pipeline.Decoder,
 	locate forecasttiles.LocateTimezone,
 	sourceID, progressLabel, provider, tier string,
-	land forecasttiles.TouchesLand,
+	land forecasttiles.LandMask,
 	dayNumber int,
 ) (resultErr error) {
 	period := date.Format(time.DateOnly)

@@ -48,7 +48,7 @@ type Config struct {
 	Date      time.Time
 	Series    pipeline.PreparedSeries
 	Locate    forecasttiles.LocateTimezone
-	Land      forecasttiles.TouchesLand
+	Land      forecasttiles.LandMask
 }
 
 // Stats is deterministic structural evidence from a complete build.
@@ -494,7 +494,7 @@ func validateConfig(ctx context.Context, config Config) (uint8, error) {
 	if ctx == nil {
 		return 0, errors.New("nil forecast assembly context")
 	}
-	if config.Root == "" || !filepath.IsAbs(config.Root) || filepath.Clean(config.Root) != config.Root || config.ReleaseID == "" || config.Date.IsZero() || len(config.Series) == 0 || config.Locate == nil || config.Land == nil {
+	if config.Root == "" || !filepath.IsAbs(config.Root) || filepath.Clean(config.Root) != config.Root || config.ReleaseID == "" || config.Date.IsZero() || len(config.Series) == 0 || config.Locate == nil || config.Land.Identity() == (forecasttiles.LandIdentity{}) {
 		return 0, errors.New("forecast assembly config is incomplete")
 	}
 	if config.Date.Location() != time.UTC || config.Date.Hour() != 0 || config.Date.Minute() != 0 || config.Date.Second() != 0 || config.Date.Nanosecond() != 0 {

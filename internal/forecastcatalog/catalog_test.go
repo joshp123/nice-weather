@@ -56,6 +56,33 @@ func TestCatalogBindsCompleteIFSBlockSetAndCanonicalScalars(t *testing.T) {
 	}
 }
 
+func TestCatalogRequiresExactLandProvenance(t *testing.T) {
+	config := testConfig(forecastpoints.ProviderIFS, forecastpoints.TierGlobal)
+	spec, _ := specFor(config.Provider, config.Tier)
+	catalog, err := New(config, pointOutcomes(t, config, spec, false), scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Version != 2 || catalog.Land.SourceArchiveSHA256 != strings.Repeat("b", 64) || catalog.Land.MaskSHA256 != strings.Repeat("c", 64) {
+		t.Fatalf("catalog land identity = v%d %+v", catalog.Version, catalog.Land)
+	}
+	mutations := []func(*forecasttiles.LandIdentity){
+		func(value *forecasttiles.LandIdentity) { value.Authority = "other" },
+		func(value *forecasttiles.LandIdentity) { value.Dataset = "ne_50m_land" },
+		func(value *forecasttiles.LandIdentity) { value.Version = "5.1.0" },
+		func(value *forecasttiles.LandIdentity) { value.SourceArchiveSHA256 = strings.Repeat("A", 64) },
+		func(value *forecasttiles.LandIdentity) { value.MaskSHA256 = "short" },
+		func(value *forecasttiles.LandIdentity) { value.DerivationContract = "centre-land-v1" },
+	}
+	for index, mutate := range mutations {
+		candidate := catalog
+		mutate(&candidate.Land)
+		if err := Validate(candidate); err == nil || !strings.Contains(err.Error(), "land provenance") {
+			t.Fatalf("land mutation %d error = %v", index, err)
+		}
+	}
+}
+
 func TestCatalogBindsExactICONEuropeDetailContract(t *testing.T) {
 	config := testConfig(forecastpoints.ProviderICONEU, forecastpoints.TierEurope)
 	spec, _ := specFor(config.Provider, config.Tier)
@@ -278,7 +305,7 @@ func TestParseRejectsUnknownAndTrailingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded, _ := Marshal(catalog)
-	unknown := bytes.Replace(encoded, []byte(`"version":1`), []byte(`"unknown":true,"version":1`), 1)
+	unknown := bytes.Replace(encoded, []byte(`"version":2`), []byte(`"unknown":true,"version":2`), 1)
 	if _, err := Parse(unknown); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("unknown field error = %v", err)
 	}
@@ -332,6 +359,10 @@ func scalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []til
 		Source: forecasttiles.SourceIdentity{
 			SourceID: spec.sourceID, RunUTC: config.RunUTC.Format(time.RFC3339), Grid: spec.grid,
 			NativeResolutionKM: spec.nativeResolutionKM, EvidenceSHA256: config.SourceEvidenceSHA256,
+		},
+		Land: forecasttiles.LandIdentity{
+			Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
+			SourceArchiveSHA256: strings.Repeat("b", 64), MaskSHA256: strings.Repeat("c", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
 		},
 	}
 	produced := make(map[tileCoordinate]struct{})
@@ -452,7 +483,7 @@ func cloneScalarCatalog(source forecasttiles.Catalog) forecasttiles.Catalog {
 
 func catalogEqual(left, right Catalog) bool {
 	return left.Version == right.Version && left.ReleaseID == right.ReleaseID && left.LocalDate == right.LocalDate &&
-		left.Provider == right.Provider && left.Tier == right.Tier && left.Grid == right.Grid && left.Evidence == right.Evidence &&
+		left.Provider == right.Provider && left.Tier == right.Tier && left.Grid == right.Grid && left.Evidence == right.Evidence && left.Land == right.Land &&
 		left.ScalarMaxZoom == right.ScalarMaxZoom && left.Scores.Unit == right.Scores.Unit && left.Scores.NoDataValue == right.Scores.NoDataValue &&
 		slices.Equal(left.Scores.Profiles, right.Scores.Profiles) && slices.Equal(left.Scores.Fields, right.Scores.Fields) &&
 		left.Coverage == right.Coverage && slices.Equal(left.PointBlocks, right.PointBlocks) && slices.Equal(left.DisplayPoints, right.DisplayPoints) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)

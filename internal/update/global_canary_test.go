@@ -110,7 +110,7 @@ func TestAssembleGlobalCanaryDaysIsTransactionalOrderedAndDayBounded(t *testing.
 			return syntheticGlobalCatalog(config), nil
 		},
 	}
-	summaries, installed, err := assembleGlobalCanaryDays(context.Background(), out, "run-14-days", run, days, staged, preparedRoot, timeZoneUTC, landEverywhere, first, assembler)
+	summaries, installed, err := assembleGlobalCanaryDays(context.Background(), out, "run-14-days", run, days, staged, preparedRoot, timeZoneUTC, updateTestLandMask(t, landEverywhere), first, assembler)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestAssembleGlobalCanaryDaysCancellationRemovesIncompleteRunAndScratch(t *t
 			return syntheticGlobalCatalog(config), nil
 		},
 	}
-	_, _, err = assembleGlobalCanaryDays(ctx, out, "cancelled-run", run, days, staged, preparedRoot, timeZoneUTC, landEverywhere, first, assembler)
+	_, _, err = assembleGlobalCanaryDays(ctx, out, "cancelled-run", run, days, staged, preparedRoot, timeZoneUTC, updateTestLandMask(t, landEverywhere), first, assembler)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled assembly error = %v", err)
 	}
@@ -271,12 +271,19 @@ func TestGlobalCanaryWebMercatorLandPredicateRasterizesExactDisplayGrid(t *testi
 	authority := newLandAuthority(t.TempDir(), server.Client(), runner, landSource{
 		URL: server.URL, Size: int64(len(archive)), SHA256: hex.EncodeToString(digest[:]),
 	})
-	isLand, err := globalCanaryWebMercatorLandPredicate(context.Background(), authority, t.TempDir(), zoom)
+	land, err := globalCanaryWebMercatorLandMask(context.Background(), authority, t.TempDir(), zoom)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := isLand(webMercatorTestTexelBounds(width, 10, 20)); err != nil || !got {
+	if got, err := land.Touches(webMercatorTestTexelBounds(width, 10, 20)); err != nil || !got {
 		t.Fatalf("rasterized display texel = %v, %v; want land", got, err)
+	}
+	wantMask := sha256.Sum256(pixels)
+	identity := land.Identity()
+	if identity.SourceArchiveSHA256 != hex.EncodeToString(digest[:]) || identity.MaskSHA256 != hex.EncodeToString(wantMask[:]) ||
+		identity.Authority != forecasttiles.LandAuthorityNaturalEarth || identity.Dataset != forecasttiles.LandDatasetNaturalEarth10M ||
+		identity.Version != forecasttiles.LandVersionNaturalEarth511 || identity.DerivationContract != forecasttiles.LandDerivationWebMercatorTouchV1 {
+		t.Fatalf("land identity = %+v", identity)
 	}
 	if len(runner.invocations) != 2 || runner.invocations[0].command != "ogr2ogr" || runner.invocations[1].command != "gdal_rasterize" {
 		t.Fatalf("land commands = %+v; want projection then rasterization", runner.invocations)
@@ -436,3 +443,15 @@ func syntheticGlobalCatalog(config forecasttiles.Config) forecasttiles.Catalog {
 
 func timeZoneUTC(_, _ float64) (*time.Location, error) { return time.UTC, nil }
 func landEverywhere(delivery.GridBounds) (bool, error) { return true, nil }
+
+func updateTestLandMask(t *testing.T, touches forecasttiles.TouchesLand) forecasttiles.LandMask {
+	t.Helper()
+	mask, err := forecasttiles.NewLandMask(touches, forecasttiles.LandIdentity{
+		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mask
+}

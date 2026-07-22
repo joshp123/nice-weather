@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
@@ -22,7 +23,14 @@ import (
 	"nice-weather-finder/internal/tiledelivery"
 )
 
-const catalogVersion = 1
+const catalogVersion = 2
+
+const (
+	LandAuthorityNaturalEarth        = "Natural Earth"
+	LandDatasetNaturalEarth10M       = "ne_10m_land"
+	LandVersionNaturalEarth511       = "5.1.1"
+	LandDerivationWebMercatorTouchV1 = "web-mercator-all-touched-v1"
+)
 
 // LocateTimezone returns the civil timezone used to aggregate a source cell.
 type LocateTimezone func(longitude, latitude float64) (*time.Location, error)
@@ -31,6 +39,59 @@ type LocateTimezone func(longitude, latitude float64) (*time.Location, error)
 // land. This all-touched contract preserves small islands and coastal slivers
 // whose polygons do not contain the texel centre.
 type TouchesLand func(bounds delivery.GridBounds) (bool, error)
+
+// LandIdentity names the exact polygon source and raster mask consumed by one
+// forecast tier. SourceArchiveSHA256 identifies the downloaded authority;
+// MaskSHA256 identifies the exact row-major 0/1 Web Mercator bytes used by the
+// predicate. DerivationContract fixes the projection and all-touched policy.
+type LandIdentity struct {
+	Authority           string `json:"authority"`
+	Dataset             string `json:"dataset"`
+	Version             string `json:"version"`
+	SourceArchiveSHA256 string `json:"sourceArchiveSha256"`
+	MaskSHA256          string `json:"maskSha256"`
+	DerivationContract  string `json:"derivationContract"`
+}
+
+// LandMask keeps the predicate and its immutable identity together. Callers
+// can inspect the identity but cannot relabel a predicate after construction.
+type LandMask struct {
+	touches  TouchesLand
+	identity LandIdentity
+}
+
+func NewLandMask(touches TouchesLand, identity LandIdentity) (LandMask, error) {
+	if touches == nil || ValidateLandIdentity(identity) != nil {
+		return LandMask{}, errors.New("forecast land mask identity is invalid")
+	}
+	return LandMask{touches: touches, identity: identity}, nil
+}
+
+func (mask LandMask) Touches(bounds delivery.GridBounds) (bool, error) {
+	if mask.touches == nil || ValidateLandIdentity(mask.identity) != nil {
+		return false, errors.New("forecast land mask is invalid")
+	}
+	return mask.touches(bounds)
+}
+
+func (mask LandMask) Identity() LandIdentity { return mask.identity }
+
+func ValidateLandIdentity(identity LandIdentity) error {
+	if identity.Authority == LandAuthorityNaturalEarth && identity.Dataset == LandDatasetNaturalEarth10M &&
+		identity.Version == LandVersionNaturalEarth511 && identity.DerivationContract == LandDerivationWebMercatorTouchV1 &&
+		validLowerSHA256(identity.SourceArchiveSHA256) && validLowerSHA256(identity.MaskSHA256) {
+		return nil
+	}
+	return errors.New("forecast land identity is invalid")
+}
+
+func validLowerSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
 
 // Config is intentionally one day and one complete provider tier. A caller
 // that chooses between IFS and ICON must do so outside this module; there is no
@@ -44,7 +105,7 @@ type Config struct {
 	MaxZoom   uint8
 	Series    pipeline.PreparedSeries
 	Locate    LocateTimezone
-	Land      TouchesLand
+	Land      LandMask
 }
 
 type Field string
@@ -128,6 +189,7 @@ type Catalog struct {
 	Date            string           `json:"date"`
 	MaxZoom         uint8            `json:"maxZoom"`
 	Source          SourceIdentity   `json:"source"`
+	Land            LandIdentity     `json:"land"`
 	MaxZoomOutcomes []MaxZoomOutcome `json:"maxZoomOutcomes"`
 	Points          []PointTile      `json:"points"`
 	Scalars         []ScalarTile     `json:"scalars"`
@@ -178,7 +240,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 	catalog := Catalog{
 		Version: catalogVersion, ReleaseID: config.ReleaseID, Period: config.Period,
 		Tier: config.Tier, Date: config.Date.Format("2006-01-02"), MaxZoom: config.MaxZoom,
-		Source: sourceIdentity, MaxZoomOutcomes: []MaxZoomOutcome{}, Points: []PointTile{}, Scalars: []ScalarTile{},
+		Source: sourceIdentity, Land: config.Land.Identity(), MaxZoomOutcomes: []MaxZoomOutcome{}, Points: []PointTile{}, Scalars: []ScalarTile{},
 	}
 	maxAssets := make(map[tiledelivery.ID]tiledelivery.ScalarAsset)
 	count := uint32(1) << config.MaxZoom
@@ -197,7 +259,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 				return Catalog{}, fmt.Errorf("aggregate %d/%d/%d: %w", id.Zoom, id.X, id.Y, err)
 			}
 			catalog.Stats.MaxMetricCells = max(catalog.Stats.MaxMetricCells, uint64(len(aggregated.Metrics)))
-			texture, records, err := evaluateMaxTile(ctx, id, aggregated, config.Land)
+			texture, records, err := evaluateMaxTile(ctx, id, aggregated, config.Land.Touches)
 			if err != nil {
 				return Catalog{}, fmt.Errorf("evaluate %d/%d/%d: %w", id.Zoom, id.X, id.Y, err)
 			}
@@ -311,7 +373,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 }
 
 func validateConfig(config Config) error {
-	if config.Root == "" || !filepath.IsAbs(config.Root) || config.ReleaseID == "" || config.Period == "" || config.Tier == "" || config.Date.IsZero() || config.Locate == nil || config.Land == nil || len(config.Series) == 0 {
+	if config.Root == "" || !filepath.IsAbs(config.Root) || config.ReleaseID == "" || config.Period == "" || config.Tier == "" || config.Date.IsZero() || config.Locate == nil || ValidateLandIdentity(config.Land.Identity()) != nil || len(config.Series) == 0 {
 		return errors.New("forecast tile config is incomplete")
 	}
 	if len(config.Period) > 32 || !periodPattern.MatchString(config.Period) {

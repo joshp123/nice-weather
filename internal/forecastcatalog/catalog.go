@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	CatalogVersion      = 1
+	CatalogVersion      = 2
 	MaximumCatalogBytes = 512 * 1024
 
 	ProductIFSControl = "ecmwf-ifs-control-open-data-0.25-degree"
@@ -153,6 +153,7 @@ type Catalog struct {
 	Tier           string                         `json:"tier"`
 	Grid           Grid                           `json:"grid"`
 	Evidence       Evidence                       `json:"evidence"`
+	Land           forecasttiles.LandIdentity     `json:"land"`
 	ScalarMaxZoom  uint8                          `json:"scalarMaxZoom"`
 	Scores         Scores                         `json:"scores"`
 	Coverage       Coverage                       `json:"coverage"`
@@ -265,6 +266,7 @@ func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttil
 			Product: spec.product, RunUTC: scalarCatalog.Source.RunUTC, NativeResolutionKM: scalarCatalog.Source.NativeResolutionKM,
 			SourceEvidenceSHA256: scalarCatalog.Source.EvidenceSHA256,
 		},
+		Land:          scalarCatalog.Land,
 		ScalarMaxZoom: spec.maxZoom,
 		Scores: Scores{
 			Unit: ScoreUnit, NoDataValue: ScoreNoData,
@@ -334,6 +336,9 @@ func Validate(catalog Catalog) error {
 	}
 	if catalog.Version != CatalogVersion || catalog.Grid != catalogGrid(spec.grid) || catalog.Evidence.Product != spec.product || catalog.Evidence.NativeResolutionKM != spec.nativeResolutionKM || catalog.ScalarMaxZoom != spec.maxZoom {
 		return errors.New("forecast catalogue grid, resolution or provider contract is invalid")
+	}
+	if err := forecasttiles.ValidateLandIdentity(catalog.Land); err != nil {
+		return errors.New("forecast catalogue land provenance is invalid")
 	}
 	if catalog.Scores.Unit != ScoreUnit || catalog.Scores.NoDataValue != ScoreNoData ||
 		!slices.Equal(catalog.Scores.Profiles, []weather.Profile{weather.ProfileNice, weather.ProfileCycling}) ||

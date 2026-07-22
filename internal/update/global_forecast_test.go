@@ -404,8 +404,8 @@ func (fixture *forecastProductionFixture) dependencies() forecastProductionDepen
 			return fakeICONStaged(run.StartedAt, steps), nil
 		},
 		newDecoder: func(delivery.GridBounds) (*pipeline.Decoder, error) { return nil, nil },
-		land: func(context.Context, *pipeline.Decoder, string, string, uint8) (forecasttiles.TouchesLand, error) {
-			return func(delivery.GridBounds) (bool, error) { return true, nil }, nil
+		land: func(context.Context, *pipeline.Decoder, string, string, uint8) (forecasttiles.LandMask, error) {
+			return updateTestLandMask(fixture.t, func(delivery.GridBounds) (bool, error) { return true, nil }), nil
 		},
 		locate: func() (forecasttiles.LocateTimezone, error) {
 			return func(float64, float64) (*time.Location, error) { return time.UTC, nil }, nil

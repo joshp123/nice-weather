@@ -2,6 +2,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -214,7 +216,7 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 		return summary, err
 	}
 	landAuthority := NewLandAuthority(cache, httpClient, decoder.Runner)
-	isLand, err := globalCanaryWebMercatorLandPredicate(ctx, landAuthority, scratch, globalCanaryMaxZoom)
+	land, err := globalCanaryWebMercatorLandMask(ctx, landAuthority, scratch, globalCanaryMaxZoom)
 	if err != nil {
 		return summary, fmt.Errorf("Natural Earth worldwide display mask: %w", err)
 	}
@@ -232,7 +234,7 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 	firstPrepared := &globalCanaryPreparedDay{
 		series: firstSeries, close: closeFirst, files: firstFiles, bytes: firstBytes, elapsed: firstPrepareElapsed,
 	}
-	daySummaries, installed, err := assembleGlobalCanaryDays(ctx, out, releaseID, run.Time, days, staged, preparedRoot, locate, isLand, firstPrepared, assembler)
+	daySummaries, installed, err := assembleGlobalCanaryDays(ctx, out, releaseID, run.Time, days, staged, preparedRoot, locate, land, firstPrepared, assembler)
 	if err != nil {
 		return summary, err
 	}
@@ -347,7 +349,7 @@ func assembleGlobalCanaryDays(
 	staged []stagedFrame,
 	preparedRoot string,
 	locate forecasttiles.LocateTimezone,
-	land forecasttiles.TouchesLand,
+	land forecasttiles.LandMask,
 	first *globalCanaryPreparedDay,
 	assembler globalCanaryAssembler,
 ) (summaries []globalCanaryDaySummary, installed string, resultErr error) {
@@ -357,7 +359,7 @@ func assembleGlobalCanaryDays(
 	if run.Location() != time.UTC || run.Hour() != 12 || run.Minute() != 0 || run.Second() != 0 || run.Nanosecond() != 0 {
 		return nil, "", errors.New("global canary requires one exact 12 UTC IFS run")
 	}
-	if out == "" || !filepath.IsAbs(out) || releaseID == "" || preparedRoot == "" || !filepath.IsAbs(preparedRoot) || locate == nil || land == nil || first == nil || first.series == nil || first.close == nil || assembler.prepare == nil || assembler.build == nil {
+	if out == "" || !filepath.IsAbs(out) || releaseID == "" || preparedRoot == "" || !filepath.IsAbs(preparedRoot) || locate == nil || land.Identity() == (forecasttiles.LandIdentity{}) || first == nil || first.series == nil || first.close == nil || assembler.prepare == nil || assembler.build == nil {
 		return nil, "", errors.New("global canary assembly is incomplete")
 	}
 	for index, day := range days {
@@ -560,21 +562,21 @@ func globalCanarySeriesSpec(series pipeline.PreparedSeries) (delivery.GridSpec, 
 	return spec, nil
 }
 
-func globalCanaryWebMercatorLandPredicate(ctx context.Context, authority *LandAuthority, scratch string, zoom uint8) (forecasttiles.TouchesLand, error) {
+func globalCanaryWebMercatorLandMask(ctx context.Context, authority *LandAuthority, scratch string, zoom uint8) (forecasttiles.LandMask, error) {
 	if authority == nil || authority.runner == nil {
-		return nil, errors.New("land authority is not configured")
+		return forecasttiles.LandMask{}, errors.New("land authority is not configured")
 	}
 	shapePath, err := authority.Prepare(ctx)
 	if err != nil {
-		return nil, err
+		return forecasttiles.LandMask{}, err
 	}
 	if zoom > 5 {
-		return nil, errors.New("display land mask zoom exceeds the bounded canary limit")
+		return forecasttiles.LandMask{}, errors.New("display land mask zoom exceeds the bounded canary limit")
 	}
 	width := int(tiledelivery.TileSize) << zoom
 	temporary, err := os.MkdirTemp(scratch, ".global-canary-land-*")
 	if err != nil {
-		return nil, err
+		return forecasttiles.LandMask{}, err
 	}
 	defer os.RemoveAll(temporary)
 	projected := filepath.Join(temporary, "land.gpkg")
@@ -583,7 +585,7 @@ func globalCanaryWebMercatorLandPredicate(ctx context.Context, authority *LandAu
 		projected, shapePath,
 	}
 	if _, err := authority.runner.Run(ctx, "ogr2ogr", projectionArguments...); err != nil {
-		return nil, fmt.Errorf("project Natural Earth land into Web Mercator: %w", err)
+		return forecasttiles.LandMask{}, fmt.Errorf("project Natural Earth land into Web Mercator: %w", err)
 	}
 	output := filepath.Join(temporary, "land.bil")
 	arguments := []string{
@@ -594,13 +596,22 @@ func globalCanaryWebMercatorLandPredicate(ctx context.Context, authority *LandAu
 		"-l", "land", projected, output,
 	}
 	if _, err := authority.runner.Run(ctx, "gdal_rasterize", arguments...); err != nil {
-		return nil, fmt.Errorf("rasterize Web Mercator Natural Earth land: %w", err)
+		return forecasttiles.LandMask{}, fmt.Errorf("rasterize Web Mercator Natural Earth land: %w", err)
 	}
 	pixels, err := os.ReadFile(output)
 	if err != nil {
-		return nil, fmt.Errorf("read Web Mercator Natural Earth land: %w", err)
+		return forecasttiles.LandMask{}, fmt.Errorf("read Web Mercator Natural Earth land: %w", err)
 	}
-	return webMercatorTouchedLandPredicate(pixels, zoom)
+	predicate, err := webMercatorTouchedLandPredicate(pixels, zoom)
+	if err != nil {
+		return forecasttiles.LandMask{}, err
+	}
+	digest := sha256.Sum256(pixels)
+	return forecasttiles.NewLandMask(predicate, forecasttiles.LandIdentity{
+		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M,
+		Version: forecasttiles.LandVersionNaturalEarth511, SourceArchiveSHA256: strings.ToLower(authority.source.SHA256),
+		MaskSHA256: hex.EncodeToString(digest[:]), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+	})
 }
 
 func webMercatorTouchedLandPredicate(pixels []byte, zoom uint8) (forecasttiles.TouchesLand, error) {

@@ -52,6 +52,41 @@ func TestScoreRecordUsesExactQuantizedDailyPointEvidence(t *testing.T) {
 	}
 }
 
+func TestLandMaskKeepsPredicateAndExactIdentityTogether(t *testing.T) {
+	identity := LandIdentity{
+		Authority: LandAuthorityNaturalEarth, Dataset: LandDatasetNaturalEarth10M, Version: LandVersionNaturalEarth511,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: LandDerivationWebMercatorTouchV1,
+	}
+	mask, err := NewLandMask(func(bounds delivery.GridBounds) (bool, error) { return bounds.West == 1, nil }, identity)
+	if err != nil || mask.Identity() != identity {
+		t.Fatalf("land mask identity = %+v, %v", mask.Identity(), err)
+	}
+	if got, err := mask.Touches(delivery.GridBounds{West: 1, East: 2, South: 3, North: 4}); err != nil || !got {
+		t.Fatalf("land predicate = %v, %v", got, err)
+	}
+	bad := []LandIdentity{
+		{},
+		func() LandIdentity { value := identity; value.Authority = "other"; return value }(),
+		func() LandIdentity { value := identity; value.Dataset = "ne_50m_land"; return value }(),
+		func() LandIdentity { value := identity; value.Version = "5.1.0"; return value }(),
+		func() LandIdentity {
+			value := identity
+			value.SourceArchiveSHA256 = strings.Repeat("A", 64)
+			return value
+		}(),
+		func() LandIdentity { value := identity; value.MaskSHA256 = "short"; return value }(),
+		func() LandIdentity { value := identity; value.DerivationContract = "centre-land-v1"; return value }(),
+	}
+	for index, candidate := range bad {
+		if _, err := NewLandMask(func(delivery.GridBounds) (bool, error) { return true, nil }, candidate); err == nil {
+			t.Fatalf("invalid land identity %d accepted: %+v", index, candidate)
+		}
+	}
+	if _, err := NewLandMask(nil, identity); err == nil {
+		t.Fatal("nil land predicate accepted")
+	}
+}
+
 func TestSourceEvidenceBindsPreparedFloat32Contents(t *testing.T) {
 	first, closeFirst := preparedConfigWithOffset(t, 0)
 	defer closeFirst()
@@ -279,13 +314,13 @@ func TestBuildDayNoDataOmitsLandAndCancellationCleansStaging(t *testing.T) {
 	defer closeCancelFrames()
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
-	cancelConfig.Land = func(delivery.GridBounds) (bool, error) {
+	cancelConfig.Land = testLandMask(t, func(delivery.GridBounds) (bool, error) {
 		calls++
 		if calls == 100 {
 			cancel()
 		}
 		return true, nil
-	}
+	})
 	if _, err := BuildDay(ctx, cancelConfig); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled build error=%v", err)
 	}
@@ -504,13 +539,25 @@ func preparedConfigAt(tb testing.TB, date time.Time, bounds delivery.GridBounds,
 	touchesLand := func(bounds delivery.GridBounds) (bool, error) {
 		return land((bounds.West+bounds.East)/2, (bounds.North+bounds.South)/2)
 	}
-	return Config{Root: root, ReleaseID: "test-release", Period: date.Format("2006-01-02"), Tier: "ifs", Date: date, MaxZoom: zoom, Series: series, Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil }, Land: touchesLand}, func() {
+	return Config{Root: root, ReleaseID: "test-release", Period: date.Format("2006-01-02"), Tier: "ifs", Date: date, MaxZoom: zoom, Series: series, Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil }, Land: testLandMask(tb, touchesLand)}, func() {
 		for _, frames := range series {
 			for _, frame := range frames {
 				_ = frame.Close()
 			}
 		}
 	}
+}
+
+func testLandMask(tb testing.TB, touches TouchesLand) LandMask {
+	tb.Helper()
+	mask, err := NewLandMask(touches, LandIdentity{
+		Authority: LandAuthorityNaturalEarth, Dataset: LandDatasetNaturalEarth10M, Version: LandVersionNaturalEarth511,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: LandDerivationWebMercatorTouchV1,
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return mask
 }
 
 func testDate() time.Time { return time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC) }

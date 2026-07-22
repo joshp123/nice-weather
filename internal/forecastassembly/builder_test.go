@@ -19,6 +19,7 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastpoints"
+	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/tiledelivery"
 )
@@ -320,13 +321,25 @@ func exactIFSConfig(t *testing.T) (Config, func()) {
 		Root: root, ReleaseID: "ifs-2026072000-20260720", Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal,
 		Date: date, Series: series,
 		Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil },
-		Land: func(bounds delivery.GridBounds) (bool, error) {
+		Land: assemblyLandMask(t, func(bounds delivery.GridBounds) (bool, error) {
 			// A coastal sliver lies between z3 display texel centres and between
 			// 0.25-degree provider-cell centres. All-touched output must keep it.
 			const west, east, south, north = .015, .025, .015, .025
 			return bounds.West < east && bounds.East > west && bounds.South < north && bounds.North > south, nil
-		},
+		}),
 	}, closeFrames
+}
+
+func assemblyLandMask(t *testing.T, touches forecasttiles.TouchesLand) forecasttiles.LandMask {
+	t.Helper()
+	mask, err := forecasttiles.NewLandMask(touches, forecasttiles.LandIdentity{
+		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mask
 }
 
 type assemblyFakeRunner struct {

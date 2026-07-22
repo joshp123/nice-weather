@@ -18,6 +18,7 @@ import (
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
+	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 )
 
@@ -287,7 +288,7 @@ func TestPublishedRunRejectsLateOptionalTierInstallation(t *testing.T) {
 		Date:   time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC),
 		Series: pipeline.PreparedSeries{pipeline.Temperature: []*pipeline.PreparedFrame{nil}},
 		Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil },
-		Land:   func(delivery.GridBounds) (bool, error) { return true, nil },
+		Land:   runTestLandMask(t),
 	})
 	if err == nil || !strings.Contains(err.Error(), "sealed") {
 		t.Fatalf("late tier installation error = %v", err)
@@ -300,6 +301,18 @@ func TestPublishedRunRejectsLateOptionalTierInstallation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "sealed") {
 		t.Fatalf("late range installation error = %v", err)
 	}
+}
+
+func runTestLandMask(t *testing.T) forecasttiles.LandMask {
+	t.Helper()
+	mask, err := forecasttiles.NewLandMask(func(delivery.GridBounds) (bool, error) { return true, nil }, forecasttiles.LandIdentity{
+		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mask
 }
 
 func TestStaleRunRequiresExplicitDeterministicRollback(t *testing.T) {

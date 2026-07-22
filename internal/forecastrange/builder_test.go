@@ -446,7 +446,15 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 			}
 		}
 	}
-	scalarCatalog := forecasttiles.Catalog{Version: forecastcatalog.CatalogVersion, ReleaseID: releaseID, Period: date, Tier: forecastpoints.TierGlobal, Date: date, MaxZoom: MaxZoom, Source: forecasttiles.SourceIdentity{SourceID: "ecmwf-ifs-control", RunUTC: runUTC.Format(time.RFC3339), Grid: grid, NativeResolutionKM: 28, EvidenceSHA256: evidence}, MaxZoomOutcomes: outcomes, Points: points, Scalars: scalars}
+	scalarCatalog := forecasttiles.Catalog{
+		Version: forecastcatalog.CatalogVersion, ReleaseID: releaseID, Period: date, Tier: forecastpoints.TierGlobal, Date: date, MaxZoom: MaxZoom,
+		Source: forecasttiles.SourceIdentity{SourceID: "ecmwf-ifs-control", RunUTC: runUTC.Format(time.RFC3339), Grid: grid, NativeResolutionKM: 28, EvidenceSHA256: evidence},
+		Land: forecasttiles.LandIdentity{
+			Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
+			SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+		},
+		MaxZoomOutcomes: outcomes, Points: points, Scalars: scalars,
+	}
 	catalog, err := forecastcatalog.New(forecastcatalog.Config{ReleaseID: releaseID, LocalDate: date, Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, RunUTC: runUTC, SourceEvidenceSHA256: evidence}, blocks, scalarCatalog)
 	if err != nil {
 		t.Fatal(err)

@@ -24,6 +24,10 @@ export type ForecastScalarTile = Readonly<{ field: ForecastField; zoom: number; 
 export type ForecastDisplayPoint = Readonly<{ zoom: number; x: number; y: number; path: string; bytes: number; sha256: string; payloadSha256: string; mediaType: string }>;
 export type ForecastPointBlock = Readonly<{ row: number; column: number; rows: number; columns: number; omitted: boolean; path?: string; bytes?: number; sha256?: string; payloadSha256?: string; mediaType: string }>;
 export type ForecastCoverage = Readonly<{ zoom: number; x: number; y: number; omitted: boolean }>;
+export type ForecastLandIdentity = Readonly<{
+  authority: 'Natural Earth'; dataset: 'ne_10m_land'; version: '5.1.1';
+  sourceArchiveSha256: string; maskSha256: string; derivationContract: 'web-mercator-all-touched-v1';
+}>;
 
 type TierReference = Readonly<{
   date: string; provider: string; tier: ForecastTier; product: string; runUtc: string; nativeResolutionKm: number;
@@ -35,14 +39,15 @@ type RangeReference = Readonly<{
 }>;
 
 export type ForecastIndex = Readonly<{
-  version: 2; productContract: 'nice-weather-forecast-run-v2'; indexId: string; firstDate: string; lastDate: string;
+  version: 2; productContract: 'nice-weather-forecast-run-v3'; indexId: string; firstDate: string; lastDate: string;
   days: readonly Readonly<{ date: string; tiers: readonly TierReference[] }>[]; range: RangeReference;
 }>;
 
 export type DailyForecastCatalog = Readonly<{
-  version: 1; releaseId: string; localDate: string; provider: string; tier: ForecastTier;
+  version: 2; releaseId: string; localDate: string; provider: string; tier: ForecastTier;
   grid: Readonly<{ west: number; east: number; south: number; north: number; rows: number; columns: number }>;
   evidence: Readonly<{ product: string; runUtc: string; nativeResolutionKm: number; sourceEvidenceSha256: string }>;
+  land: ForecastLandIdentity;
   scalarMaxZoom: 3 | 5; pointBlocks: readonly ForecastPointBlock[]; displayPoints: readonly ForecastDisplayPoint[];
   scalarCoverage: readonly ForecastCoverage[]; scalarTiles: readonly ForecastScalarTile[]; root: string;
 }>;
@@ -237,7 +242,7 @@ export class WorldwideForecastClient {
 
 function parseIndex(value: unknown, indexId: string): ForecastIndex {
   const row = exact(value, ['version', 'productContract', 'indexId', 'firstDate', 'lastDate', 'tierSelection', 'days', 'range']);
-  if (row.version !== 2 || row.productContract !== 'nice-weather-forecast-run-v2' || identifier(row.indexId) !== indexId) throw new ForecastDataError('invalid');
+  if (row.version !== 2 || row.productContract !== 'nice-weather-forecast-run-v3' || identifier(row.indexId) !== indexId) throw new ForecastDataError('invalid');
   const selection = exact(row.tierSelection, ['method', 'priority', 'blend']);
   if (selection.method !== 'choose-one-complete-tier-before-colour' || selection.blend !== false || JSON.stringify(selection.priority) !== '["europe-detail","global"]') throw new ForecastDataError('invalid');
   const days = list(row.days).map((entry) => {
@@ -250,7 +255,7 @@ function parseIndex(value: unknown, indexId: string): ForecastIndex {
   const range = parseRangeReference(row.range, indexId);
   const firstDate = date(row.firstDate), lastDate = date(row.lastDate);
   if (firstDate !== days[0].date || lastDate !== days[13].date) throw new ForecastDataError('invalid');
-  return Object.freeze({ version: 2, productContract: 'nice-weather-forecast-run-v2', indexId, firstDate, lastDate, days: Object.freeze(days), range });
+  return Object.freeze({ version: 2, productContract: 'nice-weather-forecast-run-v3', indexId, firstDate, lastDate, days: Object.freeze(days), range });
 }
 
 function parseTier(value: unknown, dateValue: string, indexId: string): TierReference {
@@ -271,8 +276,8 @@ function parseRangeReference(value: unknown, indexId: string): RangeReference {
 }
 
 function parseDaily(value: unknown, index: ForecastIndex, reference: TierReference, root: string): DailyForecastCatalog {
-  const row = exact(value, ['version', 'releaseId', 'localDate', 'provider', 'tier', 'grid', 'evidence', 'scalarMaxZoom', 'scores', 'coverage', 'pointBlocks', 'displayPoints', 'scalarCoverage', 'scalarTiles']);
-  if (row.version !== 1 || row.releaseId !== index.indexId || row.localDate !== reference.date || row.provider !== reference.provider || row.tier !== reference.tier) throw new ForecastDataError('invalid');
+  const row = exact(value, ['version', 'releaseId', 'localDate', 'provider', 'tier', 'grid', 'evidence', 'land', 'scalarMaxZoom', 'scores', 'coverage', 'pointBlocks', 'displayPoints', 'scalarCoverage', 'scalarTiles']);
+  if (row.version !== 2 || row.releaseId !== index.indexId || row.localDate !== reference.date || row.provider !== reference.provider || row.tier !== reference.tier) throw new ForecastDataError('invalid');
   const gridRow = exact(row.grid, ['projection', 'west', 'east', 'south', 'north', 'rows', 'columns', 'cellDegrees', 'cellRegistration']);
   const grid = Object.freeze({ west: finite(gridRow.west), east: finite(gridRow.east), south: finite(gridRow.south), north: finite(gridRow.north), rows: positiveInteger(gridRow.rows), columns: positiveInteger(gridRow.columns) });
   const expected = reference.tier === 'global' ? [-180, 180, -90, 90, 720, 1440, 3] : [-24, 45, 29, 71.5, 680, 1104, 5];
@@ -280,6 +285,9 @@ function parseDaily(value: unknown, index: ForecastIndex, reference: TierReferen
   const evidenceRow = exact(row.evidence, ['product', 'runUtc', 'nativeResolutionKm', 'sourceEvidenceSha256']);
   const evidence = Object.freeze({ product: text(evidenceRow.product), runUtc: timestamp(evidenceRow.runUtc), nativeResolutionKm: positive(evidenceRow.nativeResolutionKm), sourceEvidenceSha256: sha(evidenceRow.sourceEvidenceSha256) });
   if (evidence.product !== reference.product || evidence.runUtc !== reference.runUtc || evidence.nativeResolutionKm !== reference.nativeResolutionKm || evidence.sourceEvidenceSha256 !== reference.sourceEvidenceSha256) throw new ForecastDataError('invalid');
+  const landRow = exact(row.land, ['authority', 'dataset', 'version', 'sourceArchiveSha256', 'maskSha256', 'derivationContract']);
+  if (landRow.authority !== 'Natural Earth' || landRow.dataset !== 'ne_10m_land' || landRow.version !== '5.1.1' || landRow.derivationContract !== 'web-mercator-all-touched-v1') throw new ForecastDataError('invalid');
+  const land = Object.freeze({ authority: 'Natural Earth' as const, dataset: 'ne_10m_land' as const, version: '5.1.1' as const, sourceArchiveSha256: sha(landRow.sourceArchiveSha256), maskSha256: sha(landRow.maskSha256), derivationContract: 'web-mercator-all-touched-v1' as const });
   parseScores(row.scores);
   const pointBlocks = Object.freeze(list(row.pointBlocks).map(parsePointBlock));
   const displayPoints = Object.freeze(list(row.displayPoints).map(parseDisplayPoint));
@@ -289,7 +297,7 @@ function parseDaily(value: unknown, index: ForecastIndex, reference: TierReferen
   const displayKeys = new Set(displayPoints.map(({ zoom, x, y }) => `${zoom}/${x}/${y}`));
   const availableKeys = scalarCoverage.filter(({ omitted }) => !omitted).map(({ zoom, x, y }) => `${zoom}/${x}/${y}`);
   if (displayKeys.size !== displayPoints.length || availableKeys.some((key) => !displayKeys.has(key)) || displayKeys.size !== availableKeys.length) throw new ForecastDataError('invalid');
-  return Object.freeze({ version: 1, releaseId: index.indexId, localDate: reference.date, provider: reference.provider, tier: reference.tier, grid, evidence, scalarMaxZoom: row.scalarMaxZoom as 3 | 5, pointBlocks, displayPoints, scalarCoverage, scalarTiles, root });
+  return Object.freeze({ version: 2, releaseId: index.indexId, localDate: reference.date, provider: reference.provider, tier: reference.tier, grid, evidence, land, scalarMaxZoom: row.scalarMaxZoom as 3 | 5, pointBlocks, displayPoints, scalarCoverage, scalarTiles, root });
 }
 
 function parseRange(value: unknown, index: ForecastIndex, root: string): RangeForecastCatalog {
