@@ -79,6 +79,53 @@ func TestInterpolateRecordScoresOneInterpolatedPhysicalDay(t *testing.T) {
 	}
 }
 
+func TestInterpolateRecordUsesIndependentMaskedOptionalFields(t *testing.T) {
+	day := func() weather.DailyMetrics {
+		return weather.DailyMetrics{
+			ComfortableTempC: 24, MinTempC: 20, MaxTempC: 28, RainMM: 0, WindSpeedKPH: 8,
+			CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
+			DewPointC:         weather.OptionalFloat{Value: 12, Available: true}, NativeResolutionKM: 7, Valid: true,
+		}
+	}
+	window := func(metrics []weather.DailyMetrics) pipeline.DailyMetricsWindow {
+		return pipeline.DailyMetricsWindow{Spec: delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 2}, Rows: 2, Cols: 2}, Metrics: metrics}
+	}
+
+	metrics := []weather.DailyMetrics{day(), day(), day(), day()}
+	metrics[0].SolarEnergyMJm2 = weather.OptionalFloat{Value: 10, Available: true}
+	metrics[2].SolarEnergyMJm2 = weather.OptionalFloat{Value: 30, Available: true}
+	metrics[3].SolarEnergyMJm2 = weather.OptionalFloat{Value: 50, Available: true}
+	metrics[0].GustKPH = weather.OptionalFloat{Value: 12, Available: true}
+	metrics[1].GustKPH = weather.OptionalFloat{Value: 16, Available: true}
+	record, ok, err := interpolateRecord(1, 1, window(metrics))
+	if err != nil || !ok {
+		t.Fatalf("masked optional interpolation unavailable: %t, %v", ok, err)
+	}
+	if !record.Weather.HasSolar || record.Weather.SolarCentiMJm2 != 3000 || !record.Weather.HasGust || record.Weather.GustDeciKMH != 140 {
+		t.Fatalf("independent optional fields = %+v; want solar 30 and gust 14", record.Weather)
+	}
+
+	// Missing contributors with zero bilinear weight cannot suppress exact
+	// evidence at a source-cell centre.
+	exact, ok, err := interpolateRecord(.5, 1.5, window(metrics))
+	if err != nil || !ok || !exact.Weather.HasSolar || exact.Weather.SolarCentiMJm2 != 1000 {
+		t.Fatalf("zero-weight missing contributor changed exact solar: %+v, %t, %v", exact.Weather, ok, err)
+	}
+
+	for index := range metrics {
+		metrics[index].SolarEnergyMJm2 = weather.OptionalFloat{}
+	}
+	fallback, ok, err := interpolateRecord(1, 1, window(metrics))
+	if err != nil || !ok || fallback.Weather.HasSolar || !fallback.Weather.HasCloud {
+		t.Fatalf("all-missing solar did not retain cloud fallback: %+v, %t, %v", fallback.Weather, ok, err)
+	}
+
+	metrics[1].Valid = false
+	if _, ok, err := interpolateRecord(1, 1, window(metrics)); err != nil || ok {
+		t.Fatalf("required-neighbour gap did not fail closed: %t, %v", ok, err)
+	}
+}
+
 func TestLandMaskKeepsPredicateAndExactIdentityTogether(t *testing.T) {
 	identity := LandIdentity{
 		Authority: LandAuthorityNaturalEarth, Dataset: LandDatasetNaturalEarth10M, Version: LandVersionNaturalEarth511,

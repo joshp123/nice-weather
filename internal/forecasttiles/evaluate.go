@@ -213,17 +213,20 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 		}
 		return total
 	}
-	optional := func(name string, read func(weather.DailyMetrics) weather.OptionalFloat) (weather.OptionalFloat, error) {
-		available := read(metrics[0]).Available
-		for index := 1; index < len(metrics); index++ {
-			if read(metrics[index]).Available != available {
-				return weather.OptionalFloat{}, fmt.Errorf("interpolate %s: source availability differs", name)
+	optional := func(read func(weather.DailyMetrics) weather.OptionalFloat) weather.OptionalFloat {
+		total, availableWeight := 0.0, 0.0
+		for index := range metrics {
+			field := read(metrics[index])
+			if !field.Available || weights[index] <= 0 {
+				continue
 			}
+			total += weights[index] * field.Value
+			availableWeight += weights[index]
 		}
-		if !available {
-			return weather.OptionalFloat{}, nil
+		if availableWeight == 0 {
+			return weather.OptionalFloat{}
 		}
-		return weather.OptionalFloat{Value: value(func(item weather.DailyMetrics) float64 { return read(item).Value }), Available: true}, nil
+		return weather.OptionalFloat{Value: total / availableWeight, Available: true}
 	}
 	result := weather.DailyMetrics{
 		ComfortableTempC:   value(func(item weather.DailyMetrics) float64 { return item.ComfortableTempC }),
@@ -238,25 +241,13 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 			return delivery.DailyPointRecord{}, false, errors.New("interpolate weather: source resolution differs")
 		}
 	}
+	result.WetTimeFraction = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.WetTimeFraction })
+	result.SolarEnergyMJm2 = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.SolarEnergyMJm2 })
+	result.CloudCoverPercent = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.CloudCoverPercent })
+	result.GustKPH = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.GustKPH })
+	result.DewPointC = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.DewPointC })
+	result.RelativeHumidityPercent = optional(func(item weather.DailyMetrics) weather.OptionalFloat { return item.RelativeHumidityPercent })
 	var err error
-	if result.WetTimeFraction, err = optional("wet time", func(item weather.DailyMetrics) weather.OptionalFloat { return item.WetTimeFraction }); err != nil {
-		return delivery.DailyPointRecord{}, false, err
-	}
-	if result.SolarEnergyMJm2, err = optional("solar energy", func(item weather.DailyMetrics) weather.OptionalFloat { return item.SolarEnergyMJm2 }); err != nil {
-		return delivery.DailyPointRecord{}, false, err
-	}
-	if result.CloudCoverPercent, err = optional("cloud cover", func(item weather.DailyMetrics) weather.OptionalFloat { return item.CloudCoverPercent }); err != nil {
-		return delivery.DailyPointRecord{}, false, err
-	}
-	if result.GustKPH, err = optional("gust", func(item weather.DailyMetrics) weather.OptionalFloat { return item.GustKPH }); err != nil {
-		return delivery.DailyPointRecord{}, false, err
-	}
-	if result.DewPointC, err = optional("dew point", func(item weather.DailyMetrics) weather.OptionalFloat { return item.DewPointC }); err != nil {
-		return delivery.DailyPointRecord{}, false, err
-	}
-	if result.RelativeHumidityPercent, err = optional("humidity", func(item weather.DailyMetrics) weather.OptionalFloat { return item.RelativeHumidityPercent }); err != nil {
-		return delivery.DailyPointRecord{}, false, err
-	}
 	record, err := scoreRecord(result)
 	return record, err == nil, err
 }
