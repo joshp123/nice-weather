@@ -98,8 +98,13 @@ export type ClimateScalarTile = Readonly<{
   noDataTexels: number;
 }>;
 
+export type ClimateSourceQuality = Readonly<{
+  referenceWindowMaterialDaytimeTemperatureRepairs: number;
+  maximumReferenceWindowDaytimeAdjustmentC: number;
+}>;
+
 export type ClimateCatalog = Readonly<{
-  version: 1;
+  version: 2;
   releaseId: string;
   period: string;
   geometry: Readonly<{
@@ -114,6 +119,7 @@ export type ClimateCatalog = Readonly<{
     landMask: 'natural-earth-5.1.1-centre-on-land';
   }>;
   provenance: ClimateIndex['provenance'];
+  sourceQuality: ClimateSourceQuality;
   probability: Readonly<{
     unit: 'whole-percent';
     denominator: 'complete-real-days-in-reference-month';
@@ -343,18 +349,27 @@ export class WorldwideClimateClient {
     assertNotAborted(signal);
     if (response.status === 404 || response.status === 409 || response.status === 410) throw new ClimateDataError(immutable ? 'stale' : 'unavailable');
     if (!response.ok) throw new ClimateDataError('unavailable');
-    if (!jsonMediaType(response) || response.headers.has('Content-Encoding')) throw new ClimateDataError('invalid');
-    let declared: number;
+    const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase() || 'identity';
+    if (!jsonMediaType(response) || (encoding !== 'identity' && encoding !== 'gzip')) throw new ClimateDataError('invalid');
+    let declared: number | undefined;
     try {
-      declared = exactContentLength(response, maximumBytes);
+      if (encoding === 'identity') {
+        declared = exactContentLength(response, maximumBytes);
+      } else {
+        const encodedLength = response.headers.get('Content-Length');
+        if (encodedLength !== null) {
+          if (!/^[1-9]\d*$/.test(encodedLength) || !Number.isSafeInteger(Number(encodedLength))) throw new ClimateDataError('invalid');
+          declared = Number(encodedLength);
+        }
+      }
     } catch (error) {
       try { await response.body?.cancel('invalid climate JSON length'); } catch { /* The validation error wins. */ }
       throw error;
     }
     try {
-      const bytes = await readBoundedResponse(response, 'climate JSON', maximumBytes);
+      const bytes = await readBoundedResponse(response, 'climate JSON', maximumBytes, encoding === 'gzip' ? { contentLength: 'encoded' } : undefined);
       assertNotAborted(signal);
-      if (bytes.byteLength !== declared) throw new ClimateDataError('invalid');
+      if (bytes.byteLength < 1 || (encoding === 'identity' && bytes.byteLength !== declared)) throw new ClimateDataError('invalid');
       return bytes;
     } catch (error) {
       if (signal?.aborted) throw abortReason(signal);
@@ -427,14 +442,15 @@ function parseIndex(value: unknown): ClimateIndex {
 }
 
 function parseCatalog(value: unknown): ClimateCatalog {
-  const data = exactObject(value, ['version', 'releaseId', 'period', 'geometry', 'source', 'provenance', 'probability', 'maximumZoom', 'pointBlocks', 'scalarTiles']);
-  if (data.version !== 1 || !releaseID(data.releaseId) || !periodID(data.period) || data.maximumZoom !== 4) throw new ClimateDataError('invalid');
+  const data = exactObject(value, ['version', 'releaseId', 'period', 'geometry', 'source', 'provenance', 'sourceQuality', 'probability', 'maximumZoom', 'pointBlocks', 'scalarTiles']);
+  if (data.version !== 2 || !releaseID(data.releaseId) || !periodID(data.period) || data.maximumZoom !== 4) throw new ClimateDataError('invalid');
   const geometry = exactObject(data.geometry, ['projection', 'west', 'east', 'south', 'north', 'rows', 'columns', 'cellResolutionDegrees', 'cellRegistration']);
   if (geometry.projection !== 'EPSG:4326' || geometry.west !== -179.95 || geometry.east !== 179.95 || geometry.south !== -85.05 || geometry.north !== 85.05 || geometry.rows !== 1701 || geometry.columns !== 3599 || geometry.cellResolutionDegrees !== 0.1 || geometry.cellRegistration !== 'centre') throw new ClimateDataError('invalid');
   const source = exactObject(data.source, ['dataset', 'version', 'kind', 'referencePeriod', 'deliveryGridDegrees', 'atmosphericEvidenceKm', 'precipitationEvidenceDegrees', 'localDay', 'landMask']);
   const referencePeriod = parseReferencePeriod(source.referencePeriod);
   if (source.dataset !== 'AgERA5' || source.version !== '2.0' || source.kind !== 'topography-corrected-interpolated-era5' || source.deliveryGridDegrees !== 0.1 || source.atmosphericEvidenceKm !== 30 || source.precipitationEvidenceDegrees !== 0.25 || source.localDay !== 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time' || source.landMask !== 'natural-earth-5.1.1-centre-on-land') throw new ClimateDataError('invalid');
   const provenance = parseProvenance(data.provenance);
+  const sourceQuality = parseSourceQuality(data.sourceQuality);
   const probability = exactObject(data.probability, ['unit', 'denominator', 'threshold', 'goodMinimumScore', 'noDataValue', 'fields']);
   if (probability.unit !== 'whole-percent' || probability.denominator !== 'complete-real-days-in-reference-month' || probability.threshold !== 'canonical-rating-good-or-better' || probability.goodMinimumScore !== 55 || probability.noDataValue !== 255 || !sameArray(probability.fields, FIELDS)) throw new ClimateDataError('invalid');
   if (!Array.isArray(data.pointBlocks) || data.pointBlocks.length < 1 || data.pointBlocks.length > MAX_POINT_BLOCKS || !Array.isArray(data.scalarTiles) || data.scalarTiles.length < 1 || data.scalarTiles.length > MAX_SCALAR_TILES) throw new ClimateDataError('invalid');
@@ -443,12 +459,25 @@ function parseCatalog(value: unknown): ClimateCatalog {
   const scalarTiles = data.scalarTiles.map((item: unknown) => scalarTile(item, data.period));
   validateScalarTiles(scalarTiles);
   return deepFreeze({
-    version: 1 as const, releaseId: data.releaseId, period: data.period,
+    version: 2 as const, releaseId: data.releaseId, period: data.period,
     geometry: geometry as ClimateCatalog['geometry'],
-    source: { ...source, referencePeriod } as ClimateCatalog['source'], provenance,
+    source: { ...source, referencePeriod } as ClimateCatalog['source'], provenance, sourceQuality,
     probability: { unit: 'whole-percent', denominator: 'complete-real-days-in-reference-month', threshold: 'canonical-rating-good-or-better', goodMinimumScore: 55, noDataValue: 255, fields: [...FIELDS] },
     maximumZoom: 4 as const, pointBlocks, scalarTiles,
   });
+}
+
+function parseSourceQuality(value: unknown): ClimateSourceQuality {
+  const quality = exactObject(value, ['referenceWindowMaterialDaytimeTemperatureRepairs', 'maximumReferenceWindowDaytimeAdjustmentC']);
+  const repairs = quality.referenceWindowMaterialDaytimeTemperatureRepairs;
+  const maximumAdjustment = quality.maximumReferenceWindowDaytimeAdjustmentC;
+  if (!integer(repairs, 0, Number.MAX_SAFE_INTEGER) || Object.is(repairs, -0) || typeof maximumAdjustment !== 'number' || !Number.isFinite(maximumAdjustment)) throw new ClimateDataError('invalid');
+  if (repairs === 0) {
+    if (!Object.is(maximumAdjustment, 0)) throw new ClimateDataError('invalid');
+  } else if (maximumAdjustment <= 5 || maximumAdjustment > 170) {
+    throw new ClimateDataError('invalid');
+  }
+  return { referenceWindowMaterialDaytimeTemperatureRepairs: repairs, maximumReferenceWindowDaytimeAdjustmentC: maximumAdjustment };
 }
 
 function parseReferencePeriod(value: unknown): ClimateIndex['referencePeriod'] {

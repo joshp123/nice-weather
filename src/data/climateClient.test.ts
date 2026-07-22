@@ -63,6 +63,14 @@ describe('WorldwideClimateClient year index', () => {
     const tile = harness.client.findScalarTile(catalog, 'nice_good', 4, 0, 0)!;
 
     expect(again).toBe(catalog);
+    expect(catalog).toMatchObject({
+      version: 2,
+      sourceQuality: {
+        referenceWindowMaterialDaytimeTemperatureRepairs: 7,
+        maximumReferenceWindowDaytimeAdjustmentC: 5.237,
+      },
+    });
+    expect(Object.isFrozen(catalog.sourceQuality)).toBe(true);
     expect(harness.count(`/climate/releases/${RELEASE}/catalog.json`)).toBe(1);
     expect(harness.count('/climate/releases/climate-2026-03/catalog.json')).toBe(0);
     expect(harness.client.scalarTileUrl(catalog, tile)).toBe(`/climate/releases/${RELEASE}/scores/${PERIOD}/nice_good/4/0/0.nws`);
@@ -126,12 +134,26 @@ describe('WorldwideClimateClient year index', () => {
   it.each([
     ['pointer media type', { target: 'pointer', type: 'text/plain' }],
     ['index media type', { target: 'index', type: 'text/plain' }],
-    ['index encoding', { target: 'index', encoding: 'gzip' }],
+    ['unsupported index encoding', { target: 'index', encoding: 'br' }],
     ['index missing length', { target: 'index', omitLength: true }],
     ['index wrong length', { target: 'index', lengthDelta: 1 }],
   ])('requires exact JSON transport metadata: %s', async (_name, mutation) => {
     const harness = climateHarness(undefined, { jsonMutation: mutation });
     await expect(harness.client.loadIndex()).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it.each(['index', 'catalog'])('accepts browser-decoded gzip for immutable %s JSON', async (target) => {
+    const harness = climateHarness(undefined, { jsonMutation: { target, encoding: ' GZip ', lengthDelta: -1 } });
+    if (target === 'index') {
+      await expect(harness.client.loadIndex()).resolves.toMatchObject({ indexId: INDEX_ID });
+    } else {
+      await expect(harness.client.loadCatalog(PERIOD)).resolves.toMatchObject({ version: 2, releaseId: RELEASE });
+    }
+  });
+
+  it('accepts decoded gzip JSON without an encoded Content-Length', async () => {
+    const harness = climateHarness(undefined, { jsonMutation: { target: 'index', encoding: 'gzip', omitLength: true } });
+    await expect(harness.client.loadIndex()).resolves.toMatchObject({ indexId: INDEX_ID });
   });
 
   it('bounds the immutable index before parsing', async () => {
@@ -143,6 +165,21 @@ describe('WorldwideClimateClient year index', () => {
       : new Response(body, { headers: { 'Content-Type': 'application/json', 'Content-Length': String(64 * 1024 + 1) } }));
     await expect(new WorldwideClimateClient({ fetcher }).loadIndex()).rejects.toMatchObject({ code: 'invalid' });
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('bounds the decoded body of gzip JSON independently of its encoded length', async () => {
+    const fixture = makeFixture();
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/climate/current.json') return exactJSONResponse(fixture.pointer);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(64 * 1024 + 1));
+          controller.close();
+        },
+      });
+      return new Response(body, { headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip', 'Content-Length': '128' } });
+    });
+    await expect(new WorldwideClimateClient({ fetcher }).loadIndex()).rejects.toMatchObject({ code: 'invalid' });
   });
 
   it('rejects catalogue content not bound by the selected month reference', async () => {
@@ -163,6 +200,7 @@ describe('WorldwideClimateClient year index', () => {
   });
 
   it.each([
+    ['legacy catalogue version', (catalog: any) => { catalog.version = 1; }],
     ['unknown catalogue field', (catalog: any) => { catalog.extra = true; }],
     ['wrong source', (catalog: any) => { catalog.source.kind = 'native-atmosphere'; }],
     ['wrong geometry', (catalog: any) => { catalog.geometry.west = -180; }],
@@ -176,6 +214,47 @@ describe('WorldwideClimateClient year index', () => {
     const month = fixture.months.get(PERIOD)!;
     mutate(month.catalog);
     bindCatalog(month);
+    fixture.index.months[0].catalogSha256 = digest(month.catalogBytes);
+    bindIndex(fixture);
+    await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it.each([
+    ['missing source quality', (catalog: any) => { delete catalog.sourceQuality; }],
+    ['unknown source quality field', (catalog: any) => { catalog.sourceQuality.extra = true; }],
+    ['fractional repair count', (catalog: any) => { catalog.sourceQuality.referenceWindowMaterialDaytimeTemperatureRepairs = 0.5; }],
+    ['unsafe repair count', (catalog: any) => { catalog.sourceQuality.referenceWindowMaterialDaytimeTemperatureRepairs = Number.MAX_SAFE_INTEGER + 1; }],
+    ['maximum without repairs', (catalog: any) => { catalog.sourceQuality.referenceWindowMaterialDaytimeTemperatureRepairs = 0; }],
+    ['repairs without a material maximum', (catalog: any) => { catalog.sourceQuality.maximumReferenceWindowDaytimeAdjustmentC = 5; }],
+    ['impossible maximum', (catalog: any) => { catalog.sourceQuality.maximumReferenceWindowDaytimeAdjustmentC = 171; }],
+  ])('rejects invalid source quality: %s', async (_name, mutate) => {
+    const fixture = makeFixture();
+    const month = fixture.months.get(PERIOD)!;
+    mutate(month.catalog);
+    bindCatalog(month);
+    fixture.index.months[0].catalogSha256 = digest(month.catalogBytes);
+    bindIndex(fixture);
+    await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('accepts the exact zero-repair source quality state', async () => {
+    const fixture = makeFixture();
+    const month = fixture.months.get(PERIOD)!;
+    month.catalog.sourceQuality = {
+      referenceWindowMaterialDaytimeTemperatureRepairs: 0,
+      maximumReferenceWindowDaytimeAdjustmentC: 0,
+    };
+    bindCatalog(month);
+    fixture.index.months[0].catalogSha256 = digest(month.catalogBytes);
+    bindIndex(fixture);
+    await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).resolves.toMatchObject({ sourceQuality: month.catalog.sourceQuality });
+  });
+
+  it('rejects a negative-zero unsigned repair count on the wire', async () => {
+    const fixture = makeFixture();
+    const month = fixture.months.get(PERIOD)!;
+    const json = new TextDecoder().decode(month.catalogBytes).replace('"referenceWindowMaterialDaytimeTemperatureRepairs":7', '"referenceWindowMaterialDaytimeTemperatureRepairs":-0');
+    month.catalogBytes = new TextEncoder().encode(json);
     fixture.index.months[0].catalogSha256 = digest(month.catalogBytes);
     bindIndex(fixture);
     await expect(climateHarness(fixture).client.loadCatalog(PERIOD)).rejects.toMatchObject({ code: 'invalid' });
@@ -393,10 +472,11 @@ function makeMonth(period: string): MonthFixture {
   }
   const scalarTiles = FIELDS.flatMap((field) => Array.from({ length: 5 }, (_, zoom) => ({ field, zoom, x: 0, y: 0, path: `scores/${period}/${field}/${zoom}/0/0.nws`, bytes: 258 * 258, sha256: 'd'.repeat(64), mediaType: SCALAR_TYPE, dataTexels: 1, noDataTexels: 258 * 258 - 1 })));
   const catalog: any = {
-    version: 1, releaseId, period,
+    version: 2, releaseId, period,
     geometry: { projection: 'EPSG:4326', west: -179.95, east: 179.95, south: -85.05, north: 85.05, rows: 1701, columns: 3599, cellResolutionDegrees: 0.1, cellRegistration: 'centre' },
     source: { dataset: 'AgERA5', version: '2.0', kind: 'topography-corrected-interpolated-era5', referencePeriod: { firstYear: 2006, lastYear: 2025 }, deliveryGridDegrees: 0.1, atmosphericEvidenceKm: 30, precipitationEvidenceDegrees: 0.25, localDay: 'agera5-eight-longitude-zones-at-three-hour-offsets-not-civil-time', landMask: 'natural-earth-5.1.1-centre-on-land' },
     provenance: { sourceEvidenceSha256: 'a'.repeat(64), landMaskSetSha256: 'b'.repeat(64), derivationContract: DERIVATION },
+    sourceQuality: { referenceWindowMaterialDaytimeTemperatureRepairs: 7, maximumReferenceWindowDaytimeAdjustmentC: 5.237 },
     probability: { unit: 'whole-percent', denominator: 'complete-real-days-in-reference-month', threshold: 'canonical-rating-good-or-better', goodMinimumScore: 55, noDataValue: 255, fields: [...FIELDS] },
     maximumZoom: 4, pointBlocks, scalarTiles,
   };
