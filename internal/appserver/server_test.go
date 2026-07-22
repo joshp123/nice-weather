@@ -21,6 +21,7 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastpoints"
+	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/providers/agera5"
@@ -811,6 +812,23 @@ func TestForecastRunsUseValidatedPointerAllowlistAndImmutableHTTPContract(t *tes
 	if catalog.Code != http.StatusOK || catalog.Body.String() != string(fixture.catalogRaw) || catalog.Header().Get("Content-Type") != "application/json" || catalog.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("forecast catalog: %d %+v %q", catalog.Code, catalog.Header(), catalog.Body.String())
 	}
+	rangeCatalog := httptest.NewRecorder()
+	app.handler.ServeHTTP(rangeCatalog, httptest.NewRequest(http.MethodGet, "/"+fixture.rangeCatalogPath, nil))
+	if rangeCatalog.Code != http.StatusOK || rangeCatalog.Body.String() != string(fixture.rangeCatalogRaw) || rangeCatalog.Header().Get("Content-Type") != "application/json" || rangeCatalog.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("forecast range catalog: %d %+v %q", rangeCatalog.Code, rangeCatalog.Header(), rangeCatalog.Body.String())
+	}
+	previousRange := httptest.NewRecorder()
+	app.handler.ServeHTTP(previousRange, httptest.NewRequest(http.MethodGet, "/"+fixture.previousRangeCatalogPath, nil))
+	if previousRange.Code != http.StatusOK {
+		t.Fatalf("previous forecast range catalog: %d %+v %q", previousRange.Code, previousRange.Header(), previousRange.Body.String())
+	}
+	rangePointRequest := httptest.NewRequest(http.MethodGet, "/"+fixture.rangePointPath, nil)
+	rangePointRequest.Header.Set("Range", "bytes=12-43")
+	rangePoint := httptest.NewRecorder()
+	app.handler.ServeHTTP(rangePoint, rangePointRequest)
+	if rangePoint.Code != http.StatusPartialContent || rangePoint.Body.String() != string(fixture.rangePointRaw[12:44]) || rangePoint.Header().Get("Content-Range") != fmt.Sprintf("bytes 12-43/%d", len(fixture.rangePointRaw)) || rangePoint.Header().Get("Content-Type") != forecastrange.BlockMediaType || rangePoint.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("forecast range point: %d %+v body=%d", rangePoint.Code, rangePoint.Header(), rangePoint.Body.Len())
+	}
 
 	blockRequest := httptest.NewRequest(http.MethodGet, "/"+fixture.pointPath, nil)
 	blockRequest.Header.Set("Range", "bytes=16-47")
@@ -857,6 +875,15 @@ func TestForecastRunsUseValidatedPointerAllowlistAndImmutableHTTPContract(t *tes
 	if unreferencedResponse.Code != http.StatusNotFound {
 		t.Fatalf("unreferenced forecast file returned %d: %s", unreferencedResponse.Code, unreferencedResponse.Body.String())
 	}
+	unreferencedRangePath := filepath.Join(app.root, "forecast", "runs", fixture.currentID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, "unreferenced.nwr")
+	if err := os.WriteFile(unreferencedRangePath, []byte("not catalogued"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unreferencedRange := httptest.NewRecorder()
+	app.handler.ServeHTTP(unreferencedRange, httptest.NewRequest(http.MethodGet, "/"+strings.TrimPrefix(unreferencedRangePath, app.root+string(filepath.Separator)), nil))
+	if unreferencedRange.Code != http.StatusNotFound {
+		t.Fatalf("unreferenced forecast range file returned %d: %s", unreferencedRange.Code, unreferencedRange.Body.String())
+	}
 	stale := httptest.NewRecorder()
 	app.handler.ServeHTTP(stale, httptest.NewRequest(http.MethodGet, "/forecast/runs/stale-run/index.json", nil))
 	if stale.Code != http.StatusConflict {
@@ -886,6 +913,14 @@ func TestForecastRunsUseValidatedPointerAllowlistAndImmutableHTTPContract(t *tes
 	app.handler.ServeHTTP(corrupt, httptest.NewRequest(http.MethodGet, "/"+fixture.scalarPath, nil))
 	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), "corrupt") {
 		t.Fatalf("checksum-mismatched forecast asset returned %d: %q", corrupt.Code, corrupt.Body.String())
+	}
+	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(fixture.rangeCatalogPath)), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corruptRangeCatalog := httptest.NewRecorder()
+	app.handler.ServeHTTP(corruptRangeCatalog, httptest.NewRequest(http.MethodGet, "/"+fixture.rangeCatalogPath, nil))
+	if corruptRangeCatalog.Code != http.StatusServiceUnavailable {
+		t.Fatalf("checksum-mismatched forecast range catalog returned %d: %q", corruptRangeCatalog.Code, corruptRangeCatalog.Body.String())
 	}
 	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(fixture.catalogPath)), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -930,7 +965,7 @@ func TestForecastRunsUseValidatedPointerAllowlistAndImmutableHTTPContract(t *tes
 func TestForecastColdMetadataLoadDoesNotReadLargeAssetPayload(t *testing.T) {
 	app := newForecastTestApplication(t)
 	fixture := installForecastHTTPFixture(t, app)
-	if err := os.Truncate(filepath.Join(app.root, filepath.FromSlash(fixture.pointPath)), 2<<30); err != nil {
+	if err := os.Truncate(filepath.Join(app.root, filepath.FromSlash(fixture.rangePointPath)), 2<<30); err != nil {
 		t.Fatal(err)
 	}
 	started := time.Now()
@@ -945,13 +980,13 @@ func TestForecastColdMetadataLoadDoesNotReadLargeAssetPayload(t *testing.T) {
 	}
 	concrete := app.handler.(*application)
 	concrete.forecastMu.Lock()
-	asset := concrete.forecast.assets[fixture.pointPath]
+	asset := concrete.forecast.assets[fixture.rangePointPath]
 	asset.bytes = 2 << 30
-	concrete.forecast.assets[fixture.pointPath] = asset
+	concrete.forecast.assets[fixture.rangePointPath] = asset
 	concrete.forecastMu.Unlock()
 	headStarted := time.Now()
 	head := httptest.NewRecorder()
-	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/"+fixture.pointPath, nil))
+	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/"+fixture.rangePointPath, nil))
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(2<<30) {
 		t.Fatalf("large forecast asset HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
 	}
@@ -973,13 +1008,16 @@ func newForecastTestApplication(t *testing.T) testApplication {
 }
 
 type forecastHTTPFixture struct {
-	pointerRaw, currentIndexRaw, previousIndexRaw []byte
-	currentID, currentDate                        string
-	currentIndexPath, previousIndexPath           string
-	pointPath, displayPath, scalarPath            string
-	pointRaw, scalarRaw                           []byte
-	catalogPath                                   string
-	catalogRaw                                    []byte
+	pointerRaw, currentIndexRaw, previousIndexRaw  []byte
+	currentID, currentDate                         string
+	currentIndexPath, previousIndexPath            string
+	pointPath, displayPath, scalarPath             string
+	pointRaw, scalarRaw                            []byte
+	catalogPath                                    string
+	catalogRaw                                     []byte
+	rangeCatalogPath, previousRangeCatalogPath     string
+	rangePointPath, rangeScalarPath                string
+	rangeCatalogRaw, rangePointRaw, rangeScalarRaw []byte
 }
 
 func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPFixture {
@@ -993,8 +1031,10 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 	pointRaw := []byte(strings.Repeat("forecast-point-block-", 16))
 	scalarRaw := []byte(strings.Repeat("\x32", 1024))
 	displayRaw := []byte(strings.Repeat("display", 64))
+	rangePointRaw := []byte(strings.Repeat("forecast-range-point-", 16))
+	rangeScalarRaw := []byte(strings.Repeat("\x47", 1024))
 
-	makeIndex := func(id, date string, point, display, scalar []byte) (forecastruns.Index, []byte, forecastruns.IndexReference, string, string, string) {
+	makeIndex := func(id, date string, point, display, scalar, rangePoint, rangeScalar []byte) (forecastruns.Index, []byte, forecastruns.IndexReference, string, string, string, string, string, string, []byte) {
 		catalog := forecastcatalog.Catalog{
 			ReleaseID: id, LocalDate: date, Tier: forecastpoints.TierGlobal,
 			PointBlocks:   []forecastcatalog.PointBlock{{Path: "point.nwf", Bytes: uint64(len(point)), SHA256: sha256Hex(point), MediaType: forecastpoints.MediaType}},
@@ -1013,7 +1053,31 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 		writeHTTPFixtureFile(t, app.root, pointPath, point)
 		writeHTTPFixtureFile(t, app.root, displayPath, display)
 		writeHTTPFixtureFile(t, app.root, scalarPath, scalar)
-		index := forecastruns.Index{IndexID: id, Days: []forecastruns.Day{{Date: date, Tiers: []forecastruns.TierReference{{Date: date, Tier: forecastpoints.TierGlobal, CatalogPath: strings.TrimPrefix(catalogPath, "forecast/"), CatalogBytes: uint64(len(catalogRaw)), CatalogSHA256: sha256Hex(catalogRaw)}}}}}
+		runUTC := "2026-07-22T12:00:00Z"
+		rangeRoot := filepath.ToSlash(filepath.Join("forecast", "runs", id, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal))
+		rangePointPath, rangeScalarPath := rangeRoot+"/point.nwr", rangeRoot+"/score.nws"
+		writeHTTPFixtureFile(t, app.root, rangePointPath, rangePoint)
+		writeHTTPFixtureFile(t, app.root, rangeScalarPath, rangeScalar)
+		rangeCatalog := forecastrange.Catalog{
+			ReleaseID: id, Period: forecastrange.Period, Dates: []string{date},
+			Source: forecastrange.Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: runUTC, NativeResolutionKM: 28, StaleAfterHours: forecastrange.StaleAfterHours},
+			Scores: forecastrange.Scores{MediaType: tiledelivery.ScalarMediaType}, PointBlockLayout: forecastrange.PointBlockLayout{MediaType: forecastrange.BlockMediaType},
+			Inputs:      []forecastrange.InputCatalog{{Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecastpoints.TierGlobal, "catalog.json")), Bytes: uint64(len(catalogRaw)), SHA256: sha256Hex(catalogRaw)}},
+			PointBlocks: []forecastrange.PointBlock{{Path: "point.nwr", Bytes: uint64(len(rangePoint)), SHA256: sha256Hex(rangePoint)}},
+			ScalarTiles: []forecastrange.ScalarTile{{Path: "score.nws", Bytes: uint64(len(rangeScalar)), SHA256: sha256Hex(rangeScalar)}},
+		}
+		rangeCatalogRaw, err := json.Marshal(rangeCatalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rangeCatalogRaw = append(rangeCatalogRaw, '\n')
+		rangeCatalogPath := rangeRoot + "/" + forecastrange.CatalogFilename
+		writeHTTPFixtureFile(t, app.root, rangeCatalogPath, rangeCatalogRaw)
+		index := forecastruns.Index{IndexID: id, Days: []forecastruns.Day{{Date: date, Tiers: []forecastruns.TierReference{{Date: date, Tier: forecastpoints.TierGlobal, CatalogPath: strings.TrimPrefix(catalogPath, "forecast/"), CatalogBytes: uint64(len(catalogRaw)), CatalogSHA256: sha256Hex(catalogRaw)}}}}, Range: forecastruns.RangeReference{
+			Period: forecastrange.Period, Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl,
+			RunUTC: runUTC, NativeResolutionKM: 28, StaleAfterHours: forecastrange.StaleAfterHours,
+			CatalogPath: strings.TrimPrefix(rangeCatalogPath, "forecast/"), CatalogBytes: uint64(len(rangeCatalogRaw)), CatalogSHA256: sha256Hex(rangeCatalogRaw),
+		}}
 		indexRaw, err := json.Marshal(index)
 		if err != nil {
 			t.Fatal(err)
@@ -1021,10 +1085,10 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 		indexRaw = append(indexRaw, '\n')
 		indexPath := filepath.ToSlash(filepath.Join("forecast", "runs", id, forecastruns.IndexFilename))
 		writeHTTPFixtureFile(t, app.root, indexPath, indexRaw)
-		return index, indexRaw, forecastruns.IndexReference{IndexID: id, Path: strings.TrimPrefix(indexPath, "forecast/"), SHA256: sha256Hex(indexRaw)}, pointPath, displayPath, scalarPath
+		return index, indexRaw, forecastruns.IndexReference{IndexID: id, Path: strings.TrimPrefix(indexPath, "forecast/"), SHA256: sha256Hex(indexRaw)}, pointPath, displayPath, scalarPath, rangeCatalogPath, rangePointPath, rangeScalarPath, rangeCatalogRaw
 	}
-	current, currentRaw, currentReference, pointPath, displayPath, scalarPath := makeIndex(currentID, currentDate, pointRaw, displayRaw, scalarRaw)
-	previous, previousRaw, previousReference, _, _, _ := makeIndex(previousID, previousDate, []byte("previous point"), []byte("previous display"), []byte("previous scalar"))
+	current, currentRaw, currentReference, pointPath, displayPath, scalarPath, rangeCatalogPath, rangePointPath, rangeScalarPath, rangeCatalogRaw := makeIndex(currentID, currentDate, pointRaw, displayRaw, scalarRaw, rangePointRaw, rangeScalarRaw)
+	previous, previousRaw, previousReference, _, _, _, previousRangeCatalogPath, _, _, _ := makeIndex(previousID, previousDate, []byte("previous point"), []byte("previous display"), []byte("previous scalar"), []byte("previous range point"), []byte("previous range scalar"))
 	pointer := forecastruns.Pointer{Version: forecastruns.PointerVersion, Current: currentReference, Previous: &previousReference}
 	pointerRaw, err := json.Marshal(pointer)
 	if err != nil {
@@ -1033,7 +1097,7 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 	pointerRaw = append(pointerRaw, '\n')
 	writeHTTPFixtureFile(t, app.root, "forecast/current.json", pointerRaw)
 
-	originalLoad, originalParse := loadForecastMetadata, parseForecastCatalog
+	originalLoad, originalParse, originalRangeParse := loadForecastMetadata, parseForecastCatalog, parseForecastRangeCatalog
 	loadForecastMetadata = func(string) (forecastruns.Pointer, forecastruns.Index, *forecastruns.Index, error) {
 		return pointer, current, &previous, nil
 	}
@@ -1042,8 +1106,13 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 		err := json.Unmarshal(encoded, &catalog)
 		return catalog, err
 	}
+	parseForecastRangeCatalog = func(encoded []byte) (forecastrange.Catalog, error) {
+		var catalog forecastrange.Catalog
+		err := json.Unmarshal(encoded, &catalog)
+		return catalog, err
+	}
 	t.Cleanup(func() {
-		loadForecastMetadata, parseForecastCatalog = originalLoad, originalParse
+		loadForecastMetadata, parseForecastCatalog, parseForecastRangeCatalog = originalLoad, originalParse, originalRangeParse
 	})
 	concrete.forecastMu.Lock()
 	concrete.forecast = nil
@@ -1053,8 +1122,11 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 		currentID: currentID, currentDate: currentDate,
 		currentIndexPath: "forecast/" + currentReference.Path, previousIndexPath: "forecast/" + previousReference.Path,
 		pointPath: pointPath, displayPath: displayPath, scalarPath: scalarPath, pointRaw: pointRaw, scalarRaw: scalarRaw,
-		catalogPath: filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json")),
-		catalogRaw:  readClimateArtifact(t, app.root, filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json"))),
+		catalogPath:      filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json")),
+		catalogRaw:       readClimateArtifact(t, app.root, filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json"))),
+		rangeCatalogPath: rangeCatalogPath, previousRangeCatalogPath: previousRangeCatalogPath,
+		rangePointPath: rangePointPath, rangeScalarPath: rangeScalarPath,
+		rangeCatalogRaw: rangeCatalogRaw, rangePointRaw: rangePointRaw, rangeScalarRaw: rangeScalarRaw,
 	}
 }
 

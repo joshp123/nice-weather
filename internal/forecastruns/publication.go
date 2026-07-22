@@ -25,13 +25,14 @@ import (
 
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastpoints"
+	"nice-weather-finder/internal/forecastrange"
 )
 
 const (
 	PointerVersion = 1
-	IndexVersion   = 1
+	IndexVersion   = 2
 
-	ProductContract = "nice-weather-forecast-run-v1"
+	ProductContract = "nice-weather-forecast-run-v2"
 	SelectionMethod = "choose-one-complete-tier-before-colour"
 
 	IndexFilename = "index.json"
@@ -44,8 +45,9 @@ var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	datePattern       = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
-	loadInstalledTier = validateInstalledTier
-	publicationGate   = func() {}
+	loadInstalledTier  = validateInstalledTier
+	loadInstalledRange = forecastrange.ValidateInstalled
+	publicationGate    = func() {}
 )
 
 // IndexReference identifies one immutable, cacheable run index.
@@ -91,18 +93,35 @@ type TierSelection struct {
 	Blend    bool     `json:"blend"`
 }
 
+// RangeReference binds the one worldwide 14-day judgement to its immutable
+// catalogue. The catalogue, in turn, binds the exact ordered global daily
+// catalogues used to build it.
+type RangeReference struct {
+	Period             string  `json:"period"`
+	Provider           string  `json:"provider"`
+	Tier               string  `json:"tier"`
+	Product            string  `json:"product"`
+	RunUTC             string  `json:"runUtc"`
+	NativeResolutionKM float64 `json:"nativeResolutionKm"`
+	StaleAfterHours    int     `json:"staleAfterHours"`
+	CatalogPath        string  `json:"catalogPath"`
+	CatalogBytes       uint64  `json:"catalogBytes"`
+	CatalogSHA256      string  `json:"catalogSha256"`
+}
+
 // Index is one complete 14-day run. Every day has an IFS global baseline;
 // only the first five days may add an ICON-EU tier. Tiers are ordered in the
 // exact selection priority, so consumers choose one complete tier and then a
 // scalar field. There is no representation for blended fields.
 type Index struct {
-	Version         int           `json:"version"`
-	ProductContract string        `json:"productContract"`
-	IndexID         string        `json:"indexId"`
-	FirstDate       string        `json:"firstDate"`
-	LastDate        string        `json:"lastDate"`
-	TierSelection   TierSelection `json:"tierSelection"`
-	Days            []Day         `json:"days"`
+	Version         int            `json:"version"`
+	ProductContract string         `json:"productContract"`
+	IndexID         string         `json:"indexId"`
+	FirstDate       string         `json:"firstDate"`
+	LastDate        string         `json:"lastDate"`
+	TierSelection   TierSelection  `json:"tierSelection"`
+	Days            []Day          `json:"days"`
+	Range           RangeReference `json:"range"`
 }
 
 // Publish validates one already installed run, installs its immutable index,
@@ -352,7 +371,7 @@ func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 	if err != nil {
 		return Index{}, fmt.Errorf("read forecast run: %w", err)
 	}
-	seenDays := false
+	seenDays, seenRange := false, false
 	for _, entry := range entries {
 		switch entry.Name() {
 		case "forecast-days":
@@ -360,6 +379,11 @@ func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 				return Index{}, errors.New("forecast run forecast-days entry is unsafe")
 			}
 			seenDays = true
+		case "forecast-ranges":
+			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				return Index{}, errors.New("forecast run forecast-ranges entry is unsafe")
+			}
+			seenRange = true
 		case IndexFilename:
 			if !allowIndex || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 				return Index{}, errors.New("forecast run index entry is unexpected or unsafe")
@@ -372,8 +396,8 @@ func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 			return Index{}, fmt.Errorf("forecast run entry %q is unexpected or unsafe", entry.Name())
 		}
 	}
-	if !seenDays {
-		return Index{}, errors.New("forecast run has no forecast-days directory")
+	if !seenDays || !seenRange {
+		return Index{}, errors.New("forecast run requires forecast-days and forecast-ranges directories")
 	}
 	daysRoot := filepath.Join(runRoot, "forecast-days")
 	dateEntries, err := readRealDirectory(daysRoot)
@@ -437,10 +461,76 @@ func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 		day.Tiers = append(day.Tiers, baseline)
 		index.Days = append(index.Days, day)
 	}
+	rangeReference, err := buildRangeReference(forecastRoot, index)
+	if err != nil {
+		return Index{}, err
+	}
+	index.Range = rangeReference
 	if err := validateIndexShape(index); err != nil {
 		return Index{}, err
 	}
 	return index, nil
+}
+
+func buildRangeReference(forecastRoot string, index Index) (RangeReference, error) {
+	if err := validateRangeParents(forecastRoot, index.IndexID); err != nil {
+		return RangeReference{}, err
+	}
+	root := filepath.Join(forecastRoot, "runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal)
+	catalog, payload, err := loadInstalledRange(root)
+	if err != nil {
+		return RangeReference{}, fmt.Errorf("validate forecast range: %w", err)
+	}
+	if catalog.ReleaseID != index.IndexID || catalog.Period != forecastrange.Period ||
+		!slices.Equal(catalog.Dates, indexDates(index)) || !slices.Equal(catalog.Inputs, rangeInputs(index)) {
+		return RangeReference{}, errors.New("forecast range does not match the indexed global daily catalogues")
+	}
+	digest := sha256.Sum256(payload)
+	return RangeReference{
+		Period: forecastrange.Period, Provider: catalog.Source.Provider, Tier: catalog.Source.Tier,
+		Product: catalog.Source.Product, RunUTC: catalog.Source.RunUTC,
+		NativeResolutionKM: catalog.Source.NativeResolutionKM, StaleAfterHours: catalog.Source.StaleAfterHours,
+		CatalogPath:  filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename)),
+		CatalogBytes: uint64(len(payload)), CatalogSHA256: hex.EncodeToString(digest[:]),
+	}, nil
+}
+
+func validateRangeParents(forecastRoot, indexID string) error {
+	rangeRoot := filepath.Join(forecastRoot, "runs", indexID, "forecast-ranges")
+	entries, err := readRealDirectory(rangeRoot)
+	if err != nil {
+		return err
+	}
+	if err := exactEntries(entries, map[string]bool{forecastrange.Period: true}, "forecast range root"); err != nil {
+		return err
+	}
+	periodRoot := filepath.Join(rangeRoot, forecastrange.Period)
+	entries, err = readRealDirectory(periodRoot)
+	if err != nil {
+		return err
+	}
+	return exactEntries(entries, map[string]bool{forecastpoints.TierGlobal: true}, "forecast range period")
+}
+
+func indexDates(index Index) []string {
+	dates := make([]string, len(index.Days))
+	for day := range index.Days {
+		dates[day] = index.Days[day].Date
+	}
+	return dates
+}
+
+func rangeInputs(index Index) []forecastrange.InputCatalog {
+	inputs := make([]forecastrange.InputCatalog, len(index.Days))
+	prefix := filepath.ToSlash(filepath.Join("runs", index.IndexID)) + "/"
+	for day, entry := range index.Days {
+		global := entry.Tiers[len(entry.Tiers)-1]
+		inputs[day] = forecastrange.InputCatalog{
+			Date: entry.Date, Path: strings.TrimPrefix(global.CatalogPath, prefix),
+			Bytes: global.CatalogBytes, SHA256: global.CatalogSHA256,
+		}
+	}
+	return inputs
 }
 
 func tierReference(forecastRoot, indexID, date, tier string) (TierReference, error) {
@@ -596,6 +686,24 @@ func validateIndexShape(index Index) error {
 				return errors.New("forecast Europe refinement mixes ICON-EU runs")
 			}
 		}
+	}
+	if err := validateRangeReference(index); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateRangeReference(index Index) error {
+	wantPath := filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename))
+	run, err := time.Parse(time.RFC3339, index.Range.RunUTC)
+	baseline := index.Days[0].Tiers[len(index.Days[0].Tiers)-1]
+	if index.Range.Period != forecastrange.Period || index.Range.Provider != forecastpoints.ProviderIFS ||
+		index.Range.Tier != forecastpoints.TierGlobal || index.Range.Product != forecastcatalog.ProductIFSControl ||
+		index.Range.RunUTC != baseline.RunUTC || err != nil || run.Location() != time.UTC || run.Nanosecond() != 0 ||
+		index.Range.NativeResolutionKM != 28 || index.Range.StaleAfterHours != forecastrange.StaleAfterHours ||
+		index.Range.CatalogPath != wantPath || index.Range.CatalogBytes == 0 || index.Range.CatalogBytes > forecastrange.MaximumCatalogBytes ||
+		!validSHA256(index.Range.CatalogSHA256) {
+		return errors.New("forecast run range reference is invalid")
 	}
 	return nil
 }
@@ -986,7 +1094,7 @@ func syncDirectory(path string) error {
 func sameIndex(left, right Index) bool {
 	return left.Version == right.Version && left.ProductContract == right.ProductContract && left.IndexID == right.IndexID &&
 		left.FirstDate == right.FirstDate && left.LastDate == right.LastDate && left.TierSelection.Method == right.TierSelection.Method &&
-		left.TierSelection.Blend == right.TierSelection.Blend && slices.Equal(left.TierSelection.Priority, right.TierSelection.Priority) && slices.EqualFunc(left.Days, right.Days, func(a, b Day) bool {
+		left.TierSelection.Blend == right.TierSelection.Blend && slices.Equal(left.TierSelection.Priority, right.TierSelection.Priority) && left.Range == right.Range && slices.EqualFunc(left.Days, right.Days, func(a, b Day) bool {
 		return a.Date == b.Date && slices.Equal(a.Tiers, b.Tiers)
 	})
 }

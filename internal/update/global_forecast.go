@@ -2,6 +2,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -14,7 +16,9 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastassembly"
+	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastpoints"
+	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
@@ -70,17 +74,19 @@ type ForecastProductionSummary struct {
 }
 
 type forecastProductionDependencies struct {
-	discoverIFS func(context.Context) (ifs.Run, error)
-	discoverDWD func(context.Context, time.Time) (dwd.Run, error)
-	stageIFS    func(context.Context, ifs.Run, []int, string) ([]stagedFrame, error)
-	stageDWD    func(context.Context, dwd.Run, []int, string) ([]stagedFrame, error)
-	newDecoder  func(delivery.GridBounds) (*pipeline.Decoder, error)
-	land        func(context.Context, *pipeline.Decoder, string, string, uint8) (forecasttiles.TouchesLand, error)
-	locate      func() (forecasttiles.LocateTimezone, error)
-	prepare     func(context.Context, *pipeline.Decoder, []stagedFrame, string, string, string) (pipeline.PreparedSeries, func() error, error)
-	build       func(context.Context, forecastassembly.Config) (forecastassembly.Product, error)
-	publish     func(context.Context, string, string) (forecastruns.Pointer, error)
-	freeBytes   func(string) (int64, uint64, error)
+	discoverIFS    func(context.Context) (ifs.Run, error)
+	discoverDWD    func(context.Context, time.Time) (dwd.Run, error)
+	stageIFS       func(context.Context, ifs.Run, []int, string) ([]stagedFrame, error)
+	stageDWD       func(context.Context, dwd.Run, []int, string) ([]stagedFrame, error)
+	newDecoder     func(delivery.GridBounds) (*pipeline.Decoder, error)
+	land           func(context.Context, *pipeline.Decoder, string, string, uint8) (forecasttiles.TouchesLand, error)
+	locate         func() (forecasttiles.LocateTimezone, error)
+	prepare        func(context.Context, *pipeline.Decoder, []stagedFrame, string, string, string) (pipeline.PreparedSeries, func() error, error)
+	build          func(context.Context, forecastassembly.Config) (forecastassembly.Product, error)
+	buildRange     func(context.Context, forecastrange.Config) (forecastrange.Product, error)
+	cleanCandidate func(string) error
+	publish        func(context.Context, string, string) (forecastruns.Pointer, error)
+	freeBytes      func(string) (int64, uint64, error)
 }
 
 // RunForecastProduction stages each provider once, builds exact day/tier
@@ -119,9 +125,16 @@ func RunForecastProduction(ctx context.Context, config ForecastProductionConfig)
 			authority := NewLandAuthority(cache, httpClient, decoder.Runner)
 			return globalCanaryWebMercatorLandPredicate(ctx, authority, scratch, zoom)
 		},
-		locate:  globalTimezoneLocator,
-		prepare: prepareStagedDay,
-		build:   forecastassembly.BuildDay,
+		locate:     globalTimezoneLocator,
+		prepare:    prepareStagedDay,
+		build:      forecastassembly.BuildDay,
+		buildRange: forecastrange.Build,
+		cleanCandidate: func(root string) error {
+			if err := forecastassembly.CleanAbandonedTransactions(root); err != nil {
+				return err
+			}
+			return forecastrange.CleanAbandonedTransactions(root)
+		},
 		publish: forecastruns.Publish,
 		freeBytes: func(path string) (int64, uint64, error) {
 			var filesystem syscall.Statfs_t
@@ -146,7 +159,7 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	started := time.Now()
 	if dependencies.discoverIFS == nil || dependencies.discoverDWD == nil || dependencies.stageIFS == nil || dependencies.stageDWD == nil ||
 		dependencies.newDecoder == nil || dependencies.land == nil || dependencies.locate == nil || dependencies.prepare == nil ||
-		dependencies.build == nil || dependencies.publish == nil || dependencies.freeBytes == nil {
+		dependencies.build == nil || dependencies.buildRange == nil || dependencies.cleanCandidate == nil || dependencies.publish == nil || dependencies.freeBytes == nil {
 		return summary, errors.New("forecast production dependencies are incomplete")
 	}
 	artifactRoot, stagingRoot, cacheRoot, err := prepareForecastProductionRoots(config)
@@ -227,7 +240,7 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	if exists, err := realDirectoryExists(finalRoot); err != nil {
 		return summary, err
 	} else if exists {
-		summary.ReusedProducts = summary.GlobalDays + summary.EuropeDays
+		summary.ReusedProducts = summary.GlobalDays + summary.EuropeDays + 1
 		publishStarted := time.Now()
 		summary.Pointer, err = dependencies.publish(ctx, artifactRoot, summary.IndexID)
 		summary.PublishElapsed = time.Since(publishStarted)
@@ -241,6 +254,9 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	}
 	if err := ensureRealDirectory(buildingRoot); err != nil {
 		return summary, err
+	}
+	if err := dependencies.cleanCandidate(buildingRoot); err != nil {
+		return summary, fmt.Errorf("clean private forecast candidate before retry: %w", err)
 	}
 	defer func() {
 		if resultErr == nil {
@@ -342,6 +358,27 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 			}
 		}
 	}
+	rangeInputs, err := forecastProductionRangeInputs(buildingRoot, days)
+	if err != nil {
+		return summary, err
+	}
+	rangeRoot := filepath.Join(buildingRoot, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal)
+	rangeReused, err := realDirectoryExists(rangeRoot)
+	if err != nil {
+		return summary, err
+	}
+	rangeStarted := time.Now()
+	rangeProduct, err := dependencies.buildRange(ctx, forecastrange.Config{Root: buildingRoot, ReleaseID: summary.IndexID, Inputs: rangeInputs})
+	if err != nil {
+		return summary, fmt.Errorf("build worldwide 14-day forecast range: %w", err)
+	}
+	if rangeReused {
+		summary.ReusedProducts++
+	} else {
+		summary.BuiltProducts++
+	}
+	summary.BuildElapsed += time.Since(rangeStarted)
+	fmt.Printf("forecast range %s/global: %d files/%d bytes in %s\n", forecastrange.Period, rangeProduct.Stats.OutputFiles, rangeProduct.Stats.OutputBytes, time.Since(rangeStarted).Round(time.Millisecond))
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}
@@ -365,6 +402,35 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	}
 	summary.Elapsed = time.Since(started)
 	return summary, nil
+}
+
+func forecastProductionRangeInputs(root string, days []dayPlan) ([]forecastrange.InputCatalog, error) {
+	if len(days) != productDays {
+		return nil, errors.New("forecast range requires the exact 14-day production plan")
+	}
+	inputs := make([]forecastrange.InputCatalog, len(days))
+	for index, day := range days {
+		date := day.Date.Format(time.DateOnly)
+		relative := filepath.ToSlash(filepath.Join("forecast-days", date, forecastpoints.TierGlobal, "catalog.json"))
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, fmt.Errorf("inspect forecast range input %s: %w", date, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > forecastcatalog.MaximumCatalogBytes {
+			return nil, fmt.Errorf("forecast range input %s is not a bounded regular catalogue", date)
+		}
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read forecast range input %s safely: %w", date, err)
+		}
+		if len(payload) == 0 || len(payload) > forecastcatalog.MaximumCatalogBytes || int64(len(payload)) != info.Size() {
+			return nil, fmt.Errorf("forecast range input %s changed while reading", date)
+		}
+		digest := sha256.Sum256(payload)
+		inputs[index] = forecastrange.InputCatalog{Date: date, Path: relative, Bytes: uint64(len(payload)), SHA256: hex.EncodeToString(digest[:])}
+	}
+	return inputs, nil
 }
 
 func buildForecastProductionTier(

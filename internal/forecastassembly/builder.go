@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -23,14 +24,18 @@ import (
 )
 
 const (
-	CatalogName      = "catalog.json"
-	sealedRunIndex   = "index.json"
-	runLockExtension = ".install.lock"
+	CatalogName           = "catalog.json"
+	sealedRunIndex        = "index.json"
+	runLockExtension      = ".install.lock"
+	transactionPrefix     = ".forecast-product-"
+	transactionMarker     = ".nice-weather-product-transaction-v1"
+	transactionMarkerBody = "nice-weather-finder forecast product transaction v1\n"
 )
 
 var (
 	syncForecastDirectory     = syncDirectory
 	validateForecastInstalled = validateInstalled
+	removeTransaction         = os.RemoveAll
 )
 
 // Config identifies one already prepared provider run and one local day.
@@ -96,6 +101,9 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 	if err := rejectSealedRun(config.Root); err != nil {
 		return Product{}, err
 	}
+	if err := cleanAbandonedTransactionsLocked(config.Root); err != nil {
+		return Product{}, err
+	}
 	period := config.Date.Format("2006-01-02")
 	final := filepath.Join(config.Root, "forecast-days", period, config.Tier)
 	if _, err := os.Lstat(final); err == nil {
@@ -103,14 +111,17 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Product{}, err
 	}
-	transaction, err := os.MkdirTemp(config.Root, ".forecast-product-")
+	transaction, err := os.MkdirTemp(config.Root, transactionPrefix)
 	if err != nil {
 		return Product{}, err
+	}
+	if err := markTransaction(transaction); err != nil {
+		return Product{}, errors.Join(err, removeTransaction(transaction))
 	}
 	installed := false
 	defer func() {
 		if !installed {
-			resultErr = errors.Join(resultErr, os.RemoveAll(transaction))
+			resultErr = errors.Join(resultErr, removeTransaction(transaction))
 		}
 	}()
 
@@ -183,7 +194,9 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 			return Product{}, errors.Join(err, validateErr)
 		}
 	}
-	_ = os.RemoveAll(transaction)
+	if err := removeTransaction(transaction); err != nil {
+		return Product{}, fmt.Errorf("clean installed forecast product transaction: %w", err)
+	}
 
 	stats := assembleStats(config.Series, catalog, scalarCatalog, pointStats, uint64(len(encoded)), parityRecords)
 	return Product{Root: final, Catalog: catalog, Stats: stats}, nil
@@ -213,6 +226,80 @@ func releaseRunInstallLock(lock *os.File) {
 	}
 	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	_ = lock.Close()
+}
+
+func markTransaction(root string) error {
+	if err := os.WriteFile(filepath.Join(root, transactionMarker), []byte(transactionMarkerBody), 0o600); err != nil {
+		return fmt.Errorf("mark forecast product transaction: %w", err)
+	}
+	return nil
+}
+
+// CleanAbandonedTransactions removes only marked, current-user day-product
+// transactions while holding the shared run lock. An unowned matching entry
+// is preserved and rejected because it would poison exact-tree publication.
+func CleanAbandonedTransactions(root string) error {
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("forecast run root must be a real directory")
+	}
+	lock, err := acquireRunInstallLock(root)
+	if err != nil {
+		return err
+	}
+	defer releaseRunInstallLock(lock)
+	if err := rejectSealedRun(root); err != nil {
+		return err
+	}
+	return cleanAbandonedTransactionsLocked(root)
+}
+
+func cleanAbandonedTransactionsLocked(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), transactionPrefix) {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		owned, err := ownedTransaction(path)
+		if err != nil {
+			return fmt.Errorf("inspect abandoned forecast product transaction %q: %w", entry.Name(), err)
+		}
+		if !owned {
+			return fmt.Errorf("refuse unowned forecast product transaction %q", entry.Name())
+		}
+		if err := removeTransaction(path); err != nil {
+			return fmt.Errorf("clean abandoned forecast product transaction %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func ownedTransaction(root string) (bool, error) {
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) {
+		return false, nil
+	}
+	marker := filepath.Join(root, transactionMarker)
+	markerInfo, err := os.Lstat(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !markerInfo.Mode().IsRegular() || markerInfo.Mode()&os.ModeSymlink != 0 || markerInfo.Size() != int64(len(transactionMarkerBody)) {
+		return false, err
+	}
+	payload, err := os.ReadFile(marker)
+	return err == nil && string(payload) == transactionMarkerBody, err
 }
 
 func rejectSealedRun(root string) error {

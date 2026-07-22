@@ -13,6 +13,7 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastassembly"
 	"nice-weather-finder/internal/forecastpoints"
+	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
@@ -27,7 +28,7 @@ func TestForecastProductionPublishesWholeCandidatePointerLastAndIsIdempotent(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.GlobalDays != productDays || summary.EuropeDays != 4 || summary.BuiltProducts != 18 || summary.ReusedProducts != 0 {
+	if summary.GlobalDays != productDays || summary.EuropeDays != 4 || summary.BuiltProducts != 19 || summary.ReusedProducts != 0 {
 		t.Fatalf("forecast production summary = %+v", summary)
 	}
 	if fixture.ifsStageCalls != 1 || fixture.iconStageCalls != 1 || fixture.publishCalls != 1 {
@@ -59,7 +60,7 @@ func TestForecastProductionPublishesWholeCandidatePointerLastAndIsIdempotent(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.IndexID != summary.IndexID || again.BuiltProducts != 0 || again.ReusedProducts != 18 || fixture.ifsStageCalls+fixture.iconStageCalls != stageCalls || fixture.publishCalls != 2 {
+	if again.IndexID != summary.IndexID || again.BuiltProducts != 0 || again.ReusedProducts != 19 || fixture.ifsStageCalls+fixture.iconStageCalls != stageCalls || fixture.publishCalls != 2 {
 		t.Fatalf("idempotent run = %+v; stage calls=%d publish calls=%d", again, fixture.ifsStageCalls+fixture.iconStageCalls, fixture.publishCalls)
 	}
 }
@@ -118,6 +119,64 @@ func TestForecastProductionFailsClosedWhenICONDiscoveryOrRequiredStagingFails(t 
 	})
 }
 
+func TestForecastProductionFailsClosedBeforeInstallWhenRangeBuildFails(t *testing.T) {
+	fixture := newForecastProductionFixture(t)
+	dependencies := fixture.dependencies()
+	dependencies.buildRange = func(context.Context, forecastrange.Config) (forecastrange.Product, error) {
+		return forecastrange.Product{}, errors.New("range inputs disagree")
+	}
+	summary, err := runForecastProduction(context.Background(), fixture.config, fixture.now, dependencies)
+	if err == nil || !strings.Contains(err.Error(), "build worldwide 14-day forecast range") || !strings.Contains(err.Error(), "private candidate retained for retry") {
+		t.Fatalf("range failure = %v", err)
+	}
+	if summary.BuiltProducts != summary.GlobalDays+summary.EuropeDays || fixture.publishCalls != 0 {
+		t.Fatalf("range failure summary = %+v, publish calls=%d", summary, fixture.publishCalls)
+	}
+	assertNoForecastPointer(t, fixture.config.ArtifactRoot)
+	if _, statErr := os.Stat(filepath.Join(fixture.config.ArtifactRoot, "forecast", "runs", summary.IndexID)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed range installed a public candidate: %v", statErr)
+	}
+}
+
+func TestForecastProductionRefusesUnsafePrivateCandidateBeforeStaging(t *testing.T) {
+	fixture := newForecastProductionFixture(t)
+	dependencies := fixture.dependencies()
+	dependencies.cleanCandidate = func(string) error { return errors.New("refuse unowned forecast range transaction") }
+	_, err := runForecastProduction(context.Background(), fixture.config, fixture.now, dependencies)
+	if err == nil || !strings.Contains(err.Error(), "clean private forecast candidate before retry") {
+		t.Fatalf("private candidate cleanup error = %v", err)
+	}
+	if fixture.ifsStageCalls != 0 || fixture.iconStageCalls != 0 || fixture.publishCalls != 0 {
+		t.Fatalf("unsafe private candidate crossed staging/publication: %+v", fixture)
+	}
+	assertNoForecastPointer(t, fixture.config.ArtifactRoot)
+}
+
+func TestForecastProductionCleansPrivateCandidateBeforeResume(t *testing.T) {
+	fixture := newForecastProductionFixture(t)
+	first, last := fixture.now.AddDate(0, 0, 1), fixture.now.AddDate(0, 0, productDays)
+	indexID := forecastProductionID(fixture.ifsRun.Time, fixture.iconRun.StartedAt, 4, first, last)
+	candidate := filepath.Join(fixture.config.ArtifactRoot, "forecast", ".candidate-"+indexID)
+	debris := filepath.Join(candidate, ".forecast-range-interrupted")
+	if err := os.MkdirAll(debris, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dependencies := fixture.dependencies()
+	dependencies.cleanCandidate = func(root string) error {
+		if root != candidate {
+			return fmt.Errorf("cleaned candidate %s; want %s", root, candidate)
+		}
+		return os.RemoveAll(debris)
+	}
+	summary, err := runForecastProduction(context.Background(), fixture.config, fixture.now, dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.IndexID != indexID {
+		t.Fatalf("resumed index = %s; want %s", summary.IndexID, indexID)
+	}
+}
+
 func TestForecastProductionCancellationRetainsOnlyPrivateCompletedProductsAndResumes(t *testing.T) {
 	fixture := newForecastProductionFixture(t)
 	dependencies := fixture.dependencies()
@@ -147,7 +206,7 @@ func TestForecastProductionCancellationRetainsOnlyPrivateCompletedProductsAndRes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.ReusedProducts != 2 || resumed.BuiltProducts != 16 || fixture.publishCalls != 1 {
+	if resumed.ReusedProducts != 2 || resumed.BuiltProducts != 17 || fixture.publishCalls != 1 {
 		t.Fatalf("resumed summary = %+v, publish calls=%d", resumed, fixture.publishCalls)
 	}
 	assertNoForecastSourceScratch(t, fixture.config.StagingRoot)
@@ -379,14 +438,56 @@ func (fixture *forecastProductionFixture) dependencies() forecastProductionDepen
 			fixture.events = append(fixture.events, "build-"+config.Date.Format(time.DateOnly)+"-"+config.Tier)
 			return forecastassembly.Product{Root: root, Stats: forecastassembly.Stats{OutputFiles: 1, OutputBytes: 5}}, nil
 		},
+		buildRange: func(_ context.Context, config forecastrange.Config) (forecastrange.Product, error) {
+			if len(config.Inputs) != productDays {
+				return forecastrange.Product{}, errors.New("range build did not receive all global days")
+			}
+			for _, input := range config.Inputs {
+				if !strings.HasSuffix(input.Path, "/"+forecastpoints.TierGlobal+"/catalog.json") || strings.Contains(input.Path, forecastpoints.TierEurope) {
+					return forecastrange.Product{}, fmt.Errorf("range input used a non-global tier: %s", input.Path)
+				}
+			}
+			root := filepath.Join(config.Root, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal)
+			if exists, err := realDirectoryExists(root); err != nil {
+				return forecastrange.Product{}, err
+			} else if exists {
+				return forecastrange.Product{Root: root, Stats: forecastrange.Stats{OutputFiles: 1, OutputBytes: 6}}, nil
+			}
+			for _, input := range config.Inputs {
+				if _, err := os.Stat(filepath.Join(config.Root, filepath.FromSlash(input.Path))); err != nil {
+					return forecastrange.Product{}, fmt.Errorf("range input %s is missing: %w", input.Date, err)
+				}
+			}
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				return forecastrange.Product{}, err
+			}
+			if err := os.WriteFile(filepath.Join(root, forecastrange.CatalogFilename), []byte("range\n"), 0o644); err != nil {
+				return forecastrange.Product{}, err
+			}
+			fixture.events = append(fixture.events, "build-range")
+			return forecastrange.Product{Root: root, Stats: forecastrange.Stats{OutputFiles: 1, OutputBytes: 6}}, nil
+		},
+		cleanCandidate: func(string) error { return nil },
 		publish: func(_ context.Context, artifactRoot, indexID string) (forecastruns.Pointer, error) {
 			fixture.publishCalls++
 			candidate := filepath.Join(artifactRoot, "forecast", "runs", indexID)
+			entries, err := os.ReadDir(candidate)
+			if err != nil {
+				return forecastruns.Pointer{}, err
+			}
+			for _, entry := range entries {
+				if entry.Name() != "forecast-days" && entry.Name() != "forecast-ranges" && entry.Name() != ".install.lock" {
+					return forecastruns.Pointer{}, fmt.Errorf("publish saw unexpected candidate entry %s", entry.Name())
+				}
+			}
 			for day := 0; day < productDays; day++ {
 				date := fixture.now.AddDate(0, 0, 1+day).Format(time.DateOnly)
 				if _, err := os.Stat(filepath.Join(candidate, "forecast-days", date, forecastpoints.TierGlobal)); err != nil {
 					return forecastruns.Pointer{}, fmt.Errorf("publish saw incomplete global day %s: %w", date, err)
 				}
+			}
+			if _, err := os.Stat(filepath.Join(candidate, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename)); err != nil {
+				return forecastruns.Pointer{}, fmt.Errorf("publish saw incomplete forecast range: %w", err)
 			}
 			if _, err := os.Stat(filepath.Join(artifactRoot, "forecast", ".candidate-"+indexID)); !errors.Is(err, os.ErrNotExist) {
 				return forecastruns.Pointer{}, errors.New("publish ran before atomic candidate install")

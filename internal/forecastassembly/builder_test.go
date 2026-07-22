@@ -26,6 +26,16 @@ import (
 func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testing.T) {
 	config, closeFrames := exactIFSConfig(t)
 	defer closeFrames()
+	abandoned, err := os.MkdirTemp(config.Root, transactionPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := markTransaction(abandoned); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(abandoned, "partial"), []byte("interrupted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	originalSync := syncForecastDirectory
 	defer func() { syncForecastDirectory = originalSync }()
 	syncForecastDirectory = func(path string) error {
@@ -62,6 +72,9 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 	<-memoryDone
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Lstat(abandoned); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned forecast product transaction remains after retry: %v", err)
 	}
 	if product.Root != filepath.Join(config.Root, "forecast-days", "2026-07-20", forecastpoints.TierGlobal) {
 		t.Fatalf("product root = %q", product.Root)
@@ -170,6 +183,61 @@ func TestBuildCancellationAndExistingProductLeaveNoTransaction(t *testing.T) {
 	}
 	if _, err := BuildDay(context.Background(), config); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("existing immutable product error = %v", err)
+	}
+}
+
+func TestBuildRefusesUnownedMatchingTransactionsWithoutDeletingThem(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		seed func(*testing.T, string) string
+	}{
+		{name: "wrong marker", seed: func(t *testing.T, root string) string {
+			path := filepath.Join(root, transactionPrefix+"foreign")
+			if err := os.Mkdir(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(path, transactionMarker), []byte("wrong\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}},
+		{name: "symlink", seed: func(t *testing.T, root string) string {
+			path := filepath.Join(root, transactionPrefix+"link")
+			if err := os.Symlink(t.TempDir(), path); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config, closeFrames := exactIFSConfig(t)
+			defer closeFrames()
+			transaction := test.seed(t, config.Root)
+			if _, err := BuildDay(context.Background(), config); err == nil || !strings.Contains(err.Error(), "refuse unowned") {
+				t.Fatalf("unowned transaction error = %v", err)
+			}
+			if _, err := os.Lstat(transaction); err != nil {
+				t.Fatalf("unowned transaction was deleted: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(config.Root, "forecast-days")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unowned transaction did not fail before output: %v", err)
+			}
+		})
+	}
+}
+
+func TestBuildReportsSuccessfulInstallTransactionCleanupFailure(t *testing.T) {
+	config, closeFrames := exactIFSConfig(t)
+	defer closeFrames()
+	original := removeTransaction
+	removeTransaction = func(string) error { return errors.New("injected cleanup failure") }
+	t.Cleanup(func() { removeTransaction = original })
+	_, err := BuildDay(context.Background(), config)
+	if err == nil || !strings.Contains(err.Error(), "clean installed forecast product transaction") {
+		t.Fatalf("successful install cleanup error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(config.Root, "forecast-days", config.Date.Format(time.DateOnly), config.Tier, CatalogName)); err != nil {
+		t.Fatalf("completed immutable day product was lost after cleanup failure: %v", err)
 	}
 }
 

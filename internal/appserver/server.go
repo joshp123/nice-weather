@@ -22,6 +22,7 @@ import (
 	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
+	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/tiledelivery"
 )
@@ -76,8 +77,9 @@ const (
 var errForecastPublicationChanged = errors.New("forecast publication changed while loading")
 
 var (
-	loadForecastMetadata = forecastruns.LoadCurrentMetadata
-	parseForecastCatalog = forecastcatalog.Parse
+	loadForecastMetadata      = forecastruns.LoadCurrentMetadata
+	parseForecastCatalog      = forecastcatalog.Parse
+	parseForecastRangeCatalog = forecastrange.Parse
 )
 
 type apiError struct {
@@ -531,7 +533,65 @@ func (app *application) addForecastRun(snapshot *forecastSnapshot, reference for
 			}
 		}
 	}
+	return app.addForecastRange(snapshot, index)
+}
+
+func (app *application) addForecastRange(snapshot *forecastSnapshot, index forecastruns.Index) error {
+	reference := index.Range
+	catalogPath := "forecast/" + reference.CatalogPath
+	catalogRaw, err := app.readBoundedArtifact(catalogPath, forecastrange.MaximumCatalogBytes)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(catalogRaw)
+	if uint64(len(catalogRaw)) != reference.CatalogBytes || hex.EncodeToString(digest[:]) != reference.CatalogSHA256 {
+		return errors.New("forecast range catalogue does not match the run index")
+	}
+	catalog, err := parseForecastRangeCatalog(catalogRaw)
+	if err != nil || !rangeCatalogMatchesIndex(catalog, index) {
+		return errors.New("forecast range catalogue identity is invalid")
+	}
+	if err := addForecastAsset(snapshot.assets, catalogPath, forecastAsset{bytes: uint64(len(catalogRaw)), sha256: reference.CatalogSHA256, mediaType: "application/json"}); err != nil {
+		return err
+	}
+	rangeRoot := filepath.ToSlash(filepath.Dir(catalogPath))
+	for _, block := range catalog.PointBlocks {
+		if !block.Omitted {
+			if err := addCatalogForecastAsset(snapshot.assets, rangeRoot, block.Path, block.Bytes, block.SHA256, catalog.PointBlockLayout.MediaType); err != nil {
+				return err
+			}
+		}
+	}
+	for _, scalar := range catalog.ScalarTiles {
+		if err := addCatalogForecastAsset(snapshot.assets, rangeRoot, scalar.Path, scalar.Bytes, scalar.SHA256, catalog.Scores.MediaType); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func rangeCatalogMatchesIndex(catalog forecastrange.Catalog, index forecastruns.Index) bool {
+	reference := index.Range
+	if catalog.ReleaseID != index.IndexID || catalog.Period != reference.Period ||
+		catalog.Source.Provider != reference.Provider || catalog.Source.Tier != reference.Tier ||
+		catalog.Source.Product != reference.Product || catalog.Source.RunUTC != reference.RunUTC ||
+		catalog.Source.NativeResolutionKM != reference.NativeResolutionKM || catalog.Source.StaleAfterHours != reference.StaleAfterHours ||
+		len(catalog.Dates) != len(index.Days) || len(catalog.Inputs) != len(index.Days) {
+		return false
+	}
+	prefix := filepath.ToSlash(filepath.Join("runs", index.IndexID)) + "/"
+	for day, entry := range index.Days {
+		if len(entry.Tiers) == 0 {
+			return false
+		}
+		global := entry.Tiers[len(entry.Tiers)-1]
+		input := catalog.Inputs[day]
+		if catalog.Dates[day] != entry.Date || input.Date != entry.Date || input.Path != strings.TrimPrefix(global.CatalogPath, prefix) ||
+			input.Bytes != global.CatalogBytes || input.SHA256 != global.CatalogSHA256 {
+			return false
+		}
+	}
+	return true
 }
 
 func addCatalogForecastAsset(assets map[string]forecastAsset, root, relative string, size uint64, checksum, mediaType string) error {

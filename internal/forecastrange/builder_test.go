@@ -31,9 +31,22 @@ const (
 
 func TestBuildExactWorldRangeProductPreservesStoredFingerprintsAndScalarParity(t *testing.T) {
 	runRoot, inputs, displays := rangeFixture(t, -1)
+	abandoned, err := os.MkdirTemp(runRoot, transactionPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := markTransaction(abandoned); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(abandoned, "partial"), []byte("interrupted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	product, err := Build(context.Background(), Config{Root: runRoot, ReleaseID: "range-run", Inputs: inputs})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Lstat(abandoned); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned range transaction remains after retry: %v", err)
 	}
 	if product.Root != filepath.Join(runRoot, productDirectory, Period, forecastpoints.TierGlobal) || len(product.Catalog.PointBlocks) != 32*32 || len(product.Catalog.ScalarCoverage) != 8*8 {
 		t.Fatalf("range product shape = root %q blocks %d coverage %d", product.Root, len(product.Catalog.PointBlocks), len(product.Catalog.ScalarCoverage))
@@ -196,6 +209,53 @@ func TestBuildFailureBeforeCatalogueLeavesNoProductOrPartialTree(t *testing.T) {
 		if strings.HasPrefix(entry.Name(), ".forecast-range-") {
 			t.Fatalf("failed build left transaction %q", entry.Name())
 		}
+	}
+}
+
+func TestBuildRefusesUnownedMatchingTransactionsWithoutDeletingThem(t *testing.T) {
+	t.Run("wrong marker", func(t *testing.T) {
+		runRoot, inputs, _ := rangeFixture(t, -1)
+		transaction := filepath.Join(runRoot, transactionPrefix+"foreign")
+		if err := os.Mkdir(transaction, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(transaction, transactionMarker), []byte("wrong\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Build(context.Background(), Config{Root: runRoot, ReleaseID: "range-run", Inputs: inputs}); err == nil || !strings.Contains(err.Error(), "refuse unowned") {
+			t.Fatalf("unowned transaction error = %v", err)
+		}
+		if _, err := os.Lstat(transaction); err != nil {
+			t.Fatalf("unowned transaction was deleted: %v", err)
+		}
+	})
+	t.Run("symlink", func(t *testing.T) {
+		runRoot, inputs, _ := rangeFixture(t, -1)
+		outside := t.TempDir()
+		transaction := filepath.Join(runRoot, transactionPrefix+"link")
+		if err := os.Symlink(outside, transaction); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Build(context.Background(), Config{Root: runRoot, ReleaseID: "range-run", Inputs: inputs}); err == nil || !strings.Contains(err.Error(), "refuse unowned") {
+			t.Fatalf("symlink transaction error = %v", err)
+		}
+		if _, err := os.Lstat(transaction); err != nil {
+			t.Fatalf("transaction symlink was deleted: %v", err)
+		}
+	})
+}
+
+func TestBuildReportsSuccessfulInstallTransactionCleanupFailure(t *testing.T) {
+	runRoot, inputs, _ := rangeFixture(t, -1)
+	original := removeTransaction
+	removeTransaction = func(string) error { return errors.New("injected cleanup failure") }
+	t.Cleanup(func() { removeTransaction = original })
+	_, err := Build(context.Background(), Config{Root: runRoot, ReleaseID: "range-run", Inputs: inputs})
+	if err == nil || !strings.Contains(err.Error(), "clean installed forecast range transaction") {
+		t.Fatalf("successful install cleanup error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(runRoot, productDirectory, Period, forecastpoints.TierGlobal, CatalogFilename)); err != nil {
+		t.Fatalf("completed immutable range was lost after cleanup failure: %v", err)
 	}
 }
 
