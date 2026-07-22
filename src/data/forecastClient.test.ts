@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   WorldwideForecastClient,
+  dailySummary,
   forecastTierForPoint,
   type DailyForecastCatalog,
   type DayForecastProduct,
@@ -19,6 +20,15 @@ const land = {
 };
 
 describe('WorldwideForecastClient', () => {
+  it('uses the displayed Bright category in daily headline copy', () => {
+    // The native summary says "bright", but the displayed Bright score is 51/Mixed.
+    expect(dailySummary(12.4, 8, { value: 51, category: 'Mixed' })).toBe('12°C · dry · mixed cloud · light wind');
+
+    expect(dailySummary(25, 0, { value: 60, category: 'Good' })).toBe('25°C · dry · bright · light wind');
+    expect(dailySummary(25, 12, { value: 35, category: 'Poor' })).toBe('25°C · dry · overcast · light wind');
+    expect(dailySummary(25, 8)).toBe('25°C · dry · light wind');
+  });
+
   it('calls the default browser fetch with the global receiver', async () => {
     const fixture = await snapshotFixture();
     const browserFetch = vi.fn(async function (this: typeof globalThis, input: RequestInfo | URL): Promise<Response> {
