@@ -292,7 +292,7 @@ func TestCheckpointLoaderCacheRetainsOnlyOneMonthAndFixedBlockCount(t *testing.T
 func publishFixture(t *testing.T, releaseID string, checkpoint climatebuild.Checkpoint) (climatetiles.Catalog, string) {
 	t.Helper()
 	artifacts := t.TempDir()
-	_, err := climatetiles.BuildAndPublish(context.Background(), artifacts, releaseID, func(ctx context.Context, stage climatetiles.Stage) (climatetiles.Catalog, error) {
+	reference, err := climatetiles.BuildAndInstallMonth(context.Background(), artifacts, releaseID, func(ctx context.Context, stage climatetiles.Stage) (climatetiles.Catalog, error) {
 		return BuildMonth(ctx, Config{
 			Stage: stage, Period: "month-01", Month: time.January,
 			Checkpoints: []climatebuild.CheckpointIdentity{checkpoint.Identity},
@@ -304,9 +304,12 @@ func publishFixture(t *testing.T, releaseID string, checkpoint climatebuild.Chec
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, catalog, err := climatetiles.ValidateCurrent(artifacts)
+	installed, catalog, found, err := climatetiles.ValidateInstalledMonth(artifacts, releaseID, "month-01")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !found || installed != reference {
+		t.Fatalf("installed month = %+v, %t; want %+v", installed, found, reference)
 	}
 	return catalog, filepath.Join(artifacts, "climate", "releases", releaseID)
 }
