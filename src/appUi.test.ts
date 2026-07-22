@@ -43,6 +43,7 @@ describe('map controls', () => {
     const markup = renderToStaticMarkup(createElement(LayerLegend, {
       manifest: { palette: [{ score: 0, color: '#000' }, { score: 100, color: '#fff' }], legend, forecast: { days: [], window: { resolutionKm: 28 } } } as unknown as WeatherManifest,
       view: 'range',
+      profile: 'nice',
       lens: 'comfort',
       panel: 'lenses',
       onPanelChange: vi.fn(),
@@ -82,7 +83,7 @@ describe('map controls', () => {
         legend,
         forecast: { days: [], window: { resolutionKm: 28 } },
       } as unknown as WeatherManifest,
-      view: 'range', lens: 'overall', panel: 'lenses',
+      view: 'range', profile: 'nice', lens: 'overall', panel: 'lenses',
       onPanelChange: vi.fn(), onChange: vi.fn(),
     }));
 
@@ -115,6 +116,7 @@ describe('map controls', () => {
   it('keeps the score direction visible without opening score theory', () => {
     const markup = renderToStaticMarkup(createElement(ScoreRamp, {
       manifest: { palette: [{ score: 0, color: '#000000' }, { score: 100, color: '#ffffff' }] } as WeatherManifest,
+      profile: 'nice',
     }));
     expect(markup).toContain('Score colours run from Awful to Excellent');
     expect(markup).toContain('<b>Awful</b>');
@@ -248,29 +250,59 @@ describe('clear weather copy', () => {
     expect(pointWithinBounds({ lon: 103.8, lat: 1.3 }, bounds)).toBe(false);
   });
 
-  it('uses one continuous 101-value palette and an honest probability legend', () => {
+  it('uses one continuous 101-value palette and a profile-aware probability legend', () => {
     const manifest = { palette: [{ score: 0, color: '#343b53' }, { score: 100, color: '#f0b83f' }] } as WeatherManifest;
     const palette = scalarPalette(manifest);
     expect(palette).toHaveLength(101);
     expect(palette[0]).toEqual([52, 59, 83, 255]);
     expect(palette[50]).toEqual([146, 122, 73, 255]);
     expect(palette[100]).toEqual([240, 184, 63, 255]);
-    const markup = renderToStaticMarkup(createElement(ScoreRamp, { manifest, probability: true }));
-    expect(markup).toContain('Climate colours run from Rarely nice to Usually nice');
-    expect(markup).toContain('Rarely nice');
-    expect(markup).toContain('Usually nice');
+    const nice = renderToStaticMarkup(createElement(ScoreRamp, { manifest, probability: true, profile: 'nice' }));
+    expect(nice).toContain('aria-label="Climate colours run from Rarely nice to Usually nice"');
+    expect(nice).toContain('<b>Rarely nice</b>');
+    expect(nice).toContain('<b>Usually nice</b>');
+    const cycling = renderToStaticMarkup(createElement(ScoreRamp, { manifest, probability: true, profile: 'cycling' }));
+    expect(cycling).toContain('aria-label="Climate colours run from Rarely good for cycling to Usually good for cycling"');
+    expect(cycling).toContain('<b>Rarely good</b>');
+    expect(cycling).toContain('<b>Usually good</b>');
   });
 
-  it('shows distribution evidence instead of inventing a monthly weather day', () => {
+  it('shows profile-aware distribution evidence and all four delivered components', () => {
     const data = climateEvidence();
-    const markup = renderToStaticMarkup(createElement(ClimateDetails, {
+    const nice = renderToStaticMarkup(createElement(ClimateDetails, {
       data, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
     }));
     expect(climateSummary(data, 'nice')).toBe('68% nice · 9% awful · median 71');
-    for (const copy of ['Nice days', 'Awful days', 'Chance of a poor week', 'Median score', 'Comfort', 'Dry', 'Bright']) expect(markup).toContain(copy);
-    expect(markup).toContain('12.3%');
-    expect(markup).toContain('Recent daily climate · 2006–2025 · worldwide · about 30 km weather detail');
-    expect(markup).not.toMatch(/monthly average|temperature|rain/i);
+    for (const copy of ['Nice days', 'Awful days', 'Chance of a poor week', 'Median score', 'Comfort', 'Dry', 'Bright', 'Calm']) expect(nice).toContain(copy);
+    for (const value of ['77%', '82%', '74%', '61%']) expect(nice).toContain(value);
+    expect(nice.match(/aria-pressed=/g)).toHaveLength(4);
+    expect(nice).toContain('12.3%');
+    expect(nice).toContain('Recent daily climate · 2006–2025 · worldwide · about 30 km weather detail');
+    expect(nice).not.toMatch(/monthly average|temperature|rain/i);
+
+    const cycling = renderToStaticMarkup(createElement(ClimateDetails, {
+      data, profile: 'cycling', lens: 'wind', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+    }));
+    expect(climateSummary(data, 'cycling')).toBe('59% good for cycling · 13% awful · median 64');
+    expect(cycling).toContain('<dt>Good cycling days</dt>');
+    expect(cycling).toContain('59% good for cycling · 13% awful · median 64');
+    expect(cycling).toContain('<strong>Calm</strong>');
+    expect(cycling).toContain('<em>52%</em>');
+    expect(cycling).toContain('aria-pressed="true"');
+  });
+
+  it('names the overall climate lens for the selected profile', () => {
+    const props = {
+      manifest: { palette: [{ score: 0, color: '#000' }, { score: 100, color: '#fff' }], legend, forecast: { days: [], window: { resolutionKm: 28 } } } as unknown as WeatherManifest,
+      view: 'climate' as const, lens: 'overall' as const, panel: 'lenses' as const,
+      onPanelChange: vi.fn(), onChange: vi.fn(),
+    };
+    const nice = renderToStaticMarkup(createElement(LayerLegend, { ...props, profile: 'nice' }));
+    expect(nice).toContain('aria-label="Choose map lens and explain scores. Active: Nice days"');
+    expect(nice).toContain('>Nice days<');
+    const cycling = renderToStaticMarkup(createElement(LayerLegend, { ...props, profile: 'cycling' }));
+    expect(cycling).toContain('aria-label="Choose map lens and explain scores. Active: Good cycling days"');
+    expect(cycling).toContain('>Good cycling days<');
   });
 
   it('falls back to the declared range detail when no daily split is present', () => {

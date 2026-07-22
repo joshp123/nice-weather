@@ -410,6 +410,7 @@ export default function App() {
           <LayerLegend
             manifest={manifest}
             view={view}
+            profile={profile}
             lens={lens}
             panel={legendPanel}
             onPanelChange={setLegendPanel}
@@ -417,7 +418,7 @@ export default function App() {
           />
           <ProfileControl value={profile} panel={legendPanel} onPanelChange={setLegendPanel} onChange={(next) => { setProfile(next); telemetry('profile-changed', { profile: next }); }} />
         </div>
-        {overlayState.status !== 'error' && <ScoreRamp manifest={manifest} probability={view === 'climate'} />}
+        {overlayState.status !== 'error' && <ScoreRamp manifest={manifest} probability={view === 'climate'} profile={profile} />}
         {view === 'daily' && forecastPeriod && <PeriodRail periods={forecastPeriods} selectedId={forecastPeriod.id} label="Forecast day" onChange={(id) => { setPeriodId(id); telemetry('period-changed', { period: id, view }); }} />}
         {view === 'climate' && climatePeriodId && climateRail.length > 0 && <PeriodRail periods={climateRail} selectedId={climatePeriodId} label="Climate month" onChange={(id) => { setPeriodId(id); telemetry('period-changed', { period: id, view }); }} />}
       </section>
@@ -514,17 +515,19 @@ export const LENSES: ReadonlyArray<{ id: Lens; label: string }> = [
 type LayerLegendProps = {
   manifest: WeatherPresentation;
   view: View;
+  profile: Profile;
   lens: Lens;
   panel: ControlPanel;
   onPanelChange: (panel: ControlPanel) => void;
   onChange: (lens: Lens) => void;
 };
 
-export function LayerLegend({ manifest, view, lens, panel, onPanelChange, onChange }: LayerLegendProps) {
+export function LayerLegend({ manifest, view, profile, lens, panel, onPanelChange, onChange }: LayerLegendProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const open = panel === 'lenses';
   useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
-  const active = lens === 'overall' && view === 'climate' ? 'Nice days' : LENSES.find((item) => item.id === lens)?.label ?? 'Overall score';
+  const climateOutcome = climateOutcomeCopy(profile);
+  const active = lens === 'overall' && view === 'climate' ? climateOutcome.daysLabel : LENSES.find((item) => item.id === lens)?.label ?? 'Overall score';
   return (
     <div className="legendControl">
       <button ref={trigger} type="button" className="toolbarTrigger lensTrigger" aria-haspopup="dialog" aria-expanded={open} aria-label={`Choose map lens and explain scores. Active: ${active}`} onClick={() => onPanelChange(open ? null : 'lenses')}>
@@ -533,7 +536,7 @@ export function LayerLegend({ manifest, view, lens, panel, onPanelChange, onChan
       {open && (
         <div className="controlSurface legendPopover" role="dialog" aria-label="Map lens and score guide">
           <div className="layerMenu" role="group" aria-label="Map lens">
-            {LENSES.map((item) => <button key={item.id} type="button" aria-pressed={lens === item.id} onClick={() => { onChange(item.id); onPanelChange(null); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.id === 'overall' && view === 'climate' ? 'Nice days' : item.label}</span><MenuCheck selected={lens === item.id} /></button>)}
+            {LENSES.map((item) => <button key={item.id} type="button" aria-pressed={lens === item.id} onClick={() => { onChange(item.id); onPanelChange(null); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.id === 'overall' && view === 'climate' ? climateOutcome.daysLabel : item.label}</span><MenuCheck selected={lens === item.id} /></button>)}
           </div>
           <ScoreGuide manifest={manifest} climate={view === 'climate'} />
         </div>
@@ -571,10 +574,11 @@ function ScoreGuide({ manifest, climate }: { manifest: WeatherPresentation; clim
   );
 }
 
-export function ScoreRamp({ manifest, probability = false }: { manifest: WeatherPresentation; probability?: boolean }) {
+export function ScoreRamp({ manifest, probability = false, profile }: { manifest: WeatherPresentation; probability?: boolean; profile: Profile }) {
   const gradient = `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(', ')})`;
-  return <div className="scoreRamp" aria-label={probability ? 'Climate colours run from Rarely nice to Usually nice' : 'Score colours run from Awful to Excellent'}>
-    <b>{probability ? 'Rarely nice' : 'Awful'}</b><i style={{ background: gradient }} aria-hidden="true" /><b>{probability ? 'Usually nice' : 'Excellent'}</b>
+  const outcome = climateOutcomeCopy(profile);
+  return <div className="scoreRamp" aria-label={probability ? outcome.rampAriaLabel : 'Score colours run from Awful to Excellent'}>
+    <b>{probability ? outcome.rareLabel : 'Awful'}</b><i style={{ background: gradient }} aria-hidden="true" /><b>{probability ? outcome.usualLabel : 'Excellent'}</b>
   </div>;
 }
 
@@ -790,31 +794,34 @@ function PointPanel({ state, point, legend, lens, profile, climateModel, focusIn
 
 function ClimatePointHeading({ data, point, profile, climateModel }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; climateModel: ClimateUiModel }) {
   const evidence = data[profile];
+  const outcome = climateOutcomeCopy(profile);
   const eyebrow = `${monthName(data.period)} climate · ${climateModel.referencePeriod}`;
-  return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>Nice days</span></div></div>;
+  return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>{outcome.daysLabel}</span></div></div>;
 }
 
 export function ClimateDetails({ data, profile, lens, onLensChange, climateModel }: { data: ClimatePointEvidence; profile: Profile; lens: Lens; onLensChange: (lens: Lens) => void; climateModel: ClimateUiModel }) {
   const evidence = data[profile];
+  const outcome = climateOutcomeCopy(profile);
   return <>
     <p className="phonePointSummary">{climateSummary(data, profile)}</p>
     <p className="rangeEvidence">{climateSummary(data, profile)}</p>
     <dl className="climateFacts">
-      <div><dd>{evidence.goodOrBetterPercent}%</dd><dt>Nice days</dt></div>
+      <div><dd>{evidence.goodOrBetterPercent}%</dd><dt>{outcome.daysLabel}</dt></div>
       <div className={evidence.awfulPercent > 0 ? 'bad' : ''}><dd>{evidence.awfulPercent}%</dd><dt>Awful days</dt></div>
       <div><dd>{formatPermille(evidence.poorWeekPermille)}</dd><dt>Chance of a poor week</dt></div>
       <div><dd>{evidence.medianScore}</dd><dt>Median score</dt></div>
     </dl>
-    <ClimateComponentRows data={data} active={lens} onChange={onLensChange} />
+    <ClimateComponentRows data={data} profile={profile} active={lens} onChange={onLensChange} />
     <p className="sourceLine">Recent daily climate · {climateModel.referencePeriod} · worldwide · about 30 km weather detail</p>
   </>;
 }
 
-function ClimateComponentRows({ data, active, onChange }: { data: ClimatePointEvidence; active: Lens; onChange: (lens: Lens) => void }) {
+function ClimateComponentRows({ data, profile, active, onChange }: { data: ClimatePointEvidence; profile: Profile; active: Lens; onChange: (lens: Lens) => void }) {
   const rows = [
     ['comfort', 'Comfort', data.comfortGoodPercent],
     ['dry', 'Dry', data.dryGoodPercent],
     ['bright', 'Bright', data.brightGoodPercent],
+    ['wind', 'Calm', data[profile].calmGoodPercent],
   ] as const;
   return <div className="componentRows climateComponents" aria-label="Chance of good weather by component">{rows.map(([id, label, value]) => (
     <button key={id} type="button" aria-pressed={active === id} onClick={() => onChange(id)}>
@@ -977,7 +984,13 @@ function parseHexColour(value: string): readonly [number, number, number] {
 
 export function climateSummary(data: ClimatePointEvidence, profile: Profile): string {
   const evidence = data[profile];
-  return `${evidence.goodOrBetterPercent}% nice · ${evidence.awfulPercent}% awful · median ${evidence.medianScore}`;
+  return `${evidence.goodOrBetterPercent}% ${climateOutcomeCopy(profile).summaryLabel} · ${evidence.awfulPercent}% awful · median ${evidence.medianScore}`;
+}
+
+function climateOutcomeCopy(profile: Profile): Readonly<{ daysLabel: string; summaryLabel: string; rareLabel: string; usualLabel: string; rampAriaLabel: string }> {
+  return profile === 'cycling'
+    ? { daysLabel: 'Good cycling days', summaryLabel: 'good for cycling', rareLabel: 'Rarely good', usualLabel: 'Usually good', rampAriaLabel: 'Climate colours run from Rarely good for cycling to Usually good for cycling' }
+    : { daysLabel: 'Nice days', summaryLabel: 'nice', rareLabel: 'Rarely nice', usualLabel: 'Usually nice', rampAriaLabel: 'Climate colours run from Rarely nice to Usually nice' };
 }
 
 function formatPermille(value: number): string {
