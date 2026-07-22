@@ -329,6 +329,20 @@ describe('phone readability', () => {
     expect(css).not.toContain('.periodRailCue');
   });
 
+  it('gives open discovery the phone viewport without changing desktop surfaces', () => {
+    const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    const phoneStart = css.indexOf('@media (max-width: 680px)');
+    const narrowPhoneStart = css.indexOf('@media (max-width: 420px)');
+    const desktop = css.slice(0, phoneStart);
+    const phone = css.slice(phoneStart, narrowPhoneStart);
+    const discoveryRule = '.appShell:has(.searchPopover) .pointPanel,\n  .appShell:has(.searchPopover) .cockpit { display: none; }';
+
+    expect(phoneStart).toBeGreaterThan(-1);
+    expect(narrowPhoneStart).toBeGreaterThan(phoneStart);
+    expect(phone).toContain(discoveryRule);
+    expect(desktop).not.toContain(discoveryRule);
+  });
+
   it('uses one compact control system and only two permanent phone surfaces', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(css).toContain('--control-height: 44px;');

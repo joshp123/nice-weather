@@ -293,6 +293,8 @@ button:disabled { cursor: default; }
   .hasRail .pointPanel { bottom: 136px; max-height: 36dvh; }
   .pointPanel.expanded { max-height: 62dvh; }
   .hasRail .pointPanel.expanded { max-height: 54dvh; }
+  .appShell:has(.searchPopover) .pointPanel,
+  .appShell:has(.searchPopover) .cockpit { display: none; }
   .appShell:has(.pointPanel.expanded) .cockpit { display: none; }
   .pointPanel.expanded, .hasRail .pointPanel.expanded { bottom: var(--space-2); max-height: calc(100dvh - 84px); }
   .pointPanel.expanded .pointPanelHeader { flex: 0 0 auto; }
