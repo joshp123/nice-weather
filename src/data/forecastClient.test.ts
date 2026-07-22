@@ -26,6 +26,8 @@ describe('WorldwideForecastClient', () => {
 
     expect(dailySummary(25, 0, { value: 60, category: 'Good' })).toBe('25°C · dry · bright · light wind');
     expect(dailySummary(25, 12, { value: 35, category: 'Poor' })).toBe('25°C · dry · overcast · light wind');
+    expect(dailySummary(27, 11, { value: 59, category: 'Good' }, 93)).toBe('27°C · wet · overcast · light wind');
+    expect(dailySummary(27, 8, { value: 90, category: 'Excellent' }, 70)).toBe('27°C · dry · mixed cloud · light wind');
     expect(dailySummary(25, 8)).toBe('25°C · dry · light wind');
   });
 
