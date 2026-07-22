@@ -22,6 +22,16 @@ export function decideRendererFailure(previous: RendererRecoveryState, failedAtt
   return { state: previous, action: 'fallback' };
 }
 
+export function withCurrentRenderer<T>(current: T | null, expected: T, operation: (renderer: T) => void): boolean {
+  if (current !== expected) return false;
+  operation(expected);
+  return true;
+}
+
+export function detachRenderer<T>(current: T | null, failed: T): T | null {
+  return current === failed ? null : current;
+}
+
 export function recordFailure(
   previous: readonly number[],
   now: number,

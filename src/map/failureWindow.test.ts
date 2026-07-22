@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { activateRendererAttempt, decideRendererFailure, recordFailure } from './failureWindow';
+import { activateRendererAttempt, decideRendererFailure, detachRenderer, recordFailure, withCurrentRenderer } from './failureWindow';
 
 describe('sustained map failure window', () => {
   it('does not treat one parallel failure burst as sustained', () => {
@@ -42,5 +42,22 @@ describe('sustained map failure window', () => {
     expect(source).toContain('const handleActiveFailure = useCallback((reason: MapFailureReason) => {\n    handleFailure(reason, rendererAttempt);\n  }, [handleFailure, rendererAttempt]);');
     expect(source).toContain('onFailure={handleActiveFailure}');
     expect(source).not.toContain('onFailure={(reason) => handleFailure(reason, rendererAttempt)}');
+    expect(source).toContain('withCurrentRenderer(mapRef.current, activeMap, removeOverlay);');
+    expect(source).toContain('withCurrentRenderer(mapRef.current, map, removeWindDirection);');
+    expect(source).toContain('renderWorldCopies: false,');
+  });
+
+  it('does not touch a renderer after retry teardown has made it stale', () => {
+    const destroyed = { getLayer: () => { throw new TypeError("Cannot read properties of null (reading 'getLayer')"); } };
+    expect(() => withCurrentRenderer(null, destroyed, (renderer) => renderer.getLayer())).not.toThrow();
+    expect(withCurrentRenderer(null, destroyed, (renderer) => renderer.getLayer())).toBe(false);
+
+    let called = false;
+    expect(withCurrentRenderer(destroyed, destroyed, () => { called = true; })).toBe(true);
+    expect(called).toBe(true);
+
+    const replacement = {};
+    expect(detachRenderer(destroyed, destroyed)).toBeNull();
+    expect(detachRenderer(replacement, destroyed)).toBe(replacement);
   });
 });

@@ -3,7 +3,7 @@ import maplibregl, { type GeoJSONSource, type Map, type MapSourceDataEvent } fro
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { WindGrid } from '../data/wind';
 import { telemetry } from '../telemetry';
-import { activateRendererAttempt, decideRendererFailure, recordFailure, type RendererFailureReason } from './failureWindow';
+import { activateRendererAttempt, decideRendererFailure, detachRenderer, recordFailure, withCurrentRenderer, type RendererFailureReason } from './failureWindow';
 import { CanvasFallback } from './canvasFallback';
 import { ScalarTileLayer, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 import { baseOverlayBefore, scoreOverlayBefore, windFeatures, windLayerLayout } from './windLayer';
@@ -214,6 +214,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
         pitchWithRotate: false,
         touchPitch: false,
         keyboard: false,
+        renderWorldCopies: false,
         fadeDuration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 120,
       });
     } catch (error) {
@@ -252,10 +253,14 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       });
     };
     let baseMapFailures: number[] = [];
+    const failMap = (reason: MapFailureReason) => {
+      mapRef.current = detachRenderer(mapRef.current, map);
+      onFailure(reason);
+    };
     const deadline = window.setTimeout(() => {
       if (!loadedRef.current) {
         console.warn('[nice-weather] WebGL map did not render in time.');
-        onFailure('timeout');
+        failMap('timeout');
       }
     }, 5_000);
     const markReady = () => {
@@ -287,7 +292,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       const message = event.error?.message ?? 'Map rendering error';
       console.warn('[nice-weather] map', message);
       if (/shader|webgl|context/i.test(message)) {
-        onFailure('context');
+        failMap('context');
         return;
       }
       const sourceID = (event as maplibregl.ErrorEvent & { sourceId?: string }).sourceId;
@@ -296,10 +301,10 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       baseMapFailures = failureWindow.failures;
       if (failureWindow.sustained) {
         console.warn('[nice-weather] Base map requests keep failing; the map is unavailable.');
-        onFailure('base-map');
+        failMap('base-map');
       }
     });
-    const onContextLost = () => onFailure('context');
+    const onContextLost = () => failMap('context');
     map.getCanvas().addEventListener('webglcontextlost', onContextLost, { once: true });
     return () => {
       resizeObserver.disconnect();
@@ -308,8 +313,8 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       window.clearTimeout(attributionDeadline);
       markerRef.current?.remove();
       map.getCanvas().removeEventListener('webglcontextlost', onContextLost);
+      if (mapRef.current === map) mapRef.current = null;
       map.remove();
-      mapRef.current = null;
       loadedRef.current = false;
     };
   }, [onFailure]);
@@ -367,7 +372,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       if (reported || generation !== overlayGeneration.current) return;
       reported = true;
       cleanup();
-      removeOverlay(activeMap);
+      withCurrentRenderer(mapRef.current, activeMap, removeOverlay);
       onOverlayErrorRef.current(assetUrl, reason);
     }
     const cleanup = () => {
@@ -427,7 +432,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       if (reported) return;
       reported = true;
       window.clearTimeout(deadline);
-      removeScalarOverlay(activeMap);
+      withCurrentRenderer(mapRef.current, activeMap, removeScalarOverlay);
       onOverlayErrorRef.current(key, reason);
     }
     try {
@@ -438,7 +443,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     }
     return () => {
       window.clearTimeout(deadline);
-      removeScalarOverlay(activeMap);
+      withCurrentRenderer(mapRef.current, activeMap, removeScalarOverlay);
     };
   }, [scalarOverlay, styleLoaded]);
 
@@ -463,7 +468,10 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     update();
     map.on('moveend', update);
     telemetry('wind-frame-rendered', { validAt: windGrid.validAt, rows: windGrid.rows, cols: windGrid.cols });
-    return () => { map.off('moveend', update); removeWindDirection(map); };
+    return () => {
+      map.off('moveend', update);
+      withCurrentRenderer(mapRef.current, map, removeWindDirection);
+    };
   }, [styleLoaded, windGrid]);
 
   useEffect(() => {
