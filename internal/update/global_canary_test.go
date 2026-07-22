@@ -245,10 +245,10 @@ func TestWebMercatorTouchedLandPredicateDoesNotBleedIntoNeighbouringTexel(t *tes
 	if got, err := isLand(webMercatorTestTexelBounds(width, landColumn+1, landRow)); err != nil || got {
 		t.Fatalf("neighbouring display texel = %v, %v; want water", got, err)
 	}
-	invalid := webMercatorTestTexelBounds(width, landColumn, landRow)
-	invalid.East += 0.01
-	if _, err := isLand(invalid); err == nil || !strings.Contains(err.Error(), "exact display texel") {
-		t.Fatalf("non-exact display texel error = %v", err)
+	expanded := webMercatorTestTexelBounds(width, landColumn, landRow)
+	expanded.East = webMercatorTestTexelBounds(width, landColumn+1, landRow).East
+	if got, err := isLand(expanded); err != nil || !got {
+		t.Fatalf("source-cell-sized lookup spanning marked texel = %v, %v; want land", got, err)
 	}
 	if _, err := isLand(delivery.GridBounds{West: 0, East: 1, South: 0, North: math.NaN()}); err == nil {
 		t.Fatal("non-finite land lookup was accepted")

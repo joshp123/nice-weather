@@ -120,11 +120,12 @@ func (decoder *Decoder) Decode(ctx context.Context, request DecodeRequest) (Fram
 }
 
 func cropPhysicalGrid(ctx context.Context, runner CommandRunner, source, output string, bounds delivery.GridBounds, cols, rows int) error {
+	cropBounds := physicalCropBounds(bounds, cols)
 	_, err := runner.Run(ctx, "gdal_translate",
 		// Decode already requested NC_FLOAT from ecCodes, so values here are
 		// physical float samples rather than independently packed Int16 data.
 		"-q", "-of", "EHdr", "-ot", "Float32", "-r", "nearest",
-		"-projwin", formatCoordinate(bounds.West), formatCoordinate(bounds.North), formatCoordinate(bounds.East), formatCoordinate(bounds.South),
+		"-projwin", formatCoordinate(cropBounds.West), formatCoordinate(cropBounds.North), formatCoordinate(cropBounds.East), formatCoordinate(cropBounds.South),
 		"-outsize", strconv.Itoa(cols), strconv.Itoa(rows),
 		source, output,
 	)
@@ -132,6 +133,22 @@ func cropPhysicalGrid(ctx context.Context, runner CommandRunner, source, output 
 		return fmt.Errorf("crop GRIB field: %w", err)
 	}
 	return nil
+}
+
+// physicalCropBounds aligns GDAL's pixel-centred global IFS raster with the
+// product's half-open longitude cells. IFS includes samples at -180 through
+// 179.75 degrees. Asking GDAL for -180 through 180 instead extends half a
+// source cell beyond that raster, skips one real eastern sample and fills the
+// final output column with no-data. The half-cell shift selects every native
+// longitude exactly; the published GridSpec remains the canonical -180..180
+// ownership domain and downstream reads continue to wrap there.
+func physicalCropBounds(bounds delivery.GridBounds, cols int) delivery.GridBounds {
+	if cols > 0 && bounds.West == -180 && bounds.East == 180 {
+		halfCell := (bounds.East - bounds.West) / float64(cols) / 2
+		bounds.West -= halfCell
+		bounds.East -= halfCell
+	}
+	return bounds
 }
 
 // DecodeRaster crops a regular raster onto the product grid without assigning

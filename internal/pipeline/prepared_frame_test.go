@@ -75,6 +75,20 @@ func TestPreparedFrameConvertsOnceAndReadsWrappedWindowsWithHalo(t *testing.T) {
 	}
 }
 
+func TestPhysicalCropBoundsSelectEveryWrappedIFSLongitude(t *testing.T) {
+	world := delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}
+	got := physicalCropBounds(world, 1440)
+	want := delivery.GridBounds{West: -180.125, East: 179.875, South: -90, North: 90}
+	if got != want {
+		t.Fatalf("wrapped IFS crop = %+v; want %+v", got, want)
+	}
+
+	regional := delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5}
+	if got := physicalCropBounds(regional, 1104); got != regional {
+		t.Fatalf("regional crop shifted = %+v; want %+v", got, regional)
+	}
+}
+
 func TestPreparedFrameLatitudeHaloAndNoDataRemainNaN(t *testing.T) {
 	runner := &preparedFakeRunner{t: t, noDataRow: 0, noDataColumn: 1}
 	decoder, err := NewDecoder(runner, delivery.GridBounds{West: 0, East: 4, South: 0, North: 2})

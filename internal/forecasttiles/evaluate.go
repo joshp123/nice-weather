@@ -112,7 +112,13 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 				return nil, nil, fmt.Errorf("land in texel %.5f..%.5f,%.5f..%.5f: %w", west, east, south, north, err)
 			}
 			if !isLand {
-				continue
+				isLand, err = sourceCellLandAnchor(longitude, latitude, delivery.GridBounds{West: west, East: east, North: north, South: south}, window.Spec, land)
+				if err != nil {
+					return nil, nil, err
+				}
+				if !isLand {
+					continue
+				}
 			}
 			record, ok, err := interpolateRecord(longitude, latitude, window)
 			if err != nil {
@@ -128,6 +134,49 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 		}
 	}
 	return texture, records, nil
+}
+
+// sourceCellLandAnchor preserves narrow islands and coastal slivers that are
+// present in the land authority at the honest provider-cell scale but vanish
+// at the smaller display-texel scale. Only the display texel containing that
+// provider cell's centre may inherit its all-touched support, so neighbouring
+// water texels do not become a blocky copy of the source cell.
+func sourceCellLandAnchor(longitude, latitude float64, target delivery.GridBounds, source delivery.GridSpec, land TouchesLand) (bool, error) {
+	originalLongitude := longitude
+	span := source.Bounds.East - source.Bounds.West
+	for longitude < source.Bounds.West {
+		longitude += 360
+	}
+	for longitude >= source.Bounds.East && span < 360 {
+		longitude -= 360
+	}
+	longitudeShift := longitude - originalLongitude
+	target.West += longitudeShift
+	target.East += longitudeShift
+	cellWidth := (source.Bounds.East - source.Bounds.West) / float64(source.Cols)
+	cellHeight := (source.Bounds.North - source.Bounds.South) / float64(source.Rows)
+	column := int(math.Floor((longitude - source.Bounds.West) / cellWidth))
+	row := int(math.Floor((source.Bounds.North - latitude) / cellHeight))
+	if row < 0 || column < 0 || row >= int(source.Rows) || column >= int(source.Cols) {
+		return false, nil
+	}
+	west := source.Bounds.West + float64(column)*cellWidth
+	north := source.Bounds.North - float64(row)*cellHeight
+	centreLongitude := west + cellWidth/2
+	centreLatitude := north - cellHeight/2
+	if centreLongitude < target.West || centreLongitude >= target.East || centreLatitude <= target.South || centreLatitude > target.North {
+		return false, nil
+	}
+	sourceCell := delivery.GridBounds{West: west, East: west + cellWidth, North: north, South: north - cellHeight}
+	for sourceCell.West < -180 {
+		sourceCell.West += 360
+		sourceCell.East += 360
+	}
+	for sourceCell.West >= 180 {
+		sourceCell.West -= 360
+		sourceCell.East -= 360
+	}
+	return land(sourceCell)
 }
 
 func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DisplayScoreRecord, bool, error) {

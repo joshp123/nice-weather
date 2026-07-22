@@ -30,6 +30,7 @@ const (
 const (
 	globalCanaryMaxZoom                = 3
 	webMercatorHalfWorldMetres         = 20037508.342789244
+	webMercatorMaximumLatitude         = 85.0511287798066
 	webMercatorLandCoordinateTolerance = 1e-7
 )
 
@@ -619,22 +620,37 @@ func webMercatorTouchedLandPredicate(pixels []byte, zoom uint8) (forecasttiles.T
 		coordinates := []float64{bounds.West, bounds.East, bounds.South, bounds.North}
 		for _, coordinate := range coordinates {
 			if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
-				return false, errors.New("land texel bounds must be finite")
+				return false, errors.New("land lookup bounds must be finite")
 			}
 		}
+		mercatorNorth := webMercatorMaximumLatitude
+		if bounds.West < -180 || bounds.East > 180 || bounds.West >= bounds.East || bounds.South >= bounds.North || bounds.North <= -mercatorNorth || bounds.South >= mercatorNorth {
+			return false, errors.New("land lookup bounds are outside Web Mercator")
+		}
+		bounds.North = min(bounds.North, mercatorNorth)
+		bounds.South = max(bounds.South, -mercatorNorth)
 		west := (bounds.West + 180) / 360 * float64(width)
 		east := (bounds.East + 180) / 360 * float64(width)
 		north := webMercatorPixelEdge(bounds.North, width)
 		south := webMercatorPixelEdge(bounds.South, width)
-		column, row := int(math.Round(west)), int(math.Round(north))
-		if math.Abs(west-float64(column)) > webMercatorLandCoordinateTolerance ||
-			math.Abs(east-float64(column+1)) > webMercatorLandCoordinateTolerance ||
-			math.Abs(north-float64(row)) > webMercatorLandCoordinateTolerance ||
-			math.Abs(south-float64(row+1)) > webMercatorLandCoordinateTolerance ||
-			column < 0 || column >= width || row < 0 || row >= width {
-			return false, errors.New("land lookup bounds are not one exact display texel")
+		// Use only raster texels whose centres are inside the requested bounds.
+		// This keeps a wider provider-cell lookup from borrowing land that lies
+		// in the outside part of a merely overlapping coastal display texel.
+		firstColumn := max(0, int(math.Ceil(west-.5-webMercatorLandCoordinateTolerance)))
+		lastColumn := min(width-1, int(math.Ceil(east-.5-webMercatorLandCoordinateTolerance))-1)
+		firstRow := max(0, int(math.Ceil(north-.5-webMercatorLandCoordinateTolerance)))
+		lastRow := min(width-1, int(math.Ceil(south-.5-webMercatorLandCoordinateTolerance))-1)
+		if firstColumn > lastColumn || firstRow > lastRow {
+			return false, errors.New("land lookup bounds contain no display texel")
 		}
-		return pixels[row*width+column] == 1, nil
+		for row := firstRow; row <= lastRow; row++ {
+			for column := firstColumn; column <= lastColumn; column++ {
+				if pixels[row*width+column] == 1 {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
 	}, nil
 }
 

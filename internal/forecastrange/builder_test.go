@@ -288,6 +288,65 @@ func TestRangeBlockWrapsXAndNeverWrapsY(t *testing.T) {
 	}
 }
 
+func TestRangeAntimeridianPointAndScalarOutputsStayAvailable(t *testing.T) {
+	root := t.TempDir()
+	type seamSide struct {
+		longitude float64
+		score     uint8
+		block     *Block
+	}
+	sides := []seamSide{{longitude: -179.9, score: 64}, {longitude: 179.9, score: 73}}
+	for index := range sides {
+		id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, MaxZoom, sides[index].longitude, -0.01)
+		if err != nil {
+			t.Fatal(err)
+		}
+		globalRow := id.Y*tiledelivery.TileSize + uint32(row)
+		globalColumn := id.X*tiledelivery.TileSize + uint32(column)
+		blockRow, blockColumn := globalRow/uint32(BlockRows), globalColumn/uint32(BlockColumns)
+		identity, err := NewBlockIdentity("range-run", blockRow, blockColumn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		records := make([]delivery.RangePointRecord, int(BlockRows)*int(BlockColumns))
+		records[(globalRow%uint32(BlockRows))*uint32(BlockColumns)+globalColumn%uint32(BlockColumns)] = constantRangeRecord(t, sides[index].score)
+		asset, err := WriteBlock(root, identity, records)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sides[index].block, err = OpenBlock(asset.Path, identity, asset.SHA256)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, side := range sides {
+		id, row, column, _ := tiledelivery.At(forecastpoints.TierGlobal, MaxZoom, side.longitude, -0.01)
+		point, ok, err := side.block.RecordAt(side.longitude, -0.01)
+		if err != nil || !ok || point.Nice.Score != side.score {
+			t.Fatalf("range seam point %.1f = %+v, %t, %v", side.longitude, point, ok, err)
+		}
+		scalar, _, err := tiledelivery.BuildScalarTile(id, func(sample tiledelivery.ScalarSample) (uint8, bool, error) {
+			candidate := sides[0].block
+			if sample.Longitude >= 0 {
+				candidate = sides[1].block
+			}
+			record, valid, err := candidate.RecordAt(sample.Longitude, sample.Latitude)
+			if err != nil || !valid {
+				return 0, false, err
+			}
+			return record.Nice.Score, true, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := scalar[(row+tiledelivery.ScalarGutter)*tiledelivery.ScalarTextureSize+column+tiledelivery.ScalarGutter]
+		if got != point.Nice.Score {
+			t.Fatalf("range seam scalar %.1f = %d; point=%d", side.longitude, got, point.Nice.Score)
+		}
+	}
+}
+
 func rangeFixture(t *testing.T, missingDay int) (string, []InputCatalog, [delivery.ForecastPointDayCount]delivery.DisplayScoreRecord) {
 	t.Helper()
 	runRoot := filepath.Join(t.TempDir(), "range-run")
