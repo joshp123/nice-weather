@@ -19,6 +19,9 @@ import (
 	"nice-weather-finder/internal/climatebuild"
 	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/forecastcatalog"
+	"nice-weather-finder/internal/forecastpoints"
+	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/providers/agera5"
 	"nice-weather-finder/internal/tiledelivery"
@@ -765,6 +768,304 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 				t.Errorf("%s %s returned %d", method, requestPath, response.Code)
 			}
 		}
+	}
+}
+
+func TestForecastRunsUseValidatedPointerAllowlistAndImmutableHTTPContract(t *testing.T) {
+	app := newForecastTestApplication(t)
+	fixture := installForecastHTTPFixture(t, app)
+
+	pointer := httptest.NewRecorder()
+	app.handler.ServeHTTP(pointer, httptest.NewRequest(http.MethodGet, "/forecast/current.json?ignored=1", nil))
+	etag := pointer.Header().Get("ETag")
+	if pointer.Code != http.StatusOK || pointer.Body.String() != string(fixture.pointerRaw) || pointer.Header().Get("Cache-Control") != "no-cache" || pointer.Header().Get("Content-Type") != "application/json" || etag == "" || pointer.Header().Get("Last-Modified") != "" {
+		t.Fatalf("forecast pointer: %d %+v %q", pointer.Code, pointer.Header(), pointer.Body.String())
+	}
+	conditionalRequest := httptest.NewRequest(http.MethodGet, "/forecast/current.json", nil)
+	conditionalRequest.Header.Set("If-None-Match", etag)
+	conditional := httptest.NewRecorder()
+	app.handler.ServeHTTP(conditional, conditionalRequest)
+	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 || conditional.Header().Get("ETag") != etag {
+		t.Fatalf("conditional forecast pointer: %d %+v %q", conditional.Code, conditional.Header(), conditional.Body.String())
+	}
+
+	index := httptest.NewRecorder()
+	app.handler.ServeHTTP(index, httptest.NewRequest(http.MethodHead, "/"+fixture.currentIndexPath, nil))
+	if index.Code != http.StatusOK || index.Body.Len() != 0 || index.Header().Get("Content-Length") != fmt.Sprint(len(fixture.currentIndexRaw)) || index.Header().Get("Content-Type") != "application/json" || index.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("forecast index HEAD: %d %+v body=%d", index.Code, index.Header(), index.Body.Len())
+	}
+	previous := httptest.NewRecorder()
+	app.handler.ServeHTTP(previous, httptest.NewRequest(http.MethodGet, "/"+fixture.previousIndexPath, nil))
+	if previous.Code != http.StatusOK || previous.Body.String() != string(fixture.previousIndexRaw) {
+		t.Fatalf("previous forecast index: %d %+v %q", previous.Code, previous.Header(), previous.Body.String())
+	}
+	conditionalIndexRequest := httptest.NewRequest(http.MethodGet, "/"+fixture.currentIndexPath, nil)
+	conditionalIndexRequest.Header.Set("If-Modified-Since", index.Header().Get("Last-Modified"))
+	conditionalIndex := httptest.NewRecorder()
+	app.handler.ServeHTTP(conditionalIndex, conditionalIndexRequest)
+	if conditionalIndex.Code != http.StatusNotModified || conditionalIndex.Body.Len() != 0 {
+		t.Fatalf("conditional forecast index: %d %+v %q", conditionalIndex.Code, conditionalIndex.Header(), conditionalIndex.Body.String())
+	}
+	catalog := httptest.NewRecorder()
+	app.handler.ServeHTTP(catalog, httptest.NewRequest(http.MethodGet, "/"+fixture.catalogPath, nil))
+	if catalog.Code != http.StatusOK || catalog.Body.String() != string(fixture.catalogRaw) || catalog.Header().Get("Content-Type") != "application/json" || catalog.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("forecast catalog: %d %+v %q", catalog.Code, catalog.Header(), catalog.Body.String())
+	}
+
+	blockRequest := httptest.NewRequest(http.MethodGet, "/"+fixture.pointPath, nil)
+	blockRequest.Header.Set("Range", "bytes=16-47")
+	blockRequest.Header.Set("Accept-Encoding", "gzip")
+	block := httptest.NewRecorder()
+	app.handler.ServeHTTP(block, blockRequest)
+	if block.Code != http.StatusPartialContent || block.Body.String() != string(fixture.pointRaw[16:48]) || block.Header().Get("Content-Range") != fmt.Sprintf("bytes 16-47/%d", len(fixture.pointRaw)) || block.Header().Get("Content-Length") != "32" || block.Header().Get("Accept-Ranges") != "bytes" || block.Header().Get("Content-Type") != forecastpoints.MediaType || block.Header().Get("Content-Encoding") != "" || block.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("forecast point range: %d %+v body=%d", block.Code, block.Header(), block.Body.Len())
+	}
+
+	scalarRequest := httptest.NewRequest(http.MethodGet, "/"+fixture.scalarPath, nil)
+	scalarRequest.Header.Set("Accept-Encoding", "gzip")
+	scalar := httptest.NewRecorder()
+	app.handler.ServeHTTP(scalar, scalarRequest)
+	if scalar.Code != http.StatusOK || scalar.Header().Get("Content-Encoding") != "gzip" || scalar.Header().Get("Content-Type") != tiledelivery.ScalarMediaType || scalar.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("forecast scalar: %d %+v", scalar.Code, scalar.Header())
+	}
+	if scalar.Header().Get("ETag") == "" || scalar.Header().Get("Last-Modified") == "" {
+		t.Fatalf("forecast scalar validators: %+v", scalar.Header())
+	}
+	gzipReader, err := gzip.NewReader(scalar.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := io.ReadAll(gzipReader)
+	if err != nil || string(decoded) != string(fixture.scalarRaw) {
+		t.Fatalf("forecast scalar decoded body: %v bytes=%d", err, len(decoded))
+	}
+	conditionalScalarRequest := httptest.NewRequest(http.MethodGet, "/"+fixture.scalarPath, nil)
+	conditionalScalarRequest.Header.Set("Accept-Encoding", "gzip")
+	conditionalScalarRequest.Header.Set("If-None-Match", scalar.Header().Get("ETag"))
+	conditionalScalar := httptest.NewRecorder()
+	app.handler.ServeHTTP(conditionalScalar, conditionalScalarRequest)
+	if conditionalScalar.Code != http.StatusNotModified || conditionalScalar.Body.Len() != 0 || conditionalScalar.Header().Get("ETag") != scalar.Header().Get("ETag") || conditionalScalar.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("conditional gzip forecast scalar: %d %+v %q", conditionalScalar.Code, conditionalScalar.Header(), conditionalScalar.Body.String())
+	}
+
+	unreferenced := filepath.Join(app.root, "forecast", "runs", fixture.currentID, "forecast-days", fixture.currentDate, forecastpoints.TierGlobal, "unreferenced.nwf")
+	if err := os.WriteFile(unreferenced, []byte("not catalogued"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unreferencedResponse := httptest.NewRecorder()
+	app.handler.ServeHTTP(unreferencedResponse, httptest.NewRequest(http.MethodGet, "/"+strings.TrimPrefix(unreferenced, app.root+string(filepath.Separator)), nil))
+	if unreferencedResponse.Code != http.StatusNotFound {
+		t.Fatalf("unreferenced forecast file returned %d: %s", unreferencedResponse.Code, unreferencedResponse.Body.String())
+	}
+	stale := httptest.NewRecorder()
+	app.handler.ServeHTTP(stale, httptest.NewRequest(http.MethodGet, "/forecast/runs/stale-run/index.json", nil))
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("unpublished forecast run returned %d: %s", stale.Code, stale.Body.String())
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.nwt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	displayFullPath := filepath.Join(app.root, filepath.FromSlash(fixture.displayPath))
+	if err := os.Remove(displayFullPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, displayFullPath); err != nil {
+		t.Fatal(err)
+	}
+	escape := httptest.NewRecorder()
+	app.handler.ServeHTTP(escape, httptest.NewRequest(http.MethodGet, "/"+fixture.displayPath, nil))
+	if escape.Code != http.StatusServiceUnavailable || strings.Contains(escape.Body.String(), "secret") {
+		t.Fatalf("forecast symlink returned %d: %q", escape.Code, escape.Body.String())
+	}
+	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(fixture.scalarPath)), []byte("corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := httptest.NewRecorder()
+	app.handler.ServeHTTP(corrupt, httptest.NewRequest(http.MethodGet, "/"+fixture.scalarPath, nil))
+	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), "corrupt") {
+		t.Fatalf("checksum-mismatched forecast asset returned %d: %q", corrupt.Code, corrupt.Body.String())
+	}
+	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(fixture.catalogPath)), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corruptCatalog := httptest.NewRecorder()
+	app.handler.ServeHTTP(corruptCatalog, httptest.NewRequest(http.MethodGet, "/"+fixture.catalogPath, nil))
+	if corruptCatalog.Code != http.StatusServiceUnavailable {
+		t.Fatalf("checksum-mismatched forecast catalog returned %d: %q", corruptCatalog.Code, corruptCatalog.Body.String())
+	}
+	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(fixture.currentIndexPath)), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corruptIndex := httptest.NewRecorder()
+	app.handler.ServeHTTP(corruptIndex, httptest.NewRequest(http.MethodGet, "/"+fixture.currentIndexPath, nil))
+	if corruptIndex.Code != http.StatusServiceUnavailable {
+		t.Fatalf("checksum-mismatched forecast index returned %d: %q", corruptIndex.Code, corruptIndex.Body.String())
+	}
+
+	for _, unsafe := range []string{
+		"/forecast/",
+		"/forecast/runs/../current.json",
+		"/forecast/runs/%2e%2e/current.json",
+		"/forecast/runs/run-current/forecast-days/2026-07-23/global/../../index.json",
+	} {
+		response := httptest.NewRecorder()
+		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, unsafe, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("unsafe forecast path %q returned %d: %s", unsafe, response.Code, response.Body.String())
+		}
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		for _, requestPath := range []string{"/forecast/current.json", "/" + fixture.currentIndexPath, "/" + fixture.pointPath} {
+			response := httptest.NewRecorder()
+			app.handler.ServeHTTP(response, httptest.NewRequest(method, requestPath, nil))
+			if response.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s returned %d", method, requestPath, response.Code)
+			}
+		}
+	}
+}
+
+func TestForecastColdMetadataLoadDoesNotReadLargeAssetPayload(t *testing.T) {
+	app := newForecastTestApplication(t)
+	fixture := installForecastHTTPFixture(t, app)
+	if err := os.Truncate(filepath.Join(app.root, filepath.FromSlash(fixture.pointPath)), 2<<30); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	response := httptest.NewRecorder()
+	app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/forecast/current.json", nil))
+	elapsed := time.Since(started)
+	if response.Code != http.StatusOK || response.Body.String() != string(fixture.pointerRaw) {
+		t.Fatalf("cold forecast pointer: %d %+v %q", response.Code, response.Header(), response.Body.String())
+	}
+	if elapsed >= 500*time.Millisecond {
+		t.Fatalf("cold forecast metadata load took %s; asset payload was expected to remain unread", elapsed)
+	}
+	concrete := app.handler.(*application)
+	concrete.forecastMu.Lock()
+	asset := concrete.forecast.assets[fixture.pointPath]
+	asset.bytes = 2 << 30
+	concrete.forecast.assets[fixture.pointPath] = asset
+	concrete.forecastMu.Unlock()
+	headStarted := time.Now()
+	head := httptest.NewRecorder()
+	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/"+fixture.pointPath, nil))
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(2<<30) {
+		t.Fatalf("large forecast asset HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
+	}
+	if elapsed := time.Since(headStarted); elapsed >= 500*time.Millisecond {
+		t.Fatalf("large forecast asset HEAD took %s; payload was expected to remain unread", elapsed)
+	}
+}
+
+func newForecastTestApplication(t *testing.T) testApplication {
+	t.Helper()
+	root, web := t.TempDir(), t.TempDir()
+	artifactFS, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &application{webRoot: web, artifactRoot: root, artifactFS: artifactFS}
+	t.Cleanup(func() { _ = app.close() })
+	return testApplication{handler: app, root: root, web: web}
+}
+
+type forecastHTTPFixture struct {
+	pointerRaw, currentIndexRaw, previousIndexRaw []byte
+	currentID, currentDate                        string
+	currentIndexPath, previousIndexPath           string
+	pointPath, displayPath, scalarPath            string
+	pointRaw, scalarRaw                           []byte
+	catalogPath                                   string
+	catalogRaw                                    []byte
+}
+
+func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPFixture {
+	t.Helper()
+	concrete, ok := app.handler.(*application)
+	if !ok {
+		t.Fatal("test handler is not an application")
+	}
+	currentID, previousID := "run-current", "run-previous"
+	currentDate, previousDate := "2026-07-23", "2026-07-22"
+	pointRaw := []byte(strings.Repeat("forecast-point-block-", 16))
+	scalarRaw := []byte(strings.Repeat("\x32", 1024))
+	displayRaw := []byte(strings.Repeat("display", 64))
+
+	makeIndex := func(id, date string, point, display, scalar []byte) (forecastruns.Index, []byte, forecastruns.IndexReference, string, string, string) {
+		catalog := forecastcatalog.Catalog{
+			ReleaseID: id, LocalDate: date, Tier: forecastpoints.TierGlobal,
+			PointBlocks:   []forecastcatalog.PointBlock{{Path: "point.nwf", Bytes: uint64(len(point)), SHA256: sha256Hex(point), MediaType: forecastpoints.MediaType}},
+			DisplayPoints: []forecastcatalog.DisplayPointTile{{Path: "display.nwt", Bytes: uint64(len(display)), SHA256: sha256Hex(display), MediaType: tiledelivery.PointMediaType}},
+			ScalarTiles:   []forecastcatalog.ScalarTile{{Path: "score.nws", Bytes: uint64(len(scalar)), SHA256: sha256Hex(scalar), MediaType: tiledelivery.ScalarMediaType}},
+		}
+		catalogRaw, err := json.Marshal(catalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalogRaw = append(catalogRaw, '\n')
+		tierRoot := filepath.ToSlash(filepath.Join("forecast", "runs", id, "forecast-days", date, forecastpoints.TierGlobal))
+		catalogPath := tierRoot + "/catalog.json"
+		writeHTTPFixtureFile(t, app.root, catalogPath, catalogRaw)
+		pointPath, displayPath, scalarPath := tierRoot+"/point.nwf", tierRoot+"/display.nwt", tierRoot+"/score.nws"
+		writeHTTPFixtureFile(t, app.root, pointPath, point)
+		writeHTTPFixtureFile(t, app.root, displayPath, display)
+		writeHTTPFixtureFile(t, app.root, scalarPath, scalar)
+		index := forecastruns.Index{IndexID: id, Days: []forecastruns.Day{{Date: date, Tiers: []forecastruns.TierReference{{Date: date, Tier: forecastpoints.TierGlobal, CatalogPath: strings.TrimPrefix(catalogPath, "forecast/"), CatalogBytes: uint64(len(catalogRaw)), CatalogSHA256: sha256Hex(catalogRaw)}}}}}
+		indexRaw, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		indexRaw = append(indexRaw, '\n')
+		indexPath := filepath.ToSlash(filepath.Join("forecast", "runs", id, forecastruns.IndexFilename))
+		writeHTTPFixtureFile(t, app.root, indexPath, indexRaw)
+		return index, indexRaw, forecastruns.IndexReference{IndexID: id, Path: strings.TrimPrefix(indexPath, "forecast/"), SHA256: sha256Hex(indexRaw)}, pointPath, displayPath, scalarPath
+	}
+	current, currentRaw, currentReference, pointPath, displayPath, scalarPath := makeIndex(currentID, currentDate, pointRaw, displayRaw, scalarRaw)
+	previous, previousRaw, previousReference, _, _, _ := makeIndex(previousID, previousDate, []byte("previous point"), []byte("previous display"), []byte("previous scalar"))
+	pointer := forecastruns.Pointer{Version: forecastruns.PointerVersion, Current: currentReference, Previous: &previousReference}
+	pointerRaw, err := json.Marshal(pointer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointerRaw = append(pointerRaw, '\n')
+	writeHTTPFixtureFile(t, app.root, "forecast/current.json", pointerRaw)
+
+	originalLoad, originalParse := loadForecastMetadata, parseForecastCatalog
+	loadForecastMetadata = func(string) (forecastruns.Pointer, forecastruns.Index, *forecastruns.Index, error) {
+		return pointer, current, &previous, nil
+	}
+	parseForecastCatalog = func(encoded []byte) (forecastcatalog.Catalog, error) {
+		var catalog forecastcatalog.Catalog
+		err := json.Unmarshal(encoded, &catalog)
+		return catalog, err
+	}
+	t.Cleanup(func() {
+		loadForecastMetadata, parseForecastCatalog = originalLoad, originalParse
+	})
+	concrete.forecastMu.Lock()
+	concrete.forecast = nil
+	concrete.forecastMu.Unlock()
+	return forecastHTTPFixture{
+		pointerRaw: pointerRaw, currentIndexRaw: currentRaw, previousIndexRaw: previousRaw,
+		currentID: currentID, currentDate: currentDate,
+		currentIndexPath: "forecast/" + currentReference.Path, previousIndexPath: "forecast/" + previousReference.Path,
+		pointPath: pointPath, displayPath: displayPath, scalarPath: scalarPath, pointRaw: pointRaw, scalarRaw: scalarRaw,
+		catalogPath: filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json")),
+		catalogRaw:  readClimateArtifact(t, app.root, filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json"))),
+	}
+}
+
+func writeHTTPFixtureFile(t *testing.T, root, relative string, payload []byte) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package appserver
 
 import (
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -19,6 +21,8 @@ import (
 
 	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/forecastcatalog"
+	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/tiledelivery"
 )
 
@@ -36,6 +40,8 @@ type application struct {
 	snapshotMu   sync.RWMutex
 	snapshot     *releaseSnapshot
 	previous     *releaseAssets
+	forecastMu   sync.Mutex
+	forecast     *forecastSnapshot
 }
 
 type releaseAssets struct {
@@ -48,6 +54,31 @@ type releaseSnapshot struct {
 	manifest    delivery.Manifest
 	manifestRaw []byte
 }
+
+type forecastSnapshot struct {
+	pointerRaw  []byte
+	pointerETag string
+	assets      map[string]forecastAsset
+	runs        map[string]bool
+}
+
+type forecastAsset struct {
+	bytes     uint64
+	sha256    string
+	mediaType string
+}
+
+const (
+	maximumForecastPointerBytes = 2 * 1024
+	maximumForecastIndexBytes   = 64 * 1024
+)
+
+var errForecastPublicationChanged = errors.New("forecast publication changed while loading")
+
+var (
+	loadForecastMetadata = forecastruns.LoadCurrentMetadata
+	parseForecastCatalog = forecastcatalog.Parse
+)
 
 type apiError struct {
 	Error struct {
@@ -221,6 +252,10 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 	if requestPath == "" {
 		requestPath = "index.html"
 	}
+	if strings.HasPrefix(requestPath, "forecast/") {
+		app.serveForecastArtifact(w, r, requestPath)
+		return
+	}
 	root, cache := app.webRoot, "no-cache"
 	if assetPath, immutable, matched, err := staticArtifactPath(requestPath); matched {
 		if err != nil {
@@ -303,6 +338,332 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 	defer file.Close()
 	w.Header().Set("Content-Type", contentType)
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
+}
+
+func (app *application) serveForecastArtifact(w http.ResponseWriter, r *http.Request, requestPath string) {
+	if err := validateForecastRequestPath(requestPath); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_path", "The requested path is invalid.")
+		return
+	}
+	snapshot, err := app.currentForecastSnapshot()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "forecast_unavailable", "The published forecast is not available.")
+		}
+		return
+	}
+	if requestPath == "forecast/current.json" {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", snapshot.pointerETag)
+		http.ServeContent(w, r, "current.json", time.Time{}, bytes.NewReader(snapshot.pointerRaw))
+		return
+	}
+	asset, ok := snapshot.assets[requestPath]
+	if !ok {
+		parts := strings.Split(requestPath, "/")
+		if len(parts) >= 3 && parts[0] == "forecast" && parts[1] == "runs" && !snapshot.runs[parts[2]] {
+			writeError(w, http.StatusConflict, "stale_forecast_run", "This forecast run is not published. Refresh the forecast.")
+			return
+		}
+		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Content-Type", asset.mediaType)
+	w.Header().Set("ETag", `"`+asset.sha256+`"`)
+	compress := r.Header.Get("Range") == "" && isCompressible(asset.mediaType) && acceptsEncoding(r.Header.Get("Accept-Encoding"), "gzip")
+	if isCompressible(asset.mediaType) {
+		w.Header().Set("Vary", "Accept-Encoding")
+	}
+	if ifNoneMatch(r.Header.Get("If-None-Match"), w.Header().Get("ETag")) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	info, err := app.statForecastAsset(requestPath, asset)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "forecast_unavailable", "The published forecast file is not available.")
+		return
+	}
+	w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+	if r.Header.Get("If-None-Match") == "" && notModifiedSince(r.Header.Get("If-Modified-Since"), info.ModTime()) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Accept-Ranges", "bytes")
+		if compress {
+			w.Header().Set("Content-Encoding", "gzip")
+		} else {
+			w.Header().Set("Content-Length", strconv.FormatUint(asset.bytes, 10))
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	payload, err := app.readVerifiedForecastAsset(requestPath, asset)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "forecast_unavailable", "The published forecast file is not available.")
+		return
+	}
+	if compress {
+		serveBytes(w, r, payload, asset.mediaType)
+		return
+	}
+	http.ServeContent(w, r, filepath.Base(requestPath), info.ModTime(), bytes.NewReader(payload))
+}
+
+func (app *application) currentForecastSnapshot() (*forecastSnapshot, error) {
+	app.forecastMu.Lock()
+	defer app.forecastMu.Unlock()
+	pointerRaw, err := app.readBoundedArtifact("forecast/current.json", maximumForecastPointerBytes)
+	if err != nil {
+		return nil, err
+	}
+	if app.forecast != nil && bytes.Equal(pointerRaw, app.forecast.pointerRaw) {
+		return app.forecast, nil
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		next, err := app.loadForecastSnapshot()
+		if errors.Is(err, errForecastPublicationChanged) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		app.forecast = next
+		return next, nil
+	}
+	return nil, errForecastPublicationChanged
+}
+
+func (app *application) loadForecastSnapshot() (*forecastSnapshot, error) {
+	pointer, current, previous, err := loadForecastMetadata(app.artifactRoot)
+	if err != nil {
+		return nil, err
+	}
+	pointerRaw, err := app.readBoundedArtifact("forecast/current.json", maximumForecastPointerBytes)
+	if err != nil {
+		return nil, err
+	}
+	var visible forecastruns.Pointer
+	if err := decodeExactJSON(pointerRaw, &visible); err != nil || !sameForecastPointer(pointer, visible) {
+		return nil, errForecastPublicationChanged
+	}
+	snapshot := &forecastSnapshot{pointerRaw: pointerRaw, assets: make(map[string]forecastAsset), runs: make(map[string]bool)}
+	digest := sha256.Sum256(pointerRaw)
+	snapshot.pointerETag = `"` + hex.EncodeToString(digest[:]) + `"`
+	if err := app.addForecastRun(snapshot, pointer.Current, &current); err != nil {
+		return nil, err
+	}
+	if pointer.Previous != nil {
+		if previous == nil {
+			return nil, errors.New("forecast previous index metadata is missing")
+		}
+		if err := app.addForecastRun(snapshot, *pointer.Previous, previous); err != nil {
+			return nil, err
+		}
+	}
+	after, err := app.readBoundedArtifact("forecast/current.json", maximumForecastPointerBytes)
+	if err != nil || !bytes.Equal(pointerRaw, after) {
+		return nil, errForecastPublicationChanged
+	}
+	return snapshot, nil
+}
+
+func (app *application) addForecastRun(snapshot *forecastSnapshot, reference forecastruns.IndexReference, validated *forecastruns.Index) error {
+	snapshot.runs[reference.IndexID] = true
+	indexPath := "forecast/" + reference.Path
+	encoded, err := app.readBoundedArtifact(indexPath, maximumForecastIndexBytes)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(encoded)
+	if hex.EncodeToString(digest[:]) != reference.SHA256 {
+		return errors.New("forecast index checksum does not match the pointer")
+	}
+	var index forecastruns.Index
+	if err := decodeExactJSON(encoded, &index); err != nil || index.IndexID != reference.IndexID {
+		return errors.New("forecast index identity is invalid")
+	}
+	if validated != nil && !sameForecastIndex(*validated, index) {
+		return errForecastPublicationChanged
+	}
+	if err := addForecastAsset(snapshot.assets, indexPath, forecastAsset{bytes: uint64(len(encoded)), sha256: reference.SHA256, mediaType: "application/json"}); err != nil {
+		return err
+	}
+	for _, day := range index.Days {
+		for _, tier := range day.Tiers {
+			catalogPath := "forecast/" + tier.CatalogPath
+			catalogRaw, err := app.readBoundedArtifact(catalogPath, forecastcatalog.MaximumCatalogBytes)
+			if err != nil {
+				return err
+			}
+			catalogDigest := sha256.Sum256(catalogRaw)
+			if uint64(len(catalogRaw)) != tier.CatalogBytes || hex.EncodeToString(catalogDigest[:]) != tier.CatalogSHA256 {
+				return errors.New("forecast catalogue does not match the run index")
+			}
+			catalog, err := parseForecastCatalog(catalogRaw)
+			if err != nil || catalog.ReleaseID != index.IndexID || catalog.LocalDate != day.Date || catalog.Tier != tier.Tier {
+				return errors.New("forecast catalogue identity is invalid")
+			}
+			if err := addForecastAsset(snapshot.assets, catalogPath, forecastAsset{bytes: uint64(len(catalogRaw)), sha256: tier.CatalogSHA256, mediaType: "application/json"}); err != nil {
+				return err
+			}
+			tierRoot := filepath.ToSlash(filepath.Dir(catalogPath))
+			for _, block := range catalog.PointBlocks {
+				if !block.Omitted {
+					if err := addCatalogForecastAsset(snapshot.assets, tierRoot, block.Path, block.Bytes, block.SHA256, block.MediaType); err != nil {
+						return err
+					}
+				}
+			}
+			for _, point := range catalog.DisplayPoints {
+				if err := addCatalogForecastAsset(snapshot.assets, tierRoot, point.Path, point.Bytes, point.SHA256, point.MediaType); err != nil {
+					return err
+				}
+			}
+			for _, scalar := range catalog.ScalarTiles {
+				if err := addCatalogForecastAsset(snapshot.assets, tierRoot, scalar.Path, scalar.Bytes, scalar.SHA256, scalar.MediaType); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func addCatalogForecastAsset(assets map[string]forecastAsset, root, relative string, size uint64, checksum, mediaType string) error {
+	path := filepath.ToSlash(filepath.Join(root, filepath.FromSlash(relative)))
+	if !strings.HasPrefix(path, root+"/") {
+		return errors.New("forecast catalogue asset path escapes its tier")
+	}
+	return addForecastAsset(assets, path, forecastAsset{bytes: size, sha256: checksum, mediaType: mediaType})
+}
+
+func addForecastAsset(assets map[string]forecastAsset, path string, asset forecastAsset) error {
+	if _, err := safeJoin(".", path); err != nil || asset.bytes == 0 || len(asset.sha256) != sha256.Size*2 || asset.mediaType == "" {
+		return errors.New("forecast asset identity is invalid")
+	}
+	if _, exists := assets[path]; exists {
+		return errors.New("forecast asset path is duplicated")
+	}
+	assets[path] = asset
+	return nil
+}
+
+func (app *application) readBoundedArtifact(requestPath string, maximum int) ([]byte, error) {
+	if err := rejectSymlinkComponents(app.artifactFS, requestPath); err != nil {
+		return nil, err
+	}
+	file, err := app.artifactFS.Open(requestPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > int64(maximum) {
+		return nil, errors.New("forecast publication file is not a bounded regular file")
+	}
+	payload, err := io.ReadAll(io.LimitReader(file, int64(maximum)+1))
+	if err != nil || len(payload) == 0 || len(payload) > maximum {
+		return nil, errors.New("forecast publication file could not be read safely")
+	}
+	return payload, nil
+}
+
+func (app *application) statForecastAsset(requestPath string, asset forecastAsset) (fs.FileInfo, error) {
+	if err := rejectSymlinkComponents(app.artifactFS, requestPath); err != nil {
+		return nil, err
+	}
+	info, err := app.artifactFS.Lstat(requestPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(asset.bytes) {
+		return nil, errors.New("forecast asset size does not match its catalogue")
+	}
+	return info, nil
+}
+
+func (app *application) readVerifiedForecastAsset(requestPath string, asset forecastAsset) ([]byte, error) {
+	if err := rejectSymlinkComponents(app.artifactFS, requestPath); err != nil {
+		return nil, err
+	}
+	file, err := app.artifactFS.Open(requestPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(asset.bytes) {
+		return nil, errors.New("forecast asset size does not match its catalogue")
+	}
+	payload, err := io.ReadAll(io.LimitReader(file, int64(asset.bytes)+1))
+	if err != nil || uint64(len(payload)) != asset.bytes {
+		return nil, errors.New("forecast asset changed while reading")
+	}
+	digest := sha256.Sum256(payload)
+	if hex.EncodeToString(digest[:]) != asset.sha256 {
+		return nil, errors.New("forecast asset checksum does not match its catalogue")
+	}
+	return payload, nil
+}
+
+func ifNoneMatch(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == strings.TrimPrefix(etag, "W/") {
+			return true
+		}
+	}
+	return false
+}
+
+func notModifiedSince(header string, modTime time.Time) bool {
+	if header == "" || modTime.IsZero() {
+		return false
+	}
+	since, err := http.ParseTime(header)
+	return err == nil && !modTime.Truncate(time.Second).After(since)
+}
+
+func validateForecastRequestPath(requestPath string) error {
+	if _, err := safeJoin(".", requestPath); err != nil {
+		return err
+	}
+	if requestPath == "forecast/current.json" {
+		return nil
+	}
+	parts := strings.Split(requestPath, "/")
+	if len(parts) < 4 || parts[0] != "forecast" || parts[1] != "runs" || !validReleaseID(parts[2]) {
+		return errors.New("unsafe forecast asset path")
+	}
+	return nil
+}
+
+func sameForecastPointer(left, right forecastruns.Pointer) bool {
+	if left.Version != right.Version || left.Current != right.Current || (left.Previous == nil) != (right.Previous == nil) {
+		return false
+	}
+	return left.Previous == nil || *left.Previous == *right.Previous
+}
+
+func sameForecastIndex(left, right forecastruns.Index) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func decodeExactJSON(payload []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("JSON has trailing content")
+	}
+	return nil
 }
 
 func (app *application) serveStaticArtifact(w http.ResponseWriter, r *http.Request, requestPath, cache string) {

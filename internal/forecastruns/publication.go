@@ -291,6 +291,61 @@ func ValidateCurrent(artifactRoot string) (Pointer, Index, error) {
 	return pointer, index, nil
 }
 
+// LoadCurrentMetadata validates the mutable pointer and its current and
+// previous immutable index bytes without reading any catalogue-referenced
+// forecast payload. HTTP delivery uses this cheap metadata boundary to decide
+// which run identities may be served; publication remains the owner of the
+// exhaustive catalogue and asset validation.
+func LoadCurrentMetadata(artifactRoot string) (Pointer, Index, *Index, error) {
+	forecastRoot, err := existingPublicationRoot(artifactRoot)
+	if err != nil {
+		return Pointer{}, Index{}, nil, err
+	}
+	payload, err := readRegularBounded(filepath.Join(forecastRoot, "current.json"), maximumPointerBytes)
+	if err != nil {
+		return Pointer{}, Index{}, nil, err
+	}
+	pointer, err := parsePointer(payload)
+	if err != nil {
+		return Pointer{}, Index{}, nil, err
+	}
+	current, err := loadIndexMetadataReference(forecastRoot, pointer.Current)
+	if err != nil {
+		return Pointer{}, Index{}, nil, fmt.Errorf("load current forecast index metadata: %w", err)
+	}
+	var previous *Index
+	if pointer.Previous != nil {
+		loaded, err := loadIndexMetadataReference(forecastRoot, *pointer.Previous)
+		if err != nil {
+			return Pointer{}, Index{}, nil, fmt.Errorf("load previous forecast index metadata: %w", err)
+		}
+		previous = &loaded
+	}
+	return pointer, current, previous, nil
+}
+
+func loadIndexMetadataReference(forecastRoot string, reference IndexReference) (Index, error) {
+	if err := validateIndexReferenceShape(reference); err != nil {
+		return Index{}, err
+	}
+	payload, err := readRegularBounded(filepath.Join(forecastRoot, filepath.FromSlash(reference.Path)), maximumIndexBytes)
+	if err != nil {
+		return Index{}, err
+	}
+	digest := sha256.Sum256(payload)
+	if hex.EncodeToString(digest[:]) != reference.SHA256 {
+		return Index{}, errors.New("forecast index checksum does not match its pointer")
+	}
+	index, err := parseIndex(payload)
+	if err != nil {
+		return Index{}, err
+	}
+	if index.IndexID != reference.IndexID {
+		return Index{}, errors.New("forecast index path and identity differ")
+	}
+	return index, nil
+}
+
 func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 	runRoot := filepath.Join(forecastRoot, "runs", indexID)
 	entries, err := readRealDirectory(runRoot)

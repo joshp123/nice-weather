@@ -69,6 +69,43 @@ func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestLoadCurrentMetadataReadsOnlyPointerAndIndexes(t *testing.T) {
+	useFixtureTierLoader(t)
+	artifacts := publicationFixture(t)
+	createRun(t, artifacts, "run-one", "2026-07-23", "2026-07-22T12:00:00Z", nil)
+	if _, err := Publish(context.Background(), artifacts, "run-one"); err != nil {
+		t.Fatal(err)
+	}
+	createRun(t, artifacts, "run-two", "2026-07-24", "2026-07-23T12:00:00Z", nil)
+	pointer, err := Publish(context.Background(), artifacts, "run-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sparse := filepath.Join(artifacts, "forecast", "runs", "run-two", "forecast-days", "2026-07-24", forecastpoints.TierGlobal, "large-unread-payload")
+	file, err := os.Create(sparse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(2 << 30); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	visible, current, previous, err := LoadCurrentMetadata(artifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+		t.Fatalf("metadata load took %s; forecast payload tree was expected to remain unread", elapsed)
+	}
+	if !samePointer(visible, pointer) || current.IndexID != "run-two" || previous == nil || previous.IndexID != "run-one" {
+		t.Fatalf("metadata = %+v current=%+v previous=%+v", visible, current, previous)
+	}
+}
+
 func TestPublishRejectsIncompleteDishonestAndUnsafeRuns(t *testing.T) {
 	useFixtureTierLoader(t)
 	tests := []struct {
