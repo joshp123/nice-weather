@@ -362,7 +362,13 @@ export default function App() {
       <header className="masthead">
         <div className="mastheadIdentity">
           <div className="wordmark" aria-label="Nice Weather"><SunMark /><span>Nice Weather</span></div>
-          <PeriodStatus view={view} climate={climateModel} forecast={forecastState.status === 'ready' ? forecastState.snapshot : undefined} day={forecastDayState.status === 'ready' ? forecastDayState.product : undefined} />
+          <PeriodStatus
+            view={view}
+            climate={climateModel}
+            forecast={forecastState.status === 'ready' ? forecastState.snapshot : undefined}
+            day={forecastDayState.status === 'ready' ? forecastDayState.product : undefined}
+            selectedForecast={pointState.status === 'ready' && pointState.kind === 'forecast' ? pointState.data : undefined}
+          />
         </div>
         <PlaceSearch viewport={viewport} view={view} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onLocate={() => locate((point) => {
           setMapSelectionToken((value) => value + 1);
@@ -778,7 +784,7 @@ function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'r
       </dl>
       <ForecastFingerprint days={data.days} legend={legend} />
       <ComponentRows data={data} legend={legend} />
-      <p className="sourceLine">{pointSourceLabel(data.source)}</p>
+      <p className="sourceLine">{pointSourceLine(data.source)}</p>
     </>
   );
 }
@@ -805,7 +811,7 @@ function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; 
           <div><dt>Humidity</dt><dd>{optional(data.metrics.humidityPct, (value) => `${format(value, 0)}%`)}</dd></div>
         </dl>
       </details>
-      <p className="sourceLine">{pointSourceLabel(data.source)}</p>
+      <p className="sourceLine">{pointSourceLine(data.source)}</p>
     </>
   );
 }
@@ -960,24 +966,39 @@ export function rangeLensAsset(window: WeatherManifest['forecast']['window'], pr
   return window.lenses[lens];
 }
 
-function PeriodStatus({ view, climate, forecast, day }: { view: View; climate: ClimateUiModel; forecast?: ForecastSnapshot; day?: DayForecastProduct }) {
+function PeriodStatus({ view, climate, forecast, day, selectedForecast }: { view: View; climate: ClimateUiModel; forecast?: ForecastSnapshot; day?: DayForecastProduct; selectedForecast?: PointWeather }) {
   const status = view === 'climate'
     ? { primary: climate.complete ? 'Recent climate' : 'Climate preview', meta: climate.referencePeriod ? `${climate.referencePeriod} · worldwide` : '', stale: false }
-    : worldwideForecastStatus(forecast, day);
+    : worldwideForecastStatus(forecast, day, selectedForecast);
   return <p className="metaLine mapStatus" role="status">
     <span className={status.stale ? 'statusPrimary isStale' : 'statusPrimary'}>{status.primary}</span>
     {status.meta && <><span className="statusSeparator" aria-hidden="true">·</span><span className="statusMeta">{status.meta}</span></>}
   </p>;
 }
 
-function worldwideForecastStatus(forecast?: ForecastSnapshot, day?: DayForecastProduct): { primary: string; meta: string; stale: boolean } {
+function worldwideForecastStatus(forecast?: ForecastSnapshot, day?: DayForecastProduct, selectedForecast?: PointWeather): { primary: string; meta: string; stale: boolean } {
   if (!forecast) return { primary: 'Loading forecast', meta: '', stale: false };
   const run = day?.tiers.find(({ tier }) => tier === 'global')?.evidence.runUtc ?? forecast.range.source.runUtc;
   const status = forecastRunStatus(run, forecast.range.source.staleAfterHours);
-  const detail = day?.tiers.some(({ tier }) => tier === 'europe-detail')
+  const detail = selectedForecast
+    ? selectedForecastDetail(selectedForecast)
+    : day?.tiers.some(({ tier }) => tier === 'europe-detail')
     ? 'Worldwide · European detail about 7 km'
     : 'Worldwide · about 28 km';
   return { primary: status.stale ? 'Forecast out of date' : status.label, meta: detail, stale: status.stale };
+}
+
+function selectedForecastDetail(data: PointWeather): string {
+  if (data.source.basis === 'forecast-window') return `Worldwide · about ${Math.round(data.source.resolutionKm)} km`;
+  if (data.source.basis === 'climate') return `Worldwide · about ${Math.round(data.source.resolutionKm)} km`;
+  const scope = data.source.detailLabel === 'Detailed forecast' ? 'European detail' : 'Worldwide';
+  return `${scope} · about ${Math.round(data.source.resolutionKm)} km`;
+}
+
+function pointSourceLine(source: PointWeather['source']): string {
+  if (source.basis !== 'forecast' || source.detailLabel !== source.providerLabel) return pointSourceLabel(source);
+  const detail = source.temporalResolutionHours === 1 ? 'hourly detail' : `up to ${source.temporalResolutionHours}-hour detail`;
+  return `${source.detailLabel} · about ${Math.round(source.resolutionKm)} km · ${detail}`;
 }
 
 export function periodStatus(manifest: WeatherManifest, view: View, period?: Period, climate?: ClimateUiModel): { primary: string; meta: string; stale: boolean } {

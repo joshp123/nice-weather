@@ -167,9 +167,9 @@ button:disabled { cursor: default; }
 .periodRailWrap { position: relative; padding-top: var(--space-1); border-top: 1px solid var(--hairline); }
 .periodRail { display: flex; gap: var(--space-1); margin: 0; padding: 0; overflow-x: auto; scrollbar-width: none; }
 .periodRail::-webkit-scrollbar { display: none; }
-.periodRailWrap::before, .periodRailWrap::after { position: absolute; z-index: 2; top: var(--space-1); bottom: 0; width: 28px; opacity: 0; pointer-events: none; content: ""; transition: opacity 120ms ease-out; }
-.periodRailWrap::before { left: 0; background: linear-gradient(90deg, var(--surface-solid), rgba(255,253,247,0)); }
-.periodRailWrap::after { right: 0; background: linear-gradient(270deg, var(--surface-solid), rgba(255,253,247,0)); }
+.periodRailWrap::before, .periodRailWrap::after { position: absolute; z-index: 2; top: var(--space-1); bottom: 0; display: grid; place-items: center; width: 32px; opacity: 0; pointer-events: none; color: var(--ink); font-size: 18px; font-weight: 700; line-height: 1; transition: opacity 120ms ease-out; }
+.periodRailWrap::before { left: 0; justify-items: start; padding-left: 2px; background: linear-gradient(90deg, var(--surface-solid) 28%, rgba(255,253,247,0)); content: "‹"; }
+.periodRailWrap::after { right: 0; justify-items: end; padding-right: 2px; background: linear-gradient(270deg, var(--surface-solid) 28%, rgba(255,253,247,0)); content: "›"; }
 .periodRailWrap[data-has-before="true"]::before, .periodRailWrap[data-has-more="true"]::after { opacity: 1; }
 .periodRail button { flex: 1 0 52px; min-width: 52px; height: var(--control-height); padding: var(--space-1); border: 0; border-radius: var(--radius-inner); background: transparent; color: var(--muted); scroll-margin-inline: 28px; cursor: pointer; }
 .periodRail button:hover { color: var(--ink); background: rgba(32, 36, 45, .05); }
@@ -181,6 +181,7 @@ button:disabled { cursor: default; }
 .dockMessage button { height: var(--control-height); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-inner); background: var(--surface-solid); cursor: pointer; }
 
 .pointPanel { position: absolute; z-index: 11; top: 76px; right: 62px; width: 356px; max-height: calc(100% - 186px); padding: var(--space-4); overflow: auto; scrollbar-width: thin; }
+.pointPanel, .searchPopover, .toolbarPopover, .legendPopover { background: var(--surface-solid); }
 .pointPanel:focus { outline: 0; }
 .pointPanel:focus-visible { box-shadow: var(--shadow-surface), inset 0 0 0 2px var(--focus); }
 .pointPanelHeader { position: relative; }
@@ -292,6 +293,8 @@ button:disabled { cursor: default; }
   .hasRail .pointPanel { bottom: 136px; max-height: 36dvh; }
   .pointPanel.expanded { max-height: 62dvh; }
   .hasRail .pointPanel.expanded { max-height: 54dvh; }
+  .appShell:has(.pointPanel.expanded) .cockpit { display: none; }
+  .pointPanel.expanded, .hasRail .pointPanel.expanded { bottom: var(--space-2); max-height: calc(100dvh - 84px); }
   .pointPanel.expanded .pointPanelHeader { flex: 0 0 auto; }
   .pointPanelBody { min-height: 0; }
   .pointPanel.expanded .pointPanelBody { margin: 0 calc(-1 * var(--space-4)); padding: 0 var(--space-4) var(--space-3); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
