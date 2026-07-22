@@ -79,12 +79,12 @@ func BuildMonth(ctx context.Context, config Config) (climatetiles.Catalog, error
 	}
 
 	cache := newMonthCache(ctx, int(config.Month)-1, config.LoadCheckpoint, identities)
-	pointBlocks, err := writePointBlocks(ctx, config, cache)
+	pointBlocks, omittedPointBlocks, err := writePointBlocks(ctx, config, cache)
 	if err != nil {
 		return climatetiles.Catalog{}, err
 	}
-	if len(pointBlocks) != len(config.Checkpoints) {
-		return climatetiles.Catalog{}, fmt.Errorf("climate month wrote %d point blocks for %d supplied checkpoint identities", len(pointBlocks), len(config.Checkpoints))
+	if len(pointBlocks)+len(omittedPointBlocks) != len(config.Checkpoints) {
+		return climatetiles.Catalog{}, fmt.Errorf("climate month accounted for %d point blocks and %d source-unsupported checkpoints from %d supplied checkpoint identities", len(pointBlocks), len(omittedPointBlocks), len(config.Checkpoints))
 	}
 	if len(cache.qualityBlocks) != len(config.Checkpoints) {
 		return climatetiles.Catalog{}, fmt.Errorf("climate month measured source quality for %d of %d checkpoints", len(cache.qualityBlocks), len(config.Checkpoints))
@@ -103,7 +103,7 @@ func BuildMonth(ctx context.Context, config Config) (climatetiles.Catalog, error
 	if err != nil {
 		return climatetiles.Catalog{}, err
 	}
-	if err := verifyCompleteCoverage(config.Checkpoints, pointBlocks, fields, scalars); err != nil {
+	if err := verifyCompleteCoverage(config.Checkpoints, pointBlocks, omittedPointBlocks, fields, scalars); err != nil {
 		return climatetiles.Catalog{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -334,41 +334,53 @@ func climateMonthPayloadSHA256(records []delivery.ClimateDistributionRecord) ([s
 	return result, nil
 }
 
-func writePointBlocks(ctx context.Context, config Config, cache *monthCache) ([]climatetiles.PointBlock, error) {
+func writePointBlocks(ctx context.Context, config Config, cache *monthCache) ([]climatetiles.PointBlock, map[agera5.BlockCoordinate]struct{}, error) {
 	result := make([]climatetiles.PointBlock, 0, len(config.Checkpoints))
+	omitted := make(map[agera5.BlockCoordinate]struct{})
 	for _, identity := range config.Checkpoints {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		block, found, err := cache.get(identity.Block)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("missing configured climate checkpoint block %+v", identity.Block)
+			return nil, nil, fmt.Errorf("missing configured climate checkpoint block %+v", identity.Block)
+		}
+		payloadDigest, err := climateMonthPayloadSHA256(block.records)
+		if err != nil {
+			return nil, nil, fmt.Errorf("digest climate checkpoint block %+v month: %w", identity.Block, err)
+		}
+		if err := cache.register(identity.Block, payloadDigest); err != nil {
+			return nil, nil, err
 		}
 		path := filepath.Join(config.Stage.ReleaseRoot, filepath.FromSlash(climatetiles.PointBlockPath(config.Period, identity.Block)))
 		asset, err := tiledelivery.WriteClimateBlock(path, config.Stage.ReleaseID, config.Period, identity.Block, block.records)
 		if err != nil {
-			return nil, fmt.Errorf("write climate point block %+v: %w", identity.Block, err)
+			return nil, nil, fmt.Errorf("write climate point block %+v: %w", identity.Block, err)
 		}
 		if asset.Omitted {
+			if asset.DataRecords != 0 || int(asset.NoDataRecords) != len(block.records) {
+				return nil, nil, fmt.Errorf("climate point block %+v omitted a data-bearing or partial checkpoint", identity.Block)
+			}
+			omitted[identity.Block] = struct{}{}
 			continue
 		}
 		digest, err := decodeSHA256(asset.PayloadSHA256)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if err := cache.register(identity.Block, digest); err != nil {
-			return nil, err
+		if digest != payloadDigest {
+			return nil, nil, fmt.Errorf("climate point payload digest changed for block %+v", identity.Block)
 		}
 		entry, err := climatetiles.PointBlockFromAsset(config.Stage.ReleaseRoot, asset)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		result = append(result, entry)
 	}
-	return result, nil
+	return result, omitted, nil
 }
 
 func decodeSHA256(value string) ([sha256.Size]byte, error) {
@@ -675,17 +687,26 @@ func scalarAsset(config Config, scalar climatetiles.ScalarTile, id tiledelivery.
 	}
 }
 
-func verifyCompleteCoverage(identities []climatebuild.CheckpointIdentity, points []climatetiles.PointBlock, fields []climatetiles.Field, scalars []climatetiles.ScalarTile) error {
+func verifyCompleteCoverage(identities []climatebuild.CheckpointIdentity, points []climatetiles.PointBlock, omitted map[agera5.BlockCoordinate]struct{}, fields []climatetiles.Field, scalars []climatetiles.ScalarTile) error {
 	pointSet := make(map[agera5.BlockCoordinate]struct{}, len(points))
 	for _, point := range points {
-		pointSet[agera5.BlockCoordinate{Latitude: point.LatitudeBlock, Longitude: point.LongitudeBlock}] = struct{}{}
+		block := agera5.BlockCoordinate{Latitude: point.LatitudeBlock, Longitude: point.LongitudeBlock}
+		if _, duplicate := pointSet[block]; duplicate {
+			return fmt.Errorf("duplicate climate point block %+v", block)
+		}
+		if _, sourceUnsupported := omitted[block]; sourceUnsupported {
+			return fmt.Errorf("climate checkpoint %+v is both published and source-unsupported", block)
+		}
+		pointSet[block] = struct{}{}
 	}
-	if len(pointSet) != len(identities) {
-		return errors.New("climate point blocks do not cover every supplied checkpoint exactly once")
+	if len(pointSet)+len(omitted) != len(identities) {
+		return errors.New("climate point blocks and source-unsupported checkpoints do not account for every supplied checkpoint exactly once")
 	}
 	for _, identity := range identities {
-		if _, ok := pointSet[identity.Block]; !ok {
-			return fmt.Errorf("climate point blocks omit supplied checkpoint %+v", identity.Block)
+		_, published := pointSet[identity.Block]
+		_, sourceUnsupported := omitted[identity.Block]
+		if published == sourceUnsupported {
+			return fmt.Errorf("climate checkpoint %+v is not accounted for exactly once", identity.Block)
 		}
 	}
 	type coordinate struct {

@@ -3,6 +3,7 @@ package climateassembly
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
@@ -130,9 +131,9 @@ func TestEveryClimateFieldMapsItsOnlyCanonicalValue(t *testing.T) {
 	}
 }
 
-func TestAllNoDataCheckpointIsOmittedAndCannotBecomeACompleteMonth(t *testing.T) {
+func TestOnlySourceUnsupportedCheckpointIsOmittedAndCannotBecomeACompleteMonth(t *testing.T) {
 	checkpoint := emptyCheckpoint(t, agera5.BlockCoordinate{Latitude: 79, Longitude: 54})
-	stage := testStage(t, "all-water")
+	stage := testStage(t, "source-unsupported-only")
 	config := Config{
 		Stage: stage, Period: "month-01", Month: time.January,
 		Checkpoints: []climatebuild.CheckpointIdentity{checkpoint.Identity},
@@ -140,12 +141,43 @@ func TestAllNoDataCheckpointIsOmittedAndCannotBecomeACompleteMonth(t *testing.T)
 			return checkpoint, nil
 		},
 	}
-	if _, err := BuildMonth(context.Background(), config); err == nil || !strings.Contains(err.Error(), "0 point blocks") {
+	if _, err := BuildMonth(context.Background(), config); err == nil || !strings.Contains(err.Error(), "no scalar data") {
 		t.Fatalf("all-no-data build error = %v", err)
 	}
 	pointPath := filepath.Join(stage.ReleaseRoot, filepath.FromSlash(climatetiles.PointBlockPath(config.Period, checkpoint.Identity.Block)))
 	if _, err := os.Lstat(pointPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("all-no-data point block exists: %v", err)
+	}
+}
+
+func TestSourceUnsupportedCheckpointIsOmittedBesideCompleteData(t *testing.T) {
+	complete := patchCheckpoint(t)
+	unsupported := emptyCheckpoint(t, agera5.BlockCoordinate{Latitude: 79, Longitude: 55})
+	stage := testStage(t, "source-unsupported-beside-data")
+	checkpoints := map[agera5.BlockCoordinate]climatebuild.Checkpoint{
+		complete.Identity.Block:    complete,
+		unsupported.Identity.Block: unsupported,
+	}
+	catalog, err := BuildMonth(context.Background(), Config{
+		Stage: stage, Period: "month-01", Month: time.January,
+		Checkpoints: []climatebuild.CheckpointIdentity{complete.Identity, unsupported.Identity},
+		LoadCheckpoint: func(_ context.Context, identity climatebuild.CheckpointIdentity) (climatebuild.Checkpoint, error) {
+			return checkpoints[identity.Block], nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.PointBlocks) != 1 || catalog.PointBlocks[0].LatitudeBlock != complete.Identity.Block.Latitude || catalog.PointBlocks[0].LongitudeBlock != complete.Identity.Block.Longitude {
+		t.Fatalf("point blocks = %+v; want only complete block %+v", catalog.PointBlocks, complete.Identity.Block)
+	}
+	wantMaskSet := landMaskSetSHA256([]climatebuild.CheckpointIdentity{complete.Identity, unsupported.Identity})
+	if catalog.Provenance.LandMaskSetSHA256 != hex.EncodeToString(wantMaskSet[:]) {
+		t.Fatalf("land-mask set = %s; want %x", catalog.Provenance.LandMaskSetSHA256, wantMaskSet)
+	}
+	unsupportedPath := filepath.Join(stage.ReleaseRoot, filepath.FromSlash(climatetiles.PointBlockPath("month-01", unsupported.Identity.Block)))
+	if _, err := os.Lstat(unsupportedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source-unsupported point block exists: %v", err)
 	}
 }
 
@@ -291,6 +323,52 @@ func TestCheckpointLoaderCacheRetainsOnlyOneMonthAndFixedBlockCount(t *testing.T
 	}
 	if loads != len(ordered)+1 {
 		t.Fatalf("loader calls=%d; want %d after one bounded-cache reload", loads, len(ordered)+1)
+	}
+}
+
+func TestOmittedCheckpointPayloadCannotBecomeDataBearingDuringAssembly(t *testing.T) {
+	omitted := emptyCheckpoint(t, agera5.BlockCoordinate{Latitude: 79, Longitude: 54})
+	identities := map[agera5.BlockCoordinate]climatebuild.CheckpointIdentity{omitted.Identity.Block: omitted.Identity}
+	ordered := make([]climatebuild.CheckpointIdentity, 0, checkpointCacheEntries)
+	for latitude := 3; latitude <= 109 && len(ordered) < checkpointCacheEntries; latitude++ {
+		for longitude := 0; longitude <= 112 && len(ordered) < checkpointCacheEntries; longitude++ {
+			coordinate := agera5.BlockCoordinate{Latitude: latitude, Longitude: longitude}
+			if coordinate == omitted.Identity.Block {
+				continue
+			}
+			identity := checkpointIdentity(t, coordinate)
+			identities[coordinate] = identity
+			ordered = append(ordered, identity)
+		}
+	}
+	loads := make(map[agera5.BlockCoordinate]int)
+	loader := func(_ context.Context, identity climatebuild.CheckpointIdentity) (climatebuild.Checkpoint, error) {
+		loads[identity.Block]++
+		checkpoint := emptyCheckpoint(t, identity.Block)
+		if identity.Block == omitted.Identity.Block && loads[identity.Block] > 1 {
+			checkpoint.Months[0][0] = distribution(75)
+		}
+		return checkpoint, nil
+	}
+	cache := newMonthCache(context.Background(), 0, loader, identities)
+	first, found, err := cache.get(omitted.Identity.Block)
+	if err != nil || !found {
+		t.Fatalf("load omitted checkpoint: found=%t err=%v", found, err)
+	}
+	digest, err := climateMonthPayloadSHA256(first.records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.register(omitted.Identity.Block, digest); err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range ordered {
+		if _, found, err := cache.get(identity.Block); err != nil || !found {
+			t.Fatalf("fill cache with block %+v: found=%t err=%v", identity.Block, found, err)
+		}
+	}
+	if _, _, err := cache.get(omitted.Identity.Block); err == nil || !strings.Contains(err.Error(), "changed between point and scalar assembly") {
+		t.Fatalf("changed omitted checkpoint error = %v", err)
 	}
 }
 
