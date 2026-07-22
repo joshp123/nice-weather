@@ -567,6 +567,7 @@ function ScoreGuide({ manifest, climate }: { manifest: WeatherPresentation; clim
         {climate ? <>
           <p>The map shows the percentage of real days rated Good or better from 2006 to 2025.</p>
           <p>Comfort, Dry and Bright show the same chance for each part. Calm uses the selected weather preference.</p>
+          <p>Chance of 3 poor days in a row means a seven-day window contains at least three consecutive Poor or Awful days.</p>
         </> : <>
         <p>Overall score starts with four scores. Severe heat, cold, rain or wind can cap it.</p>
         <p><strong>Warm &amp; sunny</strong> · {PROFILE_WEIGHT_NOTES.nice}</p>
@@ -758,23 +759,27 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
         </div>
       )}
     </form>
-    {recommendation && <button className="controlSurface recommendationTrigger" type="button" aria-label={`Best weather: ${recommendation.name}, score ${recommendation.score}. Show all six recommendations.`} aria-controls="place-results" onClick={openBestWeather}>
-      <span><small>Best</small><strong>{recommendation.name}</strong></span><b>{recommendation.score}</b>
-    </button>}
+    {recommendation && <BestWeatherTrigger recommendation={recommendation} onOpen={openBestWeather} />}
     </div>
   );
 }
 
-function BestWeatherResults({ state, onChoose }: { state: BestWeatherState; onChoose: (result: BestWeatherPlace) => void }) {
+export function BestWeatherTrigger({ recommendation, onOpen }: { recommendation: BestWeatherPlace; onOpen: () => void }) {
+  return <button className="controlSurface recommendationTrigger" type="button" aria-label={`Best weather: ${recommendation.name}, ${recommendation.country}, score ${recommendation.score}. Show all six recommendations.`} aria-controls="place-results" onClick={onOpen}>
+    <span><small><span className="recommendationPrefix">Best · </span>{recommendation.country}</small><strong>{recommendation.name}</strong></span><b>{recommendation.score}</b>
+  </button>;
+}
+
+export function BestWeatherResults({ state, onChoose }: { state: BestWeatherState; onChoose: (result: BestWeatherPlace) => void }) {
   if (state.status === 'idle') return null;
   if (state.status === 'loading') return <p role="status">Finding the best weather…</p>;
   if (state.status === 'unavailable') return <p role="status">Best weather is not available right now.</p>;
   return <>
-    <div className="bestWeatherHeading"><strong>Best weather</strong><span>Next 14 days</span></div>
+    <div className="bestWeatherHeading"><strong>{state.profile === 'cycling' ? 'Best for cycling' : 'Best weather'}</strong><span>Next 14 days</span></div>
     <ul aria-label="Best weather worldwide">{state.results.map((result) => <li key={result.geonameId}>
-      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onChoose(result)}>
+      <button type="button" aria-label={`${result.name}, ${[result.admin1, result.country].filter(Boolean).join(', ')}, score ${result.score}, ${forecastOutcomeCopy(state.profile, result.niceDays).summaryLabel}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onChoose(result)}>
         <span className="bestPlace"><strong>{result.name}</strong><small>{[result.admin1, result.country].filter(Boolean).join(', ')}</small></span>
-        <span className="bestScore"><strong>{result.score}</strong><small>{result.niceDays} of 14 nice</small></span>
+        <span className="bestScore"><strong>{result.score}</strong><small>{result.niceDays}/14 {state.profile === 'cycling' ? 'cycling' : 'nice'}</small></span>
       </button>
     </li>)}</ul>
   </>;
@@ -806,7 +811,7 @@ function PointPanel({ state, point, legend, lens, profile, climateModel, focusIn
         {state.status === 'ready' && (state.kind === 'climate'
           ? <ClimateDetails data={state.data} point={point} profile={profile} lens={lens} onLensChange={onLensChange} climateModel={climateModel} />
           : state.data.kind === 'range'
-            ? <RangeDetails data={state.data} legend={legend} />
+            ? <RangeDetails data={state.data} legend={legend} profile={profile} />
             : <DailyDetails data={state.data} legend={legend} lens={lens} onLensChange={onLensChange} />)}
         {state.status === 'idle' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}°</p></div>}
       </div>
@@ -831,7 +836,7 @@ export function ClimateDetails({ data, point, profile, lens, onLensChange, clima
     <dl className="climateFacts">
       <div><dd>{evidence.goodOrBetterPercent}%</dd><dt>{outcome.daysLabel}</dt></div>
       <div className={evidence.awfulPercent > 0 ? 'bad' : ''}><dd>{evidence.awfulPercent}%</dd><dt>Awful days</dt></div>
-      <div><dd>{formatPermille(evidence.poorWeekPermille)}</dd><dt>Chance of a poor week</dt></div>
+      <div><dd>{formatPermille(evidence.poorWeekPermille)}</dd><dt>Chance of 3 poor days in a row</dt></div>
       <div><dd>{evidence.medianScore}</dd><dt>Median score</dt></div>
     </dl>
     <ClimateComponentRows data={data} profile={profile} active={lens} onChange={onLensChange} />
@@ -867,21 +872,22 @@ function ClimateComponentRows({ data, profile, active, onChange }: { data: Clima
   ))}</div>;
 }
 
-function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint }) {
+export function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint }) {
   const eyebrow = data.kind === 'range'
     ? `${shortRange(data.window.startDate, data.window.endDate)} · ${dayCountLabel(data.window.dayCount)}`
     : data.source.basis === 'climate' ? `${data.periodLabel} · monthly average` : data.periodLabel;
   return <PointHeading point={point} eyebrow={eyebrow} score={data.score} category={data.category} />;
 }
 
-function RangeDetails({ data, legend }: { data: Extract<PointWeather, { kind: 'range' }>; legend: WeatherPresentation['legend'] }) {
+export function RangeDetails({ data, legend, profile }: { data: Extract<PointWeather, { kind: 'range' }>; legend: WeatherPresentation['legend']; profile: Profile }) {
   const evidence = forecastScoreEvidence(data.days, legend);
+  const outcome = forecastOutcomeCopy(profile, data.window.niceDays);
   return (
     <>
       <p className="phonePointSummary">{evidence}</p>
       <p className="rangeEvidence">{evidence}</p>
       <dl className="rangeFacts">
-        <div><dd>{data.window.niceDays}</dd><dt>Nice days</dt></div>
+        <div><dd>{data.window.niceDays}</dd><dt>{outcome.daysLabel}</dt></div>
         <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
         <div><dd>{data.window.longestPoorRun}<small> {data.window.longestPoorRun === 1 ? 'day' : 'days'}</small></dd><dt>Longest poor run</dt></div>
       </dl>
@@ -920,7 +926,7 @@ function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; 
 }
 
 function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; eyebrow: string; score: number; category: string }) {
-  return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{Math.round(score)}</strong><span>{category}</span></div></div>;
+  return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{Math.round(score)}</strong><span>Overall · {category}</span></div></div>;
 }
 
 function ComponentRows({ data, legend, active, onChange }: { data: PointWeather; legend: WeatherPresentation['legend']; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
@@ -1028,6 +1034,12 @@ function climateOutcomeCopy(profile: Profile): Readonly<{ daysLabel: string; sum
   return profile === 'cycling'
     ? { daysLabel: 'Good cycling days', summaryLabel: 'good for cycling', rareLabel: 'Rarely good', usualLabel: 'Usually good', rampAriaLabel: 'Climate colours run from Rarely good for cycling to Usually good for cycling' }
     : { daysLabel: 'Nice days', summaryLabel: 'nice', rareLabel: 'Rarely nice', usualLabel: 'Usually nice', rampAriaLabel: 'Climate colours run from Rarely nice to Usually nice' };
+}
+
+export function forecastOutcomeCopy(profile: Profile, goodDays: number): Readonly<{ daysLabel: string; summaryLabel: string }> {
+  return profile === 'cycling'
+    ? { daysLabel: 'Good cycling days', summaryLabel: `${goodDays} of 14 good for cycling` }
+    : { daysLabel: 'Nice days', summaryLabel: `${goodDays} of 14 nice` };
 }
 
 function formatPermille(value: number): string {

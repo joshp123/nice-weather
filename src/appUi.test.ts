@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, topBestWeatherRecommendation, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, BestWeatherResults, BestWeatherTrigger, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastOutcomeCopy, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, PointHeadingFor, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, RangeDetails, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, topBestWeatherRecommendation, wetDaytimeDuration } from './App';
 import type { BestWeatherPlace } from './data/bestWeather';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
-import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
+import type { DailyPoint, ForecastWindowPoint, WeatherImage, WeatherManifest } from './data/types';
 
 const detailGrid = { west: -24, east: 45, south: 29, north: 71.5, rows: 680, columns: 1104 };
 const detailPointBlock = {
@@ -310,7 +310,7 @@ describe('clear weather copy', () => {
       data, point: { lat: 36.72, lon: -4.42 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
     }));
     expect(climateSummary(data, 'nice')).toBe('68% nice · 9% awful · median 71');
-    for (const copy of ['Nice days', 'Awful days', 'Chance of a poor week', 'Median score', 'Comfort', 'Dry', 'Bright', 'Calm']) expect(nice).toContain(copy);
+    for (const copy of ['Nice days', 'Awful days', 'Chance of 3 poor days in a row', 'Median score', 'Comfort', 'Dry', 'Bright', 'Calm']) expect(nice).toContain(copy);
     for (const value of ['77%', '82%', '74%', '61%']) expect(nice).toContain(value);
     expect(nice.match(/aria-pressed=/g)).toHaveLength(4);
     expect(nice).toContain('12.3%');
@@ -352,6 +352,7 @@ describe('clear weather copy', () => {
     const cycling = renderToStaticMarkup(createElement(LayerLegend, { ...props, profile: 'cycling' }));
     expect(cycling).toContain('aria-label="Choose map lens and explain scores. Active: Good cycling days"');
     expect(cycling).toContain('>Good cycling days<');
+    expect(cycling).toContain('Chance of 3 poor days in a row means a seven-day window contains at least three consecutive Poor or Awful days.');
   });
 
   it('falls back to the declared range detail when no daily split is present', () => {
@@ -381,10 +382,48 @@ describe('clear weather copy', () => {
     expect(topBestWeatherRecommendation(nice, 'nice', true, 'Mal', false)).toBeUndefined();
     expect(topBestWeatherRecommendation(nice, 'nice', true, '', true)).toBeUndefined();
 
+    const trigger = renderToStaticMarkup(createElement(BestWeatherTrigger, { recommendation: place('Málaga', 82), onOpen: vi.fn() }));
+    expect(trigger).toContain('<small><span class="recommendationPrefix">Best · </span>Spain</small><strong>Málaga</strong>');
+    expect(trigger).toContain('aria-label="Best weather: Málaga, Spain, score 82. Show all six recommendations."');
+
+    const niceResults = renderToStaticMarkup(createElement(BestWeatherResults, { state: nice, onChoose: vi.fn() }));
+    expect(niceResults).toContain('10/14 nice');
+    expect(niceResults).toContain('10 of 14 nice');
+    const cyclingResults = renderToStaticMarkup(createElement(BestWeatherResults, { state: cycling, onChoose: vi.fn() }));
+    expect(cyclingResults).toContain('Best for cycling');
+    expect(cyclingResults).toContain('10/14 cycling');
+    expect(cyclingResults).toContain('10 of 14 good for cycling');
+    expect(forecastOutcomeCopy('nice', 9)).toEqual({ daysLabel: 'Nice days', summaryLabel: '9 of 14 nice' });
+    expect(forecastOutcomeCopy('cycling', 9)).toEqual({ daysLabel: 'Good cycling days', summaryLabel: '9 of 14 good for cycling' });
+
     const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
     expect(app).toContain('}, [bestWeatherAllowed, forecast, profile]);');
-    expect(app).toContain('onClick={openBestWeather}');
+    expect(app).toContain('onOpen={openBestWeather}');
     expect(app).toContain('Show all six recommendations.');
+  });
+
+  it('labels forecast headline scores as Overall', () => {
+    const markup = renderToStaticMarkup(createElement(PointHeadingFor, {
+      data: { kind: 'daily', periodLabel: 'Wed 22 Jul', source: { basis: 'forecast' }, score: 82, category: 'Excellent' } as DailyPoint,
+      point: { lat: 36.72, lon: -4.42, label: 'Málaga' },
+    }));
+    expect(markup).toContain('<strong>82</strong><span>Overall · Excellent</span>');
+  });
+
+  it('uses profile-correct language in the 14-day place evidence', () => {
+    const component = { value: 72, category: 'Good' };
+    const data = {
+      releaseId: 'forecast-test', lat: 36.72, lon: -4.42, periodLabel: 'Next 14 days', score: 72, category: 'Good',
+      kind: 'range',
+      components: { comfort: component, dryness: component, sun: component, wind: component },
+      window: { startDate: '2026-07-22', endDate: '2026-08-04', dayCount: 14, niceDays: 9, awfulDays: 1, medianScore: 72, longestPoorRun: 1 },
+      days: [{ date: '2026-07-22', score: 72, category: 'Good' }],
+      source: { basis: 'forecast-window', detailLabel: 'Worldwide forecast', resolutionKm: 28, artifactGeneratedAt: '2026-07-22T00:00:00Z' },
+    } satisfies ForecastWindowPoint;
+    const nice = renderToStaticMarkup(createElement(RangeDetails, { data, legend, profile: 'nice' }));
+    expect(nice).toContain('<dt>Nice days</dt>');
+    const cycling = renderToStaticMarkup(createElement(RangeDetails, { data, legend, profile: 'cycling' }));
+    expect(cycling).toContain('<dt>Good cycling days</dt>');
   });
 
   it('uses the correct singular day label', () => {

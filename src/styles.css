@@ -332,6 +332,7 @@ button:disabled { cursor: default; }
 
 @media (max-width: 420px) {
   .segmentedControl button { padding-inline: var(--space-1); }
+  .recommendationTrigger { flex: 0 0 144px; }
   .viewControl { flex-basis: 104px; }
   .legendControl { flex-basis: 96px; }
   .profileControl { flex-basis: 120px; }
