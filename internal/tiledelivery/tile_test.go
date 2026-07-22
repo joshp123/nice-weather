@@ -149,6 +149,10 @@ func TestEuropePointTileUsesExactMercatorRecord(t *testing.T) {
 	if err != nil || !ok || got != want {
 		t.Fatalf("point = %+v, %t, %v; want %+v", got, ok, err, want)
 	}
+	all, err := reader.Records()
+	if err != nil || len(all) != TileSize*TileSize || all[row*TileSize+col] != want {
+		t.Fatalf("complete point plane = %d records, selected=%+v, err=%v", len(all), all[row*TileSize+col], err)
+	}
 	// Adjacent water/no-data remains absent; it cannot inherit the land record.
 	waterLongitude := longitude + (asset.Bounds.East-asset.Bounds.West)/TileSize
 	if _, ok, err := reader.At(waterLongitude, latitude); err != nil || ok {
@@ -157,6 +161,12 @@ func TestEuropePointTileUsesExactMercatorRecord(t *testing.T) {
 	meta := reader.Metadata()
 	if meta.ID != id || meta.ReleaseID != "release-canary" || meta.Period != "day-01" || meta.SHA256 != asset.SHA256 {
 		t.Fatalf("metadata = %+v", meta)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.Records(); err == nil {
+		t.Fatal("read complete point plane after close")
 	}
 }
 

@@ -81,7 +81,7 @@ func tileSourceWindow(source delivery.GridSpec, id tiledelivery.ID) (pipeline.Gr
 	}, true
 }
 
-func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land IsLand) ([]delivery.DisplayScoreRecord, []delivery.DisplayScoreRecord, error) {
+func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land TouchesLand) ([]delivery.DisplayScoreRecord, []delivery.DisplayScoreRecord, error) {
 	texture := make([]delivery.DisplayScoreRecord, tiledelivery.ScalarTextureSize*tiledelivery.ScalarTextureSize)
 	records := make([]delivery.DisplayScoreRecord, tiledelivery.TileSize*tiledelivery.TileSize)
 	worldPixels := int64(tiledelivery.TileSize) * (int64(1) << id.Zoom)
@@ -103,14 +103,21 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 				canonicalX += worldPixels
 			}
 			longitude := (float64(canonicalX)+.5)/float64(worldPixels)*360 - 180
-			isLand, err := land(longitude, latitude)
+			west := float64(canonicalX)/float64(worldPixels)*360 - 180
+			east := float64(canonicalX+1)/float64(worldPixels)*360 - 180
+			north := mercatorLatitudeEdge(globalY, worldPixels)
+			south := mercatorLatitudeEdge(globalY+1, worldPixels)
+			isLand, err := land(delivery.GridBounds{West: west, East: east, North: north, South: south})
 			if err != nil {
-				return nil, nil, fmt.Errorf("land at %.5f,%.5f: %w", longitude, latitude, err)
+				return nil, nil, fmt.Errorf("land in texel %.5f..%.5f,%.5f..%.5f: %w", west, east, south, north, err)
 			}
 			if !isLand {
 				continue
 			}
-			record, ok := interpolateRecord(longitude, latitude, window)
+			record, ok, err := interpolateRecord(longitude, latitude, window)
+			if err != nil {
+				return nil, nil, err
+			}
 			if !ok {
 				continue
 			}
@@ -123,7 +130,7 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 	return texture, records, nil
 }
 
-func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DisplayScoreRecord, bool) {
+func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DisplayScoreRecord, bool, error) {
 	span := window.Spec.Bounds.East - window.Spec.Bounds.West
 	for longitude < window.Spec.Bounds.West {
 		longitude += 360
@@ -137,18 +144,22 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 	y := (window.Spec.Bounds.North-latitude)/cellHeight - .5
 	x0, y0 := int(math.Floor(x)), int(math.Floor(y))
 	if x0 < 0 || y0 < 0 || x0+1 >= int(window.Spec.Cols) || y0+1 >= int(window.Spec.Rows) {
-		return delivery.DisplayScoreRecord{}, false
+		return delivery.DisplayScoreRecord{}, false, nil
 	}
 	indexes := [4]int{y0*int(window.Spec.Cols) + x0, y0*int(window.Spec.Cols) + x0 + 1, (y0+1)*int(window.Spec.Cols) + x0, (y0+1)*int(window.Spec.Cols) + x0 + 1}
 	records := [4]delivery.DisplayScoreRecord{}
 	for index, sourceIndex := range indexes {
 		metrics := window.Metrics[sourceIndex]
 		if !metrics.Valid {
-			return delivery.DisplayScoreRecord{}, false
+			return delivery.DisplayScoreRecord{}, false, nil
 		}
-		records[index] = scoreRecord(metrics)
+		var err error
+		records[index], err = scoreRecord(metrics)
+		if err != nil {
+			return delivery.DisplayScoreRecord{}, false, err
+		}
 		if !records[index].Valid {
-			return delivery.DisplayScoreRecord{}, false
+			return delivery.DisplayScoreRecord{}, false, nil
 		}
 	}
 	tx, ty := x-float64(x0), y-float64(y0)
@@ -169,19 +180,23 @@ func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetrics
 		CyclingScore: value(func(r delivery.DisplayScoreRecord) uint8 { return r.CyclingScore }),
 		CyclingWind:  value(func(r delivery.DisplayScoreRecord) uint8 { return r.CyclingWind }),
 		Valid:        true,
-	}, true
+	}, true, nil
 }
 
-func scoreRecord(metrics weather.DailyMetrics) delivery.DisplayScoreRecord {
-	nice, cycling := weather.Score(metrics, weather.ProfileNice), weather.Score(metrics, weather.ProfileCycling)
-	if !nice.Available || !cycling.Available {
-		return delivery.DisplayScoreRecord{}
+func scoreRecord(metrics weather.DailyMetrics) (delivery.DisplayScoreRecord, error) {
+	weatherRecord, err := delivery.RecordFromWeather(metrics)
+	if err != nil {
+		return delivery.DisplayScoreRecord{}, err
+	}
+	point, err := delivery.DailyPointRecordFromWeather(weatherRecord)
+	if err != nil {
+		return delivery.DisplayScoreRecord{}, err
 	}
 	return delivery.DisplayScoreRecord{
-		Thermal: uint8(nice.Components.Thermal), Dryness: uint8(nice.Components.Dryness), Sun: uint8(nice.Components.Sun),
-		NiceScore: uint8(nice.Score), NiceWind: uint8(nice.Components.Wind),
-		CyclingScore: uint8(cycling.Score), CyclingWind: uint8(cycling.Components.Wind), Valid: true,
-	}
+		Thermal: point.Thermal, Dryness: point.Dryness, Sun: point.Sun,
+		NiceScore: point.NiceScore, NiceWind: point.NiceWind,
+		CyclingScore: point.CyclingScore, CyclingWind: point.CyclingWind, Valid: point.Weather.Valid,
+	}, nil
 }
 
 func textureSampler(id tiledelivery.ID, texture []delivery.DisplayScoreRecord, field Field) tiledelivery.EvaluatedScoreSampler {
@@ -234,5 +249,10 @@ func errorsNewSampleOutside() error {
 }
 func mercatorLatitude(globalY, worldPixels int64) float64 {
 	y := (float64(globalY) + .5) / float64(worldPixels)
+	return math.Atan(math.Sinh(math.Pi*(1-2*y))) * 180 / math.Pi
+}
+
+func mercatorLatitudeEdge(globalY, worldPixels int64) float64 {
+	y := float64(globalY) / float64(worldPixels)
 	return math.Atan(math.Sinh(math.Pi*(1-2*y))) * 180 / math.Pi
 }

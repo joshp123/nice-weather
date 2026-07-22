@@ -14,13 +14,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"nice-weather-finder/internal/delivery"
 )
 
 const (
-	TileSize = 256
-	MaxZoom  = 22
+	TileSize       = 256
+	MaxZoom        = 22
+	PointMediaType = "application/vnd.nice-weather.display-point-tile"
 
 	fixedHeaderBytes = 32
 	releaseIDBytes   = 64
@@ -28,6 +30,7 @@ const (
 	tierIDBytes      = 32
 	digestBytes      = sha256.Size
 	pointHeaderSize  = fixedHeaderBytes + releaseIDBytes + periodIDBytes + tierIDBytes + digestBytes
+	PointTileBytes   = pointHeaderSize + TileSize*TileSize*delivery.DisplayScoreRecordBytes
 )
 
 var (
@@ -197,6 +200,9 @@ func (writer *Writer) Write(id ID, period string, records []delivery.DisplayScor
 	if err := writeImmutable(path, data); err != nil {
 		return PointAsset{}, err
 	}
+	if err := syncDirectoriesToRoot(writer.root, filepath.Dir(path)); err != nil {
+		return PointAsset{}, err
+	}
 	asset.Path = path
 	asset.Bytes = uint64(len(data))
 	asset.SHA256 = hex.EncodeToString(wholeDigest[:])
@@ -232,6 +238,29 @@ func (reader *PointReader) At(longitude, latitude float64) (delivery.DisplayScor
 	}
 	record, err := delivery.DecodeDisplayScoreRecord(encoded)
 	return record, record.Valid, err
+}
+
+// Records returns the complete, already checksum-verified row-major record
+// plane. It is intended for bounded build-time parity checks; runtime clients
+// should continue to use At for one selected coordinate.
+func (reader *PointReader) Records() ([]delivery.DisplayScoreRecord, error) {
+	if reader == nil || reader.file == nil {
+		return nil, errors.New("point tile reader is closed")
+	}
+	payload := make([]byte, TileSize*TileSize*delivery.DisplayScoreRecordBytes)
+	if _, err := reader.file.ReadAt(payload, pointHeaderSize); err != nil {
+		return nil, err
+	}
+	records := make([]delivery.DisplayScoreRecord, TileSize*TileSize)
+	for index := range records {
+		start := index * delivery.DisplayScoreRecordBytes
+		record, err := delivery.DecodeDisplayScoreRecord(payload[start : start+delivery.DisplayScoreRecordBytes])
+		if err != nil {
+			return nil, fmt.Errorf("decode point tile record %d: %w", index, err)
+		}
+		records[index] = record
+	}
+	return records, nil
 }
 
 func (reader *PointReader) Metadata() PointAsset { return reader.meta }
@@ -286,6 +315,28 @@ func writeImmutable(path string, data []byte) error {
 	return nil
 }
 
+func syncDirectoriesToRoot(root, leaf string) error {
+	root, leaf = filepath.Clean(root), filepath.Clean(leaf)
+	relative, err := filepath.Rel(root, leaf)
+	if err != nil || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("tile directory is outside its writer root")
+	}
+	for current := leaf; ; current = filepath.Dir(current) {
+		directory, err := os.Open(current)
+		if err != nil {
+			return err
+		}
+		syncErr := directory.Sync()
+		closeErr := directory.Close()
+		if syncErr != nil || closeErr != nil {
+			return errors.Join(syncErr, closeErr)
+		}
+		if current == root {
+			return nil
+		}
+	}
+}
+
 func encodePointHeader(releaseID, period string, id ID, payloadDigest [sha256.Size]byte) []byte {
 	header := make([]byte, pointHeaderSize)
 	copy(header[:8], pointMagic[:])
@@ -338,7 +389,7 @@ func validatePointFile(file *os.File) (PointAsset, error) {
 	if err != nil {
 		return PointAsset{}, err
 	}
-	wantBytes := int64(pointHeaderSize + TileSize*TileSize*delivery.DisplayScoreRecordBytes)
+	wantBytes := int64(PointTileBytes)
 	if info.Size() != wantBytes {
 		return PointAsset{}, errors.New("XYZ point tile has invalid size")
 	}

@@ -120,6 +120,20 @@ type ScalarTile struct {
 	NoDataTexels uint32              `json:"noDataTexels"`
 }
 
+// DisplayPointTile is the exact evaluated score plane behind one max-zoom
+// scalar tile. Native PointBlocks retain weather facts; this plane ensures a
+// selected place reports the same Overall and component scores as the map.
+type DisplayPointTile struct {
+	Zoom          uint8  `json:"zoom"`
+	X             uint32 `json:"x"`
+	Y             uint32 `json:"y"`
+	Path          string `json:"path"`
+	Bytes         uint64 `json:"bytes"`
+	SHA256        string `json:"sha256"`
+	PayloadSHA256 string `json:"payloadSha256"`
+	MediaType     string `json:"mediaType"`
+}
+
 type Coverage struct {
 	ExpectedPointBlocks   uint32 `json:"expectedPointBlocks"`
 	AvailablePointBlocks  uint32 `json:"availablePointBlocks"`
@@ -128,6 +142,7 @@ type Coverage struct {
 	AvailableMaxZoomTiles uint32 `json:"availableMaxZoomTiles"`
 	OmittedMaxZoomTiles   uint32 `json:"omittedMaxZoomTiles"`
 	ScalarTiles           uint32 `json:"scalarTiles"`
+	DisplayPointTiles     uint32 `json:"displayPointTiles"`
 }
 
 type Catalog struct {
@@ -142,6 +157,7 @@ type Catalog struct {
 	Scores         Scores                         `json:"scores"`
 	Coverage       Coverage                       `json:"coverage"`
 	PointBlocks    []PointBlock                   `json:"pointBlocks"`
+	DisplayPoints  []DisplayPointTile             `json:"displayPoints"`
 	ScalarCoverage []forecasttiles.MaxZoomOutcome `json:"scalarCoverage"`
 	ScalarTiles    []ScalarTile                   `json:"scalarTiles"`
 }
@@ -217,6 +233,20 @@ func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttil
 		tiles = append(tiles, tile)
 	}
 	sortScalarTiles(tiles)
+	displayPoints := make([]DisplayPointTile, 0, len(scalarCatalog.Points))
+	for _, source := range scalarCatalog.Points {
+		point, err := displayPointFromAsset(config, spec, source)
+		if err != nil {
+			return Catalog{}, err
+		}
+		displayPoints = append(displayPoints, point)
+	}
+	sort.Slice(displayPoints, func(i, j int) bool {
+		if displayPoints[i].Y != displayPoints[j].Y {
+			return displayPoints[i].Y < displayPoints[j].Y
+		}
+		return displayPoints[i].X < displayPoints[j].X
+	})
 	scalarCoverage := append([]forecasttiles.MaxZoomOutcome(nil), scalarCatalog.MaxZoomOutcomes...)
 	sort.Slice(scalarCoverage, func(i, j int) bool {
 		if scalarCoverage[i].Y != scalarCoverage[j].Y {
@@ -241,7 +271,7 @@ func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttil
 			Profiles: []weather.Profile{weather.ProfileNice, weather.ProfileCycling},
 			Fields:   append([]FieldContract(nil), fieldContracts...),
 		},
-		PointBlocks: blocks, ScalarCoverage: scalarCoverage, ScalarTiles: tiles,
+		PointBlocks: blocks, DisplayPoints: displayPoints, ScalarCoverage: scalarCoverage, ScalarTiles: tiles,
 	}
 	catalog.Coverage = coverage(catalog)
 	if err := Validate(catalog); err != nil {
@@ -316,6 +346,9 @@ func Validate(catalog Catalog) error {
 	if err := validateScalarCoverageOutcomes(catalog, spec); err != nil {
 		return err
 	}
+	if err := validateDisplayPoints(catalog, spec); err != nil {
+		return err
+	}
 	if err := validateScalarTiles(catalog, spec); err != nil {
 		return err
 	}
@@ -361,7 +394,33 @@ func ValidateFiles(root string, catalog Catalog) error {
 			return fmt.Errorf("forecast scalar %s %d/%d/%d metadata does not match its file", tile.Field, tile.Zoom, tile.X, tile.Y)
 		}
 	}
+	for _, point := range catalog.DisplayPoints {
+		reader, err := tiledelivery.OpenPoint(filepath.Join(root, filepath.FromSlash(point.Path)))
+		if err != nil {
+			return fmt.Errorf("validate forecast display point %d/%d/%d: %w", point.Zoom, point.X, point.Y, err)
+		}
+		metadata := reader.Metadata()
+		closeErr := reader.Close()
+		if closeErr != nil {
+			return closeErr
+		}
+		if metadata.ID.Zoom != point.Zoom || metadata.ID.X != point.X || metadata.ID.Y != point.Y || metadata.ReleaseID != catalog.ReleaseID || metadata.Period != catalog.LocalDate || metadata.SHA256 != point.SHA256 || metadata.PayloadSHA256 != point.PayloadSHA256 || metadata.Bytes != point.Bytes {
+			return fmt.Errorf("forecast display point %d/%d/%d metadata does not match its file", point.Zoom, point.X, point.Y)
+		}
+	}
 	return nil
+}
+
+func displayPointFromAsset(config Config, spec tierSpec, source forecasttiles.PointTile) (DisplayPointTile, error) {
+	wantPath := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, source.Zoom, source.X, source.Y)
+	count := uint64(1) << source.Zoom
+	if source.Zoom != spec.maxZoom || uint64(source.X) >= count || uint64(source.Y) >= count || source.Path != wantPath || source.Bytes != tiledelivery.PointTileBytes || !validSHA256(source.SHA256) || !validSHA256(source.PayloadSHA256) {
+		return DisplayPointTile{}, fmt.Errorf("forecast display point %d/%d/%d metadata is invalid", source.Zoom, source.X, source.Y)
+	}
+	return DisplayPointTile{
+		Zoom: source.Zoom, X: source.X, Y: source.Y, Path: source.Path, Bytes: source.Bytes,
+		SHA256: source.SHA256, PayloadSHA256: source.PayloadSHA256, MediaType: tiledelivery.PointMediaType,
+	}, nil
 }
 
 func pointBlockFromAsset(config Config, spec tierSpec, asset forecastpoints.Asset) (PointBlock, error) {
@@ -471,6 +530,34 @@ func validateScalarCoverageOutcomes(catalog Catalog, spec tierSpec) error {
 			(!outcome.Omitted && outcome.DataRecords == 0) {
 			return fmt.Errorf("forecast scalar coverage outcome at index %d is invalid", index)
 		}
+	}
+	return nil
+}
+
+func validateDisplayPoints(catalog Catalog, spec tierSpec) error {
+	expected := make(map[tileCoordinate]struct{})
+	for _, outcome := range catalog.ScalarCoverage {
+		if !outcome.Omitted {
+			expected[tileCoordinate{Zoom: outcome.Zoom, X: outcome.X, Y: outcome.Y}] = struct{}{}
+		}
+	}
+	if len(catalog.DisplayPoints) != len(expected) {
+		return fmt.Errorf("forecast catalogue has %d display point tiles; want %d", len(catalog.DisplayPoints), len(expected))
+	}
+	seen := make(map[tileCoordinate]struct{}, len(catalog.DisplayPoints))
+	for index, point := range catalog.DisplayPoints {
+		coordinate := tileCoordinate{Zoom: point.Zoom, X: point.X, Y: point.Y}
+		wantPath := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", catalog.LocalDate, catalog.Tier, point.Zoom, point.X, point.Y)
+		if point.Zoom != spec.maxZoom || point.Path != wantPath || point.Bytes != tiledelivery.PointTileBytes || point.MediaType != tiledelivery.PointMediaType || !validSHA256(point.SHA256) || !validSHA256(point.PayloadSHA256) {
+			return fmt.Errorf("forecast display point at index %d is invalid", index)
+		}
+		if _, ok := expected[coordinate]; !ok {
+			return fmt.Errorf("forecast display point %d/%d/%d has no produced scalar outcome", point.Zoom, point.X, point.Y)
+		}
+		if _, duplicate := seen[coordinate]; duplicate {
+			return fmt.Errorf("duplicate forecast display point %d/%d/%d", point.Zoom, point.X, point.Y)
+		}
+		seen[coordinate] = struct{}{}
 	}
 	return nil
 }
@@ -591,7 +678,7 @@ func catalogGrid(grid delivery.GridSpec) Grid {
 func coverage(catalog Catalog) Coverage {
 	result := Coverage{
 		ExpectedPointBlocks: uint32(len(catalog.PointBlocks)), ExpectedMaxZoomTiles: uint32(len(catalog.ScalarCoverage)),
-		ScalarTiles: uint32(len(catalog.ScalarTiles)),
+		ScalarTiles: uint32(len(catalog.ScalarTiles)), DisplayPointTiles: uint32(len(catalog.DisplayPoints)),
 	}
 	for _, block := range catalog.PointBlocks {
 		if block.Omitted {

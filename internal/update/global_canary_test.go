@@ -2,12 +2,17 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +21,7 @@ import (
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/ifs"
+	"nice-weather-finder/internal/tiledelivery"
 )
 
 func TestGlobalCanaryUsesExactlyFourteenCompleteWorldwideDays(t *testing.T) {
@@ -223,32 +229,113 @@ func TestGlobalCanaryPrepareRequestBindsControlSourceAndExactRun(t *testing.T) {
 	}
 }
 
-func TestSourceCenterLandPredicateIsDeterministicAcrossDateLine(t *testing.T) {
-	mask := pipeline.FloatGrid{
-		Spec: delivery.GridSpec{Bounds: globalCanaryBounds, Rows: 2, Cols: 4},
-		Values: []float32{
-			1, 0, 0, 1,
-			0, 1, 1, 0,
-		},
-	}
-	isLand, err := sourceCenterLandPredicate(mask)
+func TestWebMercatorTouchedLandPredicateDoesNotBleedIntoNeighbouringTexel(t *testing.T) {
+	const zoom = 3
+	width := int(tiledelivery.TileSize) << zoom
+	pixels := make([]byte, width*width)
+	const landColumn, landRow = 1024, 1024
+	pixels[landRow*width+landColumn] = 1
+	isLand, err := webMercatorTouchedLandPredicate(pixels, zoom)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, longitude := range []float64{-180, 180, 540, -540} {
-		got, err := isLand(longitude, 45)
-		if err != nil || !got {
-			t.Fatalf("land(%g,45) = %v, %v; want canonical western cell", longitude, got, err)
+	if got, err := isLand(webMercatorTestTexelBounds(width, landColumn, landRow)); err != nil || !got {
+		t.Fatalf("marked display texel = %v, %v; want land", got, err)
+	}
+	if got, err := isLand(webMercatorTestTexelBounds(width, landColumn+1, landRow)); err != nil || got {
+		t.Fatalf("neighbouring display texel = %v, %v; want water", got, err)
+	}
+	invalid := webMercatorTestTexelBounds(width, landColumn, landRow)
+	invalid.East += 0.01
+	if _, err := isLand(invalid); err == nil || !strings.Contains(err.Error(), "exact display texel") {
+		t.Fatalf("non-exact display texel error = %v", err)
+	}
+	if _, err := isLand(delivery.GridBounds{West: 0, East: 1, South: 0, North: math.NaN()}); err == nil {
+		t.Fatal("non-finite land lookup was accepted")
+	}
+}
+
+func TestGlobalCanaryWebMercatorLandPredicateRasterizesExactDisplayGrid(t *testing.T) {
+	archive := testLandZip(t)
+	digest := sha256.Sum256(archive)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = writer.Write(archive)
+	}))
+	defer server.Close()
+	const zoom = 0
+	width := int(tiledelivery.TileSize) << zoom
+	pixels := make([]byte, width*width)
+	pixels[20*width+10] = 1
+	runner := &globalCanaryLandFakeRunner{payload: pixels}
+	authority := newLandAuthority(t.TempDir(), server.Client(), runner, landSource{
+		URL: server.URL, Size: int64(len(archive)), SHA256: hex.EncodeToString(digest[:]),
+	})
+	isLand, err := globalCanaryWebMercatorLandPredicate(context.Background(), authority, t.TempDir(), zoom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := isLand(webMercatorTestTexelBounds(width, 10, 20)); err != nil || !got {
+		t.Fatalf("rasterized display texel = %v, %v; want land", got, err)
+	}
+	if len(runner.invocations) != 2 || runner.invocations[0].command != "ogr2ogr" || runner.invocations[1].command != "gdal_rasterize" {
+		t.Fatalf("land commands = %+v; want projection then rasterization", runner.invocations)
+	}
+	projection := strings.Join(runner.invocations[0].arguments, " ")
+	for _, required := range []string{"-f GPKG", "-t_srs EPSG:3857", "-nlt MULTIPOLYGON", "-nln land"} {
+		if !strings.Contains(projection, required) {
+			t.Errorf("Web Mercator ogr2ogr args %q missing %q", projection, required)
 		}
 	}
-	if got, err := isLand(-89, 45); err != nil || got {
-		t.Fatalf("land(-89,45) = %v, %v; want water", got, err)
+	arguments := strings.Join(runner.invocations[1].arguments, " ")
+	for _, required := range []string{
+		"-at", "-a_srs EPSG:3857",
+		"-te -20037508.342789244 -20037508.342789244 20037508.342789244 20037508.342789244",
+		"-ts 256 256", "-l land",
+	} {
+		if !strings.Contains(arguments, required) {
+			t.Errorf("Web Mercator gdal_rasterize args %q missing %q", arguments, required)
+		}
 	}
-	if got, err := isLand(-89, -45); err != nil || !got {
-		t.Fatalf("land(-89,-45) = %v, %v; want land", got, err)
+}
+
+type globalCanaryLandInvocation struct {
+	command   string
+	arguments []string
+}
+
+type globalCanaryLandFakeRunner struct {
+	payload     []byte
+	invocations []globalCanaryLandInvocation
+}
+
+func (runner *globalCanaryLandFakeRunner) Run(_ context.Context, command string, arguments ...string) ([]byte, error) {
+	runner.invocations = append(runner.invocations, globalCanaryLandInvocation{
+		command: command, arguments: append([]string(nil), arguments...),
+	})
+	switch command {
+	case "ogr2ogr":
+		if len(arguments) < 2 {
+			return nil, errors.New("ogr2ogr destination is missing")
+		}
+		return nil, os.WriteFile(arguments[len(arguments)-2], []byte("projected fixture"), 0o600)
+	case "gdal_rasterize":
+		return nil, os.WriteFile(arguments[len(arguments)-1], runner.payload, 0o600)
+	default:
+		return nil, errors.New("unexpected command " + command)
 	}
-	if _, err := isLand(0, math.NaN()); err == nil {
-		t.Fatal("non-finite land lookup was accepted")
+}
+
+func webMercatorTestTexelBounds(width, column, row int) delivery.GridBounds {
+	longitude := func(edge int) float64 {
+		return float64(edge)/float64(width)*360 - 180
+	}
+	latitude := func(edge int) float64 {
+		return math.Atan(math.Sinh(math.Pi*(1-2*float64(edge)/float64(width)))) * 180 / math.Pi
+	}
+	return delivery.GridBounds{
+		West: longitude(column), East: longitude(column + 1),
+		North: latitude(row), South: latitude(row + 1),
 	}
 }
 
@@ -348,4 +435,4 @@ func syntheticGlobalCatalog(config forecasttiles.Config) forecasttiles.Catalog {
 }
 
 func timeZoneUTC(_, _ float64) (*time.Location, error) { return time.UTC, nil }
-func landEverywhere(_, _ float64) (bool, error)        { return true, nil }
+func landEverywhere(delivery.GridBounds) (bool, error) { return true, nil }

@@ -140,6 +140,9 @@ func (writer *Writer) WriteScalar(id ID, period string, sample EvaluatedScoreSam
 	if err := writeImmutable(path, encoded); err != nil {
 		return ScalarAsset{}, err
 	}
+	if err := syncDirectoriesToRoot(writer.root, filepath.Dir(path)); err != nil {
+		return ScalarAsset{}, err
+	}
 	asset.Path = path
 	asset.Bytes = uint64(len(encoded))
 	asset.SHA256 = hex.EncodeToString(digest[:])

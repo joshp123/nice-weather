@@ -17,11 +17,18 @@ import (
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/ifs"
+	"nice-weather-finder/internal/tiledelivery"
 
 	"github.com/ringsaturn/tzf"
 )
 
 const globalCanarySourceID = "ecmwf-ifs-control"
+
+const (
+	globalCanaryMaxZoom                = 3
+	webMercatorHalfWorldMetres         = 20037508.342789244
+	webMercatorLandCoordinateTolerance = 1e-7
+)
 
 var globalCanaryBounds = delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}
 
@@ -199,18 +206,13 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 	if err != nil {
 		return summary, fmt.Errorf("measure first prepared IFS day: %w", err)
 	}
-	sourceSpec, err := globalCanarySeriesSpec(firstSeries)
-	if err != nil {
+	if _, err := globalCanarySeriesSpec(firstSeries); err != nil {
 		return summary, err
 	}
 	landAuthority := NewLandAuthority(cache, httpClient, decoder.Runner)
-	landMask, err := landAuthority.CenterMask(ctx, sourceSpec)
+	isLand, err := globalCanaryWebMercatorLandPredicate(ctx, landAuthority, scratch, globalCanaryMaxZoom)
 	if err != nil {
-		return summary, fmt.Errorf("Natural Earth worldwide source-centre mask: %w", err)
-	}
-	isLand, err := sourceCenterLandPredicate(landMask)
-	if err != nil {
-		return summary, err
+		return summary, fmt.Errorf("Natural Earth worldwide display mask: %w", err)
 	}
 	locate, err := globalTimezoneLocator()
 	if err != nil {
@@ -334,7 +336,7 @@ func assembleGlobalCanaryDays(
 	staged []stagedFrame,
 	preparedRoot string,
 	locate forecasttiles.LocateTimezone,
-	land forecasttiles.IsLand,
+	land forecasttiles.TouchesLand,
 	first *globalCanaryPreparedDay,
 	assembler globalCanaryAssembler,
 ) (summaries []globalCanaryDaySummary, installed string, resultErr error) {
@@ -408,7 +410,7 @@ func assembleGlobalCanaryDays(
 		buildStarted := time.Now()
 		catalog, buildErr := assembler.build(ctx, forecasttiles.Config{
 			Root: staging, ReleaseID: releaseID, Period: day.Date.Format("2006-01-02"), Tier: "global",
-			Date: day.Date, MaxZoom: 3, Series: prepared.series, Locate: locate, Land: land,
+			Date: day.Date, MaxZoom: globalCanaryMaxZoom, Series: prepared.series, Locate: locate, Land: land,
 		})
 		buildElapsed := time.Since(buildStarted)
 		closeErr := prepared.close()
@@ -425,7 +427,7 @@ func assembleGlobalCanaryDays(
 		if remainingFiles != 0 {
 			return nil, "", fmt.Errorf("global canary day %s left %d prepared files", day.Date.Format("2006-01-02"), remainingFiles)
 		}
-		if catalog.ReleaseID != releaseID || catalog.Period != day.Date.Format("2006-01-02") || catalog.Date != catalog.Period || catalog.Tier != "global" || catalog.MaxZoom != 3 {
+		if catalog.ReleaseID != releaseID || catalog.Period != day.Date.Format("2006-01-02") || catalog.Date != catalog.Period || catalog.Tier != "global" || catalog.MaxZoom != globalCanaryMaxZoom {
 			return nil, "", fmt.Errorf("global canary day %s returned mismatched catalog identity", day.Date.Format("2006-01-02"))
 		}
 		catalogPath := filepath.Join(staging, "forecast-days", catalog.Period, catalog.Tier, "forecast-tiles.json")
@@ -540,39 +542,88 @@ func globalCanarySeriesSpec(series pipeline.PreparedSeries) (delivery.GridSpec, 
 	return spec, nil
 }
 
-func sourceCenterLandPredicate(mask pipeline.FloatGrid) (forecasttiles.IsLand, error) {
-	if err := mask.Validate(); err != nil {
-		return nil, fmt.Errorf("source-centre land mask: %w", err)
+func globalCanaryWebMercatorLandPredicate(ctx context.Context, authority *LandAuthority, scratch string, zoom uint8) (forecasttiles.TouchesLand, error) {
+	if authority == nil || authority.runner == nil {
+		return nil, errors.New("land authority is not configured")
 	}
-	spec := mask.Spec
-	if spec.Bounds != globalCanaryBounds {
-		return nil, errors.New("source-centre land mask must cover the canonical world")
+	shapePath, err := authority.Prepare(ctx)
+	if err != nil {
+		return nil, err
 	}
-	width := (spec.Bounds.East - spec.Bounds.West) / float64(spec.Cols)
-	height := (spec.Bounds.North - spec.Bounds.South) / float64(spec.Rows)
-	return func(longitude, latitude float64) (bool, error) {
-		if math.IsNaN(longitude) || math.IsInf(longitude, 0) || math.IsNaN(latitude) || math.IsInf(latitude, 0) {
-			return false, errors.New("land coordinate must be finite")
+	if zoom > 4 {
+		return nil, errors.New("display land mask zoom exceeds the bounded canary limit")
+	}
+	width := int(tiledelivery.TileSize) << zoom
+	temporary, err := os.MkdirTemp(scratch, ".global-canary-land-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(temporary)
+	projected := filepath.Join(temporary, "land.gpkg")
+	projectionArguments := []string{
+		"-f", "GPKG", "-t_srs", "EPSG:3857", "-nlt", "MULTIPOLYGON", "-nln", "land",
+		projected, shapePath,
+	}
+	if _, err := authority.runner.Run(ctx, "ogr2ogr", projectionArguments...); err != nil {
+		return nil, fmt.Errorf("project Natural Earth land into Web Mercator: %w", err)
+	}
+	output := filepath.Join(temporary, "land.bil")
+	arguments := []string{
+		"-q", "-of", "EHdr", "-ot", "Byte", "-burn", "1", "-init", "0", "-at",
+		"-a_srs", "EPSG:3857",
+		"-te", landCoordinate(-webMercatorHalfWorldMetres), landCoordinate(-webMercatorHalfWorldMetres), landCoordinate(webMercatorHalfWorldMetres), landCoordinate(webMercatorHalfWorldMetres),
+		"-ts", fmt.Sprint(width), fmt.Sprint(width),
+		"-l", "land", projected, output,
+	}
+	if _, err := authority.runner.Run(ctx, "gdal_rasterize", arguments...); err != nil {
+		return nil, fmt.Errorf("rasterize Web Mercator Natural Earth land: %w", err)
+	}
+	pixels, err := os.ReadFile(output)
+	if err != nil {
+		return nil, fmt.Errorf("read Web Mercator Natural Earth land: %w", err)
+	}
+	return webMercatorTouchedLandPredicate(pixels, zoom)
+}
+
+func webMercatorTouchedLandPredicate(pixels []byte, zoom uint8) (forecasttiles.TouchesLand, error) {
+	if zoom > 4 {
+		return nil, errors.New("display land mask zoom exceeds the bounded canary limit")
+	}
+	width := int(tiledelivery.TileSize) << zoom
+	if len(pixels) != width*width {
+		return nil, fmt.Errorf("display land mask has %d bytes; want %d", len(pixels), width*width)
+	}
+	for index, value := range pixels {
+		if value != 0 && value != 1 {
+			return nil, fmt.Errorf("display land mask cell %d has value %d; want 0 or 1", index, value)
 		}
-		for longitude < -180 {
-			longitude += 360
+	}
+	return func(bounds delivery.GridBounds) (bool, error) {
+		coordinates := []float64{bounds.West, bounds.East, bounds.South, bounds.North}
+		for _, coordinate := range coordinates {
+			if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
+				return false, errors.New("land texel bounds must be finite")
+			}
 		}
-		for longitude >= 180 {
-			longitude -= 360
+		west := (bounds.West + 180) / 360 * float64(width)
+		east := (bounds.East + 180) / 360 * float64(width)
+		north := webMercatorPixelEdge(bounds.North, width)
+		south := webMercatorPixelEdge(bounds.South, width)
+		column, row := int(math.Round(west)), int(math.Round(north))
+		if math.Abs(west-float64(column)) > webMercatorLandCoordinateTolerance ||
+			math.Abs(east-float64(column+1)) > webMercatorLandCoordinateTolerance ||
+			math.Abs(north-float64(row)) > webMercatorLandCoordinateTolerance ||
+			math.Abs(south-float64(row+1)) > webMercatorLandCoordinateTolerance ||
+			column < 0 || column >= width || row < 0 || row >= width {
+			return false, errors.New("land lookup bounds are not one exact display texel")
 		}
-		if latitude < -90 || latitude > 90 {
-			return false, nil
-		}
-		column := int(math.Floor((longitude + 180) / width))
-		row := int(math.Floor((90 - latitude) / height))
-		if row == int(spec.Rows) && latitude == -90 {
-			row--
-		}
-		if row < 0 || row >= int(spec.Rows) || column < 0 || column >= int(spec.Cols) {
-			return false, nil
-		}
-		return mask.Values[row*int(spec.Cols)+column] == 1, nil
+		return pixels[row*width+column] == 1, nil
 	}, nil
+}
+
+func webMercatorPixelEdge(latitude float64, width int) float64 {
+	radians := latitude * math.Pi / 180
+	return (1 - math.Asinh(math.Tan(radians))/math.Pi) / 2 * float64(width)
 }
 
 func globalTimezoneLocator() (forecasttiles.LocateTimezone, error) {

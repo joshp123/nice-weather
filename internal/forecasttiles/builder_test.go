@@ -17,7 +17,82 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/tiledelivery"
+	"nice-weather-finder/internal/weather"
 )
+
+func TestScoreRecordUsesExactQuantizedDailyPointEvidence(t *testing.T) {
+	metrics := weather.DailyMetrics{
+		ComfortableTempC: 29.96, MinTempC: 27.04, MaxTempC: 31.04, RainMM: .04,
+		WetTimeFraction:   weather.OptionalFloat{Value: .0004, Available: true},
+		CloudCoverPercent: weather.OptionalFloat{Value: 18.49, Available: true},
+		WindSpeedKPH:      9.96, DewPointC: weather.OptionalFloat{Value: 23.96, Available: true},
+		RelativeHumidityPercent: weather.OptionalFloat{Value: 70.49, Available: true},
+		NativeResolutionKM:      28, Valid: true,
+	}
+	weatherRecord, err := delivery.RecordFromWeather(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, err := delivery.DailyPointRecordFromWeather(weatherRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := scoreRecord(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := delivery.DisplayScoreRecord{
+		Thermal: point.Thermal, Dryness: point.Dryness, Sun: point.Sun,
+		NiceScore: point.NiceScore, NiceWind: point.NiceWind,
+		CyclingScore: point.CyclingScore, CyclingWind: point.CyclingWind, Valid: true,
+	}
+	if got != want {
+		t.Fatalf("scalar source = %+v; quantized daily point = %+v", got, want)
+	}
+}
+
+func TestSourceEvidenceBindsPreparedFloat32Contents(t *testing.T) {
+	first, closeFirst := preparedConfigWithOffset(t, 0)
+	defer closeFirst()
+	second, closeSecond := preparedConfigWithOffset(t, .5)
+	defer closeSecond()
+	firstSource, err := sourceSpec(first.Series)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSource, err := sourceSpec(second.Series)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSource.EvidenceSHA256 == secondSource.EvidenceSHA256 {
+		t.Fatal("different accepted Float32 contents produced the same source evidence")
+	}
+}
+
+func preparedConfigWithOffset(t *testing.T, offset float32) (Config, func()) {
+	t.Helper()
+	root := t.TempDir()
+	runner := &tileFakeRunner{valueOffset: offset}
+	decoder, err := pipeline.NewDecoder(runner, delivery.GridBounds{West: -180, East: 180, South: -90, North: 90})
+	if err != nil {
+		t.Fatal(err)
+	}
+	series := make(pipeline.PreparedSeries)
+	for _, field := range []pipeline.Field{pipeline.Temperature, pipeline.DewPoint, pipeline.CloudCover, pipeline.Rain, pipeline.WindU, pipeline.WindV} {
+		frame, err := decoder.PrepareFrame(context.Background(), pipeline.DecodeRequest{Path: string(field) + ".grib2", SourceID: "test-source", Field: field, Run: testDate(), NativeResolutionKM: 28, CellDegrees: 10, ScratchDirectory: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		series[field] = []*pipeline.PreparedFrame{frame}
+	}
+	return Config{Series: series}, func() {
+		for _, frames := range series {
+			for _, frame := range frames {
+				_ = frame.Close()
+			}
+		}
+	}
+}
 
 func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T) {
 	config, closeFrames := worldwideConfig(t, 3, func(lon, lat float64) (bool, error) {
@@ -118,7 +193,7 @@ func TestBuildDayNoDataOmitsLandAndCancellationCleansStaging(t *testing.T) {
 	defer closeCancelFrames()
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
-	cancelConfig.Land = func(float64, float64) (bool, error) {
+	cancelConfig.Land = func(delivery.GridBounds) (bool, error) {
 		calls++
 		if calls == 100 {
 			cancel()
@@ -313,15 +388,15 @@ func BenchmarkBuildWorldwideDayZ3(b *testing.B) {
 	}
 }
 
-func worldwideConfig(tb testing.TB, zoom uint8, land IsLand, allNoData bool) (Config, func()) {
+func worldwideConfig(tb testing.TB, zoom uint8, land func(float64, float64) (bool, error), allNoData bool) (Config, func()) {
 	return worldwideConfigAt(tb, testDate(), zoom, land, allNoData)
 }
 
-func worldwideConfigAt(tb testing.TB, date time.Time, zoom uint8, land IsLand, allNoData bool) (Config, func()) {
+func worldwideConfigAt(tb testing.TB, date time.Time, zoom uint8, land func(float64, float64) (bool, error), allNoData bool) (Config, func()) {
 	return preparedConfigAt(tb, date, delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}, zoom, land, allNoData)
 }
 
-func preparedConfigAt(tb testing.TB, date time.Time, bounds delivery.GridBounds, zoom uint8, land IsLand, allNoData bool) (Config, func()) {
+func preparedConfigAt(tb testing.TB, date time.Time, bounds delivery.GridBounds, zoom uint8, land func(float64, float64) (bool, error), allNoData bool) (Config, func()) {
 	tb.Helper()
 	root := tb.TempDir()
 	runner := &tileFakeRunner{allNoData: allNoData}
@@ -340,7 +415,10 @@ func preparedConfigAt(tb testing.TB, date time.Time, bounds delivery.GridBounds,
 	if land == nil {
 		land = func(float64, float64) (bool, error) { return true, nil }
 	}
-	return Config{Root: root, ReleaseID: "test-release", Period: date.Format("2006-01-02"), Tier: "ifs", Date: date, MaxZoom: zoom, Series: series, Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil }, Land: land}, func() {
+	touchesLand := func(bounds delivery.GridBounds) (bool, error) {
+		return land((bounds.West+bounds.East)/2, (bounds.North+bounds.South)/2)
+	}
+	return Config{Root: root, ReleaseID: "test-release", Period: date.Format("2006-01-02"), Tier: "ifs", Date: date, MaxZoom: zoom, Series: series, Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil }, Land: touchesLand}, func() {
 		for _, frames := range series {
 			for _, frame := range frames {
 				_ = frame.Close()
@@ -376,9 +454,10 @@ func findScalar(t *testing.T, catalog Catalog, field Field, zoom uint8, x, y uin
 }
 
 type tileFakeRunner struct {
-	mu        sync.Mutex
-	allNoData bool
-	crops     int
+	mu          sync.Mutex
+	allNoData   bool
+	crops       int
+	valueOffset float32
 }
 
 func (runner *tileFakeRunner) Run(_ context.Context, command string, args ...string) ([]byte, error) {
@@ -429,7 +508,7 @@ func (runner *tileFakeRunner) nextValue() float32 {
 	// PrepareFrame calls this fake in the same field order as worldwideConfig.
 	index := runner.crops
 	runner.crops++
-	return []float32{298.15, 288.15, .2, 0, 3, 4}[index%6]
+	return []float32{298.15, 288.15, .2, 0, 3, 4}[index%6] + runner.valueOffset
 }
 
 func fakeOutputSize(args []string) (int, int, error) {

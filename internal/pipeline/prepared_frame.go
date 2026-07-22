@@ -2,7 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +33,9 @@ type PreparedFrameMetadata struct {
 	PackingQuantum     float64
 	NativeResolutionKM float64
 	Grid               delivery.GridSpec
+	// ContentSHA256 binds the accepted canonical Float32 backing plane, after
+	// physical decoding and no-data normalisation, to its source metadata.
+	ContentSHA256 string
 }
 
 // GridWindow identifies a half-open core region in prepared-grid coordinates.
@@ -152,6 +157,10 @@ func (decoder *Decoder) PrepareFrame(ctx context.Context, request DecodeRequest)
 	if err := file.Close(); err != nil {
 		return nil, fmt.Errorf("close prepared frame after validation: %w", err)
 	}
+	contentSHA256, err := preparedContentSHA256(preparedPath)
+	if err != nil {
+		return nil, err
+	}
 	// Only the canonical backing file remains after preparation.
 	for _, intermediate := range []string{decoded, rawPath, filepath.Join(directory, "field.hdr"), rawPath + ".aux.xml"} {
 		if err := os.Remove(intermediate); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -162,9 +171,27 @@ func (decoder *Decoder) PrepareFrame(ctx context.Context, request DecodeRequest)
 	cleanup = false
 	return &PreparedFrame{
 		path: preparedPath, directory: directory,
-		metadata: metadataFromFrame(raw, request.SourceID, request.Run),
-		wraps:    decoder.bounds.West == -180 && decoder.bounds.East == 180,
+		metadata: func() PreparedFrameMetadata {
+			metadata := metadataFromFrame(raw, request.SourceID, request.Run)
+			metadata.ContentSHA256 = contentSHA256
+			return metadata
+		}(),
+		wraps: decoder.bounds.West == -180 && decoder.bounds.East == 180,
 	}, nil
+}
+
+func preparedContentSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open prepared frame for hashing: %w", err)
+	}
+	digest := sha256.New()
+	_, copyErr := io.Copy(digest, file)
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil {
+		return "", errors.Join(copyErr, closeErr)
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func validatePrepareRequest(request DecodeRequest) error {

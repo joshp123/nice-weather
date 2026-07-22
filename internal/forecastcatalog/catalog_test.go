@@ -33,7 +33,7 @@ func TestCatalogBindsCompleteIFSBlockSetAndCanonicalScalars(t *testing.T) {
 	if catalog.Grid != catalogGrid(spec.grid) || catalog.Evidence.Product != ProductIFSControl || catalog.Evidence.NativeResolutionKM != 28 || catalog.ScalarMaxZoom != 3 {
 		t.Fatalf("IFS identity = %+v %+v z%d", catalog.Grid, catalog.Evidence, catalog.ScalarMaxZoom)
 	}
-	if catalog.Coverage != (Coverage{ExpectedPointBlocks: 276, AvailablePointBlocks: 1, OmittedPointBlocks: 275, ExpectedMaxZoomTiles: 64, AvailableMaxZoomTiles: 1, OmittedMaxZoomTiles: 63, ScalarTiles: 28}) {
+	if catalog.Coverage != (Coverage{ExpectedPointBlocks: 276, AvailablePointBlocks: 1, OmittedPointBlocks: 275, ExpectedMaxZoomTiles: 64, AvailableMaxZoomTiles: 1, OmittedMaxZoomTiles: 63, ScalarTiles: 28, DisplayPointTiles: 1}) {
 		t.Fatalf("coverage = %+v", catalog.Coverage)
 	}
 	if len(catalog.Scores.Fields) != 7 || len(catalog.Scores.Profiles) != 2 || catalog.Scores.Fields[3].Profile != "nice" || catalog.Scores.Fields[5].Profile != "cycling" {
@@ -232,10 +232,20 @@ func TestValidateFilesChecksPointAndScalarBytes(t *testing.T) {
 			})
 		}
 		if coordinate.Zoom == spec.maxZoom {
+			id, err := tiledelivery.NewID(config.Tier, coordinate.Zoom, int64(coordinate.X), int64(coordinate.Y))
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := make([]delivery.DisplayScoreRecord, tiledelivery.TileSize*tiledelivery.TileSize)
+			records[0] = delivery.DisplayScoreRecord{Thermal: 60, Dryness: 60, Sun: 60, NiceScore: 60, NiceWind: 60, CyclingScore: 60, CyclingWind: 60, Valid: true}
+			written, err := writer.Write(id, config.LocalDate, records)
+			if err != nil {
+				t.Fatal(err)
+			}
 			path := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X, coordinate.Y)
 			scalars.Points = append(scalars.Points, forecasttiles.PointTile{
-				Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path, Bytes: 1,
-				SHA256: fixtureSHA(90_001), PayloadSHA256: fixtureSHA(90_002),
+				Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path, Bytes: written.Bytes,
+				SHA256: written.SHA256, PayloadSHA256: written.PayloadSHA256,
 			})
 		}
 	}
@@ -339,7 +349,7 @@ func scalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []til
 			outcome.Omitted, outcome.DataRecords, outcome.NoDataRecords = false, 1, tiledelivery.TileSize*tiledelivery.TileSize-1
 			path := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X, coordinate.Y)
 			catalog.Points = append(catalog.Points, forecasttiles.PointTile{
-				Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path, Bytes: 1,
+				Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path, Bytes: tiledelivery.PointTileBytes,
 				SHA256: fixtureSHA(uint32(80_000 + index)), PayloadSHA256: fixtureSHA(uint32(90_000 + index)),
 			})
 		}
@@ -445,5 +455,5 @@ func catalogEqual(left, right Catalog) bool {
 		left.Provider == right.Provider && left.Tier == right.Tier && left.Grid == right.Grid && left.Evidence == right.Evidence &&
 		left.ScalarMaxZoom == right.ScalarMaxZoom && left.Scores.Unit == right.Scores.Unit && left.Scores.NoDataValue == right.Scores.NoDataValue &&
 		slices.Equal(left.Scores.Profiles, right.Scores.Profiles) && slices.Equal(left.Scores.Fields, right.Scores.Fields) &&
-		left.Coverage == right.Coverage && slices.Equal(left.PointBlocks, right.PointBlocks) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)
+		left.Coverage == right.Coverage && slices.Equal(left.PointBlocks, right.PointBlocks) && slices.Equal(left.DisplayPoints, right.DisplayPoints) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)
 }

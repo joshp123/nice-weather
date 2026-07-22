@@ -27,8 +27,10 @@ const catalogVersion = 1
 // LocateTimezone returns the civil timezone used to aggregate a source cell.
 type LocateTimezone func(longitude, latitude float64) (*time.Location, error)
 
-// IsLand is the sole land authority for output texel centres.
-type IsLand func(longitude, latitude float64) (bool, error)
+// TouchesLand reports whether any part of an exact output texel intersects
+// land. This all-touched contract preserves small islands and coastal slivers
+// whose polygons do not contain the texel centre.
+type TouchesLand func(bounds delivery.GridBounds) (bool, error)
 
 // Config is intentionally one day and one complete provider tier. A caller
 // that chooses between IFS and ICON must do so outside this module; there is no
@@ -42,7 +44,7 @@ type Config struct {
 	MaxZoom   uint8
 	Series    pipeline.PreparedSeries
 	Locate    LocateTimezone
-	Land      IsLand
+	Land      TouchesLand
 }
 
 type Field string
@@ -350,8 +352,11 @@ func sourceSpec(series pipeline.PreparedSeries) (SourceIdentity, error) {
 			if metadata.Field != field {
 				return SourceIdentity{}, fmt.Errorf("prepared series key %s contains %s", field, metadata.Field)
 			}
-			if metadata.SourceID == "" || metadata.Run.IsZero() {
+			if metadata.SourceID == "" || metadata.Run.IsZero() || len(metadata.ContentSHA256) != sha256.Size*2 {
 				return SourceIdentity{}, errors.New("forecast tile tier requires prepared source and run identity")
+			}
+			if _, err := hex.DecodeString(metadata.ContentSHA256); err != nil {
+				return SourceIdentity{}, errors.New("forecast tile tier requires prepared content identity")
 			}
 			if result.Rows == 0 {
 				result, resolution, sourceID, run = metadata.Grid, metadata.NativeResolutionKM, metadata.SourceID, metadata.Run
@@ -382,7 +387,10 @@ func sourceSpec(series pipeline.PreparedSeries) (SourceIdentity, error) {
 		if evidence[i].PackingError != evidence[j].PackingError {
 			return evidence[i].PackingError < evidence[j].PackingError
 		}
-		return evidence[i].PackingQuantum < evidence[j].PackingQuantum
+		if evidence[i].PackingQuantum != evidence[j].PackingQuantum {
+			return evidence[i].PackingQuantum < evidence[j].PackingQuantum
+		}
+		return evidence[i].ContentSHA256 < evidence[j].ContentSHA256
 	})
 	envelope := struct {
 		SourceID           string             `json:"sourceId"`
@@ -413,12 +421,14 @@ type preparedEvidence struct {
 	Units          string             `json:"units"`
 	PackingError   float64            `json:"packingError"`
 	PackingQuantum float64            `json:"packingQuantum"`
+	ContentSHA256  string             `json:"contentSha256"`
 }
 
 func preparedEvidenceFrom(metadata pipeline.PreparedFrameMetadata) preparedEvidence {
 	return preparedEvidence{
 		Field: metadata.Field, StartUTC: metadata.Start.UTC().Format(time.RFC3339Nano), EndUTC: metadata.End.UTC().Format(time.RFC3339Nano),
 		Semantics: metadata.Semantics, Units: metadata.Units, PackingError: metadata.PackingError, PackingQuantum: metadata.PackingQuantum,
+		ContentSHA256: metadata.ContentSHA256,
 	}
 }
 

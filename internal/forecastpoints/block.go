@@ -165,6 +165,16 @@ func BlockGrid(provider, tier string, grid delivery.GridSpec) (rows, columns uin
 	return rows, columns, nil
 }
 
+// CellWindow returns the exact half-open native-grid window owned by one
+// canonical block identity.
+func CellWindow(identity Identity) (row, column, rows, columns uint32, err error) {
+	if err := validateIdentity(identity); err != nil {
+		return 0, 0, 0, 0, err
+	}
+	_, blockRows, blockColumns, _ := nativeLayout(identity.Provider, identity.Tier, identity.Grid)
+	return identity.Block.Row * uint32(blockRows), identity.Block.Column * uint32(blockColumns), uint32(identity.Rows), uint32(identity.Columns), nil
+}
+
 // RelativePath is the deterministic path beneath an immutable release root.
 func RelativePath(identity Identity) (string, error) {
 	if err := validateIdentity(identity); err != nil {
