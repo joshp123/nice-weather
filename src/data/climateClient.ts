@@ -18,6 +18,8 @@ const FIELDS = [
 ] as const;
 const DERIVATION_CONTRACT = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
 
+const scalarTileIndexes = new WeakMap<readonly ClimateScalarTile[], ReadonlyMap<string, ClimateScalarTile>>();
+
 export type ClimateField = typeof FIELDS[number];
 export type ClimateIndexState = 'preview' | 'complete';
 
@@ -98,6 +100,15 @@ export type ClimateScalarTile = Readonly<{
   dataTexels: number;
   noDataTexels: number;
 }>;
+
+function scalarTileIndex(tiles: readonly ClimateScalarTile[]): ReadonlyMap<string, ClimateScalarTile> {
+  let index = scalarTileIndexes.get(tiles);
+  if (!index) {
+    index = new Map(tiles.map((tile) => [`${tile.field}/${tile.zoom}/${tile.x}/${tile.y}`, tile]));
+    scalarTileIndexes.set(tiles, index);
+  }
+  return index;
+}
 
 export type ClimateSourceQuality = Readonly<{
   referenceWindowMaterialDaytimeTemperatureRepairs: number;
@@ -262,11 +273,11 @@ export class WorldwideClimateClient {
 
   findScalarTile(catalog: ClimateCatalog, field: ClimateField, zoom: number, x: number, y: number): ClimateScalarTile | undefined {
     if (!FIELDS.includes(field) || !integer(zoom, 0, 4) || !integer(x, 0, 2 ** zoom - 1) || !integer(y, 0, 2 ** zoom - 1)) return undefined;
-    return catalog.scalarTiles.find((tile) => tile.field === field && tile.zoom === zoom && tile.x === x && tile.y === y);
+    return scalarTileIndex(catalog.scalarTiles).get(`${field}/${zoom}/${x}/${y}`);
   }
 
   scalarTileUrl(catalog: ClimateCatalog, tile: ClimateScalarTile): string {
-    if (!catalog.scalarTiles.includes(tile)) throw new ClimateDataError('invalid');
+    if (scalarTileIndex(catalog.scalarTiles).get(`${tile.field}/${tile.zoom}/${tile.x}/${tile.y}`) !== tile) throw new ClimateDataError('invalid');
     return climateAssetUrl(catalog.releaseId, tile.path);
   }
 

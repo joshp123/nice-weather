@@ -18,6 +18,9 @@ const DISPLAY_MEDIA = 'application/vnd.nice-weather.display-point-tile';
 const SCALAR_MEDIA = 'application/vnd.nice-weather.score-tile';
 const FIELDS = ['thermal', 'dryness', 'sun', 'nice_score', 'nice_wind', 'cycling_score', 'cycling_wind'] as const;
 
+const scalarTileIndexes = new WeakMap<readonly ForecastScalarTile[], ReadonlyMap<string, ForecastScalarTile>>();
+const scalarCoverageIndexes = new WeakMap<readonly ForecastCoverage[], ReadonlySet<string>>();
+
 export type ForecastField = typeof FIELDS[number];
 export type ForecastTier = 'europe-detail' | 'global';
 export type ForecastScalarTile = Readonly<{ field: ForecastField; zoom: number; x: number; y: number; path: string; bytes: number; sha256: string; mediaType?: string }>;
@@ -366,7 +369,14 @@ function validateScalarCollections(coverage: readonly ForecastCoverage[], tiles:
   if ([...coordinateFields.values()].some((fields) => fields.size !== FIELDS.length)) throw new ForecastDataError('invalid');
 }
 
-function declaredTile(catalog: DailyForecastCatalog, tile: ScalarTileID): boolean { return catalog.scalarCoverage.some((item) => item.zoom === tile.z && item.x === tile.x && item.y === tile.y && !item.omitted); }
+function declaredTile(catalog: DailyForecastCatalog, tile: ScalarTileID): boolean {
+  let available = scalarCoverageIndexes.get(catalog.scalarCoverage);
+  if (!available) {
+    available = new Set(catalog.scalarCoverage.filter((item) => !item.omitted).map(({ zoom, x, y }) => `${zoom}/${x}/${y}`));
+    scalarCoverageIndexes.set(catalog.scalarCoverage, available);
+  }
+  return available.has(`${tile.z}/${tile.x}/${tile.y}`);
+}
 
 export function forecastDetailDeclared(product: DayForecastProduct, tile: ScalarTileID): boolean {
   const detail = product.tiers.find(({ tier }) => tier === 'europe-detail');
@@ -377,7 +387,12 @@ function scalarSource(catalog: Readonly<{ root: string; scalarTiles: readonly Fo
   const maximum = catalog.scalarMaxZoom ?? 3;
   const sourceZoom = Math.min(output.z, maximum), factor = 2 ** (output.z - sourceZoom);
   const x = Math.floor(output.x / factor), y = Math.floor(output.y / factor);
-  const tile = catalog.scalarTiles.find((item) => item.field === field && item.zoom === sourceZoom && item.x === x && item.y === y);
+  let index = scalarTileIndexes.get(catalog.scalarTiles);
+  if (!index) {
+    index = new Map(catalog.scalarTiles.map((item) => [`${item.field}/${item.zoom}/${item.x}/${item.y}`, item]));
+    scalarTileIndexes.set(catalog.scalarTiles, index);
+  }
+  const tile = index.get(`${field}/${sourceZoom}/${x}/${y}`);
   if (!tile) return undefined;
   const childX = output.x % factor, childY = output.y % factor;
   return Object.freeze({
