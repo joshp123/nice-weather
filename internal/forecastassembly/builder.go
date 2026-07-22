@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -21,7 +22,11 @@ import (
 	"nice-weather-finder/internal/weather"
 )
 
-const CatalogName = "catalog.json"
+const (
+	CatalogName      = "catalog.json"
+	sealedRunIndex   = "index.json"
+	runLockExtension = ".install.lock"
+)
 
 var (
 	syncForecastDirectory     = syncDirectory
@@ -80,14 +85,22 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 	if err != nil {
 		return Product{}, err
 	}
+	if err := os.MkdirAll(config.Root, 0o755); err != nil {
+		return Product{}, err
+	}
+	runLock, err := acquireRunInstallLock(config.Root)
+	if err != nil {
+		return Product{}, err
+	}
+	defer releaseRunInstallLock(runLock)
+	if err := rejectSealedRun(config.Root); err != nil {
+		return Product{}, err
+	}
 	period := config.Date.Format("2006-01-02")
 	final := filepath.Join(config.Root, "forecast-days", period, config.Tier)
 	if _, err := os.Lstat(final); err == nil {
 		return Product{}, fmt.Errorf("immutable forecast product already exists: %s", final)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return Product{}, err
-	}
-	if err := os.MkdirAll(config.Root, 0o755); err != nil {
 		return Product{}, err
 	}
 	transaction, err := os.MkdirTemp(config.Root, ".forecast-product-")
@@ -153,6 +166,9 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 	if err := ctx.Err(); err != nil {
 		return Product{}, err
 	}
+	if err := rejectSealedRun(config.Root); err != nil {
+		return Product{}, err
+	}
 	if err := os.Rename(dayRoot, final); err != nil {
 		return Product{}, err
 	}
@@ -171,6 +187,43 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 
 	stats := assembleStats(config.Series, catalog, scalarCatalog, pointStats, uint64(len(encoded)), parityRecords)
 	return Product{Root: final, Catalog: catalog, Stats: stats}, nil
+}
+
+func acquireRunInstallLock(root string) (*os.File, error) {
+	filename := filepath.Join(root, runLockExtension)
+	fd, err := syscall.Open(filename, syscall.O_RDWR|syscall.O_CREAT|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open forecast run install lock: %w", err)
+	}
+	lock := os.NewFile(uintptr(fd), filename)
+	if info, err := lock.Stat(); err != nil || !info.Mode().IsRegular() {
+		_ = lock.Close()
+		return nil, errors.New("forecast run install lock changed while opening")
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("forecast run installation or publication is active: %w", err)
+	}
+	return lock, nil
+}
+
+func releaseRunInstallLock(lock *os.File) {
+	if lock == nil {
+		return
+	}
+	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	_ = lock.Close()
+}
+
+func rejectSealedRun(root string) error {
+	_, err := os.Lstat(filepath.Join(root, sealedRunIndex))
+	if err == nil {
+		return errors.New("forecast run is sealed by its immutable index")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 type nativeStats struct {

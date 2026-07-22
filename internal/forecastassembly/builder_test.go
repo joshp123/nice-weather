@@ -173,6 +173,20 @@ func TestBuildCancellationAndExistingProductLeaveNoTransaction(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsRunSealedByPublicationIndex(t *testing.T) {
+	config, closeFrames := exactIFSConfig(t)
+	defer closeFrames()
+	if err := os.WriteFile(filepath.Join(config.Root, sealedRunIndex), []byte("sealed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildDay(context.Background(), config); err == nil || !strings.Contains(err.Error(), "sealed") {
+		t.Fatalf("sealed run build error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(config.Root, "forecast-days")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("sealed run was modified: %v", err)
+	}
+}
+
 func TestFailedPostRenameReconciliationRollsBackExactProduct(t *testing.T) {
 	config, closeFrames := exactIFSConfig(t)
 	defer closeFrames()
