@@ -50,9 +50,6 @@ export default function App() {
   const [selectedPoint, setSelectedPoint] = useState<MapPoint>();
   const [focusPoint, setFocusPoint] = useState<(MapPoint & { token: number })>();
   const [viewport, setViewport] = useState<PlaceSearchViewport>({ latitude: 48.5, longitude: 9.5 });
-  const [mapWeatherViewport, setMapWeatherViewport] = useState<{ bounds: GeographicBounds; zoom: number }>({
-    bounds: { west: -180, east: 180, south: -85, north: 85 }, zoom: 3,
-  });
   const [mapNotice, setMapNotice] = useState('');
   const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
   const [legendPanel, setLegendPanel] = useState<ControlPanel>(null);
@@ -120,10 +117,6 @@ export default function App() {
   const climateRail = climateRailPeriods(climateModel);
   const pointProfileKey = view === 'climate' ? 'climate' : profile;
   const activePeriodId = view === 'range' ? 'next-14-days' : view === 'daily' ? forecastPeriod?.id : climatePeriodId;
-  const forecastDetailEnabled = view === 'daily' && forecastDayState.status === 'ready'
-    ? forecastMapUsesDetail(forecastDayState.product, mapWeatherViewport.bounds, mapWeatherViewport.zoom)
-    : false;
-
   const refreshStaleClimate = useCallback((refreshKey: string) => {
     if (staleReloadedClimateIndex.current === refreshKey) return false;
     staleReloadedClimateIndex.current = refreshKey;
@@ -252,7 +245,7 @@ export default function App() {
       request = forecastClient.loadRangePoint(forecastState.snapshot, selectedPoint.lon, selectedPoint.lat, profile, presentation, controller.signal);
     } else {
       if (!dayProduct) return () => controller.abort();
-      request = forecastClient.loadDailyPoint(dayProduct, selectedPoint.lon, selectedPoint.lat, profile, presentation, forecastDetailEnabled, controller.signal);
+      request = forecastClient.loadDailyPoint(dayProduct, selectedPoint.lon, selectedPoint.lat, profile, presentation, controller.signal);
     }
     request
       .then((data) => {
@@ -268,7 +261,7 @@ export default function App() {
         setPointState({ status: 'error', message: error instanceof ForecastDataError ? error.message : 'Weather is not available for this point.' });
       });
     return () => controller.abort();
-  }, [activePeriodId, climateCatalogState, climateClient, climateIndexId, forecastClient, forecastDayState, forecastDetailEnabled, forecastState, manifest, pointProfileKey, refreshForecast, refreshStaleClimate, selectedPoint, view]);
+  }, [activePeriodId, climateCatalogState, climateClient, climateIndexId, forecastClient, forecastDayState, forecastState, manifest, pointProfileKey, refreshForecast, refreshStaleClimate, selectedPoint, view]);
 
   const scalarOverlay = useMemo<ScalarOverlay | undefined>(() => {
     if (view === 'climate') {
@@ -344,9 +337,8 @@ export default function App() {
             setMapSelectionToken((value) => value + 1);
             selectPoint(point, false, shouldFocusDetails(intent?.focusDetails ? 'map-keyboard' : 'map-pointer'));
           }}
-          onViewportChange={({ latitude, longitude, zoom, bounds }) => {
+          onViewportChange={({ latitude, longitude }) => {
             setViewport({ latitude, longitude });
-            setMapWeatherViewport({ bounds, zoom });
           }}
           onReady={(elapsedMs) => telemetry('map-ready', { elapsedMs })}
           onOverlayState={(state) => {

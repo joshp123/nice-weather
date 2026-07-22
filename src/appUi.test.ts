@@ -7,11 +7,18 @@ import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
 import type { DailyPoint, WeatherImage, WeatherManifest } from './data/types';
 
+const detailGrid = { west: -24, east: 45, south: 29, north: 71.5, rows: 680, columns: 1104 };
+const detailPointBlock = {
+  row: 5, column: 8, rows: 64, columns: 64, omitted: false,
+  path: 'blocks/5-8.nwf', bytes: 123_200, sha256: '0'.repeat(64), payloadSha256: '0'.repeat(64),
+  mediaType: 'application/vnd.nice-weather.forecast-block',
+};
+
 describe('map controls', () => {
   it('keeps global views cheap and enables detail only inside the viewport budget', () => {
     const product = {
       tiers: [
-        { tier: 'europe-detail', scalarCoverage: [{ zoom: 5, x: 16, y: 10, omitted: false }] },
+        { tier: 'europe-detail', grid: detailGrid, pointBlocks: [detailPointBlock], scalarCoverage: [{ zoom: 5, x: 16, y: 10, omitted: false }] },
         { tier: 'global', scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false }] },
       ],
     } as unknown as DayForecastProduct;
@@ -21,14 +28,29 @@ describe('map controls', () => {
 
     expect(forecastMapUsesDetail(product, world, 1.35)).toBe(false);
     expect(new Set(forecastMapTiles(product, world, 1.35).map(({ id }) => `${id.z}/${id.x}/${id.y}`)).size).toBe(64);
-    expect(forecastTierForPoint(product, 10, 50, forecastMapUsesDetail(product, world, 1.35)).tier).toBe('global');
+    expect(forecastTierForPoint(product, 10, 50).tier).toBe('europe-detail');
     expect(forecastMapUsesDetail(product, europe, 5)).toBe(true);
     expect(forecastMapTiles(product, europe, 5).every(({ id }) => id.z === 5)).toBe(true);
     expect(forecastMapTiles(product, europe, 5)).toHaveLength(20);
-    expect(forecastTierForPoint(product, 10, 50, forecastMapUsesDetail(product, europe, 5)).tier).toBe('europe-detail');
+    expect(forecastTierForPoint(product, 10, 50).tier).toBe('europe-detail');
     expect(forecastMapUsesDetail(product, ultrawide, 4)).toBe(false);
     expect(forecastMapTiles(product, ultrawide, 4).every(({ id }) => id.z === 3)).toBe(true);
     expect(forecastMapTiles(product, ultrawide, 4).length).toBeLessThanOrEqual(64);
+  });
+
+  it('keeps a selected European judgement independent of the map texture budget', () => {
+    const product = {
+      tiers: [
+        { tier: 'europe-detail', grid: detailGrid, pointBlocks: [detailPointBlock], scalarCoverage: [{ zoom: 5, x: 16, y: 10, omitted: false }] },
+        { tier: 'global', scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false }] },
+      ],
+    } as unknown as DayForecastProduct;
+    const worldwide = { west: -180, east: 180, south: -85, north: 85 };
+    const scoreByTier = { global: 7, 'europe-detail': 89 } as const;
+
+    expect(forecastMapUsesDetail(product, worldwide, 1.35)).toBe(false);
+    expect(forecastMapTiles(product, worldwide, 1.35).every(({ id }) => id.z === 3)).toBe(true);
+    expect(scoreByTier[forecastTierForPoint(product, 10, 50).tier]).toBe(89);
   });
 
   it('keeps Overall one click away in the complete five-lens instrument', () => {

@@ -139,12 +139,12 @@ export class WorldwideForecastClient {
     return result;
   }
 
-  async loadDailyPoint(product: DayForecastProduct, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, detailEnabled: boolean, signal?: AbortSignal): Promise<DailyPoint> {
+  async loadDailyPoint(product: DayForecastProduct, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, signal?: AbortSignal): Promise<DailyPoint> {
     this.#active?.abort(new ForecastDataError('stale'));
     const active = new AbortController(); this.#active = active; const generation = ++this.#generation;
     const combined = combineSignals(active.signal, signal);
     try {
-      const selected = forecastTierForPoint(product, longitude, latitude, detailEnabled);
+      const selected = forecastTierForPoint(product, longitude, latitude);
       const display = await this.#displayRecord(selected, longitude, latitude, combined);
       if (!display) throw new ForecastDataError('invalid', 'Detailed forecast coverage is incomplete here.');
       const native = await this.#nativeRecord(selected, longitude, latitude, combined);
@@ -225,13 +225,11 @@ export class WorldwideForecastClient {
   }
 
   async #nativeRecord(catalog: DailyForecastCatalog, lon: number, lat: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
-    const location = nativeLocation(catalog, lon, lat); if (!location) return undefined;
-    const blockRow = Math.floor(location.row / 64), blockColumn = Math.floor(location.column / 64);
-    const block = catalog.pointBlocks.find((item) => item.row === blockRow && item.column === blockColumn);
-    if (!block || block.omitted) return undefined;
+    const selected = nativePointBlock(catalog, lon, lat); if (!selected) return undefined;
+    const { location, block } = selected;
     const bytes = await this.#block(`${catalog.root}/${requiredPath(block.path)}`, requiredInteger(block.bytes), requiredSHA(block.sha256), DAILY_MEDIA, signal);
     validateDailyHeader(bytes, catalog, block, requiredSHA(block.payloadSha256));
-    const localRow = location.row - blockRow * 64, localColumn = location.column - blockColumn * 64;
+    const localRow = location.row - block.row * 64, localColumn = location.column - block.column * 64;
     const start = DAILY_HEADER_BYTES + (localRow * block.columns + localColumn) * DAILY_RECORD_BYTES;
     const record = bytes.subarray(start, start + DAILY_RECORD_BYTES);
     return record.every((value) => value === 0) ? undefined : record;
@@ -423,9 +421,9 @@ function scalarSource(catalog: Readonly<{ root: string; scalarTiles: readonly Fo
   });
 }
 
-export function forecastTierForPoint(product: DayForecastProduct, lon: number, lat: number, detailEnabled = true): DailyForecastCatalog {
+export function forecastTierForPoint(product: DayForecastProduct, lon: number, lat: number): DailyForecastCatalog {
   const detail = product.tiers.find(({ tier }) => tier === 'europe-detail');
-  if (detailEnabled && detail) { const location = xyzLocation(lon, lat, 5); if (declaredTile(detail, location.id)) return detail; }
+  if (detail && nativePointBlock(detail, lon, lat)) { const location = xyzLocation(lon, lat, 5); if (declaredTile(detail, location.id)) return detail; }
   const global = product.tiers.find(({ tier }) => tier === 'global'); if (!global) throw new ForecastDataError('invalid'); return global;
 }
 
@@ -447,6 +445,13 @@ function nativeLocation(catalog: DailyForecastCatalog, longitude: number, latitu
   const column = Math.min(grid.columns - 1, Math.floor((lon - grid.west) / (grid.east - grid.west) * grid.columns));
   const row = Math.min(grid.rows - 1, Math.floor((grid.north - latitude) / (grid.north - grid.south) * grid.rows));
   return row < 0 || row >= grid.rows || column < 0 || column >= grid.columns ? undefined : { row, column };
+}
+
+function nativePointBlock(catalog: DailyForecastCatalog, longitude: number, latitude: number): { location: { row: number; column: number }; block: ForecastPointBlock } | undefined {
+  const location = nativeLocation(catalog, longitude, latitude); if (!location) return undefined;
+  const blockRow = Math.floor(location.row / 64), blockColumn = Math.floor(location.column / 64);
+  const block = catalog.pointBlocks.find((item) => item.row === blockRow && item.column === blockColumn);
+  return !block || block.omitted ? undefined : { location, block };
 }
 
 function validateRangeHeader(bytes: Uint8Array, catalog: RangeForecastCatalog, row: number, column: number, payloadSHA: string) {

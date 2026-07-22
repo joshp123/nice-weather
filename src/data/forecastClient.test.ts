@@ -12,6 +12,7 @@ import {
   type DailyForecastCatalog,
   type DayForecastProduct,
   type ForecastField,
+  type ForecastPointBlock,
   type ForecastScalarTile,
 } from './forecastClient';
 
@@ -134,12 +135,11 @@ describe('WorldwideForecastClient', () => {
 
   it('chooses one declared tier before colour and never falls through a broken detail field', () => {
     const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false }]);
-    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 16, y: 10, omitted: false }]);
+    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 16, y: 10, omitted: false }], [pointBlock(5, 8)]);
     const product: DayForecastProduct = { indexId: 'run-test', date: '2026-07-22', tiers: [detail, global] };
     const client = new WorldwideForecastClient();
 
     expect(forecastTierForPoint(product, 10, 50).tier).toBe('europe-detail');
-    expect(forecastTierForPoint(product, 10, 50, false).tier).toBe('global');
     expect(forecastTierForPoint(product, -74, 40.7).tier).toBe('global');
     expect(client.sourceZoomFor(product, 1.35)).toBe(3);
     expect(client.sourceZoomFor(product, 4)).toBe(5);
@@ -153,11 +153,30 @@ describe('WorldwideForecastClient', () => {
     const incomplete: DayForecastProduct = { ...product, tiers: [incompleteDetail, global] };
     expect(client.scalarSourceForOutputTile(incomplete, 'nice_score', { z: 5, x: 16, y: 10 })).toBeUndefined();
   });
+
+  it('does not select detail for coordinate bleed in a boundary tile', () => {
+    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false }]);
+    const detail = catalog('europe-detail', 5, [{ zoom: 5, x: 13, y: 10, omitted: false }], [pointBlock(5, 0)]);
+    const product: DayForecastProduct = { indexId: 'run-test', date: '2026-07-22', tiers: [detail, global] };
+
+    expect(forecastTierForPoint(product, -23.99, 50).tier).toBe('europe-detail');
+    expect(forecastTierForPoint(product, -24.01, 50).tier).toBe('global');
+  });
+
+  it('falls back to global when the detail native point block is missing or omitted', () => {
+    const global = catalog('global', 3, [{ zoom: 3, x: 0, y: 0, omitted: false }]);
+    const coverage = [{ zoom: 5, x: 16, y: 10, omitted: false }] as const;
+    const missing = catalog('europe-detail', 5, coverage, []);
+    const omitted = catalog('europe-detail', 5, coverage, [pointBlock(5, 8, true)]);
+
+    expect(forecastTierForPoint({ indexId: 'run-test', date: '2026-07-22', tiers: [missing, global] }, 10, 50).tier).toBe('global');
+    expect(forecastTierForPoint({ indexId: 'run-test', date: '2026-07-22', tiers: [omitted, global] }, 10, 50).tier).toBe('global');
+  });
 });
 
-function catalog(tier: 'global' | 'europe-detail', zoom: 3 | 5, scalarCoverage: DailyForecastCatalog['scalarCoverage']): DailyForecastCatalog {
-  const x = tier === 'global' ? 0 : 16;
-  const y = tier === 'global' ? 0 : 10;
+function catalog(tier: 'global' | 'europe-detail', zoom: 3 | 5, scalarCoverage: DailyForecastCatalog['scalarCoverage'], pointBlocks: readonly ForecastPointBlock[] = []): DailyForecastCatalog {
+  const x = scalarCoverage[0]?.x ?? 0;
+  const y = scalarCoverage[0]?.y ?? 0;
   const scalarTiles: ForecastScalarTile[] = fields.map((field) => ({
     field, zoom, x, y,
     path: `${field}/${zoom}/${x}/${y}.nws`, bytes: 258 * 258, sha256: zeroSHA,
@@ -174,8 +193,15 @@ function catalog(tier: 'global' | 'europe-detail', zoom: 3 | 5, scalarCoverage: 
     evidence: { product: 'test', runUtc: '2026-07-22T00:00:00Z', nativeResolutionKm: tier === 'global' ? 28 : 7, sourceEvidenceSha256: zeroSHA },
     land,
     scalarMaxZoom: zoom,
-    pointBlocks: [], displayPoints: [], scalarCoverage, scalarTiles,
+    pointBlocks, displayPoints: [], scalarCoverage, scalarTiles,
     root: `/forecast/${tier}`,
+  };
+}
+
+function pointBlock(row: number, column: number, omitted = false): ForecastPointBlock {
+  return {
+    row, column, rows: 64, columns: 64, omitted, mediaType: 'application/vnd.nice-weather.forecast-block',
+    ...(omitted ? {} : { path: `blocks/${row}-${column}.nwf`, bytes: 123_200, sha256: zeroSHA, payloadSha256: zeroSHA }),
   };
 }
 
