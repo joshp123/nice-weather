@@ -347,27 +347,36 @@ func TestGlobalClimateBlocksCountStructurallyUnsupportedLandAcrossBuildAndResume
 	}
 }
 
-func TestGlobalClimateBlocksPublishOneFullyAbsentLandCellAsUnsupported(t *testing.T) {
+func TestGlobalClimateBlocksPublishFullyAbsentLandCellsAsUnsupported(t *testing.T) {
 	root := t.TempDir()
 	mask := globalClimateMask(t)
 	block := agera5.BlockCoordinate{Latitude: 109, Longitude: 0}
+	setGlobalClimateLand(t, &mask, 1749, 1)
 	setGlobalClimateLand(t, &mask, 1750, 1)
 
 	built, err := RunGlobalClimateBlocks(context.Background(), root, &globalClimateTestSource{absentBlock: &block}, mask, testSourceDigest(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if built.LandCells != 1 || built.UnsupportedLandCells != 1 || built.Built != 1 || built.Reused != 0 || len(built.Completed) != 1 {
-		t.Fatalf("fully absent isolated-land summary = %+v", built)
+	if built.LandCells != 2 || built.UnsupportedLandCells != 2 || built.Built != 1 || built.Reused != 0 || len(built.Completed) != 1 {
+		t.Fatalf("fully absent land summary = %+v", built)
 	}
 	checkpoint, found, err := climatebuild.LoadCheckpoint(globalClimateCheckpointPath(root, block), built.Completed[0])
 	if err != nil || !found {
 		t.Fatalf("load isolated-land checkpoint found=%t error=%v", found, err)
 	}
 	for month := range checkpoint.Months {
-		if checkpoint.Months[month][6*32+1].Valid {
+		if checkpoint.Months[month][5*32+1].Valid || checkpoint.Months[month][6*32+1].Valid {
 			t.Fatalf("month %d invented evidence for source-unsupported land", month+1)
 		}
+	}
+
+	resumed, err := RunGlobalClimateBlocks(context.Background(), root, &globalClimateTestSource{fetchErr: errors.New("resume fetched source")}, mask, testSourceDigest(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.UnsupportedLandCells != 2 || resumed.Reused != 1 || resumed.Built != 0 {
+		t.Fatalf("resumed fully absent land summary = %+v", resumed)
 	}
 }
 
