@@ -6,8 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
     "build:canary": "npm run build && NICE_WEATHER_CANARY_BUILD=1 vite build",
-    "test": "vitest run",
-    "qa:browser": "node scripts/qa-browser.mjs"
+    "test": "vitest run"
   },
   "dependencies": {
     "maplibre-gl": "5.24.0",
@@ -15,12 +14,10 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
-    "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
     "vitest": "^4.0.16"

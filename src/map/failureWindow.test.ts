@@ -43,7 +43,6 @@ describe('sustained map failure window', () => {
     expect(source).toContain('onFailure={handleActiveFailure}');
     expect(source).not.toContain('onFailure={(reason) => handleFailure(reason, rendererAttempt)}');
     expect(source).toContain('withCurrentRenderer(mapRef.current, activeMap, removeOverlay);');
-    expect(source).toContain('withCurrentRenderer(mapRef.current, map, removeWindDirection);');
     expect(source).toContain('renderWorldCopies: false,');
   });
 

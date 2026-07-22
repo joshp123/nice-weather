@@ -88,13 +88,12 @@ Deal-breakers stop cold, oppressive, very wet or very windy days from winning th
 - `internal/destinations` builds the forecast-bound best-weather shortlist offline.
 - `internal/appserver` serves the frontend, immutable artifacts, pointer files and strict byte ranges.
 
-There is no provider fallback soup, browser-side scorer or live server-side weather calculation. One legacy dependency remains: server startup still validates the old monolithic `artifacts/current` release and serves its retired `/manifest.json` and `/releases/...` routes. The active UI does not read them. Remove this startup dependency in a separate, tested deletion; do not build new behaviour on it.
+There is no provider fallback soup, browser-side scorer or live server-side weather calculation. Server startup uses the artifact root directly. The retired monolithic `artifacts/current` release, `/manifest.json` route and `/releases/...` routes do not exist in the active contract.
 
 ## Artifact contract
 
 ```text
 dist/                                      Vite production frontend
-artifacts/current/                         legacy startup release; active UI does not use it
 artifacts/forecast/current.json            current forecast pointer
 artifacts/forecast/runs/<id>/               immutable forecast index, catalogs, tiles and point blocks
 artifacts/climate/current.json              current climate index pointer

@@ -6,6 +6,9 @@ import {
   WorldwideForecastClient,
   dailySummary,
   forecastTierForPoint,
+  forecastRunStatus,
+  freshnessLabel,
+  isStale,
   type DailyForecastCatalog,
   type DayForecastProduct,
   type ForecastField,
@@ -20,6 +23,14 @@ const land = {
 };
 
 describe('WorldwideForecastClient', () => {
+  it('reports forecast freshness from the active run timestamp', () => {
+    const now = new Date('2026-07-18T12:00:00Z');
+    expect(freshnessLabel('2026-07-18T11:30:00Z', now)).toBe('Updated 30 minutes ago');
+    expect(freshnessLabel('2026-07-17T12:00:00Z', now)).toBe('Updated 1 day ago');
+    expect(isStale('2026-07-18T06:00:00Z', 12, now)).toBe(false);
+    expect(forecastRunStatus('2026-07-17T06:00:00Z', 12, now)).toEqual({ stale: true, label: 'Forecast is out of date' });
+  });
+
   it('uses the displayed Bright category in daily headline copy', () => {
     // The native summary says "bright", but the displayed Bright score is 51/Mixed.
     expect(dailySummary(12.4, 8, { value: 51, category: 'Mixed' })).toBe('12°C · dry · mixed cloud · light wind');

@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/climatetiles"
-	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
@@ -37,23 +36,8 @@ type application struct {
 	webRoot      string
 	artifactRoot string
 	artifactFS   *os.Root
-	reloadMu     sync.Mutex
-	snapshotMu   sync.RWMutex
-	snapshot     *releaseSnapshot
-	previous     *releaseAssets
 	forecastMu   sync.Mutex
 	forecast     *forecastSnapshot
-}
-
-type releaseAssets struct {
-	releaseID   string
-	releaseRoot string
-}
-
-type releaseSnapshot struct {
-	releaseRoot string
-	manifest    delivery.Manifest
-	manifestRaw []byte
 }
 
 type forecastSnapshot struct {
@@ -129,123 +113,24 @@ func NewHandler(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact root: %w", err)
 	}
-	snapshot, err := loadCurrentSnapshot(artifactRoot)
-	if err != nil {
-		return nil, err
-	}
-	previous, err := loadPreviousAssets(artifactRoot, snapshot.releaseRoot)
-	if err != nil {
-		return nil, err
-	}
 	artifactFS, err := os.OpenRoot(artifactRoot)
 	if err != nil {
 		return nil, fmt.Errorf("open artifact root: %w", err)
 	}
-	return &application{webRoot: webRoot, artifactRoot: artifactRoot, artifactFS: artifactFS, snapshot: snapshot, previous: previous}, nil
-}
-
-func loadPreviousAssets(artifactRoot, currentRoot string) (*releaseAssets, error) {
-	previous, ok := delivery.PreviousDir(artifactRoot)
-	if !ok {
-		return nil, nil
-	}
-	releaseRoot, err := filepath.EvalSymlinks(previous)
-	if err != nil {
-		return nil, fmt.Errorf("resolve previous release: %w", err)
-	}
-	if releaseRoot == currentRoot {
-		return nil, nil
-	}
-	manifest, err := delivery.ValidateProductionRelease(releaseRoot)
-	if err != nil {
-		return nil, fmt.Errorf("validate previous release: %w", err)
-	}
-	return &releaseAssets{releaseID: manifest.ReleaseID, releaseRoot: releaseRoot}, nil
-}
-
-func loadCurrentSnapshot(artifactRoot string) (*releaseSnapshot, error) {
-	current, ok := delivery.CurrentDir(artifactRoot)
-	if !ok {
-		return nil, fmt.Errorf("no published release in %s", artifactRoot)
-	}
-	releaseRoot, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		return nil, fmt.Errorf("resolve current release: %w", err)
-	}
-	manifest, err := delivery.ValidateProductionRelease(releaseRoot)
-	if err != nil {
-		return nil, fmt.Errorf("validate current release: %w", err)
-	}
-	manifestRaw, err := os.ReadFile(filepath.Join(releaseRoot, "manifest.json"))
-	if err != nil {
-		return nil, err
-	}
-	return &releaseSnapshot{releaseRoot: releaseRoot, manifest: manifest, manifestRaw: manifestRaw}, nil
+	return &application{webRoot: webRoot, artifactRoot: artifactRoot, artifactFS: artifactFS}, nil
 }
 
 func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	_ = app.reloadIfChanged()
-	app.snapshotMu.RLock()
-	defer app.snapshotMu.RUnlock()
-	snapshot := app.snapshot
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "same-origin")
-	switch {
-	case r.URL.Path == "/manifest.json":
-		w.Header().Set("Cache-Control", "no-cache")
-		serveBytes(w, r, snapshot.manifestRaw, "application/json; charset=utf-8")
-	default:
-		app.serveFile(w, r, snapshot)
-	}
-}
-
-func (app *application) reloadIfChanged() error {
-	current, ok := delivery.CurrentDir(app.artifactRoot)
-	if !ok {
-		return errors.New("published release is missing")
-	}
-	releaseRoot, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		return err
-	}
-	app.snapshotMu.RLock()
-	unchanged := app.snapshot.releaseRoot == releaseRoot
-	app.snapshotMu.RUnlock()
-	if unchanged {
-		return nil
-	}
-	app.reloadMu.Lock()
-	defer app.reloadMu.Unlock()
-	app.snapshotMu.RLock()
-	unchanged = app.snapshot.releaseRoot == releaseRoot
-	app.snapshotMu.RUnlock()
-	if unchanged {
-		return nil
-	}
-	next, err := loadCurrentSnapshot(app.artifactRoot)
-	if err != nil {
-		return err
-	}
-	previousAssets, err := loadPreviousAssets(app.artifactRoot, next.releaseRoot)
-	if err != nil {
-		return err
-	}
-	app.snapshotMu.Lock()
-	app.snapshot = next
-	app.previous = previousAssets
-	app.snapshotMu.Unlock()
-	return nil
+	app.serveFile(w, r)
 }
 
 func (app *application) close() error {
-	app.reloadMu.Lock()
-	defer app.reloadMu.Unlock()
-	app.snapshotMu.Lock()
-	defer app.snapshotMu.Unlock()
 	return app.artifactFS.Close()
 }
 
-func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapshot *releaseSnapshot) {
+func (app *application) serveFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Use GET or HEAD for files.")
 		return
@@ -253,6 +138,10 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 	requestPath := strings.TrimPrefix(r.URL.Path, "/")
 	if requestPath == "" {
 		requestPath = "index.html"
+	}
+	if requestPath == "manifest.json" || requestPath == "releases" || strings.HasPrefix(requestPath, "releases/") {
+		writeError(w, http.StatusNotFound, "not_found", "The requested file was not found.")
+		return
 	}
 	if strings.HasPrefix(requestPath, "forecast/") {
 		app.serveForecastArtifact(w, r, requestPath)
@@ -270,17 +159,6 @@ func (app *application) serveFile(w http.ResponseWriter, r *http.Request, snapsh
 		}
 		app.serveStaticArtifact(w, r, assetPath, cache)
 		return
-	} else if releaseID, assetPath, matched, err := releaseAssetPath(requestPath); matched {
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_path", "The requested path is invalid.")
-			return
-		}
-		root = app.releaseRoot(snapshot, releaseID)
-		if root == "" {
-			writeError(w, http.StatusConflict, "stale_release", "This weather release is no longer available. Refresh the forecast.")
-			return
-		}
-		requestPath, cache = assetPath, "public, max-age=31536000, immutable"
 	} else if strings.HasPrefix(requestPath, "assets/") {
 		cache = "public, max-age=31536000, immutable"
 	}
@@ -797,30 +675,6 @@ func rejectSymlinkComponents(root *os.Root, requestPath string) error {
 		}
 	}
 	return nil
-}
-
-func (app *application) releaseRoot(current *releaseSnapshot, releaseID string) string {
-	if releaseID == current.manifest.ReleaseID {
-		return current.releaseRoot
-	}
-	if app.previous != nil && releaseID == app.previous.releaseID {
-		return app.previous.releaseRoot
-	}
-	return ""
-}
-
-func releaseAssetPath(requestPath string) (releaseID, assetPath string, matched bool, err error) {
-	if !strings.HasPrefix(requestPath, "releases/") {
-		return "", "", false, nil
-	}
-	parts := strings.SplitN(strings.TrimPrefix(requestPath, "releases/"), "/", 2)
-	if len(parts) != 2 || !validReleaseID(parts[0]) || (!strings.HasPrefix(parts[1], "images/") && !strings.HasPrefix(parts[1], "wind/") && !strings.HasPrefix(parts[1], "points/")) {
-		return "", "", true, errors.New("unsafe release asset path")
-	}
-	if _, joinErr := safeJoin(".", parts[1]); joinErr != nil {
-		return "", "", true, joinErr
-	}
-	return parts[0], parts[1], true, nil
 }
 
 func staticArtifactPath(requestPath string) (assetPath string, immutable, matched bool, err error) {

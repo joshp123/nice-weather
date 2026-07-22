@@ -74,6 +74,27 @@ export class ForecastDataError extends Error {
   }
 }
 
+export function freshnessLabel(updatedAt: string, now = new Date()): string {
+  const elapsedMinutes = Math.max(0, Math.round((now.getTime() - new Date(updatedAt).getTime()) / 60_000));
+  if (!Number.isFinite(elapsedMinutes)) return 'Update time unknown';
+  if (elapsedMinutes < 2) return 'Updated just now';
+  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes} minutes ago`;
+  const hours = Math.round(elapsedMinutes / 60);
+  if (hours < 24) return `Updated ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+  const days = Math.round(hours / 24);
+  return `Updated ${days} ${days === 1 ? 'day' : 'days'} ago`;
+}
+
+export function isStale(updatedAt: string, staleAfterHours: number, now = new Date()): boolean {
+  const age = now.getTime() - new Date(updatedAt).getTime();
+  return !Number.isFinite(age) || age > staleAfterHours * 3_600_000;
+}
+
+export function forecastRunStatus(runAt: string, staleAfterHours: number, now = new Date()): { stale: boolean; label: string } {
+  const stale = isStale(runAt, staleAfterHours, now);
+  return { stale, label: stale ? 'Forecast is out of date' : freshnessLabel(runAt, now) };
+}
+
 type Pointer = Readonly<{ version: 1; current: Readonly<{ indexId: string; path: string; sha256: string }> }>;
 
 export class WorldwideForecastClient {

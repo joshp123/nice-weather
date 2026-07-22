@@ -77,7 +77,7 @@ go run ./cmd/niceweather places \
 go run ./cmd/niceweather best-weather --out ./artifacts
 ```
 
-The server validates and hot-swaps complete forecast snapshots. Climate, place and shortlist clients verify their static pointers and immutable files before changing visible state. A normal data refresh does not require a restart.
+The server starts directly from the active artifact root; it does not require a monolithic `artifacts/current` release. It validates and hot-swaps complete forecast snapshots. Climate, place and shortlist clients verify their static pointers and immutable files before changing visible state. A normal data refresh does not require a restart.
 
 ## Architecture
 

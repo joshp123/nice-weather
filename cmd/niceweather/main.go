@@ -31,12 +31,6 @@ func main() {
 	domain := product.Europe()
 	var err error
 	switch os.Args[1] {
-	case "fixture":
-		flags := flag.NewFlagSet("fixture", flag.ContinueOnError)
-		out := flags.String("out", "./artifacts", "artifact directory")
-		if err = flags.Parse(os.Args[2:]); err == nil {
-			err = appserver.GenerateFixture(*out)
-		}
 	case "serve":
 		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 		web := flags.String("web", "./dist", "frontend build directory")
@@ -44,17 +38,6 @@ func main() {
 		listen := flags.String("listen", appserver.DefaultListen, "listen address")
 		if err = flags.Parse(os.Args[2:]); err == nil {
 			err = appserver.Serve(appserver.Config{WebRoot: *web, ArtifactRoot: *artifacts, Listen: *listen})
-		}
-	case "update":
-		flags := flag.NewFlagSet("update", flag.ContinueOnError)
-		out := flags.String("out", "./artifacts", "artifact directory")
-		cache := flags.String("cache", "./.cache/weather", "weather download and climate cache")
-		smoke := flags.Bool("smoke", false, "verify one live step per source without publishing")
-		refresh := flags.Bool("refresh", false, "rebuild even when current already uses the latest source runs")
-		if err = flags.Parse(os.Args[2:]); err == nil {
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			err = weatherupdate.Run(ctx, weatherupdate.Config{Out: *out, Cache: *cache, Domain: domain, Smoke: *smoke, Refresh: *refresh})
 		}
 	case "global-canary":
 		flags := flag.NewFlagSet("global-canary", flag.ContinueOnError)
@@ -202,7 +185,11 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: niceweather <fixture|update|global-canary|forecast-world|agera5-canary|climate-world|verify-climate|serve|places|best-weather> [options]")
+	writeUsage(os.Stderr)
+}
+
+func writeUsage(output io.Writer) {
+	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|agera5-canary|climate-world|verify-climate|serve|places|best-weather> [options]")
 }
 
 func formatOptionalTime(value time.Time) string {

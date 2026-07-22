@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,10 +30,9 @@ import (
 )
 
 type testApplication struct {
-	handler  http.Handler
-	root     string
-	web      string
-	manifest delivery.Manifest
+	handler http.Handler
+	root    string
+	web     string
 }
 
 func newTestApplication(t testing.TB) testApplication {
@@ -57,32 +57,8 @@ func newTestApplication(t testing.TB) testApplication {
 	if err := os.Symlink(outside, filepath.Join(web, "assets", "escape.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if err := GenerateFixture(root); err != nil {
+	if _, err := places.PublishSample(root); err != nil {
 		t.Fatal(err)
-	}
-	current, ok := delivery.CurrentDir(root)
-	if !ok {
-		t.Fatal("fixture was not published")
-	}
-	resolvedCurrent, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := delivery.ValidateProductionRelease(resolvedCurrent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(manifest.Forecast.Days) != 14 || manifest.Climate == nil || len(manifest.Climate.Months) != 12 {
-		t.Fatalf("fixture is incomplete: %d days, %d months", len(manifest.Forecast.Days), len(manifest.Climate.Months))
-	}
-	if manifest.DataStatus != delivery.DataStatusSample {
-		t.Fatalf("fixture data status = %q; want sample", manifest.DataStatus)
-	}
-	if manifest.ProductContract != delivery.ProductContract {
-		t.Fatalf("fixture product contract = %q; want %q", manifest.ProductContract, delivery.ProductContract)
-	}
-	if !strings.Contains(manifest.Region.Label, "sample data") || !strings.Contains(manifest.Forecast.Days[0].Source.ProviderLabel, "Sample") {
-		t.Fatal("fixture metadata does not identify sample data")
 	}
 	handler, err := NewHandler(Config{WebRoot: web, ArtifactRoot: root})
 	if err != nil {
@@ -91,229 +67,25 @@ func newTestApplication(t testing.TB) testApplication {
 	if concrete, ok := handler.(*application); ok {
 		t.Cleanup(func() { _ = concrete.close() })
 	}
-	return testApplication{handler: handler, root: root, web: web, manifest: manifest}
+	return testApplication{handler: handler, root: root, web: web}
 }
 
-func TestRunningServerReloadsPublishedReleaseCoherently(t *testing.T) {
+func TestHandlerStartsWithoutLegacyReleaseAndLegacyRoutesAreGone(t *testing.T) {
 	app := newTestApplication(t)
-	day := app.manifest.Forecast.Days[0]
-	oldImageURL := releaseImageURL(app.manifest.ReleaseID, day.Images[delivery.ProfileNice].URL)
-	oldImage := requestBody(t, app.handler, oldImageURL)
-
-	if err := generateFixture(app.root, "fixture-reload-b", -12); err != nil {
-		t.Fatal(err)
+	if _, err := os.Lstat(filepath.Join(app.root, "current")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy artifacts/current unexpectedly exists: %v", err)
 	}
-	manifestResponse := requestBody(t, app.handler, "/manifest.json")
-	newManifest, err := delivery.ParseManifest(manifestResponse)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newDay := newManifest.Forecast.Days[0]
-	if newDay.Point.SHA256 == day.Point.SHA256 || newDay.Images[delivery.ProfileNice].SHA256 == day.Images[delivery.ProfileNice].SHA256 {
-		t.Fatal("reloaded manifest still describes the old point asset or image")
-	}
-	oldImageAfterSwap := httptest.NewRecorder()
-	app.handler.ServeHTTP(oldImageAfterSwap, httptest.NewRequest(http.MethodGet, oldImageURL, nil))
-	if oldImageAfterSwap.Code != http.StatusOK || oldImageAfterSwap.Body.String() != string(oldImage) {
-		t.Fatalf("previous release image changed after publication: %d", oldImageAfterSwap.Code)
-	}
-	newImage := requestBody(t, app.handler, releaseImageURL(newManifest.ReleaseID, newDay.Images[delivery.ProfileNice].URL))
-	if string(newImage) == string(oldImage) {
-		t.Fatal("image did not change after publication")
-	}
-	digest := sha256.Sum256(newImage)
-	if got := hex.EncodeToString(digest[:]); got != newDay.Images[delivery.ProfileNice].SHA256 {
-		t.Fatalf("served image checksum %s; manifest says %s", got, newDay.Images[delivery.ProfileNice].SHA256)
-	}
-
-	legacy := httptest.NewRecorder()
-	app.handler.ServeHTTP(legacy, httptest.NewRequest(http.MethodGet, "/"+newDay.Images[delivery.ProfileNice].URL, nil))
-	if legacy.Code != http.StatusNotFound {
-		t.Fatalf("mutable legacy image URL returned %d", legacy.Code)
-	}
-	staleAsset := httptest.NewRecorder()
-	app.handler.ServeHTTP(staleAsset, httptest.NewRequest(http.MethodHead, "/releases/fixture-no-longer-kept/images/forecast/missing.png", nil))
-	if staleAsset.Code != http.StatusConflict {
-		t.Fatalf("stale release asset = %d %s", staleAsset.Code, staleAsset.Body.String())
-	}
-	restarted, err := NewHandler(Config{WebRoot: app.web, ArtifactRoot: app.root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if concrete, ok := restarted.(*application); ok {
-		defer concrete.close()
-	}
-	if got := requestBody(t, restarted, oldImageURL); string(got) != string(oldImage) {
-		t.Fatal("restarted server did not retain the previous release image")
-	}
-
-	currentB, ok := delivery.CurrentDir(app.root)
-	if !ok {
-		t.Fatal("release B was not published")
-	}
-	currentB, err = filepath.EvalSymlinks(currentB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifestC, currentC := clonePublishedRelease(t, app.root, currentB, "fixture-reload-c")
-	dayC := manifestC.Forecast.Days[0]
-	imageC, err := os.ReadFile(filepath.Join(currentC, filepath.FromSlash(dayC.Images[delivery.ProfileNice].URL)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	clonePublishedRelease(t, app.root, currentC, "fixture-reload-d")
-	manifestD, err := delivery.ParseManifest(requestBody(t, app.handler, "/manifest.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if manifestD.ReleaseID != "fixture-reload-d" {
-		t.Fatalf("server reloaded %q; want fixture-reload-d", manifestD.ReleaseID)
-	}
-	if got := requestBody(t, app.handler, releaseImageURL(manifestC.ReleaseID, dayC.Images[delivery.ProfileNice].URL)); string(got) != string(imageC) {
-		t.Fatal("server skipped a publication but did not serve the disk-published previous release")
-	}
-	evictedB := httptest.NewRecorder()
-	app.handler.ServeHTTP(evictedB, httptest.NewRequest(http.MethodHead, releaseImageURL(newManifest.ReleaseID, newDay.Images[delivery.ProfileNice].URL), nil))
-	if evictedB.Code != http.StatusConflict {
-		t.Fatalf("evicted release B returned %d", evictedB.Code)
-	}
-	restartedAfterSkip, err := NewHandler(Config{WebRoot: app.web, ArtifactRoot: app.root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if concrete, ok := restartedAfterSkip.(*application); ok {
-		defer concrete.close()
-	}
-	if got := requestBody(t, restartedAfterSkip, releaseImageURL(manifestC.ReleaseID, dayC.Images[delivery.ProfileNice].URL)); string(got) != string(imageC) {
-		t.Fatal("running and restarted servers disagree about the retained previous release")
-	}
-}
-
-func clonePublishedRelease(t *testing.T, root, sourceRoot, releaseID string) (delivery.Manifest, string) {
-	t.Helper()
-	manifest, err := delivery.ValidateProductionRelease(sourceRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetRoot, err := delivery.BeginRelease(root, releaseID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = filepath.WalkDir(sourceRoot, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	for _, requestPath := range []string{"/manifest.json", "/releases", "/releases/old/images/map.png"} {
+		response := httptest.NewRecorder()
+		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, requestPath, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("retired route %q returned %d: %s", requestPath, response.Code, response.Body.String())
 		}
-		relative, err := filepath.Rel(sourceRoot, path)
-		if err != nil || relative == "." || relative == "manifest.json" {
-			return err
-		}
-		target := filepath.Join(targetRoot, relative)
-		if entry.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		return os.Link(path, target)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.ReleaseID = releaseID
-	if err := delivery.WriteManifest(targetRoot, manifest); err != nil {
-		t.Fatal(err)
-	}
-	if err := delivery.PublishProductionRelease(root, targetRoot); err != nil {
-		t.Fatal(err)
-	}
-	if err := delivery.CleanupStaleReleases(root); err != nil {
-		t.Fatal(err)
-	}
-	return manifest, targetRoot
-}
-
-func releaseImageURL(releaseID, imagePath string) string {
-	return "/releases/" + releaseID + "/" + strings.TrimPrefix(imagePath, "/")
-}
-
-func requestBody(t *testing.T, handler http.Handler, path string) []byte {
-	t.Helper()
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("GET %s returned %d: %s", path, response.Code, response.Body.String())
-	}
-	return response.Body.Bytes()
-}
-
-func TestPointAssetsUseStaticByteRangeContract(t *testing.T) {
-	app := newTestApplication(t)
-	day := app.manifest.Forecast.Days[0]
-	pointURL := "/releases/" + app.manifest.ReleaseID + "/" + day.Point.URL
-	current, _ := delivery.CurrentDir(app.root)
-	releaseRoot, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(releaseRoot, filepath.FromSlash(day.Point.URL)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uint64(len(data)) != day.Point.Bytes {
-		t.Fatalf("point bytes = %d; manifest says %d", len(data), day.Point.Bytes)
-	}
-
-	request := httptest.NewRequest(http.MethodGet, pointURL, nil)
-	request.Header.Set("Range", "bytes=0-127")
-	request.Header.Set("Accept-Encoding", "gzip")
-	response := httptest.NewRecorder()
-	app.handler.ServeHTTP(response, request)
-	if response.Code != http.StatusPartialContent || response.Body.String() != string(data[:delivery.PointAssetHeaderBytes]) ||
-		response.Header().Get("Content-Range") != fmt.Sprintf("bytes 0-127/%d", len(data)) ||
-		response.Header().Get("Content-Length") != fmt.Sprint(delivery.PointAssetHeaderBytes) ||
-		response.Header().Get("Content-Type") != "application/octet-stream" || response.Header().Get("Content-Encoding") != "" ||
-		response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
-		t.Fatalf("point header range: %d %+v body=%d", response.Code, response.Header(), response.Body.Len())
-	}
-
-	start, end := delivery.PointAssetHeaderBytes, delivery.PointAssetHeaderBytes+delivery.DailyPointRecordBytes-1
-	recordRequest := httptest.NewRequest(http.MethodGet, pointURL, nil)
-	recordRequest.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-	record := httptest.NewRecorder()
-	app.handler.ServeHTTP(record, recordRequest)
-	if record.Code != http.StatusPartialContent || record.Body.String() != string(data[start:end+1]) ||
-		record.Header().Get("Content-Range") != fmt.Sprintf("bytes %d-%d/%d", start, end, len(data)) {
-		t.Fatalf("point record range: %d %+v body=%d", record.Code, record.Header(), record.Body.Len())
-	}
-
-	head := httptest.NewRecorder()
-	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, pointURL, nil))
-	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(len(data)) || head.Header().Get("Content-Type") != "application/octet-stream" {
-		t.Fatalf("point HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
-	}
-
-	removedAPI := httptest.NewRecorder()
-	app.handler.ServeHTTP(removedAPI, httptest.NewRequest(http.MethodGet, "/api/point?release="+app.manifest.ReleaseID, nil))
-	if removedAPI.Code != http.StatusNotFound {
-		t.Fatalf("removed runtime point API returned %d: %s", removedAPI.Code, removedAPI.Body.String())
 	}
 }
 
 func TestCompressionCachingAndSPA(t *testing.T) {
 	app := newTestApplication(t)
-
-	manifestRequest := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
-	manifestRequest.Header.Set("Accept-Encoding", "gzip")
-	manifest := httptest.NewRecorder()
-	app.handler.ServeHTTP(manifest, manifestRequest)
-	if manifest.Code != http.StatusOK || manifest.Header().Get("Content-Encoding") != "gzip" || manifest.Header().Get("Cache-Control") != "no-cache" {
-		t.Fatalf("manifest headers: %d %+v", manifest.Code, manifest.Header())
-	}
-	compressed, err := gzip.NewReader(manifest.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := io.ReadAll(compressed)
-	if err != nil || !strings.Contains(string(data), fmt.Sprintf(`"version": %d`, delivery.ManifestVersion)) || !strings.Contains(string(data), fmt.Sprintf(`"productContract": %q`, delivery.ProductContract)) || !strings.Contains(string(data), `"dataStatus": "sample"`) {
-		t.Fatalf("compressed manifest: %v %q", err, data)
-	}
 
 	assetRequest := httptest.NewRequest(http.MethodGet, "/assets/app-abc.js", nil)
 	assetRequest.Header.Set("Accept-Encoding", "gzip")
@@ -333,36 +105,6 @@ func TestCompressionCachingAndSPA(t *testing.T) {
 	app.handler.ServeHTTP(escape, httptest.NewRequest(http.MethodGet, "/assets/escape.txt", nil))
 	if escape.Code != http.StatusBadRequest || strings.Contains(escape.Body.String(), "secret") {
 		t.Fatalf("symlink escape response: %d %q", escape.Code, escape.Body.String())
-	}
-
-	image := httptest.NewRecorder()
-	app.handler.ServeHTTP(image, httptest.NewRequest(http.MethodGet, releaseImageURL(app.manifest.ReleaseID, app.manifest.Forecast.Days[0].Images["nice"].URL), nil))
-	if image.Code != http.StatusOK || image.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || image.Header().Get("Content-Type") != "image/png" {
-		t.Fatalf("image response: %d %+v", image.Code, image.Header())
-	}
-	windAsset := app.manifest.Forecast.Days[0].WindFrames[0]
-	windURL := "/releases/" + app.manifest.ReleaseID + "/" + windAsset.URL
-	windRequest := httptest.NewRequest(http.MethodGet, windURL, nil)
-	windRequest.Header.Set("Accept-Encoding", "gzip")
-	wind := httptest.NewRecorder()
-	app.handler.ServeHTTP(wind, windRequest)
-	if wind.Code != http.StatusOK || wind.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || wind.Header().Get("Content-Type") != "application/gzip" || wind.Header().Get("Content-Encoding") != "" || !strings.HasPrefix(wind.Body.String(), "\x1f\x8b") {
-		t.Fatalf("wind response: %d %+v body prefix=%x", wind.Code, wind.Header(), wind.Body.Bytes()[:min(2, wind.Body.Len())])
-	}
-	windHead := httptest.NewRecorder()
-	app.handler.ServeHTTP(windHead, httptest.NewRequest(http.MethodHead, windURL, nil))
-	if windHead.Code != http.StatusOK || windHead.Body.Len() != 0 || windHead.Header().Get("Content-Length") != fmt.Sprint(wind.Body.Len()) || windHead.Header().Get("Content-Encoding") != "" || windHead.Header().Get("Content-Type") != "application/gzip" {
-		t.Fatalf("wind HEAD: %d %+v body=%q", windHead.Code, windHead.Header(), windHead.Body.String())
-	}
-	staleWind := httptest.NewRecorder()
-	app.handler.ServeHTTP(staleWind, httptest.NewRequest(http.MethodGet, "/releases/old-release/"+windAsset.URL, nil))
-	if staleWind.Code != http.StatusConflict {
-		t.Fatalf("stale wind release returned %d: %s", staleWind.Code, staleWind.Body.String())
-	}
-	unsafeImage := httptest.NewRecorder()
-	app.handler.ServeHTTP(unsafeImage, httptest.NewRequest(http.MethodGet, "/releases/../images/forecast/nope.png", nil))
-	if unsafeImage.Code != http.StatusBadRequest {
-		t.Fatalf("unsafe release path returned %d", unsafeImage.Code)
 	}
 
 	removedSearch := httptest.NewRecorder()
@@ -404,7 +146,7 @@ func TestScalarCanaryTilesUseBinaryMediaTypeAndCompression(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/assets/scalar-canary/nice-weather-scalar-canary-v2/tile.nws", nil)
 	request.Header.Set("Accept-Encoding", "gzip")
 	response := httptest.NewRecorder()
-	(&application{webRoot: web}).serveFile(response, request, &releaseSnapshot{})
+	(&application{webRoot: web}).serveFile(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != tiledelivery.ScalarMediaType || response.Header().Get("Content-Encoding") != "gzip" || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("scalar tile response: code=%d headers=%v", response.Code, response.Header())
 	}
@@ -423,27 +165,35 @@ func TestScalarCanaryTilesUseBinaryMediaTypeAndCompression(t *testing.T) {
 
 func TestBestWeatherArtifactsAreStaticReleaseBoundFiles(t *testing.T) {
 	app := newTestApplication(t)
+	const forecastID = "forecast-run"
+	artifact := []byte(`{"schema":"nice-best-weather-world-v1","forecastIndexId":"forecast-run","placeReleaseId":"` + places.SampleReleaseID + `","places":[]}`)
+	digest := sha256.Sum256(artifact)
+	checksum := hex.EncodeToString(digest[:])
+	artifactURL := "/best-weather/releases/forecast-run-world-" + checksum[:16] + ".json"
+	writeHTTPFixtureFile(t, app.root, strings.TrimPrefix(artifactURL, "/"), artifact)
+	pointerBody := []byte(`{"schema":"nice-best-weather-world-v1","forecastIndexId":"forecast-run","placeReleaseId":"` + places.SampleReleaseID + `","url":"` + artifactURL + `","sha256":"` + checksum + `"}`)
+	writeHTTPFixtureFile(t, app.root, "best-weather/current.json", pointerBody)
 	pointerResponse := httptest.NewRecorder()
 	app.handler.ServeHTTP(pointerResponse, httptest.NewRequest(http.MethodGet, "/best-weather/current.json", nil))
 	if pointerResponse.Code != http.StatusOK || pointerResponse.Header().Get("Cache-Control") != "no-cache" || pointerResponse.Header().Get("ETag") == "" {
 		t.Fatalf("best-weather pointer: %d %+v %s", pointerResponse.Code, pointerResponse.Header(), pointerResponse.Body.String())
 	}
 	var pointer struct {
-		WeatherRelease string `json:"weatherReleaseId"`
-		PlaceRelease   string `json:"placeReleaseId"`
-		URL            string `json:"url"`
-		SHA256         string `json:"sha256"`
+		ForecastID   string `json:"forecastIndexId"`
+		PlaceRelease string `json:"placeReleaseId"`
+		URL          string `json:"url"`
+		SHA256       string `json:"sha256"`
 	}
 	if err := json.Unmarshal(pointerResponse.Body.Bytes(), &pointer); err != nil {
 		t.Fatal(err)
 	}
-	if pointer.WeatherRelease != app.manifest.ReleaseID || pointer.PlaceRelease != places.SampleReleaseID || !strings.HasPrefix(pointer.URL, "/best-weather/releases/") {
+	if pointer.ForecastID != forecastID || pointer.PlaceRelease != places.SampleReleaseID || pointer.URL != artifactURL {
 		t.Fatalf("best-weather pointer = %+v", pointer)
 	}
 	artifactResponse := httptest.NewRecorder()
 	app.handler.ServeHTTP(artifactResponse, httptest.NewRequest(http.MethodGet, pointer.URL, nil))
-	digest := sha256.Sum256(artifactResponse.Body.Bytes())
-	if artifactResponse.Code != http.StatusOK || artifactResponse.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || hex.EncodeToString(digest[:]) != pointer.SHA256 || !strings.Contains(artifactResponse.Body.String(), `"weatherReleaseId":"`+app.manifest.ReleaseID+`"`) {
+	servedDigest := sha256.Sum256(artifactResponse.Body.Bytes())
+	if artifactResponse.Code != http.StatusOK || artifactResponse.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || hex.EncodeToString(servedDigest[:]) != pointer.SHA256 || !strings.Contains(artifactResponse.Body.String(), `"forecastIndexId":"`+forecastID+`"`) {
 		t.Fatalf("best-weather artifact: %d %+v %s", artifactResponse.Code, artifactResponse.Header(), artifactResponse.Body.String())
 	}
 	unsafe := httptest.NewRecorder()
@@ -674,11 +424,6 @@ func TestClimateArtifactsUseIsolatedStaticHTTPContract(t *testing.T) {
 
 func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 	app := newTestApplication(t)
-	mainManifest := httptest.NewRecorder()
-	app.handler.ServeHTTP(mainManifest, httptest.NewRequest(http.MethodGet, "/manifest.json", nil))
-	if mainManifest.Code != http.StatusOK {
-		t.Fatalf("main release failed without climate publication: %d %s", mainManifest.Code, mainManifest.Body.String())
-	}
 	for _, missingPath := range []string{"/climate/current.json", "/climate/indexes/missing.json", "/climate/releases/missing/catalog.json"} {
 		missing := httptest.NewRecorder()
 		app.handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, missingPath, nil))
@@ -962,6 +707,41 @@ func TestForecastRunsUseValidatedPointerAllowlistAndImmutableHTTPContract(t *tes
 	}
 }
 
+func TestForecastPointerRotationKeepsCurrentAndPreviousAndEvictsOlderRun(t *testing.T) {
+	app := newForecastTestApplication(t)
+	fixture := installForecastHTTPFixture(t, app)
+
+	initial := httptest.NewRecorder()
+	app.handler.ServeHTTP(initial, httptest.NewRequest(http.MethodGet, "/forecast/current.json", nil))
+	if initial.Code != http.StatusOK || initial.Body.String() != string(fixture.pointerRaw) {
+		t.Fatalf("initial forecast pointer: %d %q", initial.Code, initial.Body.String())
+	}
+	oldPrevious := httptest.NewRecorder()
+	app.handler.ServeHTTP(oldPrevious, httptest.NewRequest(http.MethodGet, "/"+fixture.previousIndexPath, nil))
+	if oldPrevious.Code != http.StatusOK {
+		t.Fatalf("initial previous forecast: %d %s", oldPrevious.Code, oldPrevious.Body.String())
+	}
+
+	fixture.rotate()
+	rotated := httptest.NewRecorder()
+	app.handler.ServeHTTP(rotated, httptest.NewRequest(http.MethodGet, "/forecast/current.json", nil))
+	if rotated.Code != http.StatusOK || rotated.Body.String() != string(fixture.nextPointerRaw) {
+		t.Fatalf("rotated forecast pointer: %d %q", rotated.Code, rotated.Body.String())
+	}
+	for requestPath, want := range map[string][]byte{fixture.nextIndexPath: fixture.nextIndexRaw, fixture.currentIndexPath: fixture.currentIndexRaw} {
+		response := httptest.NewRecorder()
+		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/"+requestPath, nil))
+		if response.Code != http.StatusOK || response.Body.String() != string(want) {
+			t.Errorf("retained forecast %q returned %d: %s", requestPath, response.Code, response.Body.String())
+		}
+	}
+	evicted := httptest.NewRecorder()
+	app.handler.ServeHTTP(evicted, httptest.NewRequest(http.MethodGet, "/"+fixture.previousIndexPath, nil))
+	if evicted.Code != http.StatusConflict {
+		t.Fatalf("evicted forecast returned %d: %s", evicted.Code, evicted.Body.String())
+	}
+}
+
 func TestForecastColdMetadataLoadDoesNotReadLargeAssetPayload(t *testing.T) {
 	app := newForecastTestApplication(t)
 	fixture := installForecastHTTPFixture(t, app)
@@ -998,26 +778,31 @@ func TestForecastColdMetadataLoadDoesNotReadLargeAssetPayload(t *testing.T) {
 func newForecastTestApplication(t *testing.T) testApplication {
 	t.Helper()
 	root, web := t.TempDir(), t.TempDir()
-	artifactFS, err := os.OpenRoot(root)
+	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html><title>Nice Weather Finder</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(Config{WebRoot: web, ArtifactRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &application{webRoot: web, artifactRoot: root, artifactFS: artifactFS}
+	app := handler.(*application)
 	t.Cleanup(func() { _ = app.close() })
-	return testApplication{handler: app, root: root, web: web}
+	return testApplication{handler: handler, root: root, web: web}
 }
 
 type forecastHTTPFixture struct {
-	pointerRaw, currentIndexRaw, previousIndexRaw  []byte
-	currentID, currentDate                         string
-	currentIndexPath, previousIndexPath            string
-	pointPath, displayPath, scalarPath             string
-	pointRaw, scalarRaw                            []byte
-	catalogPath                                    string
-	catalogRaw                                     []byte
-	rangeCatalogPath, previousRangeCatalogPath     string
-	rangePointPath, rangeScalarPath                string
-	rangeCatalogRaw, rangePointRaw, rangeScalarRaw []byte
+	pointerRaw, nextPointerRaw                         []byte
+	currentIndexRaw, previousIndexRaw, nextIndexRaw    []byte
+	currentID, currentDate                             string
+	currentIndexPath, previousIndexPath, nextIndexPath string
+	pointPath, displayPath, scalarPath                 string
+	pointRaw, scalarRaw                                []byte
+	catalogPath                                        string
+	catalogRaw                                         []byte
+	rangeCatalogPath, previousRangeCatalogPath         string
+	rangePointPath, rangeScalarPath                    string
+	rangeCatalogRaw, rangePointRaw, rangeScalarRaw     []byte
+	rotate                                             func()
 }
 
 func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPFixture {
@@ -1089,6 +874,7 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 	}
 	current, currentRaw, currentReference, pointPath, displayPath, scalarPath, rangeCatalogPath, rangePointPath, rangeScalarPath, rangeCatalogRaw := makeIndex(currentID, currentDate, pointRaw, displayRaw, scalarRaw, rangePointRaw, rangeScalarRaw)
 	previous, previousRaw, previousReference, _, _, _, previousRangeCatalogPath, _, _, _ := makeIndex(previousID, previousDate, []byte("previous point"), []byte("previous display"), []byte("previous scalar"), []byte("previous range point"), []byte("previous range scalar"))
+	next, nextRaw, nextReference, _, _, _, _, _, _, _ := makeIndex("run-next", "2026-07-24", []byte("next point"), []byte("next display"), []byte("next scalar"), []byte("next range point"), []byte("next range scalar"))
 	pointer := forecastruns.Pointer{Version: forecastruns.PointerVersion, Current: currentReference, Previous: &previousReference}
 	pointerRaw, err := json.Marshal(pointer)
 	if err != nil {
@@ -1096,10 +882,17 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 	}
 	pointerRaw = append(pointerRaw, '\n')
 	writeHTTPFixtureFile(t, app.root, "forecast/current.json", pointerRaw)
+	nextPointer := forecastruns.Pointer{Version: forecastruns.PointerVersion, Current: nextReference, Previous: &currentReference}
+	nextPointerRaw, err := json.Marshal(nextPointer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextPointerRaw = append(nextPointerRaw, '\n')
+	activePointer, activeCurrent, activePrevious := pointer, current, &previous
 
 	originalLoad, originalParse, originalRangeParse := loadForecastMetadata, parseForecastCatalog, parseForecastRangeCatalog
 	loadForecastMetadata = func(string) (forecastruns.Pointer, forecastruns.Index, *forecastruns.Index, error) {
-		return pointer, current, &previous, nil
+		return activePointer, activeCurrent, activePrevious, nil
 	}
 	parseForecastCatalog = func(encoded []byte) (forecastcatalog.Catalog, error) {
 		var catalog forecastcatalog.Catalog
@@ -1118,15 +911,20 @@ func installForecastHTTPFixture(t *testing.T, app testApplication) forecastHTTPF
 	concrete.forecast = nil
 	concrete.forecastMu.Unlock()
 	return forecastHTTPFixture{
-		pointerRaw: pointerRaw, currentIndexRaw: currentRaw, previousIndexRaw: previousRaw,
+		pointerRaw: pointerRaw, nextPointerRaw: nextPointerRaw,
+		currentIndexRaw: currentRaw, previousIndexRaw: previousRaw, nextIndexRaw: nextRaw,
 		currentID: currentID, currentDate: currentDate,
-		currentIndexPath: "forecast/" + currentReference.Path, previousIndexPath: "forecast/" + previousReference.Path,
+		currentIndexPath: "forecast/" + currentReference.Path, previousIndexPath: "forecast/" + previousReference.Path, nextIndexPath: "forecast/" + nextReference.Path,
 		pointPath: pointPath, displayPath: displayPath, scalarPath: scalarPath, pointRaw: pointRaw, scalarRaw: scalarRaw,
 		catalogPath:      filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json")),
 		catalogRaw:       readClimateArtifact(t, app.root, filepath.ToSlash(filepath.Join("forecast", "runs", currentID, "forecast-days", currentDate, forecastpoints.TierGlobal, "catalog.json"))),
 		rangeCatalogPath: rangeCatalogPath, previousRangeCatalogPath: previousRangeCatalogPath,
 		rangePointPath: rangePointPath, rangeScalarPath: rangeScalarPath,
 		rangeCatalogRaw: rangeCatalogRaw, rangePointRaw: rangePointRaw, rangeScalarRaw: rangeScalarRaw,
+		rotate: func() {
+			activePointer, activeCurrent, activePrevious = nextPointer, next, &current
+			writeHTTPFixtureFile(t, app.root, "forecast/current.json", nextPointerRaw)
+		},
 	}
 }
 
@@ -1139,6 +937,11 @@ func writeHTTPFixtureFile(t *testing.T, root, relative string, payload []byte) {
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func sha256Hex(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
 }
 
 func publishClimateHTTPPreview(t *testing.T, artifacts string) (climatetiles.Pointer, climatetiles.Index, climatetiles.Catalog) {

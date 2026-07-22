@@ -16,6 +16,22 @@ import (
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
+func TestUsageListsOnlyActiveArtifactCommands(t *testing.T) {
+	var output bytes.Buffer
+	writeUsage(&output)
+
+	for _, command := range []string{"forecast-world", "climate-world", "places", "best-weather", "serve"} {
+		if !strings.Contains(output.String(), command) {
+			t.Errorf("usage omits active command %q: %s", command, output.String())
+		}
+	}
+	for _, retired := range []string{"fixture", "update"} {
+		if strings.Contains(output.String(), retired) {
+			t.Errorf("usage still advertises retired command %q: %s", retired, output.String())
+		}
+	}
+}
+
 func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testing.T) {
 	directories := climateWorldTestDirectories(t)
 	stdin := strings.NewReader("private-bearer-token\n")

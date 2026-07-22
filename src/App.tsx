@@ -1,9 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
-import { forecastRunStatus, isStale } from './data/api';
 import { loadBestWeather, type BestWeatherPlace } from './data/bestWeather';
 import { ClimateDataError, WorldwideClimateClient, type ClimateCatalog, type ClimateField, type ClimateIndex, type ClimatePointEvidence } from './data/climateClient';
-import { ForecastDataError, WorldwideForecastClient, forecastDetailDeclared, type DayForecastProduct, type ForecastField, type ForecastSnapshot } from './data/forecastClient';
+import { ForecastDataError, WorldwideForecastClient, forecastDetailDeclared, forecastRunStatus, isStale, type DayForecastProduct, type ForecastField, type ForecastSnapshot } from './data/forecastClient';
 import { WorldwidePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
 import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
 import type { MapPoint, OverlayState, ScalarOverlay } from './map/WeatherMap';

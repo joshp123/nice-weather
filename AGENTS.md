@@ -34,6 +34,7 @@ Current state:
 - Forecast horizons are 14 concrete local-date IDs. Climate horizons are 12 explicit months.
 - Forecast aggregation uses the canonical local daytime window. AgERA5 local days use its disclosed eight longitude zones, not civil time.
 - Forecast, climate, places and best-weather each use small pointers to immutable, validated artifacts. Sample data must never look live.
+- Server startup uses the active artifact root directly. The retired monolithic `artifacts/current`, `/manifest.json` and `/releases/...` contract is removed.
 - The server validates and hot-swaps complete forecast snapshots. Climate, place and shortlist clients validate their static pointers and immutable files before changing visible state. A request must never mix evidence from different releases.
 - Forecast freshness, source, forecast detail and resolution are hard UX requirements. Raw provider detail belongs in progressive disclosure.
 

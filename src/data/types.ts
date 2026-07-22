@@ -12,13 +12,6 @@ export type WeatherImage = {
   projection: 'web-mercator';
 };
 
-export type WindFrameAsset = {
-  validAt: string;
-  url: string;
-  sha256: string;
-  clippedComponents: number;
-};
-
 export type PointGeometry = {
   bounds: { west: number; east: number; south: number; north: number };
   quad: { west: number; east: number; north: number; south: number };
@@ -55,7 +48,6 @@ export type Period = {
   temporalResolutionHours: number;
   point: PointAsset;
   displayPoint?: PointAsset;
-  windFrames?: WindFrameAsset[];
 };
 
 export type ForecastWindow = {
