@@ -53,7 +53,7 @@ describe('WorldwideForecastClient', () => {
     const firstDay = await client.loadDayCatalog(snapshot, snapshot.index.firstDate);
 
     expect(snapshot.index.days).toHaveLength(14);
-    expect(snapshot.index.days.filter(({ tiers }) => tiers.some(({ tier }) => tier === 'europe-detail'))).toHaveLength(4);
+    expect(snapshot.index.days.filter(({ tiers }) => tiers.some(({ tier }) => tier === 'europe-detail'))).toHaveLength(5);
     expect(snapshot.range.dates).toEqual(snapshot.index.days.map(({ date }) => date));
     expect(firstDay.tiers.map(({ tier }) => tier)).toEqual(['europe-detail', 'global']);
     expect(paths.filter((path) => path === '/forecast/current.json')).toHaveLength(3);
