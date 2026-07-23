@@ -1,5 +1,5 @@
 import { readBoundedResponse } from './boundedResponse';
-import type { ComponentScore, DailyPoint, ForecastWindowPoint, LegendCategory, Profile } from './types';
+import type { DailyPoint, ForecastWindowPoint, LegendCategory, Profile } from './types';
 import type { ScalarTileID, ScalarTileSource } from '../map/scalarTileLayer';
 
 const POINTER_PATH = '/forecast/current.json';
@@ -45,7 +45,7 @@ type RangeReference = Readonly<{
 }>;
 
 export type ForecastIndex = Readonly<{
-  version: 2; productContract: 'nice-weather-forecast-run-v3'; indexId: string; firstDate: string; lastDate: string;
+  version: 2; productContract: 'nice-weather-forecast-run-v4'; indexId: string; firstDate: string; lastDate: string;
   days: readonly Readonly<{ date: string; tiers: readonly TierReference[] }>[]; range: RangeReference;
 }>;
 
@@ -61,7 +61,7 @@ export type DailyForecastCatalog = Readonly<{
 export type DayForecastProduct = Readonly<{ indexId: string; date: string; tiers: readonly DailyForecastCatalog[] }>;
 
 export type RangeForecastCatalog = Readonly<{
-  version: 1; productContract: 'nice-weather-forecast-range-v1'; releaseId: string; period: 'next-14-days'; dates: readonly string[];
+  version: 1; productContract: 'nice-weather-forecast-range-v2'; releaseId: string; period: 'next-14-days'; dates: readonly string[];
   source: Readonly<{ provider: 'ecmwf-ifs'; tier: 'global'; product: string; runUtc: string; nativeResolutionKm: 28; staleAfterHours: 36 }>;
   pointBlocks: readonly Readonly<{ row: number; column: number; omitted: boolean; path?: string; bytes?: number; sha256?: string; payloadSha256?: string }>[];
   scalarCoverage: readonly ForecastCoverage[]; scalarTiles: readonly ForecastScalarTile[]; root: string;
@@ -254,7 +254,7 @@ export class WorldwideForecastClient {
 
 function parseIndex(value: unknown, indexId: string): ForecastIndex {
   const row = exact(value, ['version', 'productContract', 'indexId', 'firstDate', 'lastDate', 'tierSelection', 'days', 'range']);
-  if (row.version !== 2 || row.productContract !== 'nice-weather-forecast-run-v3' || identifier(row.indexId) !== indexId) throw new ForecastDataError('invalid');
+  if (row.version !== 2 || row.productContract !== 'nice-weather-forecast-run-v4' || identifier(row.indexId) !== indexId) throw new ForecastDataError('invalid');
   const selection = exact(row.tierSelection, ['method', 'priority', 'blend']);
   if (selection.method !== 'choose-one-complete-tier-before-colour' || selection.blend !== false || JSON.stringify(selection.priority) !== '["europe-detail","global"]') throw new ForecastDataError('invalid');
   const days = list(row.days).map((entry) => {
@@ -267,7 +267,7 @@ function parseIndex(value: unknown, indexId: string): ForecastIndex {
   const range = parseRangeReference(row.range, indexId);
   const firstDate = date(row.firstDate), lastDate = date(row.lastDate);
   if (firstDate !== days[0].date || lastDate !== days[13].date) throw new ForecastDataError('invalid');
-  return Object.freeze({ version: 2, productContract: 'nice-weather-forecast-run-v3', indexId, firstDate, lastDate, days: Object.freeze(days), range });
+  return Object.freeze({ version: 2, productContract: 'nice-weather-forecast-run-v4', indexId, firstDate, lastDate, days: Object.freeze(days), range });
 }
 
 function parseTier(value: unknown, dateValue: string, indexId: string): TierReference {
@@ -312,7 +312,7 @@ function parseDaily(value: unknown, index: ForecastIndex, reference: TierReferen
 
 function parseRange(value: unknown, index: ForecastIndex, root: string): RangeForecastCatalog {
   const row = exact(value, ['version', 'productContract', 'releaseId', 'period', 'dates', 'source', 'grid', 'scores', 'pointBlockLayout', 'inputs', 'coverage', 'pointBlocks', 'scalarCoverage', 'scalarTiles']);
-  if (row.version !== 1 || row.productContract !== 'nice-weather-forecast-range-v1' || row.releaseId !== index.indexId || row.period !== 'next-14-days') throw new ForecastDataError('invalid');
+  if (row.version !== 1 || row.productContract !== 'nice-weather-forecast-range-v2' || row.releaseId !== index.indexId || row.period !== 'next-14-days') throw new ForecastDataError('invalid');
   const dates = list(row.dates).map(date); if (JSON.stringify(dates) !== JSON.stringify(index.days.map(({ date }) => date))) throw new ForecastDataError('invalid');
   const sourceRow = exact(row.source, ['provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'staleAfterHours']);
   if (sourceRow.provider !== 'ecmwf-ifs' || sourceRow.tier !== 'global' || sourceRow.nativeResolutionKm !== 28 || !supportedStaleAfterHours(sourceRow.staleAfterHours) || sourceRow.staleAfterHours !== index.range.staleAfterHours || timestamp(sourceRow.runUtc) !== index.range.runUtc) throw new ForecastDataError('invalid');
@@ -334,7 +334,7 @@ function parseRange(value: unknown, index: ForecastIndex, root: string): RangeFo
   const pointBlocks = Object.freeze(list(row.pointBlocks).map((item) => { const block = exact(item, ['row', 'column', 'omitted', 'path', 'bytes', 'sha256', 'payloadSha256', 'dataRecords', 'noDataRecords'], ['path', 'bytes', 'sha256', 'payloadSha256']); return Object.freeze({ row: boundedInteger(block.row, 0, 31), column: boundedInteger(block.column, 0, 31), omitted: boolean(block.omitted), ...(block.omitted ? {} : { path: safePath(block.path), bytes: boundedInteger(block.bytes, RANGE_HEADER_BYTES + RANGE_RECORD_BYTES, 200_000), sha256: sha(block.sha256), payloadSha256: sha(block.payloadSha256) }) }); }));
   const scalarCoverage = Object.freeze(list(row.scalarCoverage).map(parseCoverage)); const scalarTiles = Object.freeze(list(row.scalarTiles).map(parseScalar));
   validateScalarCollections(scalarCoverage, scalarTiles, 3);
-  return Object.freeze({ version: 1, productContract: 'nice-weather-forecast-range-v1', releaseId: index.indexId, period: 'next-14-days', dates: Object.freeze(dates), source, pointBlocks, scalarCoverage, scalarTiles, root });
+  return Object.freeze({ version: 1, productContract: 'nice-weather-forecast-range-v2', releaseId: index.indexId, period: 'next-14-days', dates: Object.freeze(dates), source, pointBlocks, scalarCoverage, scalarTiles, root });
 }
 
 function supportedStaleAfterHours(value: unknown): value is 18 | 36 { return value === 18 || value === 36; }
@@ -482,22 +482,17 @@ function decodeDailyRecord(bytes: Uint8Array, lon: number, lat: number, catalog:
   const dew = view.getInt16(6, true), gust = view.getUint16(12, true), solar = view.getUint16(14, true), wet = view.getUint16(16, true), cloud = bytes[18], humidity = bytes[19];
   const offset = profile === 'nice' ? 25 : 27, score = bytes[offset], temperature = view.getInt16(0, true) / 10;
   const pointComponents = components(bytes[22], bytes[23], bytes[24], bytes[offset + 1], presentation.legend);
-  return { kind: 'daily', releaseId: catalog.releaseId, lat, lon, periodLabel: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${catalog.localDate}T12:00:00Z`)), score, category: rating(score, presentation.legend), components: pointComponents, summary: dailySummary(temperature, bytes[29], pointComponents.sun, flags & 16 ? cloud : undefined), metrics: { temperatureC: temperature, minTempC: view.getInt16(2, true) / 10, maxTempC: view.getInt16(4, true) / 10, rainMm: view.getUint16(8, true) / 10, windKmh: view.getUint16(10, true) / 10, dewPointC: flags & 2 ? dew / 10 : undefined, gustKmh: flags & 4 ? gust / 10 : undefined, solarEnergyMJm2: flags & 8 ? solar / 100 : undefined, cloudPct: flags & 16 ? cloud : undefined, humidityPct: flags & 32 ? humidity : undefined, wetTimeFraction: flags & 64 ? wet / 1000 : undefined }, source: { basis: 'forecast', detailLabel: catalog.tier === 'europe-detail' ? 'Detailed forecast' : 'Worldwide forecast', providerLabel: catalog.tier === 'europe-detail' ? 'European detail' : 'Worldwide forecast', resolutionKm: catalog.evidence.nativeResolutionKm, temporalResolutionHours: catalog.tier === 'europe-detail' ? 1 : 6, artifactGeneratedAt: presentation.generatedAt, runAt: catalog.evidence.runUtc, validFrom: `${catalog.localDate}T00:00:00Z`, validTo: `${addDays(catalog.localDate, 1)}T00:00:00Z` } };
+  return { kind: 'daily', releaseId: catalog.releaseId, lat, lon, periodLabel: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${catalog.localDate}T12:00:00Z`)), score, category: rating(score, presentation.legend), components: pointComponents, summary: dailySummary(temperature, bytes[29]), metrics: { temperatureC: temperature, minTempC: view.getInt16(2, true) / 10, maxTempC: view.getInt16(4, true) / 10, rainMm: view.getUint16(8, true) / 10, windKmh: view.getUint16(10, true) / 10, dewPointC: flags & 2 ? dew / 10 : undefined, gustKmh: flags & 4 ? gust / 10 : undefined, solarEnergyMJm2: flags & 8 ? solar / 100 : undefined, cloudPct: flags & 16 ? cloud : undefined, humidityPct: flags & 32 ? humidity : undefined, wetTimeFraction: flags & 64 ? wet / 1000 : undefined }, source: { basis: 'forecast', detailLabel: catalog.tier === 'europe-detail' ? 'Detailed forecast' : 'Worldwide forecast', providerLabel: catalog.tier === 'europe-detail' ? 'European detail' : 'Worldwide forecast', resolutionKm: catalog.evidence.nativeResolutionKm, temporalResolutionHours: catalog.tier === 'europe-detail' ? 1 : 6, artifactGeneratedAt: presentation.generatedAt, runAt: catalog.evidence.runUtc, validFrom: `${catalog.localDate}T00:00:00Z`, validTo: `${addDays(catalog.localDate, 1)}T00:00:00Z` } };
 }
 
 function components(comfort: number, dryness: number, sun: number, wind: number, legend: readonly LegendCategory[]) { const value = (score: number) => ({ value: score, category: rating(score, legend) }); return { comfort: value(comfort), dryness: value(dryness), sun: value(sun), wind: value(wind) }; }
 function rating(score: number, legend: readonly LegendCategory[]) { const found = legend.find(({ min, max }) => score >= min && score <= max); if (!found) throw new ForecastDataError('invalid'); return found.label; }
-export function dailySummary(temperature: number, code: number, lightEvidence?: ComponentScore, cloudPercent?: number): string {
+export function dailySummary(temperature: number, code: number): string {
   if (!Number.isInteger(code) || code < 0 || code >= 240) throw new ForecastDataError('invalid');
-  const thermal = Math.floor(code / 80), rest = code % 80, wind = Math.floor(rest / 16), rain = rest % 4;
-  const light = cloudPercent !== undefined && cloudPercent >= 85 ? 'overcast'
-    : cloudPercent !== undefined && cloudPercent >= 65 ? 'mixed cloud'
-      : lightEvidence?.category === 'Awful' || lightEvidence?.category === 'Poor' ? 'overcast'
-        : lightEvidence?.category === 'Mixed' ? 'mixed cloud'
-      : lightEvidence?.category === 'Good' || lightEvidence?.category === 'Very good' ? 'bright'
-        : lightEvidence?.category === 'Excellent' ? 'sunny' : undefined;
-  const parts = [...(thermal ? [['too hot', 'too cold'][thermal - 1]] : []), ['dry', 'brief rain', 'some rain', 'wet'][rain], ...(light ? [light] : []), ['light wind', 'breezy', 'windy', 'strong gusts', 'severe gusts'][wind]];
-  return `${Math.round(temperature)}°C · ${parts.join(' · ')}`;
+  const thermal = Math.floor(code / 80), rest = code % 80, wind = Math.floor(rest / 16), sky = Math.floor((rest % 16) / 4), rain = rest % 4;
+  const parts = [...(thermal ? [['too hot', 'too cold'][thermal - 1]] : []), ['dry', 'brief rain', 'some rain', 'wet'][rain], ['overcast', 'mixed cloud', 'bright', 'sunny'][sky], ['light wind', 'breezy', 'windy', 'strong gusts', 'severe gusts'][wind]];
+  const roundedTemperature = temperature < 0 ? -Math.round(-temperature) : Math.round(temperature);
+  return `${roundedTemperature}°C · ${parts.join(' · ')}`;
 }
 
 function parseJSON(bytes: Uint8Array): unknown { try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { throw new ForecastDataError('invalid'); } }

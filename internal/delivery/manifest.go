@@ -18,7 +18,7 @@ const ManifestVersion = 8
 // ProductContract identifies the complete weather-product semantics represented
 // by a release. Bump it whenever scoring, aggregation, climate, or grid semantics
 // change so incompatible releases cannot be reused as if they meant the same thing.
-const ProductContract = "nice-weather-v18"
+const ProductContract = "nice-weather-v19"
 
 const ImageProjectionWebMercator = "web-mercator"
 

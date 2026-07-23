@@ -34,15 +34,13 @@ describe('WorldwideForecastClient', () => {
     expect(forecastRunStatus('2026-07-17T06:00:00Z', 12, now)).toEqual({ stale: true, label: 'Forecast is out of date' });
   });
 
-  it('uses the displayed Bright category in daily headline copy', () => {
-    // The native summary says "bright", but the displayed Bright score is 51/Mixed.
-    expect(dailySummary(12.4, 8, { value: 51, category: 'Mixed' })).toBe('12°C · dry · mixed cloud · light wind');
-
-    expect(dailySummary(25, 0, { value: 60, category: 'Good' })).toBe('25°C · dry · bright · light wind');
-    expect(dailySummary(25, 12, { value: 35, category: 'Poor' })).toBe('25°C · dry · overcast · light wind');
-    expect(dailySummary(27, 11, { value: 59, category: 'Good' }, 93)).toBe('27°C · wet · overcast · light wind');
-    expect(dailySummary(27, 8, { value: 90, category: 'Excellent' }, 70)).toBe('27°C · dry · mixed cloud · light wind');
-    expect(dailySummary(25, 8)).toBe('25°C · dry · light wind');
+  it('decodes the canonical sky phrase from the native daily summary', () => {
+    expect(dailySummary(25, 0)).toBe('25°C · dry · overcast · light wind');
+    expect(dailySummary(25, 4)).toBe('25°C · dry · mixed cloud · light wind');
+    expect(dailySummary(12.4, 8)).toBe('12°C · dry · bright · light wind');
+    expect(dailySummary(25, 12)).toBe('25°C · dry · sunny · light wind');
+    expect(dailySummary(27, 3)).toBe('27°C · wet · overcast · light wind');
+    expect(dailySummary(-0.5, 0)).toBe('-1°C · dry · overcast · light wind');
   });
 
   it('calls the default browser fetch with the global receiver', async () => {
@@ -68,7 +66,7 @@ describe('WorldwideForecastClient', () => {
     const currentIndexPath = pointer.current?.path && resolve('artifacts/forecast', pointer.current.path);
     if (!currentIndexPath || !existsSync(currentIndexPath)) return;
     const currentIndex = JSON.parse(readFileSync(currentIndexPath, 'utf8'));
-    if (currentIndex.productContract !== 'nice-weather-forecast-run-v3') return;
+    if (currentIndex.productContract !== 'nice-weather-forecast-run-v4') return;
     const currentDailyPath = resolve('artifacts/forecast', currentIndex.days?.[0]?.tiers?.at(-1)?.catalogPath ?? '');
     if (!existsSync(currentDailyPath) || JSON.parse(readFileSync(currentDailyPath, 'utf8')).version !== 3) return;
     const paths: string[] = [];
@@ -272,7 +270,7 @@ function denseDailyPointBlock(x: number, y: number): { asset: ForecastDailyPoint
   record[18] = 20;
   record[19] = 48;
   record[20] = 0x7f;
-  record.set([86, 94, 91, 88, 72, 76, 64, 0], 22);
+  record.set([86, 94, 91, 88, 72, 76, 64, 12], 22);
   const payloadSHA = sha(payload);
   const header = new Uint8Array(192);
   const headerView = new DataView(header.buffer);
@@ -342,7 +340,7 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land, ind
   }));
   const range = {
     version: 1,
-    productContract: 'nice-weather-forecast-range-v1',
+    productContract: 'nice-weather-forecast-range-v2',
     releaseId: 'run-test', period: 'next-14-days', dates,
     source: { provider: 'ecmwf-ifs', tier: 'global', product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, staleAfterHours: rangeStaleAfterHours },
     grid: { projection: 'EPSG:3857-XYZ', zoom: 3, tileSize: 256, rows: 2048, columns: 2048 },
@@ -355,7 +353,7 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land, ind
   };
   const rangeBytes = json(range);
   const index = {
-    version: 2, productContract: 'nice-weather-forecast-run-v3', indexId: 'run-test', firstDate: dates[0], lastDate: dates[13],
+    version: 2, productContract: 'nice-weather-forecast-run-v4', indexId: 'run-test', firstDate: dates[0], lastDate: dates[13],
     tierSelection: { method: 'choose-one-complete-tier-before-colour', priority: ['europe-detail', 'global'], blend: false },
     days: dates.map((date, index) => ({ date, tiers: [tiers[index]] })),
     range: { period: 'next-14-days', provider: 'ecmwf-ifs', tier: 'global', product: 'ifs-control', runUtc: '2026-07-31T00:00:00Z', nativeResolutionKm: 28, staleAfterHours: indexStaleAfterHours, catalogPath: 'runs/run-test/forecast-ranges/next-14-days/global/catalog.json', catalogBytes: rangeBytes.byteLength, catalogSha256: sha(rangeBytes) },

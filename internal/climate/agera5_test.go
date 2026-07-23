@@ -30,7 +30,7 @@ func TestAgERA5DistributionPreservesDefaultWindowAndPlaceSemantics(t *testing.T)
 	}
 }
 
-func TestAgERA5HotHumidIsNotAutomaticallyAwful(t *testing.T) {
+func TestAgERA5HotHumidIsAwful(t *testing.T) {
 	window := ReferenceWindow{FirstYear: 2025, LastYear: 2025}
 	days := completeMonth(window, time.November, 1.35, 103.82, 30, 0, 0, 17, 15, 12)
 	for index := range days {
@@ -44,8 +44,8 @@ func TestAgERA5HotHumidIsNotAutomaticallyAwful(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Nice.AwfulPermille() != 0 || record.Nice.GoodOrBetterPercent() == 0 {
-		t.Fatalf("30°C with 24°C dew point = %+v; should remain potentially nice, not automatically Awful", record.Nice)
+	if record.Nice.AwfulPermille() != 1000 || record.Nice.GoodOrBetterPercent() != 0 {
+		t.Fatalf("30°C with 24°C dew point = %+v; want every day Awful", record.Nice)
 	}
 }
 
@@ -185,21 +185,21 @@ func TestAgERA5DistributionSharesPhysicalLensesAndKeepsProfileCalmMonotonic(t *t
 	window := DefaultReferenceWindow()
 	days := completeMonth(window, time.November, 36.72, -4.42, 24, 0, 0, 15, 20, 25)
 	for index := len(days) / 2; index < len(days); index++ {
-		// Comfort stays good while half of the real days become wet and dark.
+		// Half of the real days become wet, overcast and oppressively humid.
 		days[index] = day(days[index].Date, 36.72, -4.42, 24, 4, .65, 2, 95, 25)
 	}
 	result, err := Aggregate(days, window)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ComfortGoodFraction() != 1 || result.DryGoodFraction() != .5 || result.BrightGoodFraction() != .5 || result.Nice.CalmGoodFraction() != 1 || result.Cycling.CalmGoodFraction() != 0 {
+	if result.ComfortGoodFraction() != .5 || result.DryGoodFraction() != .5 || result.BrightGoodFraction() != .5 || result.Nice.CalmGoodFraction() != 1 || result.Cycling.CalmGoodFraction() != 0 {
 		t.Fatalf("distribution = %+v", result)
 	}
 	record, err := result.DeliveryRecord()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Cycling.CalmGoodPercent > record.Nice.CalmGoodPercent || record.ComfortGoodPercent != 100 || record.DryGoodPercent != 50 || record.BrightGoodPercent != 50 {
+	if record.Cycling.CalmGoodPercent > record.Nice.CalmGoodPercent || record.ComfortGoodPercent != 50 || record.DryGoodPercent != 50 || record.BrightGoodPercent != 50 {
 		t.Fatalf("delivery record = %+v", record)
 	}
 }

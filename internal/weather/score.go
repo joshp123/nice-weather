@@ -52,7 +52,7 @@ type weights struct {
 // details. Invalid data returns an unavailable result instead of a plausible
 // looking zero.
 func Score(m DailyMetrics, profile Profile) Result {
-	if m.Validate() != nil || (profile != ProfileNice && profile != ProfileCycling) {
+	if validateForScoring(m) != nil || (profile != ProfileNice && profile != ProfileCycling) {
 		return Result{}
 	}
 	components := sharedComponents(m)
@@ -78,7 +78,7 @@ func ScoreProfiles(m DailyMetrics) (nice, cycling Result) {
 // made a provider day unavailable. Bulk builders use it so they do not have
 // to validate once for diagnostics and then again while scoring.
 func ScoreProfilesChecked(m DailyMetrics) (nice, cycling Result, err error) {
-	if err := m.Validate(); err != nil {
+	if err := validateForScoring(m); err != nil {
 		return Result{}, Result{}, err
 	}
 	shared := sharedComponents(m)
@@ -94,8 +94,18 @@ func sharedComponents(m DailyMetrics) Components {
 	return Components{
 		Thermal: thermalScore(m),
 		Dryness: drynessScore(m),
-		Sun:     sunScore(m),
+		Sun:     clearSkyScore(m),
 	}
+}
+
+func validateForScoring(m DailyMetrics) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if !m.CloudCoverPercent.Available {
+		return errors.New("cloud cover is required for clear-sky scoring")
+	}
+	return nil
 }
 
 func scoreProfile(m DailyMetrics, profile Profile, components Components) Result {
@@ -174,26 +184,16 @@ func cyclingWindScoreWithNice(wind float64, gust OptionalFloat, nice int) int {
 	return min(rounded(cycling), nice)
 }
 
-func sunScore(m DailyMetrics) int {
-	score, weight := 0.0, 0.0
-	if m.SolarEnergyMJm2.Available {
-		score += .7 * piecewise(m.SolarEnergyMJm2.Value, solarCurve)
-		weight += .7
-	}
-	if m.CloudCoverPercent.Available {
-		score += .3 * piecewise(m.CloudCoverPercent.Value, cloudCurve)
-		weight += .3
-	}
-	return rounded(score / weight)
+func clearSkyScore(m DailyMetrics) int {
+	return rounded(piecewise(m.CloudCoverPercent.Value, cloudCurve))
 }
 
 func thermalScore(m DailyMetrics) int {
 	base := piecewise(m.ComfortableTempC, thermalCurve)
-	// Warm-air moisture is best described by dew point. Josh's product preference
-	// is deliberately heat-tolerant: a dry, sunny 30°C day remains excellent at
-	// a 24°C dew point. Comfort falls sharply only as the air approaches genuine
-	// saturation. Relative humidity is a fallback because its meaning changes
-	// with temperature.
+	// Dew point measures how much moisture the air contains. It separates a warm
+	// Dutch summer day from oppressive tropical humidity without confusing high
+	// cool-weather relative humidity with muggy heat. Relative humidity is only a
+	// fallback when the provider does not supply dew point.
 	heat := 100.0
 	if m.DewPointC.Available {
 		heat = piecewise(m.DewPointC.Value, dewPointCurve)
@@ -261,9 +261,8 @@ var (
 	thermalCurve     = []point{{-15, 0}, {-5, 8}, {0, 20}, {5, 25}, {8, 35}, {12, 45}, {16, 54}, {19, 75}, {thermalIdealMinimumC, 100}, {thermalIdealMaximumC, 100}, {30, 88}, {34, 45}, {38, 8}, {42, 0}}
 	rainCurve        = []point{{0, 100}, {.2, 96}, {1, 80}, {3, 48}, {6, 18}, {10, 0}}
 	wetTimeCurve     = []point{{0, 100}, {.1, 92}, {.25, 70}, {.5, 30}, {.8, 0}}
-	solarCurve       = []point{{0, 0}, {4, 20}, {8, 45}, {12, 70}, {18, 100}}
 	cloudCurve       = []point{{0, 100}, {25, 90}, {50, 60}, {75, 25}, {100, 0}}
-	dewPointCurve    = []point{{8, 100}, {16, 100}, {20, 100}, {24, 100}, {26, 78}, {28, 35}, {30, 0}}
+	dewPointCurve    = []point{{16, 100}, {18, 85}, {21, 55}, {24, 0}}
 	niceWindCurve    = []point{{0, 100}, {12, 100}, {20, 82}, {30, 48}, {45, 0}}
 	niceGustCurve    = []point{{0, 100}, {20, 100}, {35, 75}, {50, 35}, {65, 0}}
 	cyclingWindCurve = []point{{0, 100}, {14, 100}, {20, 78}, {28, 38}, {35, 10}, {42, 0}}
@@ -338,11 +337,11 @@ func Summary(m DailyMetrics) string {
 // The mixed-radix layout fits 3*4*4*5 states in one byte and leaves 240..255
 // invalid. Thermal-neutral codes 0..79 retain their previous representation.
 func EncodeSummary(m DailyMetrics) (uint8, error) {
-	if err := m.Validate(); err != nil {
+	if err := validateForScoring(m); err != nil {
 		return 0, err
 	}
 	rain := map[string]uint8{"dry": 0, "brief rain": 1, "some rain": 2, "wet": 3}[rainPhrase(m)]
-	sun := map[string]uint8{"overcast": 0, "mixed cloud": 1, "bright": 2, "sunny": 3}[sunPhrase(m)]
+	sun := map[string]uint8{"overcast": 0, "mixed cloud": 1, "bright": 2, "sunny": 3}[clearSkyPhrase(m)]
 	wind, ok := map[string]uint8{"light wind": 0, "breezy": 1, "windy": 2, "strong gusts": 3, "severe gusts": 4}[windPhrase(m.WindSpeedKPH, m.GustKPH)]
 	if !ok {
 		return 0, errors.New("weather summary phrase is not encodable")
@@ -400,13 +399,13 @@ func rainPhrase(m DailyMetrics) string {
 	}
 }
 
-func sunPhrase(m DailyMetrics) string {
+func clearSkyPhrase(m DailyMetrics) string {
 	switch {
-	case m.SolarEnergyMJm2.Available && m.SolarEnergyMJm2.Value >= 16 && (!m.CloudCoverPercent.Available || m.CloudCoverPercent.Value < 40):
+	case m.CloudCoverPercent.Value < 25:
 		return "sunny"
-	case (m.SolarEnergyMJm2.Available && m.SolarEnergyMJm2.Value >= 10) || (m.CloudCoverPercent.Available && m.CloudCoverPercent.Value < 55):
+	case m.CloudCoverPercent.Value < 55:
 		return "bright"
-	case (m.SolarEnergyMJm2.Available && m.SolarEnergyMJm2.Value >= 5) || (m.CloudCoverPercent.Available && m.CloudCoverPercent.Value < 80):
+	case m.CloudCoverPercent.Value < 80:
 		return "mixed cloud"
 	default:
 		return "overcast"

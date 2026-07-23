@@ -32,7 +32,7 @@ const (
 	PointerVersion = 1
 	IndexVersion   = 2
 
-	ProductContract = "nice-weather-forecast-run-v3"
+	ProductContract = "nice-weather-forecast-run-v4"
 	SelectionMethod = "choose-one-complete-tier-before-colour"
 
 	IndexFilename = "index.json"

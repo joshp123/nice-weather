@@ -16,7 +16,7 @@ const FIELDS = [
   'comfort_good', 'dry_good', 'bright_good', 'nice_good', 'nice_calm_good',
   'cycling_good', 'cycling_calm_good',
 ] as const;
-const DERIVATION_CONTRACT = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
+const DERIVATION_CONTRACT = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v2|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
 
 const scalarTileIndexes = new WeakMap<readonly ClimateScalarTile[], ReadonlyMap<string, ClimateScalarTile>>();
 

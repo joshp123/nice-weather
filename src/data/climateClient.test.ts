@@ -11,7 +11,7 @@ const PERIOD = 'month-07';
 const BLOCK_TYPE = 'application/vnd.nice-weather.climate-block';
 const SCALAR_TYPE = 'application/vnd.nice-weather.score-tile';
 const FIELDS: ClimateField[] = ['comfort_good', 'dry_good', 'bright_good', 'nice_good', 'nice_calm_good', 'cycling_good', 'cycling_calm_good'];
-const DERIVATION = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
+const DERIVATION = 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v2|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025';
 
 describe('WorldwideClimateClient year index', () => {
   it('calls the default browser fetch with the global receiver', async () => {

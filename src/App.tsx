@@ -515,7 +515,7 @@ function PeriodRail({ periods, selectedId, label, onChange }: { periods: readonl
 }
 
 export const LENSES: ReadonlyArray<{ id: Lens; label: string }> = [
-  { id: 'overall', label: 'Overall score' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Bright' }, { id: 'wind', label: 'Calm' },
+  { id: 'overall', label: 'Overall score' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Clear sky' }, { id: 'wind', label: 'Calm' },
 ];
 
 type LayerLegendProps = {
@@ -566,7 +566,7 @@ function ScoreGuide({ manifest, climate }: { manifest: WeatherPresentation; clim
       <div className="scoreGuideBody">
         {climate ? <>
           <p>The map shows the percentage of real days rated Good or better from 2006 to 2025.</p>
-          <p>Comfort, Dry and Bright show the same chance for each part. Calm uses the selected weather preference.</p>
+          <p>Comfort, Dry and Clear sky show the chance of good conditions. Calm uses the selected weather preference.</p>
           <p>Chance of 3 poor days in a row means a seven-day window contains at least three consecutive Poor or Awful days.</p>
         </> : <>
         <p>Overall score starts with four scores. Severe heat, cold, rain or wind can cap it.</p>
@@ -862,7 +862,7 @@ function ClimateComponentRows({ data, profile, active, onChange }: { data: Clima
   const rows = [
     ['comfort', 'Comfort', data.comfortGoodPercent],
     ['dry', 'Dry', data.dryGoodPercent],
-    ['bright', 'Bright', data.brightGoodPercent],
+    ['bright', 'Clear sky', data.brightGoodPercent],
     ['wind', 'Calm', data[profile].calmGoodPercent],
   ] as const;
   return <div className="componentRows climateComponents" aria-label="Chance of good weather by component">{rows.map(([id, label, value]) => (
@@ -931,7 +931,7 @@ function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; ey
 
 function ComponentRows({ data, legend, active, onChange }: { data: PointWeather; legend: WeatherPresentation['legend']; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
   const rows = [
-    ['comfort', 'Comfort', data.components.comfort], ['dry', 'Dry', data.components.dryness], ['bright', 'Bright', data.components.sun], ['wind', 'Calm', data.components.wind],
+    ['comfort', 'Comfort', data.components.comfort], ['dry', 'Dry', data.components.dryness], ['bright', 'Clear sky', data.components.sun], ['wind', 'Calm', data.components.wind],
   ] as const;
   return <div className="componentRows" aria-label="Weather score parts">{rows.map(([id, label, score]) => {
     const colour = legend.find((band) => band.label === score.category)?.color;

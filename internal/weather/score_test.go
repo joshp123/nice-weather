@@ -124,20 +124,19 @@ func TestThermalComfortDistinguishesHeatAndColdMoisture(t *testing.T) {
 	hotDry := idealDay()
 	hotDry.ComfortableTempC, hotDry.MaxTempC = 30, 34
 	hotDry.DewPointC, hotDry.RelativeHumidityPercent = known(5), known(20)
-	hotSummer := hotDry
-	hotSummer.DewPointC, hotSummer.RelativeHumidityPercent = known(24), known(70)
+	oppressive := hotDry
+	oppressive.DewPointC, oppressive.RelativeHumidityPercent = known(24), known(relativeHumidityFromDewPoint(30, 24))
 	saturated := hotDry
 	saturated.DewPointC, saturated.RelativeHumidityPercent = known(30), known(100)
-	hotSummerFallback := hotSummer
-	hotSummerFallback.DewPointC = OptionalFloat{}
-	hotSummerFallback.RelativeHumidityPercent = known(relativeHumidityFromDewPoint(30, 24))
+	oppressiveFallback := oppressive
+	oppressiveFallback.DewPointC = OptionalFloat{}
 	saturatedFallback := saturated
 	saturatedFallback.DewPointC = OptionalFloat{}
-	if dry, summer, summerFallback, extreme, extremeFallback := Score(hotDry, ProfileNice), Score(hotSummer, ProfileNice), Score(hotSummerFallback, ProfileNice), Score(saturated, ProfileNice), Score(saturatedFallback, ProfileNice); dry.Components.Thermal < 85 || summer.Components.Thermal < 85 || summer.Rating != "Excellent" || summerFallback.Rating != "Excellent" || extreme.Components.Thermal != 0 || extreme.Rating != "Awful" || extremeFallback.Rating != "Awful" || dry.Score < summer.Score || summer.Score <= extreme.Score {
-		t.Fatalf("hot dry = %+v, hot summer = %+v, RH fallback = %+v, saturated heat = %+v, saturated fallback = %+v", dry, summer, summerFallback, extreme, extremeFallback)
+	if dry, humid, humidFallback, extreme, extremeFallback := Score(hotDry, ProfileNice), Score(oppressive, ProfileNice), Score(oppressiveFallback, ProfileNice), Score(saturated, ProfileNice), Score(saturatedFallback, ProfileNice); dry.Components.Thermal < 85 || humid.Components.Thermal > 24 || humid.Rating != "Awful" || humidFallback != humid || extreme.Components.Thermal != 0 || extreme.Rating != "Awful" || extremeFallback.Rating != "Awful" || dry.Score <= humid.Score || humid.Score < extreme.Score {
+		t.Fatalf("hot dry = %+v, oppressive = %+v, RH fallback = %+v, saturated heat = %+v, saturated fallback = %+v", dry, humid, humidFallback, extreme, extremeFallback)
 	}
 
-	for _, dewPoint := range []float64{5, 24, 26, 28, 30} {
+	for _, dewPoint := range []float64{5, 18, 20, 22, 24, 26, 30} {
 		withDewPoint := hotDry
 		withDewPoint.DewPointC = known(dewPoint)
 		withDewPoint.RelativeHumidityPercent = known(relativeHumidityFromDewPoint(30, dewPoint))
@@ -166,6 +165,90 @@ func TestThermalComfortDistinguishesHeatAndColdMoisture(t *testing.T) {
 	coldDamp.GustKPH, coldDamp.DewPointC, coldDamp.RelativeHumidityPercent = known(45), known(7), known(100)
 	if dry, damp := Score(coldDry, ProfileNice), Score(coldDamp, ProfileNice); dry.Components.Thermal < 25 || damp.Components.Thermal > 15 || damp.Rating != "Awful" || dry.Rating != "Poor" {
 		t.Fatalf("cold dry = %+v, cold damp = %+v", dry, damp)
+	}
+}
+
+func TestPhysicalWeatherScenarios(t *testing.T) {
+	tests := []struct {
+		name        string
+		day         DailyMetrics
+		wantRating  string
+		wantThermal int
+		minScore    int
+	}{
+		{
+			name: "Singapore tropical humidity",
+			day: DailyMetrics{
+				ComfortableTempC: 28, MinTempC: 25, MaxTempC: 31,
+				RainMM: 2, WetTimeFraction: OptionalFloat{},
+				SolarEnergyMJm2: known(12), CloudCoverPercent: known(98.8),
+				WindSpeedKPH: 8, GustKPH: OptionalFloat{},
+				DewPointC: known(23.9), RelativeHumidityPercent: known(79),
+				NativeResolutionKM: 28, Valid: true,
+			},
+			wantRating: "Awful", wantThermal: 2,
+		},
+		{
+			name: "warm Dutch summer",
+			day: DailyMetrics{
+				ComfortableTempC: 25, MinTempC: 18, MaxTempC: 27,
+				RainMM: 0, WetTimeFraction: known(0),
+				SolarEnergyMJm2: known(18), CloudCoverPercent: known(20),
+				WindSpeedKPH: 10, GustKPH: known(18),
+				DewPointC: known(16), RelativeHumidityPercent: known(57),
+				NativeResolutionKM: 7, Valid: true,
+			},
+			wantRating: "Excellent", wantThermal: 100, minScore: 95,
+		},
+		{
+			name: "Aswan dry heat",
+			day: DailyMetrics{
+				ComfortableTempC: 30.9, MinTempC: 23, MaxTempC: 35,
+				RainMM: 0, WetTimeFraction: OptionalFloat{},
+				SolarEnergyMJm2: known(19), CloudCoverPercent: known(1.8),
+				WindSpeedKPH: 11, GustKPH: OptionalFloat{},
+				DewPointC: known(8.9), RelativeHumidityPercent: known(26),
+				NativeResolutionKM: 28, Valid: true,
+			},
+			wantRating: "Very good", wantThermal: 78, minScore: 78,
+		},
+		{
+			name: "Malaga mild clear season",
+			day: DailyMetrics{
+				ComfortableTempC: 16.3, MinTempC: 12, MaxTempC: 20,
+				RainMM: 0, WetTimeFraction: OptionalFloat{},
+				SolarEnergyMJm2: known(10), CloudCoverPercent: known(42),
+				WindSpeedKPH: 10, GustKPH: OptionalFloat{},
+				DewPointC: known(8.3), RelativeHumidityPercent: known(59),
+				NativeResolutionKM: 28, Valid: true,
+			},
+			wantRating: "Good", wantThermal: 56, minScore: 55,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := Score(test.day, ProfileNice)
+			if !result.Available || result.Rating != test.wantRating || result.Components.Thermal != test.wantThermal || result.Score < test.minScore {
+				t.Fatalf("result = %+v; want rating %s, comfort %d, score >= %d", result, test.wantRating, test.wantThermal, test.minScore)
+			}
+		})
+	}
+}
+
+func TestDewPointComfortUsesWeatherSparkBands(t *testing.T) {
+	for dewPoint, want := range map[float64]int{
+		13: 100,
+		16: 100,
+		18: 85,
+		21: 55,
+		24: 0,
+	} {
+		day := idealDay()
+		day.DewPointC = known(dewPoint)
+		day.RelativeHumidityPercent = known(relativeHumidityFromDewPoint(day.ComfortableTempC, dewPoint))
+		if got := Score(day, ProfileNice).Components.Thermal; got != want {
+			t.Errorf("%.0f°C dew point comfort = %d; want %d", dewPoint, got, want)
+		}
 	}
 }
 
@@ -447,17 +530,12 @@ func TestUnknownProfileIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestOptionalEvidenceIsRenormalised(t *testing.T) {
+func TestOptionalEvidenceUsesCanonicalInputs(t *testing.T) {
 	tests := []struct {
 		name  string
 		edit  func(*DailyMetrics)
 		check func(Result) bool
 	}{
-		{
-			"solar without cloud",
-			func(day *DailyMetrics) { day.CloudCoverPercent = OptionalFloat{} },
-			func(result Result) bool { return result.Components.Sun == 100 },
-		},
 		{
 			"cloud without solar",
 			func(day *DailyMetrics) { day.SolarEnergyMJm2 = OptionalFloat{} },
@@ -597,6 +675,28 @@ func TestSummaryUsesOnlyObservedConditions(t *testing.T) {
 				t.Fatalf("summary = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestClearSkyIgnoresSolarEnergyAndRequiresCloudCover(t *testing.T) {
+	lowSolar := idealDay()
+	lowSolar.SolarEnergyMJm2 = known(1)
+	highSolar := idealDay()
+	highSolar.SolarEnergyMJm2 = known(30)
+	if low, high := Score(lowSolar, ProfileNice), Score(highSolar, ProfileNice); !low.Available || low != high {
+		t.Fatalf("equal cloud cover produced different scores: low solar=%+v high solar=%+v", low, high)
+	}
+	if low, high := Summary(lowSolar), Summary(highSolar); low != high || low != "24°C · dry · sunny · light wind" {
+		t.Fatalf("equal cloud cover produced different summaries: %q and %q", low, high)
+	}
+
+	missingCloud := idealDay()
+	missingCloud.CloudCoverPercent = OptionalFloat{}
+	if result := Score(missingCloud, ProfileNice); result.Available {
+		t.Fatalf("score without cloud evidence = %+v", result)
+	}
+	if got := Summary(missingCloud); got != "No forecast data" {
+		t.Fatalf("summary without cloud evidence = %q", got)
 	}
 }
 

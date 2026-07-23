@@ -1114,10 +1114,11 @@ func TestWebMercatorOverlayRowsUseValidAwareOverlap(t *testing.T) {
 	}
 	valid := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 22, MaxTempC: 26, RainMM: 0,
-		WetTimeFraction: weather.OptionalFloat{Value: 0, Available: true},
-		SolarEnergyMJm2: weather.OptionalFloat{Value: 18, Available: true},
-		DewPointC:       weather.OptionalFloat{Value: 12, Available: true},
-		WindSpeedKPH:    8, NativeResolutionKM: 7, Valid: true,
+		WetTimeFraction:   weather.OptionalFloat{Value: 0, Available: true},
+		SolarEnergyMJm2:   weather.OptionalFloat{Value: 18, Available: true},
+		CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
+		DewPointC:         weather.OptionalFloat{Value: 12, Available: true},
+		WindSpeedKPH:      8, NativeResolutionKM: 7, Valid: true,
 	}
 	metrics := []weather.DailyMetrics{valid, {}, {}, valid}
 	var output bytes.Buffer
@@ -1193,10 +1194,11 @@ func TestPointLookupMatchesRenderedPixelAtCoastalCoordinates(t *testing.T) {
 	}
 	metric := weather.DailyMetrics{
 		ComfortableTempC: 24, MinTempC: 21, MaxTempC: 27, RainMM: 0,
-		WetTimeFraction: weather.OptionalFloat{Value: 0, Available: true},
-		SolarEnergyMJm2: weather.OptionalFloat{Value: 20, Available: true},
-		DewPointC:       weather.OptionalFloat{Value: 11, Available: true},
-		WindSpeedKPH:    7, NativeResolutionKM: 7, Valid: true,
+		WetTimeFraction:   weather.OptionalFloat{Value: 0, Available: true},
+		SolarEnergyMJm2:   weather.OptionalFloat{Value: 20, Available: true},
+		CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
+		DewPointC:         weather.OptionalFloat{Value: 11, Available: true},
+		WindSpeedKPH:      7, NativeResolutionKM: 7, Valid: true,
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -27,7 +27,7 @@ import (
 
 const (
 	CatalogVersion  = 1
-	ProductContract = "nice-weather-forecast-range-v1"
+	ProductContract = "nice-weather-forecast-range-v2"
 	Period          = "next-14-days"
 	// The only complete worldwide fourteen-day source is the daily IFS 12 UTC
 	// run. Its final long-range tranche is normally not available until about

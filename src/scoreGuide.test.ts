@@ -5,8 +5,8 @@ import { DRY_SCORE_NOTE, forecastDetailNote, PROFILE_WEIGHT_NOTES, ratingBandLab
 describe('score guide copy', () => {
   it('states both profiles exact component weights and the dry rule', () => {
     expect(PROFILE_WEIGHT_NOTES).toEqual({
-      nice: 'Comfort 45% · Dry 25% · Bright 20% · Calm 10%',
-      cycling: 'Comfort 35% · Dry 30% · Bright 10% · Calm 25%',
+      nice: 'Comfort 45% · Dry 25% · Clear sky 20% · Calm 10%',
+      cycling: 'Comfort 35% · Dry 30% · Clear sky 10% · Calm 25%',
     });
     expect(DRY_SCORE_NOTE).toBe('Dry uses whichever is worse: rain amount or wet daytime duration.');
   });

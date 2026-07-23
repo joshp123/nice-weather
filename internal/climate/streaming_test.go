@@ -33,7 +33,7 @@ func TestStreamingAccumulatorMatchesAggregateAndDeliveryForEveryMonth(t *testing
 		if !reflect.DeepEqual(got[index], want) {
 			t.Fatalf("%s streaming distribution differs\ngot  %+v\nwant %+v", time.Month(index+1), got[index], want)
 		}
-		if want.Nice.PoorWeekWindows == 0 || want.Nice.LongestPoorRun != 3 {
+		if want.Nice.PoorWeekWindows == 0 || want.Nice.LongestPoorRun != 4 {
 			t.Fatalf("%s fixture did not exercise persistence: %+v", time.Month(index+1), want.Nice)
 		}
 		gotRecord, err := got[index].DeliveryRecord()
@@ -170,8 +170,8 @@ func variedDay(date time.Time) AgERA5Day {
 	result := day(formatDate(date), 36.72, -4.42, 24, 0, 0, 15, 20, 12)
 	switch {
 	case date.Day() >= 11 && date.Day() <= 13:
-		// Exercise the three-consecutive-poor-day persistence rule inside
-		// every calendar month and its reset between years.
+		// Exercise poor-weather persistence inside every calendar month and
+		// its reset between years. Day 14 extends this run through humidity.
 		result = day(formatDate(date), 36.72, -4.42, 7, 5, .8, 2, 95, 30)
 	case date.Day()%7 == 0:
 		result = day(formatDate(date), 36.72, -4.42, 30, 0, 0, 17, 15, 12)

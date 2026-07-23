@@ -29,7 +29,7 @@ const (
 	// delivery.ProductContract so frontend-only releases do not discard completed
 	// worldwide climate work. Bump it when source mapping, land masking, scoring,
 	// aggregation or the climate-distribution record changes.
-	CheckpointDerivationContract = "agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025"
+	CheckpointDerivationContract = "agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v2|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025"
 )
 
 var (

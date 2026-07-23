@@ -59,7 +59,7 @@ describe('map controls', () => {
       { id: 'overall', label: 'Overall score' },
       { id: 'comfort', label: 'Comfort' },
       { id: 'dry', label: 'Dry' },
-      { id: 'bright', label: 'Bright' },
+      { id: 'bright', label: 'Clear sky' },
       { id: 'wind', label: 'Calm' },
     ]);
 
@@ -111,8 +111,8 @@ describe('map controls', () => {
     }));
 
     expect(markup).toContain('Warm &amp; sunny');
-    expect(markup).toContain('Comfort 45% · Dry 25% · Bright 20% · Calm 10%');
-    expect(markup).toContain('Comfort 35% · Dry 30% · Bright 10% · Calm 25%');
+    expect(markup).toContain('Comfort 45% · Dry 25% · Clear sky 20% · Calm 10%');
+    expect(markup).toContain('Comfort 35% · Dry 30% · Clear sky 10% · Calm 25%');
     expect(markup).toContain('Dry uses whichever is worse: rain amount or wet daytime duration.');
   });
 
@@ -310,7 +310,7 @@ describe('clear weather copy', () => {
       data, point: { lat: 36.72, lon: -4.42 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
     }));
     expect(climateSummary(data, 'nice')).toBe('68% nice · 9% awful · median 71');
-    for (const copy of ['Nice days', 'Awful days', 'Chance of 3 poor days in a row', 'Median score', 'Comfort', 'Dry', 'Bright', 'Calm']) expect(nice).toContain(copy);
+    for (const copy of ['Nice days', 'Awful days', 'Chance of 3 poor days in a row', 'Median score', 'Comfort', 'Dry', 'Clear sky', 'Calm']) expect(nice).toContain(copy);
     for (const value of ['77%', '82%', '74%', '61%']) expect(nice).toContain(value);
     expect(nice.match(/aria-pressed=/g)).toHaveLength(4);
     expect(nice).toContain('12.3%');
@@ -526,7 +526,7 @@ function climateIndex(state: ClimateIndex['state'], periods: string[]): ClimateI
     provenance: {
       sourceEvidenceSha256: 'a'.repeat(64),
       landMaskSetSha256: 'b'.repeat(64),
-      derivationContract: 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v1|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025',
+      derivationContract: 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v2|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025',
     },
     months: periods.map((period) => ({ period, releaseId: `release-${period}`, catalogSha256: 'c'.repeat(64) })),
   } as ClimateIndex;

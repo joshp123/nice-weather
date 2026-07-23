@@ -75,7 +75,7 @@ export type PaletteStop = { score: number; color: string };
 export type WeatherManifest = {
   version: 8;
   releaseId: string;
-  productContract: 'nice-weather-v18';
+  productContract: 'nice-weather-v19';
   dataStatus: DataStatus;
   generatedAt: string;
   bounds: [number, number, number, number];
