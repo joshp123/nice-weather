@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	defaultHourlyScript      = "scripts/era5_hourly_frames.py"
-	maxProducerSummaryBytes  = 32 * 1024
-	maxProducerRequests      = 6_000
-	maxProducerResponseBytes = 14 * 1024 * 1024 * 1024
-	producerKillDelay        = 2 * time.Second
+	defaultHourlyScript         = "scripts/era5_hourly_frames.py"
+	maxProducerDiagnosticsBytes = 32 * 1024
+	maxProducerRequests         = 6_000
+	maxProducerResponseBytes    = 14 * 1024 * 1024 * 1024
+	producerKillDelay           = 2 * time.Second
+	producerSummaryPrefix       = "NICE_WEATHER_ERA5_SUMMARY_V1 "
 
 	pinnedRepository = "s3://earthmover-icechunk-era5/icechunkV2"
 	pinnedUpstream   = "https://earthmover-icechunk-era5.s3.amazonaws.com/icechunkV2"
@@ -49,6 +50,7 @@ type DailyShardBuildSummary struct {
 	ShardBytes                    int64
 	Requests                      int
 	ResponseBytes, FrameBytes     int64
+	Diagnostics                   string
 	Elapsed                       time.Duration
 }
 
@@ -190,9 +192,12 @@ func buildDailyShard(ctx context.Context, config DailyShardBuildConfig, dependen
 	if err := producerWaitError(stderr, truncated, waitErr); err != nil {
 		return summary, errors.Join(err, pending.Abort())
 	}
-	producerSummary, err := validateProducerSummary(stderr, first, last)
+	producerSummary, diagnostics, err := validateProducerSummary(stderr, first, last)
 	if err != nil {
 		return summary, errors.Join(err, pending.Abort())
+	}
+	if truncated {
+		diagnostics = strings.TrimSpace("Earlier source diagnostics omitted.\n" + diagnostics)
 	}
 	if err := pending.Finalize(); err != nil {
 		return summary, errors.Join(fmt.Errorf("publish ERA5 daily shard: %w", err), pending.Abort())
@@ -207,6 +212,7 @@ func buildDailyShard(ctx context.Context, config DailyShardBuildConfig, dependen
 	summary.Requests = producerSummary.Requests
 	summary.ResponseBytes = producerSummary.ResponseBytes
 	summary.FrameBytes = producerSummary.FrameBytes
+	summary.Diagnostics = diagnostics
 	return summary, nil
 }
 
@@ -321,15 +327,33 @@ type producerSummary struct {
 	ContractSHA256 string `json:"contractSha256"`
 }
 
-func validateProducerSummary(encoded []byte, first, last time.Time) (producerSummary, error) {
+var producerSummaryFields = [...]string{
+	"frames",
+	"frameBytes",
+	"requests",
+	"responseBytes",
+	"repository",
+	"upstream",
+	"snapshotId",
+	"contractSha256",
+}
+
+func validateProducerSummary(stderr []byte, first, last time.Time) (producerSummary, string, error) {
 	var summary producerSummary
+	encoded, diagnostics, err := splitProducerSummary(stderr)
+	if err != nil {
+		return summary, "", err
+	}
+	if err := requireExactProducerSummaryFields(encoded); err != nil {
+		return summary, "", err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&summary); err != nil {
-		return summary, fmt.Errorf("decode ERA5 hourly producer summary: %w", err)
+		return summary, "", fmt.Errorf("decode ERA5 hourly producer summary: %w", err)
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return summary, fmt.Errorf("finish ERA5 hourly producer summary: %w", err)
+		return summary, "", fmt.Errorf("finish ERA5 hourly producer summary: %w", err)
 	}
 	frames := int(last.Sub(first)/time.Hour) + 1
 	frameBytes := int64(frames) * int64(HeaderBytes+FieldCount*GridRows*GridColumns*scalarBytes+TrailerBytes)
@@ -339,21 +363,95 @@ func validateProducerSummary(encoded []byte, first, last time.Time) (producerSum
 		summary.Repository != pinnedRepository || summary.Upstream != pinnedUpstream ||
 		summary.SnapshotID != SnapshotID ||
 		summary.ContractSHA256 != hex.EncodeToString(sourceContractSHA256[:]) {
-		return summary, errors.New("ERA5 hourly producer summary does not match the requested pinned source")
+		return summary, "", errors.New("ERA5 hourly producer summary does not match the requested pinned source")
 	}
-	return summary, nil
+	return summary, diagnostics, nil
+}
+
+func requireExactProducerSummaryFields(encoded []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return errors.New("ERA5 hourly producer summary must be one JSON object")
+	}
+	seen := make(map[string]bool, len(producerSummaryFields))
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read ERA5 hourly producer summary field: %w", err)
+		}
+		field, ok := token.(string)
+		if !ok || !isProducerSummaryField(field) {
+			return fmt.Errorf("ERA5 hourly producer summary has unknown or mis-spelt field %q", field)
+		}
+		if seen[field] {
+			return fmt.Errorf("ERA5 hourly producer summary repeats field %q", field)
+		}
+		seen[field] = true
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return fmt.Errorf("read ERA5 hourly producer summary field %q: %w", field, err)
+		}
+	}
+	token, err = decoder.Token()
+	if err != nil || token != json.Delim('}') {
+		return errors.New("ERA5 hourly producer summary object is incomplete")
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return fmt.Errorf("finish ERA5 hourly producer summary object: %w", err)
+	}
+	for _, field := range producerSummaryFields {
+		if !seen[field] {
+			return fmt.Errorf("ERA5 hourly producer summary lacks field %q", field)
+		}
+	}
+	return nil
+}
+
+func isProducerSummaryField(candidate string) bool {
+	for _, field := range producerSummaryFields {
+		if candidate == field {
+			return true
+		}
+	}
+	return false
+}
+
+func splitProducerSummary(stderr []byte) ([]byte, string, error) {
+	if len(stderr) == 0 {
+		return nil, "", errors.New("ERA5 hourly producer summary is missing")
+	}
+	payload := stderr
+	if payload[len(payload)-1] == '\n' {
+		payload = payload[:len(payload)-1]
+	}
+	lines := bytes.Split(payload, []byte{'\n'})
+	prefix := []byte(producerSummaryPrefix)
+	if bytes.Count(payload, prefix) != 1 {
+		return nil, "", errors.New("ERA5 hourly producer must emit exactly one summary prefix")
+	}
+	final := lines[len(lines)-1]
+	if !bytes.HasPrefix(final, prefix) {
+		return nil, "", errors.New("ERA5 hourly producer summary is not the final diagnostic line")
+	}
+	encoded := final[len(prefix):]
+	if len(encoded) == 0 {
+		return nil, "", errors.New("ERA5 hourly producer summary is empty")
+	}
+	diagnostics := strings.TrimSpace(string(bytes.Join(lines[:len(lines)-1], []byte{'\n'})))
+	return encoded, diagnostics, nil
 }
 
 func producerWaitError(stderr []byte, truncated bool, waitErr error) error {
-	if truncated {
-		return errors.New("ERA5 hourly producer diagnostics exceeded the bounded limit")
-	}
 	if waitErr == nil {
 		return nil
 	}
 	message := strings.TrimSpace(string(stderr))
 	if message == "" {
 		return fmt.Errorf("ERA5 hourly producer failed: %w", waitErr)
+	}
+	if truncated {
+		message = "Earlier source diagnostics omitted.\n" + message
 	}
 	return fmt.Errorf("ERA5 hourly producer failed: %w: %s", waitErr, message)
 }
@@ -388,7 +486,7 @@ func startUVProducer(ctx context.Context, spec producerSpec) (runningProducer, e
 	if err != nil {
 		return nil, err
 	}
-	stderr := &boundedBuffer{maximum: maxProducerSummaryBytes}
+	stderr := &boundedBuffer{maximum: maxProducerDiagnosticsBytes}
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
 		_ = stdout.Close()
@@ -432,15 +530,17 @@ func (buffer *boundedBuffer) Write(input []byte) (int, error) {
 	if buffer == nil || buffer.maximum <= 0 {
 		return len(input), nil
 	}
-	remaining := buffer.maximum - len(buffer.bytes)
-	if remaining > 0 {
-		if remaining > len(input) {
-			remaining = len(input)
-		}
-		buffer.bytes = append(buffer.bytes, input[:remaining]...)
+	if len(input) >= buffer.maximum {
+		buffer.bytes = append(buffer.bytes[:0], input[len(input)-buffer.maximum:]...)
+		buffer.truncated = true
+		return len(input), nil
 	}
-	if remaining < len(input) {
+	overflow := len(buffer.bytes) + len(input) - buffer.maximum
+	if overflow > 0 {
+		copy(buffer.bytes, buffer.bytes[overflow:])
+		buffer.bytes = buffer.bytes[:len(buffer.bytes)-overflow]
 		buffer.truncated = true
 	}
+	buffer.bytes = append(buffer.bytes, input...)
 	return len(input), nil
 }

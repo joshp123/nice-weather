@@ -42,7 +42,9 @@ func TestBuildDailyShardStreamsExactEnvelopePublishesAndResumesWithoutSource(t *
 		startProducer: func(_ context.Context, spec producerSpec) (runningProducer, error) {
 			started++
 			captured = spec
-			return successfulFakeProducer(t, spec.First, spec.Last, false), nil
+			producer := successfulFakeProducer(t, spec.First, spec.Last, false)
+			producer.summary = append([]byte("Warning: source retried one bounded request\n"), producer.summary...)
+			return producer, nil
 		},
 		newDecoder: func(input io.Reader) (FrameSource, error) {
 			return newDecoder(input, 1, 1)
@@ -54,7 +56,8 @@ func TestBuildDailyShardStreamsExactEnvelopePublishesAndResumesWithoutSource(t *
 	}
 	if summary.Existing || summary.Cells != 1 || summary.Timezones != 1 ||
 		summary.Frames == 0 || summary.Days != 30 || summary.ShardBytes <= 0 ||
-		summary.Requests != 1 || summary.ResponseBytes != 1234 || started != 1 {
+		summary.Requests != 1 || summary.ResponseBytes != 1234 ||
+		summary.Diagnostics != "Warning: source retried one bounded request" || started != 1 {
 		t.Fatalf("build summary = %+v; starts=%d", summary, started)
 	}
 	first, last, err := RequiredEnvelope(config.Year, config.Month, plan.Cells)
@@ -197,6 +200,93 @@ func TestBuildDailyShardProducerAndAggregationFailuresNeverPublish(t *testing.T)
 				t.Fatal("failed build did not reap its producer")
 			}
 			assertNoRunStaging(t, config.StagingRoot)
+		})
+	}
+}
+
+func TestBuildDailyShardAcceptsTruncatedDiagnosticsWhenFinalSummarySurvives(t *testing.T) {
+	config, _ := dailyShardBuildFixture(t)
+	summary, err := buildDailyShard(context.Background(), config, dailyShardBuildDependencies{
+		startProducer: func(_ context.Context, spec producerSpec) (runningProducer, error) {
+			producer := successfulFakeProducer(t, spec.First, spec.Last, false)
+			producer.summary = append([]byte("retained diagnostic tail\n"), producer.summary...)
+			producer.truncated = true
+			return producer, nil
+		},
+		newDecoder: func(input io.Reader) (FrameSource, error) {
+			return newDecoder(input, 1, 1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Diagnostics != "Earlier source diagnostics omitted.\nretained diagnostic tail" {
+		t.Fatalf("diagnostics = %q", summary.Diagnostics)
+	}
+	if _, err := os.Stat(config.OutputPath); err != nil {
+		t.Fatalf("complete build did not publish output: %v", err)
+	}
+	assertNoRunStaging(t, config.StagingRoot)
+}
+
+func TestBoundedProducerDiagnosticsRetainTheFinalSummaryTail(t *testing.T) {
+	buffer := &boundedBuffer{maximum: 32}
+	writes := []string{
+		"first diagnostic that is discarded\n",
+		"last diagnostic\n",
+		"SUMMARY\n",
+	}
+	for _, write := range writes {
+		if count, err := buffer.Write([]byte(write)); err != nil || count != len(write) {
+			t.Fatalf("write %q = %d, %v", write, count, err)
+		}
+	}
+	if !buffer.truncated {
+		t.Fatal("bounded diagnostics did not report truncation")
+	}
+	if got := string(buffer.bytes); len(got) != 32 || !strings.HasSuffix(got, "last diagnostic\nSUMMARY\n") {
+		t.Fatalf("retained diagnostics = %q", got)
+	}
+}
+
+func TestProducerSummaryProtocolIsStrictAndRetainsOnlyPrecedingDiagnostics(t *testing.T) {
+	first := time.Date(2025, time.November, 1, 0, 0, 0, 0, time.UTC)
+	last := first.Add(2 * time.Hour)
+	valid := validProducerSummaryLine(t, first, last)
+	validJSON := strings.TrimSuffix(strings.TrimPrefix(valid, producerSummaryPrefix), "\n")
+
+	summary, diagnostics, err := validateProducerSummary(
+		[]byte("Warning: bounded source retry\n"+valid),
+		first,
+		last,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Frames != 3 || diagnostics != "Warning: bounded source retry" {
+		t.Fatalf("summary = %+v, diagnostics = %q", summary, diagnostics)
+	}
+
+	tests := []struct {
+		name   string
+		stderr string
+	}{
+		{"missing prefix", validJSON},
+		{"duplicate prefix", valid + valid},
+		{"non-final prefix", valid + "trailing diagnostic\n"},
+		{"empty summary", producerSummaryPrefix + "\n"},
+		{"invalid JSON", producerSummaryPrefix + "{\n"},
+		{"unknown field", producerSummaryPrefix + strings.TrimSuffix(validJSON, "}") + `,"extra":1}` + "\n"},
+		{"duplicate field", producerSummaryPrefix + strings.Replace(validJSON, "{", `{"frames":1,`, 1) + "\n"},
+		{"case variant field", producerSummaryPrefix + strings.Replace(validJSON, `"frames"`, `"Frames"`, 1) + "\n"},
+		{"multiple values", producerSummaryPrefix + validJSON + ` {}` + "\n"},
+		{"trailing blank line", valid + "\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := validateProducerSummary([]byte(test.stderr), first, last); err == nil {
+				t.Fatal("invalid producer stderr was accepted")
+			}
 		})
 	}
 }
@@ -373,9 +463,16 @@ func successfulFakeProducer(t *testing.T, first, last time.Time, corrupt bool) *
 		output.Write(encodedFrame(t, current, 1, 1, values))
 		frameIndex++
 	}
-	frameBytes := int64(frameIndex) * int64(HeaderBytes+FieldCount*GridRows*GridColumns*scalarBytes+TrailerBytes)
+	summary := validProducerSummaryLine(t, first, last)
+	return &fakeRunningProducer{output: io.NopCloser(bytes.NewReader(output.Bytes())), summary: []byte(summary)}
+}
+
+func validProducerSummaryLine(t *testing.T, first, last time.Time) string {
+	t.Helper()
+	frames := int(last.Sub(first)/time.Hour) + 1
+	frameBytes := int64(frames) * int64(HeaderBytes+FieldCount*GridRows*GridColumns*scalarBytes+TrailerBytes)
 	summary, err := json.Marshal(producerSummary{
-		Frames: frameIndex, FrameBytes: frameBytes,
+		Frames: frames, FrameBytes: frameBytes,
 		Requests: 1, ResponseBytes: 1234,
 		Repository: pinnedRepository, Upstream: pinnedUpstream,
 		SnapshotID:     SnapshotID,
@@ -384,7 +481,7 @@ func successfulFakeProducer(t *testing.T, first, last time.Time, corrupt bool) *
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fakeRunningProducer{output: io.NopCloser(bytes.NewReader(output.Bytes())), summary: summary}
+	return producerSummaryPrefix + string(summary) + "\n"
 }
 
 func sourceContractSHAHex() string {

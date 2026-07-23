@@ -260,6 +260,11 @@ func runERA5HistoryMonthCommand(
 	if err != nil {
 		return err
 	}
+	if summary.Diagnostics != "" {
+		if _, err = fmt.Fprintf(stderr, "ERA5 hourly source diagnostics:\n%s\n", summary.Diagnostics); err != nil {
+			return fmt.Errorf("write ERA5 source diagnostics: %w", err)
+		}
+	}
 	if summary.Existing {
 		_, err = fmt.Fprintf(stdout, "ERA5 daily history already valid: %04d-%02d; %d cells; %d bytes; plan %s; checked in %s.\n",
 			*year, *month, summary.Cells, summary.ShardBytes, summary.PlanSHA256, summary.Elapsed.Round(time.Millisecond))

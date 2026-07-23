@@ -60,13 +60,16 @@ func TestERA5HistoryMonthCommandPassesExactBuildIdentityAndPrintsOneSummary(t *t
 				Frames: 733, Days: 10_937_340,
 				Requests: 5165, ResponseBytes: 7_014_871_020,
 				FrameBytes: 21_308_860_912, ShardBytes: 875_123_456,
-				Elapsed: 11*time.Minute + 47*time.Second,
+				Diagnostics: "Warning: source retried one bounded request",
+				Elapsed:     11*time.Minute + 47*time.Second,
 			}, nil
 		})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if called != 1 || stderr.Len() != 0 || strings.Count(strings.TrimSpace(stdout.String()), "\n") != 0 {
+	if called != 1 ||
+		stderr.String() != "ERA5 hourly source diagnostics:\nWarning: source retried one bounded request\n" ||
+		strings.Count(strings.TrimSpace(stdout.String()), "\n") != 0 {
 		t.Fatalf("called=%d stdout=%q stderr=%q", called, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
