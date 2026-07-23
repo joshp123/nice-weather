@@ -40,7 +40,22 @@ type DailyShardState struct {
 // returns an atomic sink for building it. An invalid existing file is never
 // replaced.
 func PrepareDailyShard(path string, year int, month time.Month, cells []Cell) (DailyShardState, error) {
-	identity, err := newDailyShardIdentity(year, month, cells)
+	return prepareDailyShard(path, filepath.Dir(path), year, month, cells, [sha256.Size]byte{})
+}
+
+// PrepareDailyShardInStaging is PrepareDailyShard with incomplete bytes kept
+// in a caller-owned staging directory. Staging and final output must support
+// one atomic hard-link install.
+func PrepareDailyShardInStaging(path, staging string, year int, month time.Month, cells []Cell, compressedPlanSHA256 string) (DailyShardState, error) {
+	planArtifactSHA, err := parseSHA256(compressedPlanSHA256)
+	if err != nil {
+		return DailyShardState{}, fmt.Errorf("parse ERA5 compressed cell plan SHA-256: %w", err)
+	}
+	return prepareDailyShard(path, staging, year, month, cells, planArtifactSHA)
+}
+
+func prepareDailyShard(path, staging string, year int, month time.Month, cells []Cell, planArtifactSHA [sha256.Size]byte) (DailyShardState, error) {
+	identity, err := newDailyShardIdentityForPlan(year, month, cells, planArtifactSHA)
 	if err != nil {
 		return DailyShardState{}, err
 	}
@@ -54,16 +69,39 @@ func PrepareDailyShard(path string, year int, month time.Month, cells []Cell) (D
 	if path == "" || filepath.Base(path) == "." {
 		return DailyShardState{}, errors.New("ERA5 daily shard path is required")
 	}
+	if staging == "" {
+		return DailyShardState{}, errors.New("ERA5 daily shard staging directory is required")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return DailyShardState{}, fmt.Errorf("create ERA5 daily shard directory: %w", err)
 	}
-	return DailyShardState{Sink: &dailyShardSink{path: path, identity: identity}}, nil
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		return DailyShardState{}, fmt.Errorf("create ERA5 daily shard staging directory: %w", err)
+	}
+	if err := preflightDailyShardInstall(staging, filepath.Dir(path)); err != nil {
+		return DailyShardState{}, err
+	}
+	return DailyShardState{Sink: &dailyShardSink{path: path, staging: staging, identity: identity}}, nil
 }
 
 // OpenDailyShard validates the complete file against the exact ordered cell
 // plan before returning a bounded random-access reader.
 func OpenDailyShard(path string, year int, month time.Month, cells []Cell) (*DailyShard, error) {
 	identity, err := newDailyShardIdentity(year, month, cells)
+	if err != nil {
+		return nil, err
+	}
+	return openDailyShard(path, identity)
+}
+
+// OpenDailyShardForPlan validates a builder-owned shard against both the
+// ordered logical cells and the exact trusted compressed plan artifact.
+func OpenDailyShardForPlan(path string, year int, month time.Month, cells []Cell, compressedPlanSHA256 string) (*DailyShard, error) {
+	planArtifactSHA, err := parseSHA256(compressedPlanSHA256)
+	if err != nil {
+		return nil, fmt.Errorf("parse ERA5 compressed cell plan SHA-256: %w", err)
+	}
+	identity, err := newDailyShardIdentityForPlan(year, month, cells, planArtifactSHA)
 	if err != nil {
 		return nil, err
 	}
@@ -161,14 +199,19 @@ func (shard *DailyShard) Close() error {
 }
 
 type dailyShardIdentity struct {
-	year, days int
-	month      time.Month
-	cells      []Cell
-	expected   []byte
-	planSHA    [sha256.Size]byte
+	year, days  int
+	month       time.Month
+	cells       []Cell
+	expected    []byte
+	planSHA     [sha256.Size]byte
+	artifactSHA [sha256.Size]byte
 }
 
 func newDailyShardIdentity(year int, month time.Month, cells []Cell) (dailyShardIdentity, error) {
+	return newDailyShardIdentityForPlan(year, month, cells, [sha256.Size]byte{})
+}
+
+func newDailyShardIdentityForPlan(year int, month time.Month, cells []Cell, artifactSHA [sha256.Size]byte) (dailyShardIdentity, error) {
 	if year < climateFirstYear || year > climateLastYear ||
 		month < time.January || month > time.December || len(cells) == 0 {
 		return dailyShardIdentity{}, errors.New("ERA5 daily shard requires a supported month and cells")
@@ -201,9 +244,18 @@ func newDailyShardIdentity(year int, month time.Month, cells []Cell) (dailyShard
 		}
 	}
 	copiedCells := append([]Cell(nil), cells...)
+	cellSHA := dailyShardPlanSHA(copiedCells)
+	planSHA := cellSHA
+	if artifactSHA != ([sha256.Size]byte{}) {
+		digest := sha256.New()
+		_, _ = io.WriteString(digest, "ERA5-compressed-cell-plan-v1\n")
+		_, _ = digest.Write(cellSHA[:])
+		_, _ = digest.Write(artifactSHA[:])
+		copy(planSHA[:], digest.Sum(nil))
+	}
 	return dailyShardIdentity{
 		year: year, month: month, days: days, cells: copiedCells,
-		expected: expected, planSHA: dailyShardPlanSHA(copiedCells),
+		expected: expected, planSHA: planSHA, artifactSHA: artifactSHA,
 	}, nil
 }
 
@@ -238,6 +290,7 @@ func writeDigestString(writer io.Writer, value string) {
 
 type dailyShardSink struct {
 	path     string
+	staging  string
 	identity dailyShardIdentity
 	begun    bool
 }
@@ -252,16 +305,21 @@ func (sink *dailyShardSink) BeginMonth(ctx context.Context, year int, month time
 	if sink.begun {
 		return nil, errors.New("ERA5 daily shard sink was already started")
 	}
-	identity, err := newDailyShardIdentity(year, month, cells)
+	identity, err := newDailyShardIdentityForPlan(year, month, cells, sink.identity.artifactSHA)
 	if err != nil {
 		return nil, err
 	}
 	if !sameDailyShardIdentity(identity, sink.identity) {
 		return nil, errors.New("ERA5 daily shard sink identity changed")
 	}
-	file, err := os.CreateTemp(filepath.Dir(sink.path), ".era5-daily-*.tmp")
+	file, err := os.CreateTemp(sink.staging, ".era5-daily-*.tmp")
 	if err != nil {
 		return nil, fmt.Errorf("create ERA5 daily shard transaction: %w", err)
+	}
+	if err := verifyDailyShardInstallLink(file.Name(), filepath.Dir(sink.path)); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return nil, err
 	}
 	transaction := &dailyShardTransaction{
 		finalPath: sink.path,
@@ -283,6 +341,35 @@ func (sink *dailyShardSink) BeginMonth(ctx context.Context, year int, month time
 	}
 	sink.begun = true
 	return transaction, nil
+}
+
+func verifyDailyShardInstallLink(temporary, finalDirectory string) error {
+	probe := filepath.Join(finalDirectory, "."+filepath.Base(temporary)+".link-probe")
+	if err := os.Link(temporary, probe); err != nil {
+		return fmt.Errorf("ERA5 daily shard staging cannot atomically install into output: %w", err)
+	}
+	if err := os.Remove(probe); err != nil {
+		return fmt.Errorf("clean ERA5 daily shard install probe: %w", err)
+	}
+	return nil
+}
+
+func preflightDailyShardInstall(staging, finalDirectory string) error {
+	file, err := os.CreateTemp(staging, ".era5-daily-install-probe-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create ERA5 daily shard install probe: %w", err)
+	}
+	path := file.Name()
+	closeErr := file.Close()
+	linkErr := verifyDailyShardInstallLink(path, finalDirectory)
+	removeErr := os.Remove(path)
+	if errors.Is(removeErr, os.ErrNotExist) {
+		removeErr = nil
+	}
+	if err := errors.Join(closeErr, linkErr, removeErr); err != nil {
+		return fmt.Errorf("preflight ERA5 daily shard install: %w", err)
+	}
+	return nil
 }
 
 func sameDailyShardIdentity(left, right dailyShardIdentity) bool {

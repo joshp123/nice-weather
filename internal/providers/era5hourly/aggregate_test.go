@@ -189,6 +189,38 @@ func TestSourceCoordinatesAreBoundToThePinnedWorldwideGrid(t *testing.T) {
 	}
 }
 
+func TestCellPlanAllowsOnlyOneExactAntimeridianDuplicatePair(t *testing.T) {
+	sourceIndex := 360*GridColumns + GridColumns/2
+	left := testCell(t, sourceIndex, 0, -180, "UTC")
+	right := testCell(t, sourceIndex, 0, 180, "Etc/GMT-12")
+	if _, _, err := RequiredEnvelope(2025, time.November, []Cell{left, right}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSourceCoordinates([]Cell{left, right}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name  string
+		cells []Cell
+	}{
+		{"third logical record", []Cell{left, right, left}},
+		{"same logical longitude", []Cell{left, left}},
+		{"latitude mismatch", []Cell{left, testCell(t, sourceIndex, .25, 180, "UTC")}},
+		{"not source column 720", []Cell{
+			testCell(t, sourceIndex+1, 0, -180, "UTC"),
+			testCell(t, sourceIndex+1, 0, 180, "UTC"),
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := RequiredEnvelope(2025, time.November, test.cells); err == nil {
+				t.Fatal("invalid duplicate source cells were accepted")
+			}
+		})
+	}
+}
+
 func TestTimezoneContractRejectsIdentityDrift(t *testing.T) {
 	cell := testCell(t, 0, 0, 0, "UTC")
 	cell.TimezoneFingerprint = "changed"

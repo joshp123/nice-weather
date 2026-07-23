@@ -13,6 +13,7 @@ import (
 
 	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/providers/era5hourly"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -20,7 +21,7 @@ func TestUsageListsOnlyActiveArtifactCommands(t *testing.T) {
 	var output bytes.Buffer
 	writeUsage(&output)
 
-	for _, command := range []string{"forecast-world", "climate-world", "places", "best-weather", "serve"} {
+	for _, command := range []string{"forecast-world", "era5-history-month", "climate-world", "places", "best-weather", "serve"} {
 		if !strings.Contains(output.String(), command) {
 			t.Errorf("usage omits active command %q: %s", command, output.String())
 		}
@@ -29,6 +30,103 @@ func TestUsageListsOnlyActiveArtifactCommands(t *testing.T) {
 		if strings.Contains(output.String(), retired) {
 			t.Errorf("usage still advertises retired command %q: %s", retired, output.String())
 		}
+	}
+}
+
+func TestERA5HistoryMonthCommandPassesExactBuildIdentityAndPrintsOneSummary(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	called := 0
+	args := []string{
+		"--plan", "/accepted/plan.json.gz",
+		"--plan-sha256", strings.Repeat("a", 64),
+		"--out", "/large-disk/history/2025-11.ned",
+		"--staging", "/large-disk/staging",
+		"--year", "2025",
+		"--month", "11",
+	}
+	err := runERA5HistoryMonthCommand(context.Background(), args, &stdout, &stderr,
+		func(_ context.Context, config era5hourly.DailyShardBuildConfig) (era5hourly.DailyShardBuildSummary, error) {
+			called++
+			if config.PlanPath != "/accepted/plan.json.gz" ||
+				config.PlanSHA256 != strings.Repeat("a", 64) ||
+				config.OutputPath != "/large-disk/history/2025-11.ned" ||
+				config.StagingRoot != "/large-disk/staging" ||
+				config.Year != 2025 || config.Month != time.November {
+				t.Fatalf("build config = %+v", config)
+			}
+			return era5hourly.DailyShardBuildSummary{
+				PlanSHA256: strings.Repeat("b", 64),
+				Cells:      364578, Timezones: 422,
+				Frames: 733, Days: 10_937_340,
+				Requests: 5165, ResponseBytes: 7_014_871_020,
+				FrameBytes: 21_308_860_912, ShardBytes: 875_123_456,
+				Elapsed: 11*time.Minute + 47*time.Second,
+			}, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 || stderr.Len() != 0 || strings.Count(strings.TrimSpace(stdout.String()), "\n") != 0 {
+		t.Fatalf("called=%d stdout=%q stderr=%q", called, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"2025-11", "364578 cells", "733 frames", "10937340 local days",
+		"7014871020 source bytes in 5165 requests", "21308860912 frame bytes",
+		"875123456 shard bytes", strings.Repeat("b", 64), "11m47s",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("summary lacks %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestERA5HistoryMonthCommandResumeAndArgumentFailure(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runERA5HistoryMonthCommand(context.Background(), []string{
+		"--plan", "/accepted/plan.json.gz",
+		"--plan-sha256", strings.Repeat("c", 64),
+		"--out", "/large-disk/history/2025-11.ned",
+		"--staging", "/large-disk/staging",
+		"--year", "2025", "--month", "11",
+	}, &stdout, &stderr, func(context.Context, era5hourly.DailyShardBuildConfig) (era5hourly.DailyShardBuildSummary, error) {
+		return era5hourly.DailyShardBuildSummary{
+			Existing: true, PlanSHA256: strings.Repeat("c", 64),
+			Cells: 364578, ShardBytes: 875_123_456, Elapsed: 900 * time.Millisecond,
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "already valid") || !strings.Contains(stdout.String(), "900ms") {
+		t.Fatalf("resume summary = %q", stdout.String())
+	}
+
+	called := false
+	if err := runERA5HistoryMonthCommand(context.Background(), []string{"unexpected"}, &stdout, &stderr,
+		func(context.Context, era5hourly.DailyShardBuildConfig) (era5hourly.DailyShardBuildSummary, error) {
+			called = true
+			return era5hourly.DailyShardBuildSummary{}, nil
+		}); err == nil || !strings.Contains(err.Error(), "positional") {
+		t.Fatalf("positional argument error = %v", err)
+	}
+	if called {
+		t.Fatal("invalid command invoked builder")
+	}
+
+	called = false
+	if err := runERA5HistoryMonthCommand(context.Background(), []string{
+		"--plan", "/accepted/plan.json.gz",
+		"--out", "/large-disk/history/2025-11.ned",
+		"--staging", "/large-disk/staging",
+		"--year", "2025", "--month", "11",
+	}, &stdout, &stderr, func(context.Context, era5hourly.DailyShardBuildConfig) (era5hourly.DailyShardBuildSummary, error) {
+		called = true
+		return era5hourly.DailyShardBuildSummary{}, nil
+	}); err == nil || !strings.Contains(err.Error(), "--plan-sha256 is required") {
+		t.Fatalf("missing trusted plan checksum error = %v", err)
+	}
+	if called {
+		t.Fatal("missing trusted plan checksum invoked builder")
 	}
 }
 

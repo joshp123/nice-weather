@@ -258,17 +258,21 @@ func AggregateMonth(
 }
 
 func prepareGroups(year int, month time.Month, cells []Cell) ([]zoneGroup, error) {
-	seenSource := make(map[int]struct{}, len(cells))
+	seenSource := make(map[int]int, len(cells))
 	byZone := make(map[string]*zoneGroup)
 	for index, cell := range cells {
 		if cell.SourceIndex < 0 || cell.TimezoneID == "" || cell.TimezoneFingerprint == "" ||
 			!finite(cell.Latitude, cell.Longitude) || cell.Latitude < -90 || cell.Latitude > 90 || cell.Longitude < -180 || cell.Longitude > 180 {
 			return nil, fmt.Errorf("ERA5 cell %d is invalid", index)
 		}
-		if _, exists := seenSource[cell.SourceIndex]; exists {
-			return nil, fmt.Errorf("ERA5 source index %d is repeated", cell.SourceIndex)
+		if previous, exists := seenSource[cell.SourceIndex]; exists {
+			if previous < 0 || !exactAntimeridianPair(cells[previous], cell) {
+				return nil, fmt.Errorf("ERA5 source index %d is repeated outside an exact antimeridian pair", cell.SourceIndex)
+			}
+			seenSource[cell.SourceIndex] = -1
+		} else {
+			seenSource[cell.SourceIndex] = index
 		}
-		seenSource[cell.SourceIndex] = struct{}{}
 		group := byZone[cell.TimezoneID]
 		if group == nil {
 			location, err := time.LoadLocation(cell.TimezoneID)
@@ -306,6 +310,16 @@ func prepareGroups(year int, month time.Month, cells []Cell) ([]zoneGroup, error
 		result = append(result, *byZone[name])
 	}
 	return result, nil
+}
+
+func exactAntimeridianPair(left, right Cell) bool {
+	if left.SourceIndex != right.SourceIndex ||
+		left.SourceIndex%GridColumns != GridColumns/2 ||
+		math.Float64bits(left.Latitude) != math.Float64bits(right.Latitude) {
+		return false
+	}
+	return (left.Longitude == -180 && right.Longitude == 180) ||
+		(left.Longitude == 180 && right.Longitude == -180)
 }
 
 var timezoneFingerprintCache sync.Map
@@ -414,7 +428,9 @@ func validateSourceCoordinates(cells []Cell) error {
 		if longitude > 180 {
 			longitude -= 360
 		}
-		if math.Abs(cell.Latitude-latitude) > 1e-9 || math.Abs(cell.Longitude-longitude) > 1e-9 {
+		longitudeMatches := math.Abs(cell.Longitude-longitude) <= 1e-9 ||
+			(column == GridColumns/2 && cell.Longitude == -180)
+		if math.Abs(cell.Latitude-latitude) > 1e-9 || !longitudeMatches {
 			return fmt.Errorf("ERA5 cell %d coordinate %.9g,%.9g does not match source index %d at %.9g,%.9g", index, cell.Latitude, cell.Longitude, cell.SourceIndex, latitude, longitude)
 		}
 	}

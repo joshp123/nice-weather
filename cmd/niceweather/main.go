@@ -20,6 +20,7 @@ import (
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/product"
 	"nice-weather-finder/internal/providers/agera5"
+	"nice-weather-finder/internal/providers/era5hourly"
 	weatherupdate "nice-weather-finder/internal/update"
 )
 
@@ -129,6 +130,10 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		err = runClimateWorldCommand(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr, weatherupdate.RunGlobalClimate)
+	case "era5-history-month":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		err = runERA5HistoryMonthCommand(ctx, os.Args[2:], os.Stdout, os.Stderr, era5hourly.BuildDailyShard)
 	case "verify-climate":
 		err = runVerifyClimateCommand(os.Args[2:], os.Stdout, os.Stderr, climatetiles.VerifyCompletePublication)
 	case "places":
@@ -189,7 +194,7 @@ func usage() {
 }
 
 func writeUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|agera5-canary|climate-world|verify-climate|serve|places|best-weather> [options]")
+	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|agera5-canary|era5-history-month|climate-world|verify-climate|serve|places|best-weather> [options]")
 }
 
 func formatOptionalTime(value time.Time) string {
@@ -215,6 +220,57 @@ func buildBestWeatherWhenReady(ctx context.Context, artifactRoot string) (destin
 type globalClimateRunner func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error)
 
 type climateVerificationRunner func(string, []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error)
+
+type era5HistoryMonthRunner func(context.Context, era5hourly.DailyShardBuildConfig) (era5hourly.DailyShardBuildSummary, error)
+
+func runERA5HistoryMonthCommand(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	run era5HistoryMonthRunner,
+) error {
+	if ctx == nil || stdout == nil || stderr == nil || run == nil {
+		return errors.New("era5-history-month command dependencies are unavailable")
+	}
+	flags := flag.NewFlagSet("era5-history-month", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	plan := flags.String("plan", "", "absolute accepted gzip JSON cell plan path (required)")
+	planSHA := flags.String("plan-sha256", "", "trusted compressed plan SHA-256 (required)")
+	out := flags.String("out", "", "absolute immutable daily shard path (required)")
+	staging := flags.String("staging", "", "absolute large-disk staging directory (required)")
+	year := flags.Int("year", 0, "complete civil year from 2006 to 2025 (required)")
+	month := flags.Int("month", 0, "calendar month from 1 to 12 (required)")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("era5-history-month accepts no positional arguments")
+	}
+	if *planSHA == "" {
+		return errors.New("--plan-sha256 is required")
+	}
+	summary, err := run(ctx, era5hourly.DailyShardBuildConfig{
+		PlanPath: *plan, PlanSHA256: *planSHA,
+		OutputPath: *out, StagingRoot: *staging,
+		Year: *year, Month: time.Month(*month),
+	})
+	if err != nil {
+		return err
+	}
+	if summary.Existing {
+		_, err = fmt.Fprintf(stdout, "ERA5 daily history already valid: %04d-%02d; %d cells; %d bytes; plan %s; checked in %s.\n",
+			*year, *month, summary.Cells, summary.ShardBytes, summary.PlanSHA256, summary.Elapsed.Round(time.Millisecond))
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "ERA5 daily history built: %04d-%02d; %d cells; %d frames -> %d local days; %d source bytes in %d requests; %d frame bytes; %d shard bytes; plan %s; %s.\n",
+		*year, *month, summary.Cells, summary.Frames, summary.Days,
+		summary.ResponseBytes, summary.Requests, summary.FrameBytes, summary.ShardBytes,
+		summary.PlanSHA256, summary.Elapsed.Round(time.Millisecond))
+	return err
+}
 
 func runVerifyClimateCommand(args []string, stdout, stderr io.Writer, verify climateVerificationRunner) error {
 	if stdout == nil || stderr == nil {
