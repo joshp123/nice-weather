@@ -212,6 +212,26 @@ func testPlanAndMask(
 	centreCells []era5hourly.Cell,
 ) (era5hourly.CellPlan, DisplayMask) {
 	t.Helper()
+	plan, displayValues := testPlanAndMaskData(t, month, cells, centreCells, true)
+	maskPath := filepath.Join(t.TempDir(), "display-mask.bin")
+	if err := os.WriteFile(maskPath, displayValues, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mask, err := LoadDisplayMask(maskPath, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan, mask
+}
+
+func testPlanAndMaskData(
+	t *testing.T,
+	month int,
+	cells []era5hourly.Cell,
+	centreCells []era5hourly.Cell,
+	includeInlineAuthority bool,
+) (era5hourly.CellPlan, []byte) {
+	t.Helper()
 	landMask := make([]byte, Rows*Columns)
 	displayValues := make([]byte, Rows*Columns)
 	timezoneIndexes := make([]byte, Rows*Columns*2)
@@ -294,15 +314,13 @@ func testPlanAndMask(
 		"schemaVersion": 1, "year": 2025, "month": month,
 		"rows": Rows, "columns": Columns, "gridDegrees": GridDegrees,
 		"firstLatitude": 90, "firstLongitude": -180,
-		"cellRegistration":         "exact-era5-grid-point-centres",
-		"landAuthority":            "Natural Earth 5.1.1 1:10m polygon intersects 0.25 degree ERA5 source-cell footprint",
-		"landFeatureFilter":        "featurecla IS NULL OR featurecla = 'Land'",
-		"landFeatureClassAudit":    "ERA5 climate product test fixture",
-		"landSourceSha256":         strings.Repeat("1", 64),
-		"centreLandMaskDerivation": "Natural Earth 5.1.1 featurecla Land point intersection at exact ERA5 grid-point centres v1",
-		"centreLandMaskSha256":     hex.EncodeToString(displaySHA[:]),
-		"timezoneAuthority":        "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1",
-		"landCells":                landCells, "waterCells": Rows*Columns - landCells,
+		"cellRegistration":      "exact-era5-grid-point-centres",
+		"landAuthority":         "Natural Earth 5.1.1 1:10m polygon intersects 0.25 degree ERA5 source-cell footprint",
+		"landFeatureFilter":     "featurecla IS NULL OR featurecla = 'Land'",
+		"landFeatureClassAudit": "ERA5 climate product test fixture",
+		"landSourceSha256":      strings.Repeat("1", 64),
+		"timezoneAuthority":     "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1",
+		"landCells":             landCells, "waterCells": Rows*Columns - landCells,
 		"centreLandCells": centreLandCells, "coastSupportCells": landCells - centreLandCells,
 		"positiveDatelineSupportRows": len(positiveRows),
 		"negativeDatelineSupportRows": len(positiveRows),
@@ -313,6 +331,10 @@ func testPlanAndMask(
 		"landMaskBase64":      base64.StdEncoding.EncodeToString(landMask),
 		"timezoneIndexBase64": base64.StdEncoding.EncodeToString(timezoneIndexes),
 		"timezones":           zones, "positiveDatelineTimezoneAudits": audits,
+	}
+	if includeInlineAuthority {
+		encoded["centreLandMaskDerivation"] = era5hourly.CentreLandMaskDerivation
+		encoded["centreLandMaskSha256"] = hex.EncodeToString(displaySHA[:])
 	}
 	jsonBytes, err := json.Marshal(encoded)
 	if err != nil {
@@ -335,15 +357,7 @@ func testPlanAndMask(
 	if err != nil {
 		t.Fatal(err)
 	}
-	maskPath := filepath.Join(t.TempDir(), "display-mask.bin")
-	if err := os.WriteFile(maskPath, displayValues, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	mask, err := LoadDisplayMask(maskPath, plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return plan, mask
+	return plan, displayValues
 }
 
 func testResult(index int, cell era5hourly.Cell, goodPercent uint8) era5climate.CellResult {

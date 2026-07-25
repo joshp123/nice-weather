@@ -63,17 +63,18 @@ func ValidateRelease(releaseRoot string, plan era5hourly.CellPlan, displayMask D
 		return Catalog{}, errors.New("ERA5 climate release directory does not match its catalog")
 	}
 	if catalog.Period != fmt.Sprintf("month-%02d", plan.Month()) ||
-		catalog.Source.PlanSHA256 != plan.SHA256() ||
+		catalog.Source.AcquisitionPlanSHA256 != plan.SHA256() ||
+		catalog.Source.LogicalPlanSHA256 != plan.LogicalSHA256() ||
 		catalog.Source.LogicalCellCount != plan.CellCount() {
 		return Catalog{}, errors.New("ERA5 climate release does not match its exact source plan")
 	}
-	landSourceSHA256, derivation, maskSHA256, centreLandCells, ok := plan.DisplayMaskAuthority()
-	if !ok || catalog.Source.LandSourceSHA256 != landSourceSHA256 ||
-		catalog.Source.DisplayMaskDerivation != derivation ||
-		catalog.Source.DisplayMaskSHA256 != maskSHA256 ||
+	if catalog.Source.LandSourceSHA256 != displayMask.landSourceSHA256 ||
+		catalog.Source.DisplayMaskDerivation != displayMask.derivation ||
 		catalog.Source.DisplayMaskSHA256 != displayMask.sha256 ||
+		catalog.Source.PublicationAuthorityKind != displayMask.publicationAuthorityKind ||
+		catalog.Source.PublicationAuthoritySHA256 != displayMask.publicationAuthoritySHA256 ||
 		catalog.Source.DisplayMaskBytes != uint64(len(displayMask.values)) ||
-		centreLandCells != displayMask.centreLandCells {
+		catalog.Source.LogicalPlanSHA256 != displayMask.logicalPlanSHA256 {
 		return Catalog{}, errors.New("ERA5 climate release does not match its canonical display mask authority")
 	}
 
@@ -120,7 +121,7 @@ func ValidateRelease(releaseRoot string, plan era5hourly.CellPlan, displayMask D
 	verifier := &Builder{
 		config:          Config{ReleaseID: catalog.ReleaseID, MaximumZoom: catalog.MaximumZoom},
 		period:          catalog.Period,
-		planSHA256:      catalog.Source.PlanSHA256,
+		planSHA256:      catalog.Source.AcquisitionPlanSHA256,
 		displayMask:     displayMask,
 		mainRecords:     make([]byte, Rows*Columns*delivery.ClimatePointRecordBytes),
 		overrideRecords: make([]byte, Rows*delivery.ClimatePointRecordBytes),
@@ -173,11 +174,17 @@ func validateCatalog(catalog Catalog) error {
 	if source.Dataset != "ERA5" || source.Kind != "hourly-reanalysis-reduced-to-iana-civil-local-days" ||
 		source.ReferenceFirstYear != 2006 || source.ReferenceLastYear != 2025 ||
 		source.GridDegrees != GridDegrees || source.LocalDay != LocalDayAuthority || source.LandAuthority != LandAuthority ||
-		!validSHA256(source.LandSourceSHA256) || source.DisplayMaskDerivation == "" ||
-		!validSHA256(source.PlanSHA256) || source.LogicalCellCount < 1 ||
+		!validTrustedSHA256(source.LandSourceSHA256) || source.DisplayMaskDerivation == "" ||
+		!validTrustedSHA256(source.AcquisitionPlanSHA256) ||
+		!validTrustedSHA256(source.LogicalPlanSHA256) ||
+		!validTrustedSHA256(source.PublicationAuthoritySHA256) ||
+		(source.PublicationAuthorityKind != inlineAuthorityKind && source.PublicationAuthorityKind != sidecarAuthorityKind) ||
+		(source.PublicationAuthorityKind == inlineAuthorityKind && source.PublicationAuthoritySHA256 != source.AcquisitionPlanSHA256) ||
+		(source.PublicationAuthorityKind == sidecarAuthorityKind && source.PublicationAuthoritySHA256 == source.AcquisitionPlanSHA256) ||
+		source.LogicalCellCount < 1 ||
 		source.LogicalCellCount > Rows*Columns+Rows || source.DatelineCellCount < 0 ||
 		source.DatelineCellCount > Rows || source.DisplayMaskAuthority != DisplayMaskAuthority ||
-		!validSHA256(source.DisplayMaskSHA256) || source.DisplayMaskPath != "display-mask.bin" ||
+		!validTrustedSHA256(source.DisplayMaskSHA256) || source.DisplayMaskPath != "display-mask.bin" ||
 		source.DisplayMaskBytes != Rows*Columns {
 		return errors.New("ERA5 climate catalog source contract is invalid")
 	}

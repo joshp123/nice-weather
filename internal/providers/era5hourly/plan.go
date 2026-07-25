@@ -27,6 +27,10 @@ const (
 	planLandFilter           = "featurecla IS NULL OR featurecla = 'Land'"
 	planTimezoneAuthority    = "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1"
 	planCentreLandDerivation = "Natural Earth 5.1.1 featurecla Land point intersection at exact ERA5 grid-point centres v1"
+
+	// CentreLandMaskDerivation is the canonical display-mask derivation which
+	// a separately trusted publication authority must name exactly.
+	CentreLandMaskDerivation = planCentreLandDerivation
 )
 
 // CellPlan is an opaque validated ordered set of logical land cells. It can
@@ -35,6 +39,7 @@ type CellPlan struct {
 	year, month          int
 	cells                []Cell
 	sha256               string
+	logicalSHA256        string
 	landCells            int
 	centreLandCells      int
 	timezones            int
@@ -43,12 +48,15 @@ type CellPlan struct {
 	expectedDays         []uint16
 }
 
-func (plan CellPlan) Year() int          { return plan.year }
-func (plan CellPlan) Month() int         { return plan.month }
-func (plan CellPlan) SHA256() string     { return plan.sha256 }
-func (plan CellPlan) LandCellCount() int { return plan.landCells }
-func (plan CellPlan) TimezoneCount() int { return plan.timezones }
-func (plan CellPlan) CellCount() int     { return len(plan.cells) }
+func (plan CellPlan) Year() int                { return plan.year }
+func (plan CellPlan) Month() int               { return plan.month }
+func (plan CellPlan) SHA256() string           { return plan.sha256 }
+func (plan CellPlan) LogicalSHA256() string    { return plan.logicalSHA256 }
+func (plan CellPlan) LandSourceSHA256() string { return plan.landSourceSHA256 }
+func (plan CellPlan) LandCellCount() int       { return plan.landCells }
+func (plan CellPlan) CentreLandCellCount() int { return plan.centreLandCells }
+func (plan CellPlan) TimezoneCount() int       { return plan.timezones }
+func (plan CellPlan) CellCount() int           { return len(plan.cells) }
 
 // DisplayMaskAuthority returns the exact source and canonical derivation
 // bound into the checksum-trusted plan. A false result means this older plan
@@ -207,11 +215,43 @@ func LoadCellPlan(path, expectedCompressedSHA256 string) (CellPlan, error) {
 	}
 	return CellPlan{
 		year: encoded.Year, month: encoded.Month, cells: cells,
-		sha256: compressedSHAHex, landCells: encoded.LandCells,
+		sha256: compressedSHAHex, logicalSHA256: logicalPlanSHA256(encoded.Year, encoded.Month, cells, expectedDays),
+		landCells:       encoded.LandCells,
 		centreLandCells: encoded.CentreLandCells,
 		timezones:       len(encoded.Timezones), landSourceSHA256: encoded.LandSourceSHA256,
 		centreLandMaskSHA256: encoded.CentreLandMaskSHA256, expectedDays: expectedDays,
 	}, nil
+}
+
+// logicalPlanSHA256 fingerprints the validated plan semantics used by daily
+// shards and climate publication. It is independent of JSON and gzip encoding.
+func logicalPlanSHA256(year, month int, cells []Cell, expectedDays []uint16) string {
+	digest := sha256.New()
+	writeString := func(value string) {
+		var length [4]byte
+		binary.LittleEndian.PutUint32(length[:], uint32(len(value)))
+		_, _ = digest.Write(length[:])
+		_, _ = digest.Write([]byte(value))
+	}
+	writeUint64 := func(value uint64) {
+		var encoded [8]byte
+		binary.LittleEndian.PutUint64(encoded[:], value)
+		_, _ = digest.Write(encoded[:])
+	}
+	writeString("nice-weather-era5-logical-cell-plan-v1")
+	writeUint64(uint64(year))
+	writeUint64(uint64(month))
+	writeString(TimezoneContractVersion)
+	writeUint64(uint64(len(cells)))
+	for index, cell := range cells {
+		writeUint64(uint64(cell.SourceIndex))
+		writeUint64(math.Float64bits(cell.Latitude))
+		writeUint64(math.Float64bits(cell.Longitude))
+		writeString(cell.TimezoneID)
+		writeString(cell.TimezoneFingerprint)
+		writeUint64(uint64(expectedDays[index]))
+	}
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func readBoundedFile(path string, maximum int64) ([]byte, error) {

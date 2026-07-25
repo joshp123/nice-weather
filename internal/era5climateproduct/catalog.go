@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	CatalogVersion    = 1
+	CatalogVersion    = 2
 	LocalDayAuthority = "IANA civil local daytime 10:00–20:00, exact valid dates, 2006–2025"
 	LandAuthority     = "Natural Earth 5.1.1 source-cell-footprint intersection"
 )
@@ -25,22 +25,25 @@ type Geometry struct {
 }
 
 type Source struct {
-	Dataset               string  `json:"dataset"`
-	Kind                  string  `json:"kind"`
-	ReferenceFirstYear    int     `json:"referenceFirstYear"`
-	ReferenceLastYear     int     `json:"referenceLastYear"`
-	GridDegrees           float64 `json:"gridDegrees"`
-	LocalDay              string  `json:"localDay"`
-	LandAuthority         string  `json:"landAuthority"`
-	LandSourceSHA256      string  `json:"landSourceSha256"`
-	PlanSHA256            string  `json:"planSha256"`
-	LogicalCellCount      int     `json:"logicalCellCount"`
-	DatelineCellCount     int     `json:"datelineCellCount"`
-	DisplayMaskAuthority  string  `json:"displayMaskAuthority"`
-	DisplayMaskDerivation string  `json:"displayMaskDerivation"`
-	DisplayMaskSHA256     string  `json:"displayMaskSha256"`
-	DisplayMaskPath       string  `json:"displayMaskPath"`
-	DisplayMaskBytes      uint64  `json:"displayMaskBytes"`
+	Dataset                    string  `json:"dataset"`
+	Kind                       string  `json:"kind"`
+	ReferenceFirstYear         int     `json:"referenceFirstYear"`
+	ReferenceLastYear          int     `json:"referenceLastYear"`
+	GridDegrees                float64 `json:"gridDegrees"`
+	LocalDay                   string  `json:"localDay"`
+	LandAuthority              string  `json:"landAuthority"`
+	LandSourceSHA256           string  `json:"landSourceSha256"`
+	AcquisitionPlanSHA256      string  `json:"acquisitionPlanSha256"`
+	LogicalPlanSHA256          string  `json:"logicalPlanSha256"`
+	PublicationAuthorityKind   string  `json:"publicationAuthorityKind"`
+	PublicationAuthoritySHA256 string  `json:"publicationAuthoritySha256"`
+	LogicalCellCount           int     `json:"logicalCellCount"`
+	DatelineCellCount          int     `json:"datelineCellCount"`
+	DisplayMaskAuthority       string  `json:"displayMaskAuthority"`
+	DisplayMaskDerivation      string  `json:"displayMaskDerivation"`
+	DisplayMaskSHA256          string  `json:"displayMaskSha256"`
+	DisplayMaskPath            string  `json:"displayMaskPath"`
+	DisplayMaskBytes           uint64  `json:"displayMaskBytes"`
 }
 
 type DatelineSemantics struct {
@@ -124,18 +127,21 @@ func (builder *Builder) catalog(pointBlocks []PointBlock, overrides []DatelineBl
 		Source: Source{
 			Dataset: "ERA5", Kind: "hourly-reanalysis-reduced-to-iana-civil-local-days",
 			ReferenceFirstYear: window.FirstYear, ReferenceLastYear: window.LastYear,
-			GridDegrees:           GridDegrees,
-			LocalDay:              LocalDayAuthority,
-			LandAuthority:         LandAuthority,
-			LandSourceSHA256:      builder.displayMask.landSourceSHA256,
-			PlanSHA256:            builder.planSHA256,
-			LogicalCellCount:      len(builder.expected),
-			DatelineCellCount:     datelineCells,
-			DisplayMaskAuthority:  DisplayMaskAuthority,
-			DisplayMaskDerivation: builder.displayMask.derivation,
-			DisplayMaskSHA256:     builder.displayMask.sha256,
-			DisplayMaskPath:       "display-mask.bin",
-			DisplayMaskBytes:      uint64(len(builder.displayMask.values)),
+			GridDegrees:                GridDegrees,
+			LocalDay:                   LocalDayAuthority,
+			LandAuthority:              LandAuthority,
+			LandSourceSHA256:           builder.displayMask.landSourceSHA256,
+			AcquisitionPlanSHA256:      builder.planSHA256,
+			LogicalPlanSHA256:          builder.displayMask.logicalPlanSHA256,
+			PublicationAuthorityKind:   builder.displayMask.publicationAuthorityKind,
+			PublicationAuthoritySHA256: builder.displayMask.publicationAuthoritySHA256,
+			LogicalCellCount:           len(builder.expected),
+			DatelineCellCount:          datelineCells,
+			DisplayMaskAuthority:       DisplayMaskAuthority,
+			DisplayMaskDerivation:      builder.displayMask.derivation,
+			DisplayMaskSHA256:          builder.displayMask.sha256,
+			DisplayMaskPath:            "display-mask.bin",
+			DisplayMaskBytes:           uint64(len(builder.displayMask.values)),
 		},
 		Dateline: DatelineSemantics{
 			Longitude:           180,
