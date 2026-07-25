@@ -27,17 +27,18 @@ func TestLoadCellPlanAcceptedWorldwideConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Year != 2025 || plan.Month != 11 || plan.LandCells != 364526 ||
-		plan.Timezones != 422 || len(plan.Cells) != 364578 || plan.SHA256 != acceptedSHA {
-		t.Fatalf("accepted plan summary = %+v, cells=%d", plan, len(plan.Cells))
+	cells := plan.Cells()
+	if plan.Year() != 2025 || plan.Month() != 11 || plan.LandCellCount() != 364526 ||
+		plan.TimezoneCount() != 422 || len(cells) != 364578 || plan.SHA256() != acceptedSHA {
+		t.Fatalf("accepted plan summary = %+v, cells=%d", plan, len(cells))
 	}
-	positive := plan.Cells[len(plan.Cells)-52:]
+	positive := cells[len(cells)-52:]
 	for index, cell := range positive {
 		if cell.SourceIndex%GridColumns != GridColumns/2 || cell.Longitude != 180 {
 			t.Fatalf("positive-dateline cell %d = %+v", index, cell)
 		}
 		mainMatches := 0
-		for _, main := range plan.Cells[:len(plan.Cells)-52] {
+		for _, main := range cells[:len(cells)-52] {
 			if main.SourceIndex == cell.SourceIndex && main.Latitude == cell.Latitude && main.Longitude == -180 {
 				mainMatches++
 			}
@@ -55,13 +56,29 @@ func TestLoadCellPlanValidatesChecksumPlanesCountsAndAuthorities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Cells) != 1 || plan.Cells[0].SourceIndex != 0 ||
-		plan.Cells[0].Latitude != 90 || plan.Cells[0].Longitude != 0 ||
-		plan.Cells[0].TimezoneID != "UTC" {
-		t.Fatalf("minimal plan cells = %+v", plan.Cells)
+	cells := plan.Cells()
+	if len(cells) != 1 || cells[0].SourceIndex != 0 ||
+		cells[0].Latitude != 90 || cells[0].Longitude != 0 ||
+		cells[0].TimezoneID != "UTC" {
+		t.Fatalf("minimal plan cells = %+v", cells)
+	}
+	cells[0].Longitude = 99
+	if plan.Cells()[0].Longitude != 0 {
+		t.Fatal("caller mutated an opaque validated cell plan")
+	}
+	landSource, derivation, maskSHA, centreLandCells, ok := plan.DisplayMaskAuthority()
+	if !ok || landSource != strings.Repeat("1", 64) || derivation != planCentreLandDerivation ||
+		maskSHA != valid.CentreLandMaskSHA256 || centreLandCells != 1 {
+		t.Fatalf("display-mask authority = %q, %q, %q, %d, %t", landSource, derivation, maskSHA, centreLandCells, ok)
+	}
+	if days, ok := plan.ExpectedDayCount(0); !ok || days != 600 {
+		t.Fatalf("November UTC expected days = %d, %t; want 600, true", days, ok)
 	}
 	if _, err := LoadCellPlan(path, strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "compressed checksum") {
 		t.Fatalf("wrong compressed checksum error = %v", err)
+	}
+	if _, err := LoadCellPlan(path, ""); err == nil || !strings.Contains(err.Error(), "expected checksum") {
+		t.Fatalf("missing compressed checksum error = %v", err)
 	}
 
 	tests := []struct {
@@ -70,6 +87,9 @@ func TestLoadCellPlanValidatesChecksumPlanesCountsAndAuthorities(t *testing.T) {
 	}{
 		{"geometry", func(plan *encodedCellPlan) { plan.Columns-- }},
 		{"authority", func(plan *encodedCellPlan) { plan.TimezoneAuthority = "changed" }},
+		{"centre mask derivation", func(plan *encodedCellPlan) { plan.CentreLandMaskDerivation = "changed" }},
+		{"centre mask checksum", func(plan *encodedCellPlan) { plan.CentreLandMaskSHA256 = strings.Repeat("g", 64) }},
+		{"incomplete centre mask authority", func(plan *encodedCellPlan) { plan.CentreLandMaskSHA256 = "" }},
 		{"land count", func(plan *encodedCellPlan) { plan.LandCells++ }},
 		{"overflowing declared count", func(plan *encodedCellPlan) { plan.LandCells = int(^uint(0) >> 1) }},
 		{"excess dateline support", func(plan *encodedCellPlan) { plan.PositiveDatelineSupportRows = GridRows + 1 }},
@@ -103,8 +123,8 @@ func TestLoadCellPlanValidatesChecksumPlanesCountsAndAuthorities(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := valid
 			test.mutate(&candidate)
-			path, _ := writeEncodedCellPlan(t, candidate)
-			if _, err := LoadCellPlan(path, ""); err == nil {
+			path, sha := writeEncodedCellPlan(t, candidate)
+			if _, err := LoadCellPlan(path, sha); err == nil {
 				t.Fatal("malformed plan was accepted")
 			}
 		})
@@ -127,26 +147,27 @@ func TestLoadCellPlanRejectsUnknownJSONAndGzipTrailingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := writePlanJSON(t, unknown, nil)
-	if _, err := LoadCellPlan(path, ""); err == nil || !strings.Contains(err.Error(), "unknown field") {
+	if _, err := LoadCellPlan(path, fileSHA256(t, path)); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("unknown field error = %v", err)
 	}
 	path = writePlanJSON(t, encoded, []byte("trailing"))
-	if _, err := LoadCellPlan(path, ""); err == nil || !strings.Contains(err.Error(), "trailing") {
+	if _, err := LoadCellPlan(path, fileSHA256(t, path)); err == nil || !strings.Contains(err.Error(), "trailing") {
 		t.Fatalf("trailing gzip error = %v", err)
 	}
 }
 
 func TestLoadCellPlanBuildsExactAntimeridianPairWithIndependentTimezones(t *testing.T) {
 	encoded := minimalEncodedCellPlan(t, true)
-	path, _ := writeEncodedCellPlan(t, encoded)
-	plan, err := LoadCellPlan(path, "")
+	path, sha := writeEncodedCellPlan(t, encoded)
+	plan, err := LoadCellPlan(path, sha)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Cells) != 2 {
-		t.Fatalf("cell count = %d", len(plan.Cells))
+	cells := plan.Cells()
+	if len(cells) != 2 {
+		t.Fatalf("cell count = %d", len(cells))
 	}
-	left, right := plan.Cells[0], plan.Cells[1]
+	left, right := cells[0], cells[1]
 	if left.SourceIndex != 360*GridColumns+GridColumns/2 ||
 		left.Latitude != 0 || right.Latitude != 0 ||
 		left.Longitude != -180 || right.Longitude != 180 ||
@@ -174,13 +195,15 @@ func minimalEncodedCellPlan(t *testing.T, antimeridian bool) encodedCellPlan {
 		Year:          2025, Month: 11,
 		Rows: GridRows, Columns: GridColumns,
 		GridDegrees: .25, FirstLatitude: 90, FirstLongitude: -180,
-		CellRegistration:      planCellRegistration,
-		LandAuthority:         planLandAuthority,
-		LandFeatureFilter:     planLandFilter,
-		LandFeatureClassAudit: "test fixture",
-		LandSourceSHA256:      strings.Repeat("1", 64),
-		TimezoneAuthority:     planTimezoneAuthority,
-		LandCells:             1, WaterCells: GridRows*GridColumns - 1,
+		CellRegistration:         planCellRegistration,
+		LandAuthority:            planLandAuthority,
+		LandFeatureFilter:        planLandFilter,
+		LandFeatureClassAudit:    "test fixture",
+		LandSourceSHA256:         strings.Repeat("1", 64),
+		CentreLandMaskDerivation: planCentreLandDerivation,
+		CentreLandMaskSHA256:     hex.EncodeToString(maskSHA[:]),
+		TimezoneAuthority:        planTimezoneAuthority,
+		LandCells:                1, WaterCells: GridRows*GridColumns - 1,
 		CentreLandCells:     1,
 		LandMaskSHA256:      hex.EncodeToString(maskSHA[:]),
 		TimezoneIndexSHA256: hex.EncodeToString(timezoneSHA[:]),
@@ -232,4 +255,14 @@ func writePlanJSON(t *testing.T, encoded, trailing []byte) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func fileSHA256(t *testing.T, path string) string {
+	t.Helper()
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
 }

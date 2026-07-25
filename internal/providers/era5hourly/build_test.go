@@ -60,7 +60,8 @@ func TestBuildDailyShardStreamsExactEnvelopePublishesAndResumesWithoutSource(t *
 		summary.Diagnostics != "Warning: source retried one bounded request" || started != 1 {
 		t.Fatalf("build summary = %+v; starts=%d", summary, started)
 	}
-	first, last, err := RequiredEnvelope(config.Year, config.Month, plan.Cells)
+	cells := plan.Cells()
+	first, last, err := RequiredEnvelope(config.Year, config.Month, cells)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestBuildDailyShardStreamsExactEnvelopePublishesAndResumesWithoutSource(t *
 		t.Fatalf("producer TMPDIR = %q", tmpDirectory)
 	}
 	assertNoRunStaging(t, config.StagingRoot)
-	shard, err := OpenDailyShardForPlan(config.OutputPath, config.Year, config.Month, plan.Cells, config.PlanSHA256)
+	shard, err := OpenDailyShardForPlan(config.OutputPath, config.Year, config.Month, cells, config.PlanSHA256)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +146,40 @@ func TestBuildDailyShardBindsExistingShardToTrustedPlanArtifact(t *testing.T) {
 		},
 	}); err == nil || summary.Existing {
 		t.Fatalf("plan-mismatched existing shard result = %+v, %v", summary, err)
+	}
+}
+
+func TestBuildDailyShardReusesValidatedMonthPlanAcrossReferenceYears(t *testing.T) {
+	config, plan := dailyShardBuildFixture(t)
+	config.Year = 2024
+	config.OutputPath = filepath.Join(filepath.Dir(config.OutputPath), "2024-11.ned")
+	dependencies := dailyShardBuildDependencies{
+		startProducer: func(_ context.Context, spec producerSpec) (runningProducer, error) {
+			return successfulFakeProducer(t, spec.First, spec.Last, false), nil
+		},
+		newDecoder: func(input io.Reader) (FrameSource, error) {
+			return newDecoder(input, 1, 1)
+		},
+	}
+	if _, err := buildDailyShard(context.Background(), config, dependencies); err != nil {
+		t.Fatal(err)
+	}
+	shard, err := OpenDailyShardForPlan(
+		config.OutputPath, 2024, time.November, plan.Cells(), config.PlanSHA256,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := shard.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	mismatch := config
+	mismatch.Month = time.December
+	mismatch.OutputPath = filepath.Join(filepath.Dir(config.OutputPath), "2024-12.ned")
+	if _, err := buildDailyShard(context.Background(), mismatch, dependencies); err == nil ||
+		!strings.Contains(err.Error(), "plan month") {
+		t.Fatalf("month-mismatched plan error = %v", err)
 	}
 }
 

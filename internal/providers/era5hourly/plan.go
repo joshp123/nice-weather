@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -21,20 +22,56 @@ const (
 	maxPlanBytes      = 8 * 1024 * 1024
 	maxPlanGzipBytes  = 2 * 1024 * 1024
 
-	planCellRegistration  = "exact-era5-grid-point-centres"
-	planLandAuthority     = "Natural Earth 5.1.1 1:10m polygon intersects 0.25 degree ERA5 source-cell footprint"
-	planLandFilter        = "featurecla IS NULL OR featurecla = 'Land'"
-	planTimezoneAuthority = "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1"
+	planCellRegistration     = "exact-era5-grid-point-centres"
+	planLandAuthority        = "Natural Earth 5.1.1 1:10m polygon intersects 0.25 degree ERA5 source-cell footprint"
+	planLandFilter           = "featurecla IS NULL OR featurecla = 'Land'"
+	planTimezoneAuthority    = "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1"
+	planCentreLandDerivation = "Natural Earth 5.1.1 featurecla Land point intersection at exact ERA5 grid-point centres v1"
 )
 
-// CellPlan is a validated ordered set of logical land cells. SHA256 identifies
-// the exact compressed plan supplied by the caller.
+// CellPlan is an opaque validated ordered set of logical land cells. It can
+// only be created by LoadCellPlan.
 type CellPlan struct {
-	Year, Month int
-	Cells       []Cell
-	SHA256      string
-	LandCells   int
-	Timezones   int
+	year, month          int
+	cells                []Cell
+	sha256               string
+	landCells            int
+	centreLandCells      int
+	timezones            int
+	landSourceSHA256     string
+	centreLandMaskSHA256 string
+	expectedDays         []uint16
+}
+
+func (plan CellPlan) Year() int          { return plan.year }
+func (plan CellPlan) Month() int         { return plan.month }
+func (plan CellPlan) SHA256() string     { return plan.sha256 }
+func (plan CellPlan) LandCellCount() int { return plan.landCells }
+func (plan CellPlan) TimezoneCount() int { return plan.timezones }
+func (plan CellPlan) CellCount() int     { return len(plan.cells) }
+
+// DisplayMaskAuthority returns the exact source and canonical derivation
+// bound into the checksum-trusted plan. A false result means this older plan
+// cannot authorise climate display publication.
+func (plan CellPlan) DisplayMaskAuthority() (landSourceSHA256, derivation, maskSHA256 string, centreLandCells int, ok bool) {
+	if plan.landSourceSHA256 == "" || plan.centreLandMaskSHA256 == "" {
+		return "", "", "", 0, false
+	}
+	return plan.landSourceSHA256, planCentreLandDerivation, plan.centreLandMaskSHA256, plan.centreLandCells, true
+}
+
+// ExpectedDayCount returns the exact number of valid civil local daytime
+// records for one plan cell and month across 2006–2025.
+func (plan CellPlan) ExpectedDayCount(cellIndex int) (int, bool) {
+	if cellIndex < 0 || cellIndex >= len(plan.expectedDays) {
+		return 0, false
+	}
+	return int(plan.expectedDays[cellIndex]), true
+}
+
+// Cells returns a copy so callers cannot mutate the validated plan.
+func (plan CellPlan) Cells() []Cell {
+	return append([]Cell(nil), plan.cells...)
 }
 
 type encodedCellPlan struct {
@@ -47,12 +84,14 @@ type encodedCellPlan struct {
 	FirstLatitude  float64 `json:"firstLatitude"`
 	FirstLongitude float64 `json:"firstLongitude"`
 
-	CellRegistration      string `json:"cellRegistration"`
-	LandAuthority         string `json:"landAuthority"`
-	LandFeatureFilter     string `json:"landFeatureFilter"`
-	LandFeatureClassAudit string `json:"landFeatureClassAudit"`
-	LandSourceSHA256      string `json:"landSourceSha256"`
-	TimezoneAuthority     string `json:"timezoneAuthority"`
+	CellRegistration         string `json:"cellRegistration"`
+	LandAuthority            string `json:"landAuthority"`
+	LandFeatureFilter        string `json:"landFeatureFilter"`
+	LandFeatureClassAudit    string `json:"landFeatureClassAudit"`
+	LandSourceSHA256         string `json:"landSourceSha256"`
+	CentreLandMaskDerivation string `json:"centreLandMaskDerivation"`
+	CentreLandMaskSHA256     string `json:"centreLandMaskSha256"`
+	TimezoneAuthority        string `json:"timezoneAuthority"`
 
 	LandCells                    int `json:"landCells"`
 	WaterCells                   int `json:"waterCells"`
@@ -128,8 +167,8 @@ type positiveDatelineAudit struct {
 	PositiveTimezone string  `json:"positiveTimezone"`
 }
 
-// LoadCellPlan validates a bounded gzip JSON plan and reconstructs its exact
-// row-major logical cells. expectedCompressedSHA256 is optional.
+// LoadCellPlan validates a bounded gzip JSON plan against its separately
+// trusted compressed checksum and reconstructs its exact row-major cells.
 func LoadCellPlan(path, expectedCompressedSHA256 string) (CellPlan, error) {
 	var result CellPlan
 	compressed, err := readBoundedFile(path, maxPlanGzipBytes)
@@ -138,14 +177,12 @@ func LoadCellPlan(path, expectedCompressedSHA256 string) (CellPlan, error) {
 	}
 	compressedSHA := sha256.Sum256(compressed)
 	compressedSHAHex := hex.EncodeToString(compressedSHA[:])
-	if expectedCompressedSHA256 != "" {
-		expected, err := parseSHA256(expectedCompressedSHA256)
-		if err != nil {
-			return result, fmt.Errorf("ERA5 cell plan expected checksum: %w", err)
-		}
-		if !bytes.Equal(expected[:], compressedSHA[:]) {
-			return result, errors.New("ERA5 cell plan compressed checksum mismatch")
-		}
+	expected, err := parseSHA256(expectedCompressedSHA256)
+	if err != nil {
+		return result, fmt.Errorf("ERA5 cell plan expected checksum: %w", err)
+	}
+	if !bytes.Equal(expected[:], compressedSHA[:]) {
+		return result, errors.New("ERA5 cell plan compressed checksum mismatch")
 	}
 	decoded, err := decodePlanGzip(compressed)
 	if err != nil {
@@ -164,10 +201,16 @@ func LoadCellPlan(path, expectedCompressedSHA256 string) (CellPlan, error) {
 	if err != nil {
 		return result, err
 	}
+	expectedDays, err := expectedPlanDays(cells, time.Month(encoded.Month))
+	if err != nil {
+		return result, err
+	}
 	return CellPlan{
-		Year: encoded.Year, Month: encoded.Month, Cells: cells,
-		SHA256: compressedSHAHex, LandCells: encoded.LandCells,
-		Timezones: len(encoded.Timezones),
+		year: encoded.Year, month: encoded.Month, cells: cells,
+		sha256: compressedSHAHex, landCells: encoded.LandCells,
+		centreLandCells: encoded.CentreLandCells,
+		timezones:       len(encoded.Timezones), landSourceSHA256: encoded.LandSourceSHA256,
+		centreLandMaskSHA256: encoded.CentreLandMaskSHA256, expectedDays: expectedDays,
 	}, nil
 }
 
@@ -248,6 +291,17 @@ func (plan encodedCellPlan) validateAndCells() ([]Cell, error) {
 	}
 	if _, err := parseSHA256(plan.LandSourceSHA256); err != nil {
 		return nil, fmt.Errorf("ERA5 cell plan land source checksum: %w", err)
+	}
+	if (plan.CentreLandMaskDerivation == "") != (plan.CentreLandMaskSHA256 == "") {
+		return nil, errors.New("ERA5 cell plan centre-land authority is incomplete")
+	}
+	if plan.CentreLandMaskDerivation != "" {
+		if plan.CentreLandMaskDerivation != planCentreLandDerivation {
+			return nil, errors.New("ERA5 cell plan centre-land derivation changed")
+		}
+		if _, err := parseSHA256(plan.CentreLandMaskSHA256); err != nil {
+			return nil, fmt.Errorf("ERA5 cell plan centre-land mask checksum: %w", err)
+		}
 	}
 	totalCells := GridRows * GridColumns
 	declaredCounts := []int{
@@ -354,7 +408,43 @@ func (plan encodedCellPlan) validateAndCells() ([]Cell, error) {
 	return cells, nil
 }
 
-// Avoid importing time solely for two integer constants in the plan decoder.
+func expectedPlanDays(cells []Cell, month time.Month) ([]uint16, error) {
+	counts := make(map[string]uint16)
+	result := make([]uint16, len(cells))
+	for index, cell := range cells {
+		count, exists := counts[cell.TimezoneID]
+		if !exists {
+			location, err := time.LoadLocation(cell.TimezoneID)
+			if err != nil {
+				return nil, fmt.Errorf("load ERA5 timezone %s for climate day count: %w", cell.TimezoneID, err)
+			}
+			days := 0
+			for year := climateFirstYear; year <= climateLastYear; year++ {
+				lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+				for day := 1; day <= lastDay; day++ {
+					window, valid, err := civilDayWindow(year, month, day, location)
+					if err != nil {
+						return nil, fmt.Errorf("count ERA5 climate days for %s: %w", cell.TimezoneID, err)
+					}
+					if valid {
+						if window.end.Sub(window.start) != 10*time.Hour {
+							return nil, fmt.Errorf("ERA5 timezone %s has a non-10-hour climate day", cell.TimezoneID)
+						}
+						days++
+					}
+				}
+			}
+			if days < 1 || days > math.MaxUint16 {
+				return nil, fmt.Errorf("ERA5 timezone %s has invalid climate day count %d", cell.TimezoneID, days)
+			}
+			count = uint16(days)
+			counts[cell.TimezoneID] = count
+		}
+		result[index] = count
+	}
+	return result, nil
+}
+
 const (
 	timeJanuary  = 1
 	timeDecember = 12

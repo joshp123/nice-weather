@@ -98,9 +98,13 @@ func buildDailyShard(ctx context.Context, config DailyShardBuildConfig, dependen
 	if err != nil {
 		return summary, err
 	}
-	summary.PlanSHA256 = plan.SHA256
-	summary.Cells = len(plan.Cells)
-	summary.Timezones = plan.Timezones
+	if plan.Month() != int(config.Month) {
+		return summary, errors.New("ERA5 daily shard plan month does not match the requested month")
+	}
+	cells := plan.Cells()
+	summary.PlanSHA256 = plan.SHA256()
+	summary.Cells = len(cells)
+	summary.Timezones = plan.TimezoneCount()
 	if err := os.MkdirAll(config.StagingRoot, 0o755); err != nil {
 		return summary, fmt.Errorf("create ERA5 daily shard staging root: %w", err)
 	}
@@ -114,7 +118,7 @@ func buildDailyShard(ctx context.Context, config DailyShardBuildConfig, dependen
 		}
 		summary.Elapsed = time.Since(started)
 	}()
-	state, err := PrepareDailyShardInStaging(config.OutputPath, runDirectory, config.Year, config.Month, plan.Cells, plan.SHA256)
+	state, err := PrepareDailyShardInStaging(config.OutputPath, runDirectory, config.Year, config.Month, cells, plan.SHA256())
 	if err != nil {
 		return summary, err
 	}
@@ -136,7 +140,7 @@ func buildDailyShard(ctx context.Context, config DailyShardBuildConfig, dependen
 		}
 		return summary, fmt.Errorf("inspect ERA5 hourly producer script: %w", err)
 	}
-	first, last, err := RequiredEnvelope(config.Year, config.Month, plan.Cells)
+	first, last, err := RequiredEnvelope(config.Year, config.Month, cells)
 	if err != nil {
 		return summary, err
 	}
@@ -176,7 +180,7 @@ func buildDailyShard(ctx context.Context, config DailyShardBuildConfig, dependen
 		return summary, errors.Join(fmt.Errorf("open ERA5 hourly decoder: %w", err), waitErr)
 	}
 	pending := &deferredCommitSink{inner: state.Sink}
-	stats, aggregateErr := AggregateMonth(ctx, source, config.Year, config.Month, plan.Cells, pending)
+	stats, aggregateErr := AggregateMonth(ctx, source, config.Year, config.Month, cells, pending)
 	if aggregateErr != nil {
 		cancelProducer()
 		_ = stdout.Close()
