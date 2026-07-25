@@ -16,8 +16,11 @@ const (
 	ScalarGutter      = 1
 	ScalarTextureSize = TileSize + 2*ScalarGutter
 	ScalarTileBytes   = ScalarTextureSize * ScalarTextureSize
-	ScalarNoData      = uint8(255)
-	ScalarMediaType   = "application/vnd.nice-weather.score-tile"
+	// ForecastScalarFallback marks display land whose detailed forecast tier
+	// has no score. Generic and climate scalar APIs reject this reserved byte.
+	ForecastScalarFallback = uint8(254)
+	ScalarNoData           = uint8(255)
+	ScalarMediaType        = "application/vnd.nice-weather.score-tile"
 )
 
 // ScalarSample identifies one Web Mercator texel centre. GlobalX wraps into
@@ -59,6 +62,16 @@ type ScalarAsset struct {
 // Y outside the Mercator world is no-data. The returned bytes are the exact
 // R8 texture body expected by ScalarTileCanaryLayer after HTTP decoding.
 func BuildScalarTile(id ID, sample EvaluatedScoreSampler) ([]byte, ScalarStats, error) {
+	return buildScalarTile(id, sample, false)
+}
+
+// BuildForecastScalarTile accepts the forecast-detail fallback marker in
+// addition to canonical scores and no-data.
+func BuildForecastScalarTile(id ID, sample EvaluatedScoreSampler) ([]byte, ScalarStats, error) {
+	return buildScalarTile(id, sample, true)
+}
+
+func buildScalarTile(id ID, sample EvaluatedScoreSampler, allowFallback bool) ([]byte, ScalarStats, error) {
 	if err := id.validate(); err != nil {
 		return nil, ScalarStats{}, err
 	}
@@ -93,8 +106,8 @@ func BuildScalarTile(id ID, sample EvaluatedScoreSampler) ([]byte, ScalarStats, 
 				stats.NoDataTexels++
 				continue
 			}
-			if score > 100 {
-				return nil, ScalarStats{}, fmt.Errorf("scalar texel %d,%d has score %d; want 0..100", textureX, textureY, score)
+			if score > 100 && (!allowFallback || score != ForecastScalarFallback) {
+				return nil, ScalarStats{}, fmt.Errorf("scalar texel %d,%d has score %d; want 0..100 or fallback", textureX, textureY, score)
 			}
 			encoded[index] = score
 			stats.DataTexels++
@@ -108,6 +121,16 @@ func BuildScalarTile(id ID, sample EvaluatedScoreSampler) ([]byte, ScalarStats, 
 // browser body must still be exactly ScalarTileBytes bytes. All-no-data tiles
 // are omitted.
 func (writer *Writer) WriteScalar(id ID, period string, sample EvaluatedScoreSampler) (ScalarAsset, error) {
+	return writer.writeScalar(id, period, sample, false)
+}
+
+// WriteForecastScalar publishes a forecast tile that may contain the reserved
+// display-land fallback marker.
+func (writer *Writer) WriteForecastScalar(id ID, period string, sample EvaluatedScoreSampler) (ScalarAsset, error) {
+	return writer.writeScalar(id, period, sample, true)
+}
+
+func (writer *Writer) writeScalar(id ID, period string, sample EvaluatedScoreSampler, allowFallback bool) (ScalarAsset, error) {
 	if writer == nil || !validIdentifier(period, periodIDBytes) {
 		return ScalarAsset{}, errors.New("tile writer or period is invalid")
 	}
@@ -124,7 +147,7 @@ func (writer *Writer) WriteScalar(id ID, period string, sample EvaluatedScoreSam
 		return ScalarAsset{}, err
 	}
 
-	encoded, stats, err := BuildScalarTile(id, sample)
+	encoded, stats, err := buildScalarTile(id, sample, allowFallback)
 	if err != nil {
 		return ScalarAsset{}, err
 	}
@@ -153,6 +176,16 @@ func (writer *Writer) WriteScalar(id ID, period string, sample EvaluatedScoreSam
 // A manifest consumer must supply the expected digest; without it, an in-range
 // byte corruption cannot be distinguished from another valid score.
 func ReadScalar(path, expectedSHA256 string) ([]byte, ScalarStats, error) {
+	return readScalar(path, expectedSHA256, false)
+}
+
+// ReadForecastScalar validates a forecast tile that may contain the reserved
+// detail-fallback marker.
+func ReadForecastScalar(path, expectedSHA256 string) ([]byte, ScalarStats, error) {
+	return readScalar(path, expectedSHA256, true)
+}
+
+func readScalar(path, expectedSHA256 string, allowFallback bool) ([]byte, ScalarStats, error) {
 	if len(expectedSHA256) != sha256.Size*2 {
 		return nil, ScalarStats{}, errors.New("scalar tile requires an expected SHA-256")
 	}
@@ -179,7 +212,7 @@ func ReadScalar(path, expectedSHA256 string) ([]byte, ScalarStats, error) {
 	stats := ScalarStats{DecodedBytes: ScalarTileBytes}
 	for index, score := range encoded {
 		switch {
-		case score <= 100:
+		case score <= 100 || (allowFallback && score == ForecastScalarFallback):
 			stats.DataTexels++
 		case score == ScalarNoData:
 			stats.NoDataTexels++

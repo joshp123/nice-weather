@@ -130,6 +130,30 @@ func TestScalarParentCacheIsBoundedToOneParentNeighbourhood(t *testing.T) {
 	}
 }
 
+func TestScalarParentKeepsFallbackSeparateFromCanonicalScores(t *testing.T) {
+	root := t.TempDir()
+	writer, _ := NewWriter(root, "fallback-parent")
+	child, _ := NewID("detail", 1, 0, 0)
+	asset, err := writer.WriteForecastScalar(child, "day", func(sample ScalarSample) (uint8, bool, error) {
+		if sample.GlobalX%2 == 0 {
+			return ForecastScalarFallback, true, nil
+		}
+		return 80, true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentID, _ := NewID("detail", 0, 0, 0)
+	parent, err := NewForecastScalarParentSampler(parentID, func(id ID) (ScalarAsset, bool) { return asset, id == child })
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, valid, err := parent.Sample(ScalarSample{GlobalX: 0, GlobalY: 0})
+	if err != nil || !valid || value != 80 {
+		t.Fatalf("mixed fallback parent = %d valid=%t err=%v; want canonical 80", value, valid, err)
+	}
+}
+
 func TestScalarParentRejectsWrongChildIdentity(t *testing.T) {
 	parentID, _ := NewID("probability", 0, 0, 0)
 	wrongID, _ := NewID("other", 1, 0, 0)

@@ -372,7 +372,7 @@ func scalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []til
 		},
 		Land: forecasttiles.LandIdentity{
 			Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
-			SourceArchiveSHA256: strings.Repeat("b", 64), MaskSHA256: strings.Repeat("c", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+			SourceArchiveSHA256: strings.Repeat("b", 64), MaskSHA256: strings.Repeat("c", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorCentreV1,
 		},
 	}
 	produced := make(map[tileCoordinate]struct{})

@@ -479,7 +479,7 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 		Source: forecasttiles.SourceIdentity{SourceID: "ecmwf-ifs-control", RunUTC: runUTC.Format(time.RFC3339), Grid: grid, NativeResolutionKM: 28, EvidenceSHA256: evidence},
 		Land: forecasttiles.LandIdentity{
 			Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
-			SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+			SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorCentreV1,
 		},
 		MaxZoomOutcomes: outcomes, Points: points, Scalars: scalars,
 	}

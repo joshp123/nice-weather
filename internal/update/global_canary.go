@@ -216,7 +216,7 @@ func RunGlobalCanary(ctx context.Context, config GlobalCanaryConfig) (summary Gl
 		return summary, err
 	}
 	landAuthority := NewLandAuthority(cache, httpClient, decoder.Runner)
-	land, err := globalCanaryWebMercatorLandMask(ctx, landAuthority, scratch, globalCanaryMaxZoom)
+	land, err := forecastWebMercatorDisplayLandMask(ctx, landAuthority, scratch, globalCanaryMaxZoom)
 	if err != nil {
 		return summary, fmt.Errorf("Natural Earth worldwide display mask: %w", err)
 	}
@@ -562,7 +562,7 @@ func globalCanarySeriesSpec(series pipeline.PreparedSeries) (delivery.GridSpec, 
 	return spec, nil
 }
 
-func globalCanaryWebMercatorLandMask(ctx context.Context, authority *LandAuthority, scratch string, zoom uint8) (forecasttiles.LandMask, error) {
+func forecastWebMercatorDisplayLandMask(ctx context.Context, authority *LandAuthority, scratch string, zoom uint8) (forecasttiles.LandMask, error) {
 	if authority == nil || authority.runner == nil {
 		return forecasttiles.LandMask{}, errors.New("land authority is not configured")
 	}
@@ -589,7 +589,7 @@ func globalCanaryWebMercatorLandMask(ctx context.Context, authority *LandAuthori
 	}
 	output := filepath.Join(temporary, "land.bil")
 	arguments := []string{
-		"-q", "-of", "EHdr", "-ot", "Byte", "-burn", "1", "-init", "0", "-at",
+		"-q", "-of", "EHdr", "-ot", "Byte", "-burn", "1", "-init", "0",
 		"-a_srs", "EPSG:3857",
 		"-te", landCoordinate(-webMercatorHalfWorldMetres), landCoordinate(-webMercatorHalfWorldMetres), landCoordinate(webMercatorHalfWorldMetres), landCoordinate(webMercatorHalfWorldMetres),
 		"-ts", fmt.Sprint(width), fmt.Sprint(width),
@@ -602,7 +602,7 @@ func globalCanaryWebMercatorLandMask(ctx context.Context, authority *LandAuthori
 	if err != nil {
 		return forecasttiles.LandMask{}, fmt.Errorf("read Web Mercator Natural Earth land: %w", err)
 	}
-	predicate, err := webMercatorTouchedLandPredicate(pixels, zoom)
+	predicate, err := webMercatorDisplayLandPredicate(pixels, zoom)
 	if err != nil {
 		return forecasttiles.LandMask{}, err
 	}
@@ -610,11 +610,11 @@ func globalCanaryWebMercatorLandMask(ctx context.Context, authority *LandAuthori
 	return forecasttiles.NewLandMask(predicate, forecasttiles.LandIdentity{
 		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M,
 		Version: forecasttiles.LandVersionNaturalEarth511, SourceArchiveSHA256: strings.ToLower(authority.source.SHA256),
-		MaskSHA256: hex.EncodeToString(digest[:]), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+		MaskSHA256: hex.EncodeToString(digest[:]), DerivationContract: forecasttiles.LandDerivationWebMercatorCentreV1,
 	})
 }
 
-func webMercatorTouchedLandPredicate(pixels []byte, zoom uint8) (forecasttiles.TouchesLand, error) {
+func webMercatorDisplayLandPredicate(pixels []byte, zoom uint8) (forecasttiles.DisplayLand, error) {
 	if zoom > 5 {
 		return nil, errors.New("display land mask zoom exceeds the bounded canary limit")
 	}

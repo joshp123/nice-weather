@@ -7,6 +7,7 @@ import {
   readScalarResponse,
   scalarTextureBytes,
   SCALAR_MEDIA_TYPE,
+  SCALAR_FALLBACK,
   SCALAR_NO_DATA,
   SCALAR_TEXTURE_SIZE,
   validateScores,
@@ -59,6 +60,9 @@ describe('scalar tile layer', () => {
     scores[1] = 0;
     scores[2] = 100;
     expect(() => validateScores(scores)).not.toThrow();
+    scores[3] = SCALAR_FALLBACK;
+    expect(() => validateScores(scores)).toThrow(/invalid score 254/);
+    expect(() => validateScores(scores, true)).not.toThrow();
     scores[3] = 101;
     expect(() => validateScores(scores)).toThrow(/invalid score 101/);
     expect(() => validateScores(new Uint8Array(256 * 256))).toThrow(/want 66564/);
@@ -108,14 +112,19 @@ describe('scalar tile layer', () => {
     expect(validSHA256(undefined)).toBe(false);
   });
 
-  it('interpolates scalars before palette lookup and handles no-data as coverage', () => {
+  it('uses centre-on-land coverage, interpolates inside land and falls back per fragment', () => {
     const interpolate = FRAGMENT_SOURCE.indexOf('weightedScore / coverage');
     const palette = FRAGMENT_SOURCE.indexOf('texelFetch(u_palette');
     expect(interpolate).toBeGreaterThan(-1);
     expect(palette).toBeGreaterThan(interpolate);
     expect(FRAGMENT_SOURCE).toContain('if (score <= 100.0)');
-    expect(FRAGMENT_SOURCE).toContain('if (coverage <= 0.0) discard');
+    expect(FRAGMENT_SOURCE).toContain('centreScore == 254.0 ? 2 : 0');
+    expect(FRAGMENT_SOURCE).toContain('if (state == 2 && u_has_fallback)');
+    expect(FRAGMENT_SOURCE).toContain('if (state != 1) discard');
+    expect(FRAGMENT_SOURCE).toContain('float alpha = colour.a;');
+    expect(FRAGMENT_SOURCE).not.toContain('colour.a * coverage');
     expect(FRAGMENT_SOURCE).toContain('u_texture_bounds');
+    expect(FRAGMENT_SOURCE).toContain('u_fallback_texture_bounds');
     expect(FRAGMENT_SOURCE.indexOf('sourceUV')).toBeLessThan(interpolate);
   });
 });

@@ -81,6 +81,47 @@ func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestPublishTransitionsAuthenticatedV3CurrentToV5(t *testing.T) {
+	useFixtureTierLoader(t)
+	artifacts := publicationFixture(t)
+	createRun(t, artifacts, "run-v3", "2026-07-23", "2026-07-22T12:00:00Z", nil)
+	legacyPointer, err := Publish(context.Background(), artifacts, "run-v3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPath := filepath.Join(artifacts, "forecast", legacyPointer.Current.Path)
+	var legacy Index
+	if err := json.Unmarshal(readFile(t, indexPath), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.ProductContract = "nice-weather-forecast-run-v3"
+	legacyPayload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPayload = append(legacyPayload, '\n')
+	if err := os.WriteFile(indexPath, legacyPayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacyPointer.Current.SHA256 = digest(string(legacyPayload))
+	writeFixtureJSON(t, filepath.Join(artifacts, "forecast", "current.json"), legacyPointer)
+
+	createRun(t, artifacts, "run-v5", "2026-07-24", "2026-07-23T12:00:00Z", nil)
+	pointer, err := Publish(context.Background(), artifacts, "run-v5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pointer.Current.IndexID != "run-v5" || pointer.Previous != nil {
+		t.Fatalf("transition pointer = %+v", pointer)
+	}
+	if _, current, err := ValidateCurrent(artifacts); err != nil || current.ProductContract != ProductContract {
+		t.Fatalf("current after transition = %+v, %v", current, err)
+	}
+	if loaded, current, previous, err := LoadCurrentMetadata(artifacts); err != nil || loaded.Previous != nil || previous != nil || current.ProductContract != ProductContract {
+		t.Fatalf("metadata after transition = pointer=%+v current=%+v previous=%+v err=%v", loaded, current, previous, err)
+	}
+}
+
 func TestLegacyFreshnessCanOnlyBeRead(t *testing.T) {
 	useFixtureTierLoader(t)
 	artifacts := publicationFixture(t)
@@ -356,7 +397,7 @@ func runTestLandMask(t *testing.T) forecasttiles.LandMask {
 	t.Helper()
 	mask, err := forecasttiles.NewLandMask(func(delivery.GridBounds) (bool, error) { return true, nil }, forecasttiles.LandIdentity{
 		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
-		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorCentreV1,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -104,17 +104,27 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 		t.Fatal(err)
 	}
 	const islandLongitude, islandLatitude = .02, .02
-	if len(parsed.DailyPointBlocks) != 1 {
-		t.Fatalf("tiny-island daily point blocks = %d; want 1", len(parsed.DailyPointBlocks))
-	}
-	displayReader, err := tiledelivery.OpenPoint(filepath.Join(product.Root, filepath.FromSlash(parsed.DailyPointBlocks[0].Path)))
+	displayID, _, _, err := tiledelivery.PointAt(forecastpoints.TierGlobal, 3, islandLongitude, islandLatitude)
 	if err != nil {
 		t.Fatal(err)
 	}
-	display, displayValid, displayErr := displayReader.At(islandLongitude, islandLatitude)
-	closeDisplayErr := displayReader.Close()
-	if displayErr != nil || closeDisplayErr != nil || !displayValid {
-		t.Fatalf("tiny-island display score unavailable: valid=%t err=%v close=%v", displayValid, displayErr, closeDisplayErr)
+	var coastalDisplayBlock forecastcatalog.DailyPointBlock
+	for _, block := range parsed.DailyPointBlocks {
+		if block.X == displayID.X && block.Y == displayID.Y {
+			coastalDisplayBlock = block
+			break
+		}
+	}
+	if coastalDisplayBlock.Path != "" {
+		displayReader, openErr := tiledelivery.OpenPoint(filepath.Join(product.Root, filepath.FromSlash(coastalDisplayBlock.Path)))
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		_, displayValid, displayErr := displayReader.At(islandLongitude, islandLatitude)
+		closeDisplayErr := displayReader.Close()
+		if displayErr != nil || closeDisplayErr != nil || displayValid {
+			t.Fatalf("water-centred coastal display value: valid=%t err=%v close=%v", displayValid, displayErr, closeDisplayErr)
+		}
 	}
 	nativeIdentity, ok, err := forecastpoints.CoordinateIdentity(
 		parsed.ReleaseID, parsed.Provider, parsed.Tier, parsed.LocalDate, parsed.Evidence.RunUTC,
@@ -140,8 +150,8 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 		t.Fatal(err)
 	}
 	native, nativeValid, err := opened.RecordAt(islandLongitude, islandLatitude)
-	if err != nil || !nativeValid || native.Weather.Valid != display.Weather.Valid {
-		t.Fatalf("tiny-island native/display selection: native=%+v valid=%t display=%+v err=%v", native, nativeValid, display, err)
+	if err != nil || !nativeValid || !native.Weather.Valid {
+		t.Fatalf("coastal native evidence: native=%+v valid=%t err=%v", native, nativeValid, err)
 	}
 	for _, removed := range []string{"forecast-tiles.json"} {
 		if _, err := os.Lstat(filepath.Join(product.Root, removed)); !errors.Is(err, os.ErrNotExist) {
@@ -322,19 +332,20 @@ func exactIFSConfig(t *testing.T) (Config, func()) {
 		Date: date, Series: series,
 		Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil },
 		Land: assemblyLandMask(t, func(bounds delivery.GridBounds) (bool, error) {
-			// A coastal sliver lies between z3 display texel centres and between
-			// 0.25-degree provider-cell centres. All-touched output must keep it.
-			const west, east, south, north = .015, .025, .015, .025
-			return bounds.West < east && bounds.East > west && bounds.South < north && bounds.North > south, nil
+			// A stable interior region proves scalar output while the coastal
+			// point near 0,0 remains available only through native evidence.
+			longitude := (bounds.West + bounds.East) / 2
+			latitude := (bounds.South + bounds.North) / 2
+			return longitude >= 10 && longitude <= 30 && latitude >= 10 && latitude <= 30, nil
 		}),
 	}, closeFrames
 }
 
-func assemblyLandMask(t *testing.T, touches forecasttiles.TouchesLand) forecasttiles.LandMask {
+func assemblyLandMask(t *testing.T, displays forecasttiles.DisplayLand) forecasttiles.LandMask {
 	t.Helper()
-	mask, err := forecasttiles.NewLandMask(touches, forecasttiles.LandIdentity{
+	mask, err := forecasttiles.NewLandMask(displays, forecasttiles.LandIdentity{
 		Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
-		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorTouchV1,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: forecasttiles.LandDerivationWebMercatorCentreV1,
 	})
 	if err != nil {
 		t.Fatal(err)

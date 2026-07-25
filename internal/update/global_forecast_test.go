@@ -156,6 +156,9 @@ func TestForecastProductionCleansPrivateCandidateBeforeResume(t *testing.T) {
 	fixture := newForecastProductionFixture(t)
 	first, last := fixture.now.AddDate(0, 0, 1), fixture.now.AddDate(0, 0, productDays)
 	indexID := forecastProductionID(fixture.ifsRun.Time, fixture.iconRun.StartedAt, 4, first, last)
+	if !strings.Contains(indexID, "-v5-") {
+		t.Fatalf("forecast production ID does not include artifact contract: %s", indexID)
+	}
 	candidate := filepath.Join(fixture.config.ArtifactRoot, "forecast", ".candidate-"+indexID)
 	debris := filepath.Join(candidate, ".forecast-range-interrupted")
 	if err := os.MkdirAll(debris, 0o755); err != nil {
@@ -324,7 +327,7 @@ func TestProductionLandPredicateAcceptsICONMaximumZoom(t *testing.T) {
 	for _, cell := range [][2]int{worldEdge, europe} {
 		pixels[cell[1]*width+cell[0]] = 1
 	}
-	isLand, err := webMercatorTouchedLandPredicate(pixels, zoom)
+	isLand, err := webMercatorDisplayLandPredicate(pixels, zoom)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +337,7 @@ func TestProductionLandPredicateAcceptsICONMaximumZoom(t *testing.T) {
 			t.Fatalf("ICON z5 %s land predicate = %v, %v; want land", name, got, lookupErr)
 		}
 	}
-	if _, err := webMercatorTouchedLandPredicate(nil, 6); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	if _, err := webMercatorDisplayLandPredicate(nil, 6); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("z6 land predicate boundary = %v; want bounded rejection", err)
 	}
 }

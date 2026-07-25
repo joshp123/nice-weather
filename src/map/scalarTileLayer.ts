@@ -4,17 +4,20 @@ import { readBoundedResponse } from '../data/boundedResponse';
 export const SCALAR_TILE_SIZE = 256;
 export const SCALAR_TILE_GUTTER = 1;
 export const SCALAR_TEXTURE_SIZE = SCALAR_TILE_SIZE + SCALAR_TILE_GUTTER * 2;
+export const SCALAR_FALLBACK = 254;
 export const SCALAR_NO_DATA = 255;
 export const SCALAR_MEDIA_TYPE = 'application/vnd.nice-weather.score-tile';
 
 export type ScalarTileID = Readonly<{ z: number; x: number; y: number }>;
 export type ScalarPaletteColour = Readonly<[number, number, number, number]>;
-export type ScalarTileSource = Readonly<{
+export type ScalarRasterSource = Readonly<{
   key: string;
   url: string;
   sha256: string;
+  allowFallback?: boolean;
   textureBounds?: readonly [west: number, north: number, east: number, south: number];
 }>;
+export type ScalarTileSource = ScalarRasterSource & Readonly<{ fallback?: ScalarRasterSource }>;
 
 export type ScalarTileLayerOptions = Readonly<{
   id: string;
@@ -49,6 +52,8 @@ export type TileDraw = Readonly<{
 type TileTexture = {
   texture: WebGLTexture;
   textureBounds: readonly [number, number, number, number];
+  fallbackTexture?: WebGLTexture;
+  fallbackTextureBounds?: readonly [number, number, number, number];
   lastUsed: number;
 };
 
@@ -72,18 +77,23 @@ void main() {
 }`;
 
 // Each score tile has a one-texel gutter sourced from its real neighbours.
-// Manual four-sample interpolation lets no-data contribute coverage without
-// dragging the scalar towards zero. The palette is applied only afterwards.
+// The nearest source centre controls land coverage; valid neighbouring scores
+// are then interpolated without fading coastal land into the base map. Detail
+// land without detail can use one separately bound global source for the same
+// fragment. Water no-data never falls through to a coarser land mask.
 export const FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
 uniform sampler2D u_scores;
+uniform sampler2D u_fallback_scores;
 uniform sampler2D u_palette;
 uniform vec4 u_texture_bounds;
+uniform vec4 u_fallback_texture_bounds;
+uniform bool u_has_fallback;
 in vec2 v_uv;
 out vec4 fragColor;
 
-float scoreAt(ivec2 position) {
-  return floor(texelFetch(u_scores, position, 0).r * 255.0 + 0.5);
+float scoreAt(sampler2D scores, ivec2 position) {
+  return floor(texelFetch(scores, position, 0).r * 255.0 + 0.5);
 }
 
 void accumulate(inout float weightedScore, inout float coverage, float score, float weight) {
@@ -93,21 +103,31 @@ void accumulate(inout float weightedScore, inout float coverage, float score, fl
   }
 }
 
-void main() {
-  vec2 sourceUV = mix(u_texture_bounds.xy, u_texture_bounds.zw, v_uv);
+float interpolatedScore(sampler2D scores, vec4 textureBounds, out int state) {
+  vec2 sourceUV = mix(textureBounds.xy, textureBounds.zw, v_uv);
   vec2 samplePosition = sourceUV * ${SCALAR_TILE_SIZE}.0 + vec2(0.5);
+  float centreScore = scoreAt(scores, ivec2(floor(samplePosition + vec2(0.5))));
+  state = centreScore <= 100.0 ? 1 : (centreScore == ${SCALAR_FALLBACK}.0 ? 2 : 0);
+  if (state != 1) return 0.0;
   ivec2 base = ivec2(floor(samplePosition));
   vec2 fraction = fract(samplePosition);
   float weightedScore = 0.0;
   float coverage = 0.0;
-  accumulate(weightedScore, coverage, scoreAt(base), (1.0 - fraction.x) * (1.0 - fraction.y));
-  accumulate(weightedScore, coverage, scoreAt(base + ivec2(1, 0)), fraction.x * (1.0 - fraction.y));
-  accumulate(weightedScore, coverage, scoreAt(base + ivec2(0, 1)), (1.0 - fraction.x) * fraction.y);
-  accumulate(weightedScore, coverage, scoreAt(base + ivec2(1, 1)), fraction.x * fraction.y);
-  if (coverage <= 0.0) discard;
-  int paletteIndex = int(floor(weightedScore / coverage + 0.5));
+  accumulate(weightedScore, coverage, scoreAt(scores, base), (1.0 - fraction.x) * (1.0 - fraction.y));
+  accumulate(weightedScore, coverage, scoreAt(scores, base + ivec2(1, 0)), fraction.x * (1.0 - fraction.y));
+  accumulate(weightedScore, coverage, scoreAt(scores, base + ivec2(0, 1)), (1.0 - fraction.x) * fraction.y);
+  accumulate(weightedScore, coverage, scoreAt(scores, base + ivec2(1, 1)), fraction.x * fraction.y);
+  return coverage > 0.0 ? weightedScore / coverage : centreScore;
+}
+
+void main() {
+  int state;
+  float score = interpolatedScore(u_scores, u_texture_bounds, state);
+  if (state == 2 && u_has_fallback) score = interpolatedScore(u_fallback_scores, u_fallback_texture_bounds, state);
+  if (state != 1) discard;
+  int paletteIndex = int(floor(score + 0.5));
   vec4 colour = texelFetch(u_palette, ivec2(paletteIndex, 0), 0);
-  float alpha = colour.a * coverage;
+  float alpha = colour.a;
   fragColor = vec4(colour.rgb * alpha, alpha);
 }`;
 
@@ -124,14 +144,17 @@ export class ScalarTileLayer implements CustomLayerInterface {
   private matrixLocation?: WebGLUniformLocation;
   private boundsLocation?: WebGLUniformLocation;
   private textureBoundsLocation?: WebGLUniformLocation;
+  private fallbackTextureBoundsLocation?: WebGLUniformLocation;
   private scoresLocation?: WebGLUniformLocation;
+  private fallbackScoresLocation?: WebGLUniformLocation;
+  private hasFallbackLocation?: WebGLUniformLocation;
   private paletteLocation?: WebGLUniformLocation;
   private renderQuery?: WebGLQuery;
   private renderQueryPending = false;
   private renderedPixels = false;
   private renderProofFailed = false;
   private readonly textures = new Map<string, TileTexture>();
-  private readonly uploads = new Map<string, { scores: Uint8Array; textureBounds: readonly [number, number, number, number] }>();
+  private readonly uploads = new Map<string, { scores: Uint8Array; textureBounds: readonly [number, number, number, number]; fallbackScores?: Uint8Array; fallbackTextureBounds?: readonly [number, number, number, number] }>();
   private readonly requests = new Map<string, AbortController>();
   private readonly failed = new Set<string>();
   private readonly unavailable = new Set<string>();
@@ -172,7 +195,10 @@ export class ScalarTileLayer implements CustomLayerInterface {
     this.matrixLocation = requiredUniform(gl, this.program, 'u_matrix');
     this.boundsLocation = requiredUniform(gl, this.program, 'u_tile_bounds');
     this.textureBoundsLocation = requiredUniform(gl, this.program, 'u_texture_bounds');
+    this.fallbackTextureBoundsLocation = requiredUniform(gl, this.program, 'u_fallback_texture_bounds');
     this.scoresLocation = requiredUniform(gl, this.program, 'u_scores');
+    this.fallbackScoresLocation = requiredUniform(gl, this.program, 'u_fallback_scores');
+    this.hasFallbackLocation = requiredUniform(gl, this.program, 'u_has_fallback');
     this.paletteLocation = requiredUniform(gl, this.program, 'u_palette');
     this.paletteTexture = uploadPalette(gl, this.options.palette);
     gl.bindVertexArray(null);
@@ -180,7 +206,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
   }
 
   render(gl: WebGLRenderingContext | WebGL2RenderingContext, input: CustomRenderMethodInput): void {
-    if (this.removed || !this.map || !this.program || !this.vertexArray || !this.paletteTexture || !this.matrixLocation || !this.boundsLocation || !this.textureBoundsLocation || !this.scoresLocation || !this.paletteLocation) return;
+    if (this.removed || !this.map || !this.program || !this.vertexArray || !this.paletteTexture || !this.matrixLocation || !this.boundsLocation || !this.textureBoundsLocation || !this.fallbackTextureBoundsLocation || !this.scoresLocation || !this.fallbackScoresLocation || !this.hasFallbackLocation || !this.paletteLocation) return;
     const gl2 = gl as WebGL2RenderingContext;
     this.pollRenderProof(gl2);
     this.refreshVisible();
@@ -195,8 +221,9 @@ export class ScalarTileLayer implements CustomLayerInterface {
     // the stable custom-layer coordinate contract in MapLibre 5.24.
     gl2.uniformMatrix4fv(this.matrixLocation, false, input.defaultProjectionData.mainMatrix);
     gl2.uniform1i(this.scoresLocation, 0);
-    gl2.uniform1i(this.paletteLocation, 1);
-    gl2.activeTexture(gl2.TEXTURE1);
+    gl2.uniform1i(this.fallbackScoresLocation, 1);
+    gl2.uniform1i(this.paletteLocation, 2);
+    gl2.activeTexture(gl2.TEXTURE2);
     gl2.bindTexture(gl2.TEXTURE_2D, this.paletteTexture);
     gl2.enable(gl2.BLEND);
     gl2.blendFunc(gl2.ONE, gl2.ONE_MINUS_SRC_ALPHA);
@@ -215,6 +242,10 @@ export class ScalarTileLayer implements CustomLayerInterface {
       gl2.uniform4f(this.textureBoundsLocation, ...entry.textureBounds);
       gl2.activeTexture(gl2.TEXTURE0);
       gl2.bindTexture(gl2.TEXTURE_2D, entry.texture);
+      gl2.uniform1i(this.hasFallbackLocation, entry.fallbackTexture ? 1 : 0);
+      gl2.uniform4f(this.fallbackTextureBoundsLocation, ...(entry.fallbackTextureBounds ?? entry.textureBounds));
+      gl2.activeTexture(gl2.TEXTURE1);
+      gl2.bindTexture(gl2.TEXTURE_2D, entry.fallbackTexture ?? entry.texture);
       gl2.drawArrays(gl2.TRIANGLES, 0, 6);
     }
     if (proveThisFrame) {
@@ -235,7 +266,10 @@ export class ScalarTileLayer implements CustomLayerInterface {
     this.failed.clear();
     this.unavailable.clear();
     this.visible = [];
-    for (const entry of this.textures.values()) gl.deleteTexture(entry.texture);
+    for (const entry of this.textures.values()) {
+      gl.deleteTexture(entry.texture);
+      if (entry.fallbackTexture) gl.deleteTexture(entry.fallbackTexture);
+    }
     this.textures.clear();
     if (this.paletteTexture) gl.deleteTexture(this.paletteTexture);
     if (this.vertices) gl.deleteBuffer(this.vertices);
@@ -249,7 +283,10 @@ export class ScalarTileLayer implements CustomLayerInterface {
     this.matrixLocation = undefined;
     this.boundsLocation = undefined;
     this.textureBoundsLocation = undefined;
+    this.fallbackTextureBoundsLocation = undefined;
     this.scoresLocation = undefined;
+    this.fallbackScoresLocation = undefined;
+    this.hasFallbackLocation = undefined;
     this.paletteLocation = undefined;
     this.renderQuery = undefined;
     this.renderQueryPending = false;
@@ -268,7 +305,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
       renderedPixels: this.renderedPixels,
       renderProofPending: this.renderQueryPending,
       renderProofFailed: this.renderProofFailed,
-      gpuBytes: this.textures.size * scalarTextureBytes() + (this.paletteTexture ? this.options.palette.length * 4 : 0),
+      gpuBytes: [...this.textures.values()].reduce((bytes, entry) => bytes + scalarTextureBytes() * (entry.fallbackTexture ? 2 : 1), 0) + (this.paletteTexture ? this.options.palette.length * 4 : 0),
     };
   }
 
@@ -353,20 +390,13 @@ export class ScalarTileLayer implements CustomLayerInterface {
 
   private async fetchTile(tile: QueuedTile, controller: AbortController): Promise<void> {
     try {
-      const response = await fetch(tile.source.url, { signal: controller.signal, cache: 'force-cache', credentials: 'omit' });
-      let scores: Uint8Array;
-      try {
-        scores = await readScalarResponse(response);
-      } catch (error) {
-        this.options.onContractError?.(tile.id, asError(error));
-        throw error;
-      }
-      const expectedSHA256 = tile.source.sha256;
-      if (!validSHA256(expectedSHA256)) throw new Error('score tile index has no valid SHA-256');
-      if (expectedSHA256 && await sha256Hex(scores) !== expectedSHA256) throw new Error('score tile SHA-256 does not match its index');
+      const scores = await this.fetchScalar(tile, tile.source, controller.signal);
       const textureBounds = tile.source.textureBounds ?? [0, 0, 1, 1] as const;
       if (!validTextureBounds(textureBounds)) throw new Error('score tile source has invalid texture bounds');
-      if (!controller.signal.aborted && !this.removed) this.uploads.set(tile.key, { scores, textureBounds });
+      const fallbackScores = tile.source.fallback ? await this.fetchScalar(tile, tile.source.fallback, controller.signal) : undefined;
+      const fallbackTextureBounds = tile.source.fallback?.textureBounds ?? (tile.source.fallback ? [0, 0, 1, 1] as const : undefined);
+      if (fallbackTextureBounds && !validTextureBounds(fallbackTextureBounds)) throw new Error('score tile fallback has invalid texture bounds');
+      if (!controller.signal.aborted && !this.removed) this.uploads.set(tile.key, { scores, textureBounds, fallbackScores, fallbackTextureBounds });
     } catch (cause) {
       if (!controller.signal.aborted) {
         this.failed.add(tile.key);
@@ -381,19 +411,25 @@ export class ScalarTileLayer implements CustomLayerInterface {
     }
   }
 
+  private async fetchScalar(tile: QueuedTile, source: ScalarRasterSource, signal: AbortSignal): Promise<Uint8Array> {
+    const response = await fetch(source.url, { signal, cache: 'force-cache', credentials: 'omit' });
+    try {
+      const scores = await readScalarResponse(response, source.allowFallback === true);
+      if (!validSHA256(source.sha256)) throw new Error('score tile index has no valid SHA-256');
+      if (await sha256Hex(scores) !== source.sha256) throw new Error('score tile SHA-256 does not match its index');
+      return scores;
+    } catch (error) {
+      this.options.onContractError?.(tile.id, asError(error));
+      throw error;
+    }
+  }
+
   private flushUploads(gl: WebGL2RenderingContext): void {
     for (const [key, upload] of this.uploads) {
-      const { scores, textureBounds } = upload;
-      const texture = requireResource(gl.createTexture(), 'score texture');
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, SCALAR_TEXTURE_SIZE, SCALAR_TEXTURE_SIZE);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, SCALAR_TEXTURE_SIZE, SCALAR_TEXTURE_SIZE, gl.RED, gl.UNSIGNED_BYTE, scores);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      this.textures.set(key, { texture, textureBounds, lastUsed: ++this.clock });
+      const { scores, textureBounds, fallbackScores, fallbackTextureBounds } = upload;
+      const texture = uploadScalarTexture(gl, scores);
+      const fallbackTexture = fallbackScores ? uploadScalarTexture(gl, fallbackScores) : undefined;
+      this.textures.set(key, { texture, textureBounds, fallbackTexture, fallbackTextureBounds, lastUsed: ++this.clock });
       this.uploads.delete(key);
     }
   }
@@ -406,6 +442,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
     while (this.textures.size > retainedLimit && candidates.length > 0) {
       const [key, entry] = candidates.shift()!;
       gl.deleteTexture(entry.texture);
+      if (entry.fallbackTexture) gl.deleteTexture(entry.fallbackTexture);
       this.textures.delete(key);
     }
   }
@@ -415,7 +452,7 @@ export function scalarTextureBytes(): number {
   return SCALAR_TEXTURE_SIZE * SCALAR_TEXTURE_SIZE;
 }
 
-export async function readScalarResponse(response: Response): Promise<Uint8Array<ArrayBuffer>> {
+export async function readScalarResponse(response: Response, allowFallback = false): Promise<Uint8Array<ArrayBuffer>> {
   if (!response.ok) throw new Error(`score tile returned HTTP ${response.status}`);
   if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== SCALAR_MEDIA_TYPE) throw new Error('score tile has an invalid media type');
   const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase() || 'identity';
@@ -423,7 +460,7 @@ export async function readScalarResponse(response: Response): Promise<Uint8Array
   const expectedBytes = scalarTextureBytes();
   if (encoding === 'identity' && response.headers.get('Content-Length') !== String(expectedBytes)) throw new Error('score tile has an invalid content length');
   const scores = await readBoundedResponse(response, 'score tile', expectedBytes, { contentLength: encoding === 'gzip' ? 'encoded' : 'decoded' });
-  validateScores(scores);
+  validateScores(scores, allowFallback);
   return scores;
 }
 
@@ -507,9 +544,9 @@ function validTextureBounds(bounds: readonly number[]): bounds is readonly [numb
     bounds[0] < bounds[2] && bounds[1] < bounds[3];
 }
 
-export function validateScores(scores: Uint8Array): void {
+export function validateScores(scores: Uint8Array, allowFallback = false): void {
   if (scores.byteLength !== scalarTextureBytes()) throw new Error(`Scalar tile has ${scores.byteLength} bytes; want ${scalarTextureBytes()}.`);
-  for (const score of scores) if (score > 100 && score !== SCALAR_NO_DATA) throw new Error(`Scalar tile contains invalid score ${score}.`);
+  for (const score of scores) if (score > 100 && score !== SCALAR_NO_DATA && (!allowFallback || score !== SCALAR_FALLBACK)) throw new Error(`Scalar tile contains invalid score ${score}.`);
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -527,6 +564,19 @@ function uploadPalette(gl: WebGL2RenderingContext, palette: readonly ScalarPalet
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, palette.length, 1);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, palette.length, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(palette.flatMap((colour) => [...colour])));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return texture;
+}
+
+function uploadScalarTexture(gl: WebGL2RenderingContext, scores: Uint8Array): WebGLTexture {
+  const texture = requireResource(gl.createTexture(), 'score texture');
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, SCALAR_TEXTURE_SIZE, SCALAR_TEXTURE_SIZE);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, SCALAR_TEXTURE_SIZE, SCALAR_TEXTURE_SIZE, gl.RED, gl.UNSIGNED_BYTE, scores);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);

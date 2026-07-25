@@ -32,7 +32,7 @@ const (
 	PointerVersion = 1
 	IndexVersion   = 2
 
-	ProductContract = "nice-weather-forecast-run-v4"
+	ProductContract = "nice-weather-forecast-run-v5"
 	SelectionMethod = "choose-one-complete-tier-before-colour"
 
 	IndexFilename = "index.json"
@@ -201,7 +201,7 @@ func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer,
 	}
 
 	next := Pointer{Version: PointerVersion, Current: candidateReference}
-	if hasCurrent {
+	if hasCurrent && currentIndex.ProductContract == ProductContract {
 		previous := current.Current
 		next.Previous = &previous
 	}
@@ -808,7 +808,7 @@ func readExistingPointer(forecastRoot string) (Pointer, Index, []byte, bool, err
 	if err != nil {
 		return Pointer{}, Index{}, nil, false, fmt.Errorf("refuse publication with invalid current forecast pointer: %w", err)
 	}
-	current, err := validateIndexReference(forecastRoot, pointer.Current)
+	current, err := validatePublicationCurrentReference(forecastRoot, pointer.Current)
 	if err != nil {
 		return Pointer{}, Index{}, nil, false, fmt.Errorf("validate current forecast index: %w", err)
 	}
@@ -816,11 +816,49 @@ func readExistingPointer(forecastRoot string) (Pointer, Index, []byte, bool, err
 		if pointer.Current == *pointer.Previous {
 			return Pointer{}, Index{}, nil, false, errors.New("forecast current and previous indexes must differ")
 		}
-		if _, err := validateIndexReference(forecastRoot, *pointer.Previous); err != nil {
+		if _, err := validatePublicationCurrentReference(forecastRoot, *pointer.Previous); err != nil {
 			return Pointer{}, Index{}, nil, false, fmt.Errorf("validate previous forecast index: %w", err)
 		}
 	}
 	return pointer, current, payload, true, nil
+}
+
+// validatePublicationCurrentReference permits one authenticated transition
+// from the two prior run contracts. Legacy indexes are used only to compare
+// source freshness. New run IDs include the v5 contract, so their stale
+// product directories cannot be reused as v5 candidates.
+func validatePublicationCurrentReference(forecastRoot string, reference IndexReference) (Index, error) {
+	if err := validateIndexReferenceShape(reference); err != nil {
+		return Index{}, err
+	}
+	payload, err := readRegularBounded(filepath.Join(forecastRoot, filepath.FromSlash(reference.Path)), maximumIndexBytes)
+	if err != nil {
+		return Index{}, err
+	}
+	digest := sha256.Sum256(payload)
+	if hex.EncodeToString(digest[:]) != reference.SHA256 {
+		return Index{}, errors.New("forecast index checksum does not match its pointer")
+	}
+	var index Index
+	if err := decodeExactJSON(payload, &index); err != nil {
+		return Index{}, err
+	}
+	if index.IndexID != reference.IndexID {
+		return Index{}, errors.New("forecast index path and identity differ")
+	}
+	if index.ProductContract == ProductContract {
+		return validateIndexReference(forecastRoot, reference)
+	}
+	if index.ProductContract != "nice-weather-forecast-run-v3" && index.ProductContract != "nice-weather-forecast-run-v4" {
+		return Index{}, errors.New("forecast run index contract is not eligible for publication transition")
+	}
+	legacyContract := index.ProductContract
+	index.ProductContract = ProductContract
+	if err := validateIndexShapeForRead(index, true); err != nil {
+		return Index{}, err
+	}
+	index.ProductContract = legacyContract
+	return index, nil
 }
 
 func parsePointer(payload []byte) (Pointer, error) {
@@ -842,7 +880,7 @@ func validateIndexReferenceShape(reference IndexReference) error {
 }
 
 func baselineRun(index Index) (time.Time, error) {
-	if err := validateIndexShapeForRead(index, true); err != nil {
+	if err := validatePublicationIndexShape(index); err != nil {
 		return time.Time{}, err
 	}
 	return time.Parse(time.RFC3339, index.Days[0].Tiers[len(index.Days[0].Tiers)-1].RunUTC)
@@ -885,7 +923,7 @@ func forecastEvidenceAdvances(candidate, current Index) (bool, error) {
 }
 
 func refinementRun(index Index) (time.Time, bool, error) {
-	if err := validateIndexShapeForRead(index, true); err != nil {
+	if err := validatePublicationIndexShape(index); err != nil {
 		return time.Time{}, false, err
 	}
 	for _, day := range index.Days {
@@ -899,6 +937,13 @@ func refinementRun(index Index) (time.Time, bool, error) {
 		return run, true, nil
 	}
 	return time.Time{}, false, nil
+}
+
+func validatePublicationIndexShape(index Index) error {
+	if index.ProductContract == "nice-weather-forecast-run-v3" || index.ProductContract == "nice-weather-forecast-run-v4" {
+		index.ProductContract = ProductContract
+	}
+	return validateIndexShapeForRead(index, true)
 }
 
 func marshalIndex(index Index) ([]byte, error) {

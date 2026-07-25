@@ -160,6 +160,13 @@ func TestScalarTilePreservesCoastAndNoData(t *testing.T) {
 
 func TestScalarTileRejectsInvalidSamplesAndSamplerErrors(t *testing.T) {
 	id, _ := NewID("global", 2, 1, 1)
+	if _, _, err := BuildScalarTile(id, func(ScalarSample) (uint8, bool, error) { return ForecastScalarFallback, true, nil }); err == nil {
+		t.Fatal("generic scalar accepted forecast fallback sentinel")
+	}
+	encoded, stats, err := BuildForecastScalarTile(id, func(ScalarSample) (uint8, bool, error) { return ForecastScalarFallback, true, nil })
+	if err != nil || encoded[ScalarGutter*ScalarTextureSize+ScalarGutter] != ForecastScalarFallback || stats.DataTexels != ScalarTileBytes {
+		t.Fatalf("fallback sentinel = %d stats=%+v err=%v", encoded[ScalarGutter*ScalarTextureSize+ScalarGutter], stats, err)
+	}
 	if _, _, err := BuildScalarTile(id, func(ScalarSample) (uint8, bool, error) { return 101, true, nil }); err == nil {
 		t.Fatal("accepted score above canonical range")
 	}

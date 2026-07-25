@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
-import { readScalarResponse, sha256Hex, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
+import { readScalarResponse, SCALAR_FALLBACK, SCALAR_NO_DATA, sha256Hex, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 import type { MapPoint, ScalarOverlay } from './WeatherMap';
 import { canonicalWorldRect, constrainWorldwideCamera, initialWorldwideCamera } from './initialCamera';
 import { WORLD_LAND_ASSET } from './worldLandAsset';
 import styles from './CanvasFallback.module.css';
 
 const MAP_TILE_SIZE = 512;
+const SCORE_RASTER_SIZE = MAP_TILE_SIZE;
 const MERCATOR_LIMIT = 85.0511287798066;
 const SCORE_TILE_LIMIT = 64;
 
@@ -26,7 +27,7 @@ type Props = Readonly<{
 }>;
 
 type ViewState = { longitude: number; latitude: number; zoom: number };
-type LoadedScore = { canvas: HTMLCanvasElement; textureBounds: readonly [number, number, number, number] };
+type LoadedScore = { canvas: HTMLCanvasElement };
 
 export function CanvasFallback({ scalarOverlay, worldwide = false, bounds, selectedPoint, focusPoint, command, onSelect, onViewportChange, onReady, onOverlayReady, onOverlayError }: Props) {
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -298,30 +299,45 @@ async function loadLandImage(): Promise<ImageBitmap> {
 
 async function loadScoreTile(source: ScalarTileSource, palette: readonly ScalarPaletteColour[], signal: AbortSignal): Promise<LoadedScore> {
   const response = await fetch(source.url, { cache: 'force-cache', credentials: 'omit', signal });
-  const scores = await readScalarResponse(response);
+  const scores = await readScalarResponse(response, source.allowFallback === true);
   if (await sha256Hex(scores) !== source.sha256) throw new Error('Score tile SHA-256 does not match its index.');
-  const canvas = document.createElement('canvas');
-  canvas.width = 258; canvas.height = 258;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas score rendering is unavailable.');
-  const image = context.createImageData(258, 258);
-  image.data.set(scorePixels(scores, palette));
-  context.putImageData(image, 0, 0);
-  return { canvas, textureBounds: source.textureBounds ?? [0, 0, 1, 1] };
+  const textureBounds = source.textureBounds ?? [0, 0, 1, 1] as const;
+  let fallbackScores: Uint8Array | undefined, fallbackBounds: readonly [number, number, number, number] | undefined;
+  if (source.fallback) {
+    const fallbackResponse = await fetch(source.fallback.url, { cache: 'force-cache', credentials: 'omit', signal });
+    fallbackScores = await readScalarResponse(fallbackResponse, false);
+    if (await sha256Hex(fallbackScores) !== source.fallback.sha256) throw new Error('Fallback score tile SHA-256 does not match its index.');
+    fallbackBounds = source.fallback.textureBounds ?? [0, 0, 1, 1];
+  }
+  return { canvas: renderScoreCanvas(scores, textureBounds, fallbackScores, fallbackBounds, palette) };
 }
 
-export function scorePixels(scores: Uint8Array, palette: readonly ScalarPaletteColour[]): Uint8ClampedArray {
-  const pixels = new Uint8ClampedArray(scores.length * 4);
-  scores.forEach((score, index) => {
-    if (score > 100) return;
-    const colour = palette[score];
-    pixels[index * 4] = colour[0]; pixels[index * 4 + 1] = colour[1]; pixels[index * 4 + 2] = colour[2]; pixels[index * 4 + 3] = Math.round(colour[3] * .82);
-  });
+function renderScoreCanvas(primary: Uint8Array, primaryBounds: readonly [number, number, number, number], fallback: Uint8Array | undefined, fallbackBounds: readonly [number, number, number, number] | undefined, palette: readonly ScalarPaletteColour[]): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = SCORE_RASTER_SIZE; canvas.height = SCORE_RASTER_SIZE;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas score rendering is unavailable.');
+  const image = context.createImageData(SCORE_RASTER_SIZE, SCORE_RASTER_SIZE);
+  image.data.set(renderScorePixels(primary, primaryBounds, fallback, fallbackBounds, palette, SCORE_RASTER_SIZE));
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
+export function renderScorePixels(primary: Uint8Array, primaryBounds: readonly [number, number, number, number], fallback: Uint8Array | undefined, fallbackBounds: readonly [number, number, number, number] | undefined, palette: readonly ScalarPaletteColour[], size: number): Uint8ClampedArray {
+  if (!Number.isInteger(size) || size < 1) throw new Error('Score raster size is invalid.');
+  const pixels = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const colour = sampleScoreFragment(primary, primaryBounds, fallback, fallbackBounds, palette, (x + 0.5) / size, (y + 0.5) / size);
+      if (colour) pixels.set(colour, (y * size + x) * 4);
+    }
+  }
   return pixels;
 }
 
 export function scalarCacheKey(overlayKey: string, source: ScalarTileSource): string {
-  return `${overlayKey}:${source.key}:${source.url}:${source.sha256}`;
+  const fallback = source.fallback ? `:${source.fallback.key}:${source.fallback.url}:${source.fallback.sha256}` : '';
+  return `${overlayKey}:${source.key}:${source.url}:${source.sha256}${fallback}`;
 }
 
 export function mergeDrawCache<K, V>(cache: Map<K, V>, requested: readonly K[], loaded: readonly (readonly [K, V])[], limit: number): Map<K, V> {
@@ -353,9 +369,43 @@ export async function runBounded<T, R>(items: readonly T[], limit: number, signa
 
 function drawScoreTile(context: CanvasRenderingContext2D, loaded: LoadedScore, tile: TileDraw, view: ViewState, width: number, height: number) {
   const position = tileScreenPosition(tile, view, width, height);
-  const [west, north, east, south] = loaded.textureBounds;
-  context.imageSmoothingEnabled = true;
-  context.drawImage(loaded.canvas, 1 + west * 256, 1 + north * 256, (east - west) * 256, (south - north) * 256, position.x, position.y, position.size, position.size);
+  drawLoadedScore(context, loaded, position);
+}
+
+function drawLoadedScore(context: CanvasRenderingContext2D, loaded: LoadedScore, position: Readonly<{ x: number; y: number; size: number }>) {
+  if (position.size <= 0) return;
+  context.imageSmoothingEnabled = false;
+  context.drawImage(loaded.canvas, position.x, position.y, position.size, position.size);
+}
+
+export function sampleScoreFragment(primary: Uint8Array, primaryBounds: readonly [number, number, number, number], fallback: Uint8Array | undefined, fallbackBounds: readonly [number, number, number, number] | undefined, palette: readonly ScalarPaletteColour[], u: number, v: number): ScalarPaletteColour | undefined {
+  let sampled = sampleScorePlane(primary, primaryBounds, u, v);
+  if (sampled === SCALAR_FALLBACK) sampled = fallback && fallbackBounds ? sampleScorePlane(fallback, fallbackBounds, u, v) : SCALAR_NO_DATA;
+  if (sampled > 100) return undefined;
+  return palette[Math.max(0, Math.min(100, Math.round(sampled)))] as ScalarPaletteColour;
+}
+
+function sampleScorePlane(scores: Uint8Array, bounds: readonly [number, number, number, number], u: number, v: number): number {
+  if (u < 0 || u > 1 || v < 0 || v > 1) return SCALAR_NO_DATA;
+  const sourceU = bounds[0] + (bounds[2] - bounds[0]) * u, sourceV = bounds[1] + (bounds[3] - bounds[1]) * v;
+  const sampleX = sourceU * 256 + 0.5, sampleY = sourceV * 256 + 0.5;
+  const centre = scoreAt(scores, Math.floor(sampleX + 0.5), Math.floor(sampleY + 0.5));
+  if (centre > 100) return centre;
+  const baseX = Math.floor(sampleX), baseY = Math.floor(sampleY), fractionX = sampleX - baseX, fractionY = sampleY - baseY;
+  let total = 0, coverage = 0;
+  let score = scoreAt(scores, baseX, baseY), weight = (1 - fractionX) * (1 - fractionY);
+  if (score <= 100) { total += score * weight; coverage += weight; }
+  score = scoreAt(scores, baseX + 1, baseY); weight = fractionX * (1 - fractionY);
+  if (score <= 100) { total += score * weight; coverage += weight; }
+  score = scoreAt(scores, baseX, baseY + 1); weight = (1 - fractionX) * fractionY;
+  if (score <= 100) { total += score * weight; coverage += weight; }
+  score = scoreAt(scores, baseX + 1, baseY + 1); weight = fractionX * fractionY;
+  if (score <= 100) { total += score * weight; coverage += weight; }
+  return coverage > 0 ? total / coverage : centre;
+}
+
+function scoreAt(scores: Uint8Array, x: number, y: number): number {
+  return x < 0 || x >= 258 || y < 0 || y >= 258 ? SCALAR_NO_DATA : scores[y * 258 + x];
 }
 
 export function drawLand(context: CanvasRenderingContext2D, image: CanvasImageSource, view: ViewState, width: number, height: number) {

@@ -82,7 +82,7 @@ func tileSourceWindow(source delivery.GridSpec, id tiledelivery.ID) (pipeline.Gr
 	}, true
 }
 
-func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land TouchesLand) ([]delivery.DailyPointRecord, []delivery.DailyPointRecord, error) {
+func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land DisplayLand, allowFallback bool) ([]delivery.DailyPointRecord, []delivery.DailyPointRecord, error) {
 	texture := make([]delivery.DailyPointRecord, tiledelivery.ScalarTextureSize*tiledelivery.ScalarTextureSize)
 	records := make([]delivery.DailyPointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
 	worldPixels := int64(tiledelivery.TileSize) * (int64(1) << id.Zoom)
@@ -113,71 +113,27 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 				return nil, nil, fmt.Errorf("land in texel %.5f..%.5f,%.5f..%.5f: %w", west, east, south, north, err)
 			}
 			if !isLand {
-				isLand, err = sourceCellLandAnchor(longitude, latitude, delivery.GridBounds{West: west, East: east, North: north, South: south}, window.Spec, land)
-				if err != nil {
-					return nil, nil, err
-				}
-				if !isLand {
-					continue
-				}
+				continue
 			}
 			record, ok, err := interpolateRecord(longitude, latitude, window)
 			if err != nil {
 				return nil, nil, err
 			}
 			if !ok {
-				continue
+				if !allowFallback {
+					continue
+				}
+				record = fallbackRecord()
 			}
 			texture[textureY*tiledelivery.ScalarTextureSize+textureX] = record
 			if textureX >= 1 && textureX <= tiledelivery.TileSize && textureY >= 1 && textureY <= tiledelivery.TileSize {
-				records[(textureY-1)*tiledelivery.TileSize+(textureX-1)] = record
+				if !isFallbackRecord(record) {
+					records[(textureY-1)*tiledelivery.TileSize+(textureX-1)] = record
+				}
 			}
 		}
 	}
 	return texture, records, nil
-}
-
-// sourceCellLandAnchor preserves narrow islands and coastal slivers that are
-// present in the land authority at the honest provider-cell scale but vanish
-// at the smaller display-texel scale. Only the display texel containing that
-// provider cell's centre may inherit its all-touched support, so neighbouring
-// water texels do not become a blocky copy of the source cell.
-func sourceCellLandAnchor(longitude, latitude float64, target delivery.GridBounds, source delivery.GridSpec, land TouchesLand) (bool, error) {
-	originalLongitude := longitude
-	span := source.Bounds.East - source.Bounds.West
-	for longitude < source.Bounds.West {
-		longitude += 360
-	}
-	for longitude >= source.Bounds.East && span < 360 {
-		longitude -= 360
-	}
-	longitudeShift := longitude - originalLongitude
-	target.West += longitudeShift
-	target.East += longitudeShift
-	cellWidth := (source.Bounds.East - source.Bounds.West) / float64(source.Cols)
-	cellHeight := (source.Bounds.North - source.Bounds.South) / float64(source.Rows)
-	column := int(math.Floor((longitude - source.Bounds.West) / cellWidth))
-	row := int(math.Floor((source.Bounds.North - latitude) / cellHeight))
-	if row < 0 || column < 0 || row >= int(source.Rows) || column >= int(source.Cols) {
-		return false, nil
-	}
-	west := source.Bounds.West + float64(column)*cellWidth
-	north := source.Bounds.North - float64(row)*cellHeight
-	centreLongitude := west + cellWidth/2
-	centreLatitude := north - cellHeight/2
-	if centreLongitude < target.West || centreLongitude >= target.East || centreLatitude <= target.South || centreLatitude > target.North {
-		return false, nil
-	}
-	sourceCell := delivery.GridBounds{West: west, East: west + cellWidth, North: north, South: north - cellHeight}
-	for sourceCell.West < -180 {
-		sourceCell.West += 360
-		sourceCell.East += 360
-	}
-	for sourceCell.West >= 180 {
-		sourceCell.West -= 360
-		sourceCell.East -= 360
-	}
-	return land(sourceCell)
 }
 
 func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DailyPointRecord, bool, error) {
@@ -293,6 +249,9 @@ func textureSampler(id tiledelivery.ID, texture []delivery.DailyPointRecord, fie
 
 func fieldValue(record delivery.DailyPointRecord, field Field) (uint8, bool, error) {
 	if !record.Weather.Valid {
+		if isFallbackRecord(record) {
+			return tiledelivery.ForecastScalarFallback, true, nil
+		}
 		return 0, false, nil
 	}
 	switch field {
@@ -313,6 +272,21 @@ func fieldValue(record delivery.DailyPointRecord, field Field) (uint8, bool, err
 	default:
 		return 0, false, fmt.Errorf("unknown scalar field %q", field)
 	}
+}
+
+func fallbackRecord() delivery.DailyPointRecord {
+	return delivery.DailyPointRecord{
+		Thermal: tiledelivery.ForecastScalarFallback, Dryness: tiledelivery.ForecastScalarFallback, Sun: tiledelivery.ForecastScalarFallback,
+		NiceScore: tiledelivery.ForecastScalarFallback, NiceWind: tiledelivery.ForecastScalarFallback,
+		CyclingScore: tiledelivery.ForecastScalarFallback, CyclingWind: tiledelivery.ForecastScalarFallback,
+	}
+}
+
+func isFallbackRecord(record delivery.DailyPointRecord) bool {
+	return !record.Weather.Valid && record.Thermal == tiledelivery.ForecastScalarFallback &&
+		record.Dryness == tiledelivery.ForecastScalarFallback && record.Sun == tiledelivery.ForecastScalarFallback &&
+		record.NiceScore == tiledelivery.ForecastScalarFallback && record.NiceWind == tiledelivery.ForecastScalarFallback &&
+		record.CyclingScore == tiledelivery.ForecastScalarFallback && record.CyclingWind == tiledelivery.ForecastScalarFallback
 }
 
 func errorsNewSampleOutside() error {

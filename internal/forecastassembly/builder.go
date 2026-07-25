@@ -432,7 +432,13 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog forecasttiles
 			if !ok {
 				return 0, fmt.Errorf("max-zoom point tile %d/%d has no %s scalar", point.X, point.Y, field)
 			}
-			encoded, _, err := tiledelivery.ReadScalar(filepath.Join(root, filepath.FromSlash(scalar.Path)), scalar.SHA256)
+			var encoded []byte
+			var err error
+			if catalog.Tier == "europe-detail" {
+				encoded, _, err = tiledelivery.ReadForecastScalar(filepath.Join(root, filepath.FromSlash(scalar.Path)), scalar.SHA256)
+			} else {
+				encoded, _, err = tiledelivery.ReadScalar(filepath.Join(root, filepath.FromSlash(scalar.Path)), scalar.SHA256)
+			}
 			if err != nil {
 				return 0, err
 			}
@@ -446,6 +452,10 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog forecasttiles
 					return 0, err
 				}
 				if !valid {
+					if catalog.Tier == "europe-detail" && got == tiledelivery.ForecastScalarFallback {
+						compared++
+						continue
+					}
 					want = tiledelivery.ScalarNoData
 				}
 				if got != want {

@@ -85,10 +85,11 @@ type FieldContract struct {
 }
 
 type Scores struct {
-	Unit        string            `json:"unit"`
-	NoDataValue uint8             `json:"noDataValue"`
-	Profiles    []weather.Profile `json:"profiles"`
-	Fields      []FieldContract   `json:"fields"`
+	Unit          string            `json:"unit"`
+	NoDataValue   uint8             `json:"noDataValue"`
+	FallbackValue *uint8            `json:"fallbackValue,omitempty"`
+	Profiles      []weather.Profile `json:"profiles"`
+	Fields        []FieldContract   `json:"fields"`
 }
 
 // PointBlock covers one required native block coordinate. Omitted is valid
@@ -277,6 +278,10 @@ func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttil
 		},
 		PointBlocks: blocks, DailyPointBlocks: dailyPointBlocks, ScalarCoverage: scalarCoverage, ScalarTiles: tiles,
 	}
+	if config.Tier == forecastpoints.TierEurope {
+		fallback := tiledelivery.ForecastScalarFallback
+		catalog.Scores.FallbackValue = &fallback
+	}
 	catalog.Coverage = coverage(catalog)
 	if err := Validate(catalog); err != nil {
 		return Catalog{}, err
@@ -342,7 +347,9 @@ func Validate(catalog Catalog) error {
 	if err := forecasttiles.ValidateLandIdentity(catalog.Land); err != nil {
 		return errors.New("forecast catalogue land provenance is invalid")
 	}
-	if catalog.Scores.Unit != ScoreUnit || catalog.Scores.NoDataValue != ScoreNoData ||
+	validFallback := catalog.Tier == forecastpoints.TierEurope && catalog.Scores.FallbackValue != nil && *catalog.Scores.FallbackValue == tiledelivery.ForecastScalarFallback ||
+		catalog.Tier == forecastpoints.TierGlobal && catalog.Scores.FallbackValue == nil
+	if catalog.Scores.Unit != ScoreUnit || catalog.Scores.NoDataValue != ScoreNoData || !validFallback ||
 		!slices.Equal(catalog.Scores.Profiles, []weather.Profile{weather.ProfileNice, weather.ProfileCycling}) ||
 		!slices.Equal(catalog.Scores.Fields, fieldContracts) {
 		return errors.New("forecast catalogue score fields or profiles are invalid")
@@ -393,7 +400,13 @@ func ValidateFiles(root string, catalog Catalog) error {
 		}
 	}
 	for _, tile := range catalog.ScalarTiles {
-		_, stats, err := tiledelivery.ReadScalar(filepath.Join(root, filepath.FromSlash(tile.Path)), tile.SHA256)
+		var stats tiledelivery.ScalarStats
+		var err error
+		if catalog.Tier == forecastpoints.TierEurope {
+			_, stats, err = tiledelivery.ReadForecastScalar(filepath.Join(root, filepath.FromSlash(tile.Path)), tile.SHA256)
+		} else {
+			_, stats, err = tiledelivery.ReadScalar(filepath.Join(root, filepath.FromSlash(tile.Path)), tile.SHA256)
+		}
 		if err != nil {
 			return fmt.Errorf("validate forecast scalar %s %d/%d/%d: %w", tile.Field, tile.Zoom, tile.X, tile.Y, err)
 		}
@@ -533,9 +546,10 @@ func validateScalarCoverageOutcomes(catalog Catalog, spec tierSpec) error {
 	for index, coordinate := range expected {
 		outcome := catalog.ScalarCoverage[index]
 		if outcome.Zoom != spec.maxZoom || outcome.X != coordinate.X || outcome.Y != coordinate.Y ||
-			uint64(outcome.DataRecords)+uint64(outcome.NoDataRecords) != tiledelivery.TileSize*tiledelivery.TileSize ||
-			(outcome.Omitted && (outcome.DataRecords != 0 || outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize)) ||
-			(!outcome.Omitted && outcome.DataRecords == 0) {
+			uint64(outcome.DataRecords)+uint64(outcome.FallbackRecords)+uint64(outcome.NoDataRecords) != tiledelivery.TileSize*tiledelivery.TileSize ||
+			(outcome.Omitted && (outcome.DataRecords != 0 || outcome.FallbackRecords != 0 || outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize)) ||
+			(!outcome.Omitted && outcome.DataRecords+outcome.FallbackRecords == 0) ||
+			(catalog.Tier != forecastpoints.TierEurope && outcome.FallbackRecords != 0) {
 			return fmt.Errorf("forecast scalar coverage outcome at index %d is invalid", index)
 		}
 	}
@@ -543,9 +557,6 @@ func validateScalarCoverageOutcomes(catalog Catalog, spec tierSpec) error {
 }
 
 func validateDailyPointBlocks(catalog Catalog, spec tierSpec) error {
-	if len(catalog.DailyPointBlocks) == 0 {
-		return errors.New("forecast catalogue has no daily point blocks")
-	}
 	seen := make(map[tileCoordinate]struct{}, len(catalog.DailyPointBlocks))
 	dataByTile := make(map[tileCoordinate]uint32)
 	expectedByTile := make(map[tileCoordinate]uint32, len(catalog.ScalarCoverage))
@@ -569,6 +580,9 @@ func validateDailyPointBlocks(catalog Catalog, spec tierSpec) error {
 		if outcome.DataRecords > 0 {
 			expectedByTile[coordinate] = outcome.DataRecords
 		}
+	}
+	if len(catalog.DailyPointBlocks) == 0 && len(expectedByTile) != 0 {
+		return errors.New("forecast catalogue has no daily point blocks")
 	}
 	if !maps.Equal(dataByTile, expectedByTile) {
 		return errors.New("forecast daily point blocks do not exactly match scalar coverage")

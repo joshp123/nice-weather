@@ -15,16 +15,27 @@ type ScalarAssetLookup func(ID) (ScalarAsset, bool)
 // Its decoded cache is private to that parent, so it cannot grow with the
 // number of tiles in the world or the number of pyramid levels.
 type ScalarParentSampler struct {
-	parent    ID
-	childZoom uint8
-	lookup    ScalarAssetLookup
-	cache     map[ID][]byte
-	peakBytes uint64
+	parent        ID
+	childZoom     uint8
+	lookup        ScalarAssetLookup
+	cache         map[ID][]byte
+	peakBytes     uint64
+	allowFallback bool
 }
 
 // NewScalarParentSampler creates the spatial resampling seam for one parent.
 // The parent ID chooses the scalar field through its caller-owned tier.
 func NewScalarParentSampler(parent ID, lookup ScalarAssetLookup) (*ScalarParentSampler, error) {
+	return newScalarParentSampler(parent, lookup, false)
+}
+
+// NewForecastScalarParentSampler preserves the forecast-detail fallback
+// marker without treating it as a numeric score.
+func NewForecastScalarParentSampler(parent ID, lookup ScalarAssetLookup) (*ScalarParentSampler, error) {
+	return newScalarParentSampler(parent, lookup, true)
+}
+
+func newScalarParentSampler(parent ID, lookup ScalarAssetLookup, allowFallback bool) (*ScalarParentSampler, error) {
 	if err := parent.validate(); err != nil {
 		return nil, err
 	}
@@ -36,7 +47,7 @@ func NewScalarParentSampler(parent ID, lookup ScalarAssetLookup) (*ScalarParentS
 	}
 	return &ScalarParentSampler{
 		parent: parent, childZoom: parent.Zoom + 1, lookup: lookup,
-		cache: make(map[ID][]byte),
+		cache: make(map[ID][]byte), allowFallback: allowFallback,
 	}, nil
 }
 
@@ -70,6 +81,7 @@ func (sampler *ScalarParentSampler) Sample(sample ScalarSample) (uint8, bool, er
 	childWorld := int64(TileSize) * (int64(1) << sampler.childZoom)
 	baseX, baseY := sample.GlobalX*2, sample.GlobalY*2
 	total, count := 0, 0
+	fallback := false
 	for offsetY := int64(0); offsetY < 2; offsetY++ {
 		childY := baseY + offsetY
 		if childY < 0 || childY >= childWorld {
@@ -82,12 +94,19 @@ func (sampler *ScalarParentSampler) Sample(sample ScalarSample) (uint8, bool, er
 				return 0, false, err
 			}
 			if valid {
+				if sampler.allowFallback && value == ForecastScalarFallback {
+					fallback = true
+					continue
+				}
 				total += int(value)
 				count++
 			}
 		}
 	}
 	if count == 0 {
+		if fallback {
+			return ForecastScalarFallback, true, nil
+		}
 		return 0, false, nil
 	}
 	return uint8(math.Round(float64(total) / float64(count))), true, nil
@@ -119,7 +138,11 @@ func (sampler *ScalarParentSampler) read(globalX, globalY int64) (uint8, bool, e
 	}
 	encoded, ok := sampler.cache[id]
 	if !ok {
-		encoded, _, err = ReadScalar(asset.Path, asset.SHA256)
+		if sampler.allowFallback {
+			encoded, _, err = ReadForecastScalar(asset.Path, asset.SHA256)
+		} else {
+			encoded, _, err = ReadScalar(asset.Path, asset.SHA256)
+		}
 		if err != nil {
 			return 0, false, err
 		}

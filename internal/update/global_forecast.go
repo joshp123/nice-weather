@@ -123,7 +123,7 @@ func RunForecastProduction(ctx context.Context, config ForecastProductionConfig)
 		},
 		land: func(ctx context.Context, decoder *pipeline.Decoder, cache, scratch string, zoom uint8) (forecasttiles.LandMask, error) {
 			authority := NewLandAuthority(cache, httpClient, decoder.Runner)
-			return globalCanaryWebMercatorLandMask(ctx, authority, scratch, zoom)
+			return forecastWebMercatorDisplayLandMask(ctx, authority, scratch, zoom)
 		},
 		locate:     globalTimezoneLocator,
 		prepare:    prepareStagedDay,
@@ -652,7 +652,8 @@ func isOwnedForecastSourceTransaction(root string) (bool, error) {
 }
 
 func forecastProductionID(ifsRun, iconRun time.Time, europeDays int, first, last time.Time) string {
-	id := fmt.Sprintf("ifs-%s-%s-%s", ifsRun.UTC().Format("2006010215"), first.Format("20060102"), last.Format("20060102"))
+	contract := strings.TrimPrefix(forecastruns.ProductContract, "nice-weather-forecast-run-")
+	id := fmt.Sprintf("ifs-%s-%s-%s-%s", ifsRun.UTC().Format("2006010215"), first.Format("20060102"), last.Format("20060102"), contract)
 	if europeDays > 0 {
 		return id + "-icon-" + iconRun.UTC().Format("2006010215")
 	}

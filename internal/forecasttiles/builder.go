@@ -26,24 +26,24 @@ import (
 const catalogVersion = 3
 
 const (
-	LandAuthorityNaturalEarth        = "Natural Earth"
-	LandDatasetNaturalEarth10M       = "ne_10m_land"
-	LandVersionNaturalEarth511       = "5.1.1"
-	LandDerivationWebMercatorTouchV1 = "web-mercator-all-touched-v1"
+	LandAuthorityNaturalEarth         = "Natural Earth"
+	LandDatasetNaturalEarth10M        = "ne_10m_land"
+	LandVersionNaturalEarth511        = "5.1.1"
+	LandDerivationWebMercatorCentreV1 = "web-mercator-centre-on-land-v1"
 )
 
 // LocateTimezone returns the civil timezone used to aggregate a source cell.
 type LocateTimezone func(longitude, latitude float64) (*time.Location, error)
 
-// TouchesLand reports whether any part of an exact output texel intersects
-// land. This all-touched contract preserves small islands and coastal slivers
-// whose polygons do not contain the texel centre.
-type TouchesLand func(bounds delivery.GridBounds) (bool, error)
+// DisplayLand reports whether the centre of an exact output texel is on land.
+// Native point records remain independent of this display-only boundary, so a
+// coastal place can retain provider evidence without colouring nearby water.
+type DisplayLand func(bounds delivery.GridBounds) (bool, error)
 
 // LandIdentity names the exact polygon source and raster mask consumed by one
 // forecast tier. SourceArchiveSHA256 identifies the downloaded authority;
 // MaskSHA256 identifies the exact row-major 0/1 Web Mercator bytes used by the
-// predicate. DerivationContract fixes the projection and all-touched policy.
+// predicate. DerivationContract fixes the projection and centre-on-land policy.
 type LandIdentity struct {
 	Authority           string `json:"authority"`
 	Dataset             string `json:"dataset"`
@@ -56,29 +56,29 @@ type LandIdentity struct {
 // LandMask keeps the predicate and its immutable identity together. Callers
 // can inspect the identity but cannot relabel a predicate after construction.
 type LandMask struct {
-	touches  TouchesLand
+	displays DisplayLand
 	identity LandIdentity
 }
 
-func NewLandMask(touches TouchesLand, identity LandIdentity) (LandMask, error) {
-	if touches == nil || ValidateLandIdentity(identity) != nil {
+func NewLandMask(displays DisplayLand, identity LandIdentity) (LandMask, error) {
+	if displays == nil || ValidateLandIdentity(identity) != nil {
 		return LandMask{}, errors.New("forecast land mask identity is invalid")
 	}
-	return LandMask{touches: touches, identity: identity}, nil
+	return LandMask{displays: displays, identity: identity}, nil
 }
 
-func (mask LandMask) Touches(bounds delivery.GridBounds) (bool, error) {
-	if mask.touches == nil || ValidateLandIdentity(mask.identity) != nil {
+func (mask LandMask) Displays(bounds delivery.GridBounds) (bool, error) {
+	if mask.displays == nil || ValidateLandIdentity(mask.identity) != nil {
 		return false, errors.New("forecast land mask is invalid")
 	}
-	return mask.touches(bounds)
+	return mask.displays(bounds)
 }
 
 func (mask LandMask) Identity() LandIdentity { return mask.identity }
 
 func ValidateLandIdentity(identity LandIdentity) error {
 	if identity.Authority == LandAuthorityNaturalEarth && identity.Dataset == LandDatasetNaturalEarth10M &&
-		identity.Version == LandVersionNaturalEarth511 && identity.DerivationContract == LandDerivationWebMercatorTouchV1 &&
+		identity.Version == LandVersionNaturalEarth511 && identity.DerivationContract == LandDerivationWebMercatorCentreV1 &&
 		validLowerSHA256(identity.SourceArchiveSHA256) && validLowerSHA256(identity.MaskSHA256) {
 		return nil
 	}
@@ -166,12 +166,13 @@ type SourceIdentity struct {
 // intersects the provider grid. An omitted outcome is valid only when all
 // records are no-data.
 type MaxZoomOutcome struct {
-	Zoom          uint8  `json:"zoom"`
-	X             uint32 `json:"x"`
-	Y             uint32 `json:"y"`
-	Omitted       bool   `json:"omitted"`
-	DataRecords   uint32 `json:"dataRecords"`
-	NoDataRecords uint32 `json:"noDataRecords"`
+	Zoom            uint8  `json:"zoom"`
+	X               uint32 `json:"x"`
+	Y               uint32 `json:"y"`
+	Omitted         bool   `json:"omitted"`
+	DataRecords     uint32 `json:"dataRecords"`
+	FallbackRecords uint32 `json:"fallbackRecords"`
+	NoDataRecords   uint32 `json:"noDataRecords"`
 }
 
 // BuildStats exposes bounded working-set evidence. Catalog metadata is output,
@@ -261,12 +262,13 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 				return Catalog{}, fmt.Errorf("aggregate %d/%d/%d: %w", id.Zoom, id.X, id.Y, err)
 			}
 			catalog.Stats.MaxMetricCells = max(catalog.Stats.MaxMetricCells, uint64(len(aggregated.Metrics)))
-			texture, records, err := evaluateMaxTile(ctx, id, aggregated, config.Land.Touches)
+			allowFallback := config.Tier == "europe-detail"
+			texture, records, err := evaluateMaxTile(ctx, id, aggregated, config.Land.Displays, allowFallback)
 			if err != nil {
 				return Catalog{}, fmt.Errorf("evaluate %d/%d/%d: %w", id.Zoom, id.X, id.Y, err)
 			}
 			catalog.Stats.MaxDisplayRecords = max(catalog.Stats.MaxDisplayRecords, uint64(len(texture)+len(records)))
-			outcome := maxZoomOutcome(id, records)
+			outcome := maxZoomOutcome(id, texture)
 			catalog.MaxZoomOutcomes = append(catalog.MaxZoomOutcomes, outcome)
 			if outcome.Omitted {
 				continue
@@ -297,7 +299,12 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 				if err != nil {
 					return Catalog{}, err
 				}
-				asset, err := writer.WriteScalar(scalarID, config.Period, textureSampler(id, texture, field))
+				var asset tiledelivery.ScalarAsset
+				if allowFallback {
+					asset, err = writer.WriteForecastScalar(scalarID, config.Period, textureSampler(id, texture, field))
+				} else {
+					asset, err = writer.WriteScalar(scalarID, config.Period, textureSampler(id, texture, field))
+				}
 				if err != nil {
 					return Catalog{}, err
 				}
@@ -329,17 +336,28 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 					if err != nil {
 						return Catalog{}, err
 					}
-					parent, err := tiledelivery.NewScalarParentSampler(id, func(id tiledelivery.ID) (tiledelivery.ScalarAsset, bool) {
+					lookup := func(id tiledelivery.ID) (tiledelivery.ScalarAsset, bool) {
 						asset, ok := levelAssets[id]
 						return asset, ok
-					})
+					}
+					var parent *tiledelivery.ScalarParentSampler
+					if config.Tier == "europe-detail" {
+						parent, err = tiledelivery.NewForecastScalarParentSampler(id, lookup)
+					} else {
+						parent, err = tiledelivery.NewScalarParentSampler(id, lookup)
+					}
 					if err != nil {
 						return Catalog{}, err
 					}
 					if !parent.HasInteriorData() {
 						continue
 					}
-					asset, err := writer.WriteScalar(id, config.Period, parent.Sample)
+					var asset tiledelivery.ScalarAsset
+					if config.Tier == "europe-detail" {
+						asset, err = writer.WriteForecastScalar(id, config.Period, parent.Sample)
+					} else {
+						asset, err = writer.WriteScalar(id, config.Period, parent.Sample)
+					}
 					if err != nil {
 						return Catalog{}, err
 					}
@@ -508,16 +526,22 @@ func preparedEvidenceFrom(metadata pipeline.PreparedFrameMetadata) preparedEvide
 	}
 }
 
-func maxZoomOutcome(id tiledelivery.ID, records []delivery.DailyPointRecord) MaxZoomOutcome {
+func maxZoomOutcome(id tiledelivery.ID, texture []delivery.DailyPointRecord) MaxZoomOutcome {
 	outcome := MaxZoomOutcome{Zoom: id.Zoom, X: id.X, Y: id.Y}
-	for _, record := range records {
-		if record.Weather.Valid {
-			outcome.DataRecords++
-		} else {
-			outcome.NoDataRecords++
+	for row := tiledelivery.ScalarGutter; row < tiledelivery.ScalarGutter+tiledelivery.TileSize; row++ {
+		for column := tiledelivery.ScalarGutter; column < tiledelivery.ScalarGutter+tiledelivery.TileSize; column++ {
+			record := texture[row*tiledelivery.ScalarTextureSize+column]
+			switch {
+			case record.Weather.Valid:
+				outcome.DataRecords++
+			case isFallbackRecord(record):
+				outcome.FallbackRecords++
+			default:
+				outcome.NoDataRecords++
+			}
 		}
 	}
-	outcome.Omitted = outcome.DataRecords == 0
+	outcome.Omitted = outcome.DataRecords+outcome.FallbackRecords == 0
 	return outcome
 }
 

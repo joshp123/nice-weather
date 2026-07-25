@@ -164,13 +164,13 @@ func TestInterpolateRecordKeepsBoundedEvidenceInsideItsPhysicalRange(t *testing.
 func TestLandMaskKeepsPredicateAndExactIdentityTogether(t *testing.T) {
 	identity := LandIdentity{
 		Authority: LandAuthorityNaturalEarth, Dataset: LandDatasetNaturalEarth10M, Version: LandVersionNaturalEarth511,
-		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: LandDerivationWebMercatorTouchV1,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: LandDerivationWebMercatorCentreV1,
 	}
 	mask, err := NewLandMask(func(bounds delivery.GridBounds) (bool, error) { return bounds.West == 1, nil }, identity)
 	if err != nil || mask.Identity() != identity {
 		t.Fatalf("land mask identity = %+v, %v", mask.Identity(), err)
 	}
-	if got, err := mask.Touches(delivery.GridBounds{West: 1, East: 2, South: 3, North: 4}); err != nil || !got {
+	if got, err := mask.Displays(delivery.GridBounds{West: 1, East: 2, South: 3, North: 4}); err != nil || !got {
 		t.Fatalf("land predicate = %v, %v", got, err)
 	}
 	bad := []LandIdentity{
@@ -259,7 +259,7 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 	}
 	produced := make(map[[2]uint32]struct{})
 	for _, outcome := range catalog.MaxZoomOutcomes {
-		if outcome.Zoom != config.MaxZoom || outcome.DataRecords+outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize || outcome.Omitted != (outcome.DataRecords == 0) {
+		if outcome.Zoom != config.MaxZoom || outcome.DataRecords+outcome.FallbackRecords+outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize || outcome.Omitted != (outcome.DataRecords+outcome.FallbackRecords == 0) {
 			t.Fatalf("invalid max-zoom outcome: %+v", outcome)
 		}
 		if !outcome.Omitted {
@@ -325,7 +325,7 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 	}
 }
 
-func TestICONCoastalSourceCellAnchorsOneTromsoTexelWithPointScalarParity(t *testing.T) {
+func TestDisplayMaskDoesNotColourCoastalSupportOutsideLandCentre(t *testing.T) {
 	const longitude, latitude = 18.9553, 69.6492
 	id, row, column, err := tiledelivery.At(forecastpoints.TierEurope, 5, longitude, latitude)
 	if err != nil {
@@ -347,22 +347,18 @@ func TestICONCoastalSourceCellAnchorsOneTromsoTexelWithPointScalarParity(t *test
 		},
 		Metrics: metrics,
 	}
-	land := func(bounds delivery.GridBounds) (bool, error) {
-		// Natural Earth has no geometry in Tromso's z5 display texel, but it
-		// does intersect the honest 0.0625-degree ICON source cell.
-		return bounds.West == 18.9375 && bounds.East == 19 && bounds.South == 69.625 && bounds.North == 69.6875, nil
-	}
-	texture, points, err := evaluateMaxTile(context.Background(), id, window, land)
+	land := func(delivery.GridBounds) (bool, error) { return false, nil }
+	texture, points, err := evaluateMaxTile(context.Background(), id, window, land, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	point := points[row*tiledelivery.TileSize+column]
-	if !point.Weather.Valid {
-		t.Fatal("Tromso display point lost all-touched ICON source-cell support")
+	if point.Weather.Valid {
+		t.Fatal("coastal source support coloured a water-centred display texel")
 	}
 	scalar := texture[(row+tiledelivery.ScalarGutter)*tiledelivery.ScalarTextureSize+column+tiledelivery.ScalarGutter]
-	if scalar != point {
-		t.Fatalf("Tromso scalar=%+v point=%+v", scalar, point)
+	if scalar.Weather.Valid {
+		t.Fatalf("water-centred scalar is valid: %+v", scalar)
 	}
 	for rowOffset := -1; rowOffset <= 1; rowOffset++ {
 		for columnOffset := -1; columnOffset <= 1; columnOffset++ {
@@ -377,36 +373,27 @@ func TestICONCoastalSourceCellAnchorsOneTromsoTexelWithPointScalarParity(t *test
 	}
 }
 
-func TestSourceCellLandAnchorNormalisesWrappedWesternWindow(t *testing.T) {
-	const longitude, latitude = -179.9, -0.01
-	id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, 3, longitude, latitude)
+func TestDisplayLandWithoutDetailUsesFallbackWithoutChangingPointNoData(t *testing.T) {
+	id, row, column, err := tiledelivery.At(forecastpoints.TierEurope, 5, 18.9553, 69.6492)
 	if err != nil {
 		t.Fatal(err)
 	}
-	worldPixels := int64(tiledelivery.TileSize) * (1 << id.Zoom)
-	globalX := int64(id.X)*tiledelivery.TileSize + int64(column)
-	globalY := int64(id.Y)*tiledelivery.TileSize + int64(row)
-	target := delivery.GridBounds{
-		West:  float64(globalX)/float64(worldPixels)*360 - 180,
-		East:  float64(globalX+1)/float64(worldPixels)*360 - 180,
-		North: mercatorLatitudeEdge(globalY, worldPixels),
-		South: mercatorLatitudeEdge(globalY+1, worldPixels),
+	window := pipeline.DailyMetricsWindow{
+		Spec:    delivery.GridSpec{Bounds: delivery.GridBounds{West: 18.8125, East: 19.0625, South: 69.5, North: 69.75}, Rows: 4, Cols: 4},
+		Metrics: make([]weather.DailyMetrics, 16),
 	}
-	window := delivery.GridSpec{
-		Bounds: delivery.GridBounds{West: 179.75, East: 180.5, South: -.25, North: .25},
-		Rows:   2, Cols: 3,
+	texture, points, err := evaluateMaxTile(context.Background(), id, window, func(delivery.GridBounds) (bool, error) { return true, nil }, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	land := func(bounds delivery.GridBounds) (bool, error) {
-		return bounds == (delivery.GridBounds{West: -180, East: -179.75, South: -.25, North: 0}), nil
+	if points[row*tiledelivery.TileSize+column].Weather.Valid {
+		t.Fatal("fallback marker changed point no-data into weather evidence")
 	}
-	anchored, err := sourceCellLandAnchor(longitude, latitude, target, window, land)
-	if err != nil || !anchored {
-		t.Fatalf("wrapped western anchor = %t, %v", anchored, err)
-	}
-	target.West, target.East = target.East, target.East+(360/float64(worldPixels))
-	anchored, err = sourceCellLandAnchor(longitude+360/float64(worldPixels), latitude, target, window, land)
-	if err != nil || anchored {
-		t.Fatalf("wrapped neighbouring water anchor = %t, %v", anchored, err)
+	for _, field := range fields {
+		value, valid, err := fieldValue(texture[(row+tiledelivery.ScalarGutter)*tiledelivery.ScalarTextureSize+column+tiledelivery.ScalarGutter], field)
+		if err != nil || !valid || value != tiledelivery.ForecastScalarFallback {
+			t.Fatalf("%s fallback marker = %d valid=%t err=%v", field, value, valid, err)
+		}
 	}
 }
 
@@ -445,6 +432,28 @@ func TestBuildDayNoDataOmitsLandAndCancellationCleansStaging(t *testing.T) {
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".forecasttiles-") {
 			t.Fatalf("staging remained: %s", entry.Name())
+		}
+	}
+}
+
+func TestDetailBuildPublishesAllFallbackLandWithoutPointEvidence(t *testing.T) {
+	config, closeFrames := worldwideConfig(t, 0, func(float64, float64) (bool, error) { return true, nil }, true)
+	defer closeFrames()
+	config.Tier = "europe-detail"
+	catalog, err := BuildDay(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Points) != 0 || len(catalog.Scalars) != len(fields) {
+		t.Fatalf("fallback build points=%d scalars=%d; want 0 and %d", len(catalog.Points), len(catalog.Scalars), len(fields))
+	}
+	if len(catalog.MaxZoomOutcomes) != 1 || catalog.MaxZoomOutcomes[0].FallbackRecords != tiledelivery.TileSize*tiledelivery.TileSize || catalog.MaxZoomOutcomes[0].Omitted {
+		t.Fatalf("fallback outcome = %+v", catalog.MaxZoomOutcomes)
+	}
+	for _, scalar := range catalog.Scalars {
+		encoded, _, err := tiledelivery.ReadForecastScalar(filepath.Join(builtDir(config), filepath.FromSlash(scalar.Path)), scalar.SHA256)
+		if err != nil || encoded[tiledelivery.ScalarGutter*tiledelivery.ScalarTextureSize+tiledelivery.ScalarGutter] != tiledelivery.ForecastScalarFallback {
+			t.Fatalf("fallback scalar %s read=%v err=%v", scalar.Field, len(encoded), err)
 		}
 	}
 }
@@ -660,11 +669,11 @@ func preparedConfigAt(tb testing.TB, date time.Time, bounds delivery.GridBounds,
 	}
 }
 
-func testLandMask(tb testing.TB, touches TouchesLand) LandMask {
+func testLandMask(tb testing.TB, displays DisplayLand) LandMask {
 	tb.Helper()
-	mask, err := NewLandMask(touches, LandIdentity{
+	mask, err := NewLandMask(displays, LandIdentity{
 		Authority: LandAuthorityNaturalEarth, Dataset: LandDatasetNaturalEarth10M, Version: LandVersionNaturalEarth511,
-		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: LandDerivationWebMercatorTouchV1,
+		SourceArchiveSHA256: strings.Repeat("a", 64), MaskSHA256: strings.Repeat("b", 64), DerivationContract: LandDerivationWebMercatorCentreV1,
 	})
 	if err != nil {
 		tb.Fatal(err)
