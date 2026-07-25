@@ -263,7 +263,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 			}
 			catalog.Stats.MaxMetricCells = max(catalog.Stats.MaxMetricCells, uint64(len(aggregated.Metrics)))
 			allowFallback := config.Tier == "europe-detail"
-			texture, records, err := evaluateMaxTile(ctx, id, aggregated, config.Land.Displays, allowFallback)
+			texture, records, err := evaluateMaxTile(ctx, id, aggregated, source, config.Land.Displays, allowFallback)
 			if err != nil {
 				return Catalog{}, fmt.Errorf("evaluate %d/%d/%d: %w", id.Zoom, id.X, id.Y, err)
 			}

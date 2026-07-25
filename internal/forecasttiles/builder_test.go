@@ -348,7 +348,7 @@ func TestDisplayMaskDoesNotColourCoastalSupportOutsideLandCentre(t *testing.T) {
 		Metrics: metrics,
 	}
 	land := func(delivery.GridBounds) (bool, error) { return false, nil }
-	texture, points, err := evaluateMaxTile(context.Background(), id, window, land, true)
+	texture, points, err := evaluateMaxTile(context.Background(), id, window, window.Spec, land, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestDisplayLandWithoutDetailUsesFallbackWithoutChangingPointNoData(t *testi
 		Spec:    delivery.GridSpec{Bounds: delivery.GridBounds{West: 18.8125, East: 19.0625, South: 69.5, North: 69.75}, Rows: 4, Cols: 4},
 		Metrics: make([]weather.DailyMetrics, 16),
 	}
-	texture, points, err := evaluateMaxTile(context.Background(), id, window, func(delivery.GridBounds) (bool, error) { return true, nil }, true)
+	texture, points, err := evaluateMaxTile(context.Background(), id, window, window.Spec, func(delivery.GridBounds) (bool, error) { return true, nil }, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +394,83 @@ func TestDisplayLandWithoutDetailUsesFallbackWithoutChangingPointNoData(t *testi
 		if err != nil || !valid || value != tiledelivery.ForecastScalarFallback {
 			t.Fatalf("%s fallback marker = %d valid=%t err=%v", field, value, valid, err)
 		}
+	}
+}
+
+func TestDetailFallbackStopsAtExactICONEUSourceBoundary(t *testing.T) {
+	source := delivery.GridSpec{
+		Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5},
+		Rows:   680, Cols: 1104,
+	}
+	empty := pipeline.DailyMetricsWindow{
+		Spec: delivery.GridSpec{
+			Bounds: delivery.GridBounds{West: -180, East: 180, South: -90, North: 90},
+			Rows:   2, Cols: 2,
+		},
+		Metrics: make([]weather.DailyMetrics, 4),
+	}
+	land := func(delivery.GridBounds) (bool, error) { return true, nil }
+
+	for y := int64(6); y <= 13; y++ {
+		outside, err := tiledelivery.NewID(forecastpoints.TierEurope, 5, 20, y)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := tileSourceWindow(source, outside); !ok {
+			t.Fatalf("real ICON gutter coordinate 5/20/%d was not visited", y)
+		}
+		texture, _, err := evaluateMaxTile(context.Background(), outside, empty, source, land, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outcome := maxZoomOutcome(outside, texture)
+		if !outcome.Omitted || outcome.DataRecords != 0 || outcome.FallbackRecords != 0 || outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize {
+			t.Fatalf("out-of-domain detail outcome 5/20/%d = %+v", y, outcome)
+		}
+	}
+
+	inside, err := tiledelivery.NewID(forecastpoints.TierEurope, 5, 19, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	texture, _, err := evaluateMaxTile(context.Background(), inside, empty, source, land, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insideOutcome := maxZoomOutcome(inside, texture)
+	if insideOutcome.Omitted || insideOutcome.FallbackRecords != tiledelivery.TileSize*tiledelivery.TileSize {
+		t.Fatalf("in-domain missing detail did not retain fallback: %+v", insideOutcome)
+	}
+
+	coverage := make(map[[3]uint32]struct{})
+	for y := int64(0); y < 32; y++ {
+		for x := int64(0); x < 32; x++ {
+			id, err := tiledelivery.NewID(forecastpoints.TierEurope, 5, x, y)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := tileSourceWindow(source, id); !ok {
+				continue
+			}
+			bounds, err := id.Bounds()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bounds.East <= source.Bounds.West || bounds.West >= source.Bounds.East || bounds.North <= source.Bounds.South || bounds.South >= source.Bounds.North {
+				continue
+			}
+			coordinate := [3]uint32{5, uint32(x), uint32(y)}
+			for {
+				coverage[coordinate] = struct{}{}
+				if coordinate[0] == 0 {
+					break
+				}
+				coordinate = [3]uint32{coordinate[0] - 1, coordinate[1] / 2, coordinate[2] / 2}
+			}
+		}
+	}
+	if scalarCount := len(coverage) * len(fields); scalarCount != 595 {
+		t.Fatalf("exact ICON detail scalar ceiling = %d; want 595", scalarCount)
 	}
 }
 

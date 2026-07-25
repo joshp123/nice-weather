@@ -82,7 +82,7 @@ func tileSourceWindow(source delivery.GridSpec, id tiledelivery.ID) (pipeline.Gr
 	}, true
 }
 
-func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, land DisplayLand, allowFallback bool) ([]delivery.DailyPointRecord, []delivery.DailyPointRecord, error) {
+func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.DailyMetricsWindow, source delivery.GridSpec, land DisplayLand, allowFallback bool) ([]delivery.DailyPointRecord, []delivery.DailyPointRecord, error) {
 	texture := make([]delivery.DailyPointRecord, tiledelivery.ScalarTextureSize*tiledelivery.ScalarTextureSize)
 	records := make([]delivery.DailyPointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
 	worldPixels := int64(tiledelivery.TileSize) * (int64(1) << id.Zoom)
@@ -120,7 +120,7 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 				return nil, nil, err
 			}
 			if !ok {
-				if !allowFallback {
+				if !allowFallback || !sourceContains(source, longitude, latitude) {
 					continue
 				}
 				record = fallbackRecord()
@@ -134,6 +134,16 @@ func evaluateMaxTile(ctx context.Context, id tiledelivery.ID, window pipeline.Da
 		}
 	}
 	return texture, records, nil
+}
+
+func sourceContains(source delivery.GridSpec, longitude, latitude float64) bool {
+	if latitude <= source.Bounds.South || latitude > source.Bounds.North {
+		return false
+	}
+	if source.Bounds.West == -180 && source.Bounds.East == 180 {
+		return true
+	}
+	return longitude >= source.Bounds.West && longitude < source.Bounds.East
 }
 
 func interpolateRecord(longitude, latitude float64, window pipeline.DailyMetricsWindow) (delivery.DailyPointRecord, bool, error) {
