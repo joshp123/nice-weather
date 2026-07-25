@@ -123,10 +123,20 @@ type CellDistribution struct {
 	Cycling         ProfileDistribution
 }
 
+// DailyObservation is one source-neutral local-day record. Date is a UTC
+// midnight calendar label. Expected civil dates are supplied separately so a
+// source can distinguish a nonexistent date from missing evidence.
+type DailyObservation struct {
+	Date                time.Time
+	Latitude, Longitude float64
+	Metrics             weather.DailyMetrics
+}
+
 type scoredObservation struct {
 	date         time.Time
 	niceScore    int
 	cyclingScore int
+	contiguous   bool
 }
 
 type profileAccumulator struct {
@@ -167,38 +177,81 @@ func Aggregate(days []AgERA5Day, window ReferenceWindow) (CellDistribution, erro
 	if err != nil {
 		return CellDistribution{}, err
 	}
-
-	observations := make([]scoredObservation, len(days))
-	seenDates := make(map[string]struct{}, len(days))
-	nice := profileAccumulator{scores: make([]int, 0, len(days))}
-	cycling := profileAccumulator{scores: make([]int, 0, len(days))}
-	comfortGood, dryGood, brightGood := 0, 0, 0
+	expected := make([]time.Time, len(expectedDates))
+	for index, value := range expectedDates {
+		expected[index], err = time.Parse("2006-01-02", value)
+		if err != nil {
+			return CellDistribution{}, err
+		}
+	}
+	observations := make([]DailyObservation, len(days))
 	for index, day := range days {
 		date, parseErr := time.Parse("2006-01-02", day.Date)
 		if parseErr != nil || date.Year() < window.FirstYear || date.Year() > window.LastYear || date.Month() != month || math.Abs(day.Latitude-days[0].Latitude) > 1e-9 || math.Abs(day.Longitude-days[0].Longitude) > 1e-9 {
 			return CellDistribution{}, fmt.Errorf("AgERA5 distribution requires one cell and month from %d–%d", window.FirstYear, window.LastYear)
 		}
-		if _, exists := seenDates[day.Date]; exists {
-			return CellDistribution{}, fmt.Errorf("duplicate AgERA5 date %s", day.Date)
-		}
-		seenDates[day.Date] = struct{}{}
 		metrics, metricsErr := day.Metrics()
 		if metricsErr != nil {
 			return CellDistribution{}, fmt.Errorf("day %s: %w", day.Date, metricsErr)
 		}
-		niceResult := weather.Score(metrics, weather.ProfileNice)
-		cyclingResult := weather.Score(metrics, weather.ProfileCycling)
+		observations[index] = DailyObservation{
+			Date: date, Latitude: day.Latitude, Longitude: day.Longitude, Metrics: metrics,
+		}
+	}
+	return AggregateObservations(observations, expected)
+}
+
+// AggregateObservations evaluates a complete set of source-neutral daily
+// records through the canonical scoring path. expectedDates must contain each
+// civil date that existed, in chronological order. This lets civil calendar
+// skips remain unavailable without treating them as missing source data.
+func AggregateObservations(days []DailyObservation, expectedDates []time.Time) (CellDistribution, error) {
+	if len(days) == 0 || len(expectedDates) == 0 {
+		return CellDistribution{}, errors.New("at least one climate day and expected date are required")
+	}
+	month := expectedDates[0].Month()
+	expected := make(map[time.Time]struct{}, len(expectedDates))
+	for index, date := range expectedDates {
+		if !isUTCDate(date) || date.Month() != month ||
+			(index > 0 && !date.After(expectedDates[index-1])) {
+			return CellDistribution{}, errors.New("climate expected dates must be unique UTC dates in chronological month order")
+		}
+		expected[date] = struct{}{}
+	}
+
+	observations := make([]scoredObservation, len(days))
+	seenDates := make(map[time.Time]struct{}, len(days))
+	nice := profileAccumulator{scores: make([]int, 0, len(days))}
+	cycling := profileAccumulator{scores: make([]int, 0, len(days))}
+	comfortGood, dryGood, brightGood := 0, 0, 0
+	for index, day := range days {
+		if !isUTCDate(day.Date) || day.Date.Month() != month ||
+			math.Abs(day.Latitude-days[0].Latitude) > 1e-9 ||
+			math.Abs(day.Longitude-days[0].Longitude) > 1e-9 {
+			return CellDistribution{}, errors.New("climate distribution requires one cell and calendar month")
+		}
+		if _, exists := expected[day.Date]; !exists {
+			return CellDistribution{}, fmt.Errorf("unexpected climate date %s", day.Date.Format("2006-01-02"))
+		}
+		if _, exists := seenDates[day.Date]; exists {
+			return CellDistribution{}, fmt.Errorf("duplicate climate date %s", day.Date.Format("2006-01-02"))
+		}
+		seenDates[day.Date] = struct{}{}
+		niceResult, cyclingResult, scoreErr := weather.ScoreProfilesChecked(day.Metrics)
+		if scoreErr != nil {
+			return CellDistribution{}, fmt.Errorf("day %s is not scoreable: %w", day.Date.Format("2006-01-02"), scoreErr)
+		}
 		if !niceResult.Available || !cyclingResult.Available {
-			return CellDistribution{}, fmt.Errorf("day %s is not scoreable", day.Date)
+			return CellDistribution{}, fmt.Errorf("day %s is not scoreable after successful validation", day.Date.Format("2006-01-02"))
 		}
 		if niceResult.Components.Thermal != cyclingResult.Components.Thermal || niceResult.Components.Dryness != cyclingResult.Components.Dryness || niceResult.Components.Sun != cyclingResult.Components.Sun {
-			return CellDistribution{}, fmt.Errorf("day %s has profile-dependent shared components", day.Date)
+			return CellDistribution{}, fmt.Errorf("day %s has profile-dependent shared components", day.Date.Format("2006-01-02"))
 		}
 		if err := nice.add(niceResult); err != nil {
-			return CellDistribution{}, fmt.Errorf("day %s Nice: %w", day.Date, err)
+			return CellDistribution{}, fmt.Errorf("day %s Nice: %w", day.Date.Format("2006-01-02"), err)
 		}
 		if err := cycling.add(cyclingResult); err != nil {
-			return CellDistribution{}, fmt.Errorf("day %s Cycling: %w", day.Date, err)
+			return CellDistribution{}, fmt.Errorf("day %s Cycling: %w", day.Date.Format("2006-01-02"), err)
 		}
 		if isGoodRating(weather.Rating(niceResult.Components.Thermal)) {
 			comfortGood++
@@ -209,10 +262,10 @@ func Aggregate(days []AgERA5Day, window ReferenceWindow) (CellDistribution, erro
 		if isGoodRating(weather.Rating(niceResult.Components.Sun)) {
 			brightGood++
 		}
-		observations[index] = scoredObservation{date: date, niceScore: niceResult.Score, cyclingScore: cyclingResult.Score}
+		observations[index] = scoredObservation{date: day.Date, niceScore: niceResult.Score, cyclingScore: cyclingResult.Score}
 	}
 	if len(seenDates) != len(expectedDates) {
-		missing := make([]string, 0, len(expectedDates))
+		missing := make([]time.Time, 0, len(expectedDates))
 		for _, expected := range expectedDates {
 			if _, ok := seenDates[expected]; !ok {
 				missing = append(missing, expected)
@@ -220,12 +273,22 @@ func Aggregate(days []AgERA5Day, window ReferenceWindow) (CellDistribution, erro
 		}
 		firstMissing := "none"
 		if len(missing) > 0 {
-			firstMissing = missing[0]
+			firstMissing = missing[0].Format("2006-01-02")
 		}
-		return CellDistribution{}, fmt.Errorf("incomplete AgERA5 %s distribution: have %d of %d days; %d missing, first %s", month, len(seenDates), len(expectedDates), len(missing), firstMissing)
+		return CellDistribution{}, fmt.Errorf("incomplete climate %s distribution: have %d of %d days; %d missing, first %s", month, len(seenDates), len(expectedDates), len(missing), firstMissing)
 	}
 
 	sort.Slice(observations, func(left, right int) bool { return observations[left].date.Before(observations[right].date) })
+	for index := range observations {
+		if !observations[index].date.Equal(expectedDates[index]) {
+			return CellDistribution{}, errors.New("climate observations do not match expected valid-date order")
+		}
+		if index > 0 {
+			observations[index].contiguous =
+				expectedDates[index-1].Year() == expectedDates[index].Year() &&
+					expectedDates[index-1].Month() == expectedDates[index].Month()
+		}
+	}
 	niceDistribution := finishProfile(nice, observations, func(item scoredObservation) int { return item.niceScore })
 	cyclingDistribution := finishProfile(cycling, observations, func(item scoredObservation) int { return item.cyclingScore })
 	return CellDistribution{
@@ -269,7 +332,7 @@ func finishProfile(accumulator profileAccumulator, observations []scoredObservat
 	}
 	longestPoorRun, poorRun := 0, 0
 	for index, item := range observations {
-		if index > 0 && !item.date.Equal(observations[index-1].date.AddDate(0, 0, 1)) {
+		if index > 0 && !item.contiguous {
 			poorRun = 0
 		}
 		if !isPoorRating(weather.Rating(scoreOf(item))) {
@@ -339,7 +402,7 @@ func dayFraction(numerator, denominator int) float64 {
 
 func calendarContiguous(observations []scoredObservation) bool {
 	for index := 1; index < len(observations); index++ {
-		if !observations[index].date.Equal(observations[index-1].date.AddDate(0, 0, 1)) {
+		if !observations[index].contiguous {
 			return false
 		}
 	}

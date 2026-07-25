@@ -110,9 +110,97 @@ func OpenDailyShardForPlan(path string, year int, month time.Month, cells []Cell
 
 // DailyShard is a validated immutable daily-metrics shard.
 type DailyShard struct {
-	file      *os.File
-	identity  dailyShardIdentity
-	payloadAt int64
+	file       *os.File
+	identity   dailyShardIdentity
+	payloadAt  int64
+	payloadSHA [sha256.Size]byte
+}
+
+// DailyShardIdentity is the immutable logical identity needed to combine
+// independently built year-month shards.
+type DailyShardIdentity struct {
+	Year       int
+	Month      time.Month
+	Days       int
+	CellCount  int
+	PlanSHA256 [sha256.Size]byte
+}
+
+// Identity returns the shard's logical identity without exposing its cell
+// slice. Cell returns one ordered cell when a reducer emits that result.
+func (shard *DailyShard) Identity() (DailyShardIdentity, error) {
+	if shard == nil || shard.file == nil {
+		return DailyShardIdentity{}, errors.New("ERA5 daily shard is closed")
+	}
+	return DailyShardIdentity{
+		Year:       shard.identity.year,
+		Month:      shard.identity.month,
+		Days:       shard.identity.days,
+		CellCount:  len(shard.identity.cells),
+		PlanSHA256: shard.identity.planSHA,
+	}, nil
+}
+
+// Cell returns one cell in immutable payload order.
+func (shard *DailyShard) Cell(cellIndex int) (Cell, error) {
+	if shard == nil || shard.file == nil {
+		return Cell{}, errors.New("ERA5 daily shard is closed")
+	}
+	if cellIndex < 0 || cellIndex >= len(shard.identity.cells) {
+		return Cell{}, errors.New("ERA5 daily shard cell is outside the plan")
+	}
+	return shard.identity.cells[cellIndex], nil
+}
+
+// VerifyConsumedPayload compares the exact payload bytes consumed by a
+// reducer with the digest validated when the shard was opened. The reducer
+// must hash every range in payload order.
+func (shard *DailyShard) VerifyConsumedPayload(digest []byte) error {
+	if shard == nil || shard.file == nil {
+		return errors.New("ERA5 daily shard is closed")
+	}
+	if !bytes.Equal(digest, shard.payloadSHA[:]) {
+		return errors.New("ERA5 daily shard consumed payload differs from validated source")
+	}
+	return nil
+}
+
+// VerifyPayload rehashes the current immutable payload and compares it with
+// the digest validated when the shard was opened. Reducers call it immediately
+// before committing staged output so a changed source cannot be published.
+func (shard *DailyShard) VerifyPayload(ctx context.Context) error {
+	if shard == nil || shard.file == nil {
+		return errors.New("ERA5 daily shard is closed")
+	}
+	if ctx == nil {
+		return errors.New("ERA5 daily shard payload verification requires a context")
+	}
+	reader := io.NewSectionReader(
+		shard.file,
+		shard.payloadAt,
+		int64(mustPayloadBytes(shard.identity)),
+	)
+	digest := sha256.New()
+	buffer := make([]byte, dailyShardValidationBytes)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		read, err := reader.Read(buffer)
+		if read > 0 {
+			_, _ = digest.Write(buffer[:read])
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("rehash ERA5 daily shard payload: %w", err)
+		}
+	}
+	if !bytes.Equal(digest.Sum(nil), shard.payloadSHA[:]) {
+		return errors.New("ERA5 daily shard payload changed after validation")
+	}
+	return nil
 }
 
 // Read returns the source-neutral daily record at the zero-based calendar day
@@ -147,6 +235,66 @@ func (shard *DailyShard) Read(cellIndex, dayOffset int) (DailyMetrics, bool, err
 		Longitude: cell.Longitude,
 		Metrics:   metrics,
 	}, true, nil
+}
+
+// WalkCellRange visits every calendar slot in a bounded contiguous range of
+// cells. Unlike Walk, it reports nonexistent civil dates as unavailable.
+// Every raw record is written to consumed before it is decoded, so a reducer
+// can prove that it used the payload which was validated when the shard opened.
+func (shard *DailyShard) WalkCellRange(firstCell, cellCount int, consumed io.Writer, visit func(DailyMetrics, bool) error) error {
+	if shard == nil || shard.file == nil || consumed == nil || visit == nil {
+		return errors.New("ERA5 daily shard cell-range walk is unavailable")
+	}
+	if firstCell < 0 || cellCount <= 0 || firstCell > len(shard.identity.cells)-cellCount {
+		return errors.New("ERA5 daily shard cell range is outside the plan")
+	}
+	recordCount, ok := checkedProduct(cellCount, shard.identity.days)
+	if !ok {
+		return errors.New("ERA5 daily shard cell-range record count overflows")
+	}
+	firstRecord := firstCell * shard.identity.days
+	byteCount, ok := checkedProduct(recordCount, DailyShardRecordBytes)
+	if !ok {
+		return errors.New("ERA5 daily shard cell-range byte count overflows")
+	}
+	offset := shard.payloadAt + int64(firstRecord*DailyShardRecordBytes)
+	reader := bufio.NewReaderSize(
+		io.NewSectionReader(shard.file, offset, int64(byteCount)),
+		min(byteCount, dailyShardValidationBytes),
+	)
+	var record [DailyShardRecordBytes]byte
+	for relativeRecord := 0; relativeRecord < recordCount; relativeRecord++ {
+		if _, err := io.ReadFull(reader, record[:]); err != nil {
+			return fmt.Errorf("walk ERA5 daily shard cell range: %w", err)
+		}
+		if _, err := consumed.Write(record[:]); err != nil {
+			return fmt.Errorf("hash ERA5 daily shard cell range: %w", err)
+		}
+		recordIndex := firstRecord + relativeRecord
+		cellIndex := recordIndex / shard.identity.days
+		dayOffset := recordIndex % shard.identity.days
+		cell := shard.identity.cells[cellIndex]
+		day := DailyMetrics{
+			CellIndex: cellIndex,
+			Date:      time.Date(shard.identity.year, shard.identity.month, dayOffset+1, 0, 0, 0, 0, time.UTC),
+			Latitude:  cell.Latitude,
+			Longitude: cell.Longitude,
+		}
+		available := bitSet(shard.identity.expected, recordIndex)
+		if available {
+			metrics, err := decodeDailyShardRecord(record[:])
+			if err != nil {
+				return fmt.Errorf("walk ERA5 daily shard cell-range record %d: %w", recordIndex, err)
+			}
+			day.Metrics = metrics
+		} else if !allZero(record[:]) {
+			return fmt.Errorf("ERA5 daily shard nonexistent civil date %d contains data", recordIndex)
+		}
+		if err := visit(day, available); err != nil {
+			return fmt.Errorf("visit ERA5 daily shard cell-range record %d: %w", recordIndex, err)
+		}
+	}
+	return nil
 }
 
 // Walk visits every available record in cell-major, calendar-day order. It
@@ -701,7 +849,7 @@ func openDailyShard(path string, identity dailyShardIdentity) (*DailyShard, erro
 		return closeOnError(errors.New("ERA5 daily shard payload checksum mismatch"))
 	}
 	return &DailyShard{
-		file: file, identity: identity,
+		file: file, identity: identity, payloadSHA: payloadSHA,
 		payloadAt: int64(dailyShardHeaderBytes + len(identity.expected)),
 	}, nil
 }

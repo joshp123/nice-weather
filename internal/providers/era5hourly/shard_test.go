@@ -2,6 +2,7 @@ package era5hourly
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -374,6 +375,85 @@ func TestDailyShardWalkIsCellMajorSkipsMissingDatesAndStopsOnError(t *testing.T)
 	})
 	if !errors.Is(err, stop) || visits != 3 {
 		t.Fatalf("callback stop: visits=%d err=%v", visits, err)
+	}
+}
+
+func TestDailyShardIdentityAndCellRangePreserveOrderedCalendarSlots(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cell-range.ned")
+	cells := []Cell{
+		dailyShardTestCell(t, 0, "UTC"),
+		dailyShardTestCell(t, 1, "Pacific/Apia"),
+		dailyShardTestCell(t, 2, "Europe/Amsterdam"),
+	}
+	writeDailyShardFixture(t, path, 2011, time.December, cells, shardTestMetrics())
+	shard, err := OpenDailyShard(path, 2011, time.December, cells)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shard.Close()
+
+	identity, err := shard.Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Year != 2011 || identity.Month != time.December || identity.Days != 31 ||
+		identity.CellCount != 3 || identity.PlanSHA256 == ([sha256.Size]byte{}) {
+		t.Fatalf("identity = %+v", identity)
+	}
+	cell, err := shard.Cell(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell.TimezoneID = "changed"
+	again, err := shard.Cell(0)
+	if err != nil || again.TimezoneID != "UTC" {
+		t.Fatalf("cell accessor exposed mutable shard state: cell=%+v err=%v", again, err)
+	}
+	if err := shard.VerifyPayload(t.Context()); err != nil {
+		t.Fatalf("valid payload revalidation: %v", err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := shard.VerifyPayload(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled payload revalidation = %v; want context cancellation", err)
+	}
+
+	type slot struct {
+		cell, day int
+		available bool
+	}
+	var slots []slot
+	digest := sha256.New()
+	if err := shard.WalkCellRange(1, 2, digest, func(day DailyMetrics, available bool) error {
+		slots = append(slots, slot{cell: day.CellIndex, day: day.Date.Day(), available: available})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(slots) != 62 || slots[0] != (slot{cell: 1, day: 1, available: true}) ||
+		slots[29] != (slot{cell: 1, day: 30, available: false}) ||
+		slots[30] != (slot{cell: 1, day: 31, available: true}) ||
+		slots[31] != (slot{cell: 2, day: 1, available: true}) ||
+		slots[61] != (slot{cell: 2, day: 31, available: true}) {
+		t.Fatalf("cell-range calendar slots changed: count=%d boundary=%+v/%+v/%+v/%+v/%+v",
+			len(slots), slots[0], slots[29], slots[30], slots[31], slots[61])
+	}
+	stop := errors.New("stop")
+	visits := 0
+	err = shard.WalkCellRange(0, 1, sha256.New(), func(DailyMetrics, bool) error {
+		visits++
+		if visits == 2 {
+			return stop
+		}
+		return nil
+	})
+	if !errors.Is(err, stop) || visits != 2 {
+		t.Fatalf("cell-range callback stop: visits=%d err=%v", visits, err)
+	}
+	for _, invalid := range [][2]int{{-1, 1}, {0, 0}, {2, 2}} {
+		if err := shard.WalkCellRange(invalid[0], invalid[1], sha256.New(), func(DailyMetrics, bool) error { return nil }); err == nil {
+			t.Fatalf("cell range %v unexpectedly succeeded", invalid)
+		}
 	}
 }
 
