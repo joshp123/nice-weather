@@ -820,27 +820,20 @@ function PointPanel({ state, point, legend, lens, profile, climateModel, focusIn
   );
 }
 
-function ClimatePointHeading({ data, point, profile, climateModel }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; climateModel: ClimateUiModel }) {
+export function ClimatePointHeading({ data, point, profile, climateModel }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; climateModel: ClimateUiModel }) {
   const evidence = data[profile];
-  const outcome = climateOutcomeCopy(profile);
-  const eyebrow = `${monthName(data.period)} climate · ${climateModel.referencePeriod}`;
-  return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>{outcome.daysLabel}</span></div></div>;
+  const month = monthName(data.period);
+  const eyebrow = `Real ${month} days · ${climateModel.referencePeriod}`;
+  const headline = profile === 'cycling' ? `Chance of a good cycling day in ${month}` : `Chance of a nice ${month} day`;
+  return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>{headline}</span></div></div>;
 }
 
 export function ClimateDetails({ data, point, profile, lens, onLensChange, climateModel }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; lens: Lens; onLensChange: (lens: Lens) => void; climateModel: ClimateUiModel }) {
-  const evidence = data[profile];
-  const outcome = climateOutcomeCopy(profile);
   return <>
-    <p className="phonePointSummary">{climateSummary(data, profile)}</p>
-    <p className="rangeEvidence">{climateSummary(data, profile)}</p>
-    <dl className="climateFacts">
-      <div><dd>{evidence.goodOrBetterPercent}%</dd><dt>{outcome.daysLabel}</dt></div>
-      <div className={evidence.awfulPercent > 0 ? 'bad' : ''}><dd>{evidence.awfulPercent}%</dd><dt>Awful days</dt></div>
-      <div><dd>{formatPermille(evidence.poorWeekPermille)}</dd><dt>Chance of 3 poor days in a row</dt></div>
-      <div><dd>{evidence.medianScore}</dd><dt>Median score</dt></div>
-    </dl>
+    <p className="phonePointSummary climateReliability">{climateReliability(data, profile)}</p>
+    <p className="rangeEvidence climateReliability">{climateReliability(data, profile)}</p>
     <ClimateComponentRows data={data} profile={profile} active={lens} onChange={onLensChange} />
-    <p className="sourceLine">Recent daily climate · {climateModel.referencePeriod} · worldwide · about 30 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
+    <p className="sourceLine">Real daily evidence · {climateModel.referencePeriod} · worldwide · about 30 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
   </>;
 }
 
@@ -859,15 +852,17 @@ function pointDistanceKm(point: Pick<MapPoint, 'lat' | 'lon'>, source: ClimatePo
 }
 
 function ClimateComponentRows({ data, profile, active, onChange }: { data: ClimatePointEvidence; profile: Profile; active: Lens; onChange: (lens: Lens) => void }) {
+  const physical = data.physical;
   const rows = [
-    ['comfort', 'Comfort', data.comfortGoodPercent],
-    ['dry', 'Dry', data.dryGoodPercent],
-    ['bright', 'Clear sky', data.clearSkyGoodPercent],
-    ['wind', 'Calm', data[profile].calmGoodPercent],
+    ['comfort', 'Comfort', data.comfortGoodPercent, `Daytime temperature was ${climateRange(physical.daytimeTemperatureP10C, physical.daytimeTemperatureP90C, '°C')} on 80% of days · dew point ${climateValue(physical.dewPointP50C)}°C typical · 90% at or below ${climateValue(physical.dewPointP90C)}°C · muggy ${physical.muggyDayPercent}%`],
+    ['dry', 'Dry', data.dryGoodPercent, `Rain-free days ${physical.rainFreeDayPercent}% · 90% had ${climateValue(physical.rainP90MM)} mm or less`],
+    ['bright', 'Clear sky', data.clearSkyGoodPercent, `Cloud cover ${physical.cloudCoverP50Percent}% typical · clear-sky days ${physical.clearSkyDayPercent}%`],
+    ['wind', 'Calm', data[profile].calmGoodPercent, `Wind ${climateValue(physical.windP50KPH)} km/h typical · 90% at or below ${climateValue(physical.windP90KPH)} km/h`],
   ] as const;
-  return <div className="componentRows climateComponents" aria-label="Chance of good weather by component">{rows.map(([id, label, value]) => (
-    <button key={id} type="button" aria-pressed={active === id} onClick={() => onChange(id)}>
-      <span><strong>{label}</strong><small>Good or better</small></span><i><b style={{ width: `${value}%` }} /></i><em>{value}%</em>
+  return <div className="componentRows climateComponents" aria-label="Chance of good weather by component">{rows.map(([id, label, value, evidence]) => (
+    <button key={id} type="button" aria-pressed={active === id} aria-label={`${label}: ${value}% good or better. ${evidence}`} onClick={() => onChange(id)}>
+      <span><strong>{label}</strong><small>Good or better</small></span><em>{value}%</em>
+      <span className="componentEvidence">{evidence}</span>
     </button>
   ))}</div>;
 }
@@ -1025,15 +1020,15 @@ function parseHexColour(value: string): readonly [number, number, number] {
   return [Number.parseInt(match[1], 16), Number.parseInt(match[2], 16), Number.parseInt(match[3], 16)];
 }
 
-export function climateSummary(data: ClimatePointEvidence, profile: Profile): string {
+export function climateReliability(data: ClimatePointEvidence, profile: Profile): string {
   const evidence = data[profile];
-  return `${evidence.goodOrBetterPercent}% ${climateOutcomeCopy(profile).summaryLabel} · ${evidence.awfulPercent}% awful · median ${evidence.medianScore}`;
+  return `${evidence.awfulPercent}% awful · ${formatPermille(evidence.poorWeekPermille)} chance of 3 poor days in a row`;
 }
 
-function climateOutcomeCopy(profile: Profile): Readonly<{ daysLabel: string; summaryLabel: string; rareLabel: string; usualLabel: string; rampAriaLabel: string }> {
+function climateOutcomeCopy(profile: Profile): Readonly<{ daysLabel: string; rareLabel: string; usualLabel: string; rampAriaLabel: string }> {
   return profile === 'cycling'
-    ? { daysLabel: 'Good cycling days', summaryLabel: 'good for cycling', rareLabel: 'Rarely good', usualLabel: 'Usually good', rampAriaLabel: 'Climate colours run from Rarely good for cycling to Usually good for cycling' }
-    : { daysLabel: 'Nice days', summaryLabel: 'nice', rareLabel: 'Rarely nice', usualLabel: 'Usually nice', rampAriaLabel: 'Climate colours run from Rarely nice to Usually nice' };
+    ? { daysLabel: 'Good cycling days', rareLabel: 'Rarely good', usualLabel: 'Usually good', rampAriaLabel: 'Climate colours run from Rarely good for cycling to Usually good for cycling' }
+    : { daysLabel: 'Nice days', rareLabel: 'Rarely nice', usualLabel: 'Usually nice', rampAriaLabel: 'Climate colours run from Rarely nice to Usually nice' };
 }
 
 export function forecastOutcomeCopy(profile: Profile, goodDays: number): Readonly<{ daysLabel: string; summaryLabel: string }> {
@@ -1044,6 +1039,14 @@ export function forecastOutcomeCopy(profile: Profile, goodDays: number): Readonl
 
 function formatPermille(value: number): string {
   return `${new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }).format(value / 10)}%`;
+}
+
+function climateRange(minimum: number, maximum: number, unit: string): string {
+  return `${climateValue(minimum)}–${climateValue(maximum)}${unit}`;
+}
+
+function climateValue(value: number): string {
+  return new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }).format(value);
 }
 
 function monthNumber(period: string): number {

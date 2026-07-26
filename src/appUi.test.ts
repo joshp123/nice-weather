@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { bestWeatherAvailability, BestWeatherResults, BestWeatherTrigger, climateFieldFor, climateRailPeriods, climateSummary, climateUiModel, ClimateDetails, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastOutcomeCopy, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, PointHeadingFor, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, RangeDetails, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, topBestWeatherRecommendation, wetDaytimeDuration } from './App';
+import { bestWeatherAvailability, BestWeatherResults, BestWeatherTrigger, climateFieldFor, climateRailPeriods, climateReliability, climateUiModel, ClimateDetails, ClimatePointHeading, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastOutcomeCopy, forecastRangeMeta, LayerLegend, LENSES, nearbyClimateCellQualifier, periodRailHasMore, periodStatus, placeSearchPrompt, PointHeadingFor, pointWithinActiveSearchCoverage, pointWithinBounds, rainDisplay, RangeDetails, rangeLensAsset, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, topBestWeatherRecommendation, wetDaytimeDuration } from './App';
 import type { BestWeatherPlace } from './data/bestWeather';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
@@ -304,25 +304,35 @@ describe('clear weather copy', () => {
     expect(cycling).toContain('<b>Usually good</b>');
   });
 
-  it('shows profile-aware distribution evidence and all four delivered components', () => {
+  it('shows the seasonal answer, reliability and physical evidence without a duplicate stat grid', () => {
     const data = climateEvidence();
+    const climateModel = climateUiModel(climateIndex('preview', ['month-11']));
+    const niceHeading = renderToStaticMarkup(createElement(ClimatePointHeading, { data, point: { lat: 36.72, lon: -4.42, label: 'Málaga' }, profile: 'nice', climateModel }));
+    expect(niceHeading).toContain('Real November days · 2006–2025');
+    expect(niceHeading).toContain('<strong>68%</strong><span>Chance of a nice November day</span>');
     const nice = renderToStaticMarkup(createElement(ClimateDetails, {
-      data, point: { lat: 36.72, lon: -4.42 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+      data, point: { lat: 36.72, lon: -4.42 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel,
     }));
-    expect(climateSummary(data, 'nice')).toBe('68% nice · 9% awful · median 71');
-    for (const copy of ['Nice days', 'Awful days', 'Chance of 3 poor days in a row', 'Median score', 'Comfort', 'Dry', 'Clear sky', 'Calm']) expect(nice).toContain(copy);
+    expect(climateReliability(data, 'nice')).toBe('9% awful · 12.3% chance of 3 poor days in a row');
+    for (const copy of ['Comfort', 'Dry', 'Clear sky', 'Calm']) expect(nice).toContain(copy);
     for (const value of ['77%', '82%', '74%', '61%']) expect(nice).toContain(value);
+    for (const evidence of [
+      'Daytime temperature was 17–27°C on 80% of days · dew point 12°C typical · 90% at or below 17°C · muggy 5%',
+      'Rain-free days 82% · 90% had 4.2 mm or less',
+      'Cloud cover 32% typical · clear-sky days 74%',
+      'Wind 9 km/h typical · 90% at or below 21 km/h',
+    ]) expect(nice).toContain(evidence);
     expect(nice.match(/aria-pressed=/g)).toHaveLength(4);
-    expect(nice).toContain('12.3%');
-    expect(nice).toContain('Recent daily climate · 2006–2025 · worldwide · about 30 km weather detail');
-    expect(nice).not.toMatch(/monthly average|temperature|rain/i);
+    expect(nice.match(/<button/g)).toHaveLength(4);
+    expect(nice).toContain('Real daily evidence · 2006–2025 · worldwide · about 30 km weather detail');
+    expect(nice).not.toMatch(/Median score|median 71|climateFacts|monthly average/);
 
+    const cyclingHeading = renderToStaticMarkup(createElement(ClimatePointHeading, { data, point: { lat: 36.72, lon: -4.42, label: 'Málaga' }, profile: 'cycling', climateModel }));
+    expect(cyclingHeading).toContain('<strong>59%</strong><span>Chance of a good cycling day in November</span>');
     const cycling = renderToStaticMarkup(createElement(ClimateDetails, {
-      data, point: { lat: 36.72, lon: -4.42 }, profile: 'cycling', lens: 'wind', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex('preview', ['month-11'])),
+      data, point: { lat: 36.72, lon: -4.42 }, profile: 'cycling', lens: 'wind', onLensChange: vi.fn(), climateModel,
     }));
-    expect(climateSummary(data, 'cycling')).toBe('59% good for cycling · 13% awful · median 64');
-    expect(cycling).toContain('<dt>Good cycling days</dt>');
-    expect(cycling).toContain('59% good for cycling · 13% awful · median 64');
+    expect(climateReliability(data, 'cycling')).toBe('13% awful · 12.3% chance of 3 poor days in a row');
     expect(cycling).toContain('<strong>Calm</strong>');
     expect(cycling).toContain('<em>52%</em>');
     expect(cycling).toContain('aria-pressed="true"');
