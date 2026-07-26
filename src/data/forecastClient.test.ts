@@ -412,7 +412,7 @@ async function snapshotFixture(landIdentity: Record<string, unknown> = land, ind
     pointBlockLayout: { rows: 64, columns: 64, headerBytes: 256, recordBytes: 44, mediaType: 'application/vnd.nice-weather.forecast-range-block' },
     inputs: tiers.map(({ date, catalogPath, catalogBytes: bytes, catalogSha256: sha256 }) => ({ date, path: catalogPath.replace('runs/run-test/', ''), bytes, sha256 })),
     coverage: {}, pointBlocks: [],
-    scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, fallbackRecords: 0, noDataRecords: 65_535 }],
+    scalarCoverage: [{ zoom: 3, x: 0, y: 0, omitted: false, dataRecords: 1, noDataRecords: 65_535 }],
     scalarTiles: fields.map((field) => ({ field, zoom: 3, x: 0, y: 0, path: `${field}/3/0/0.nws`, bytes: 258 * 258, sha256: zeroSHA, dataTexels: 1, noDataTexels: 0 })),
   };
   const rangeBytes = json(range);
