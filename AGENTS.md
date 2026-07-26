@@ -24,15 +24,15 @@ Current local project path:
 
 Current state:
 
-- The app is a worldwide decision map with one 14-day forecast, 14 individual days and 12 recent-climate months.
+- The running app is a worldwide decision map with one 14-day forecast and 14 individual days. The twelve-month seasonal journey remains a core product requirement, but the control is withheld until the ERA5 replacement publishes validated evidence.
 - ECMWF IFS supplies the complete worldwide forecast at an honestly labelled 28 km. DWD ICON-EU replaces complete supported European days at about 7 km.
-- Recent climate uses complete AgERA5 daily evidence for 2006–2025. Every day is scored before monthly probabilities and poor-spell risk are calculated. The honest atmospheric detail is about 30 km; rain evidence is 0.25°.
+- The rejected AgERA5 publication is inactive. Its replacement uses hourly ERA5 evidence for 2006–2025 on the source 0.25° grid. It builds exact civil-local daytime records, scores every real day, then calculates monthly probabilities and poor-spell risk. November is the current production canary. Do not show climate as available until a validated month is published.
 - Natural Earth 5.1.1 centre-on-land cells are the climate land authority. Water stays transparent. A named coastal place may use its nearest valid land cell with explicit disclosure; missing inland evidence remains missing.
-- `go run ./cmd/niceweather forecast-world` validates and atomically publishes a complete worldwide forecast. `climate-world` publishes one validated month at a time behind one coherent climate index.
+- `go run ./cmd/niceweather forecast-world` validates and atomically publishes a complete worldwide forecast. `era5-history-month`, `era5-publication-authority` and `era5-climate-month` build and publish the replacement climate contract in explicit stages.
 - Generated weather data lives in `./artifacts`; it is not frontend static build output.
 - Frontend build lives in `./dist`.
 - Forecast horizons are 14 concrete local-date IDs. Climate horizons are 12 explicit months.
-- Forecast aggregation uses the canonical local daytime window. AgERA5 local days use its disclosed eight longitude zones, not civil time.
+- Forecast aggregation uses the canonical local daytime window. ERA5 climate uses exact IANA civil-local 10:00–20:00 windows and valid civil dates.
 - Forecast, climate, places and best-weather each use small pointers to immutable, validated artifacts. Sample data must never look live.
 - Server startup uses the active artifact root directly. The retired monolithic `artifacts/current`, `/manifest.json` and `/releases/...` contract is removed.
 - The server validates and hot-swaps complete forecast snapshots. Climate, place and shortlist clients validate their static pointers and immutable files before changing visible state. A request must never mix evidence from different releases.

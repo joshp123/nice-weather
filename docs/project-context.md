@@ -30,7 +30,7 @@ The six ordered judgements are Awful, Poor, Mixed, Good, Very good and Excellent
 | --- | --- | --- | ---: |
 | Next 14 days | ECMWF IFS | worldwide | about 28 km |
 | Individual forecast days | DWD ICON-EU where complete; IFS elsewhere | worldwide, with European refinement | about 7 km or 28 km |
-| Recent climate | AgERA5 daily evidence, 2006–2025 | worldwide land | about 30 km atmospheric; 0.25° rain |
+| Recent climate | ERA5 hourly evidence, 2006–2025 | worldwide land; replacement build in progress | source 0.25° grid, about 28 km |
 
 The forecast pointer currently identifies one complete IFS baseline and the newest complete ICON-EU refinement. A newer ICON-EU run may replace an older refinement under the same IFS baseline only when every global evidence hash is unchanged and no existing European detail day is lost. Forecast publication cannot move the date horizon backwards.
 
@@ -38,15 +38,14 @@ A daily forecast record comes wholly from one provider. Providers are not blende
 
 Forecast metrics use the local daytime window. The source run, forecast range and native detail remain available without burdening the main answer.
 
-The climate product scores every complete AgERA5 day from 2006 through 2025 before monthly aggregation. It publishes:
+The previous AgERA5 publication is rejected and inactive because its coarse longitude windows created a false north-south seam. The replacement uses hourly ERA5 evidence from 2006 through 2025. It builds exact IANA civil-local daytime records, scores each real day, then publishes:
 
 - chance of a Good-or-better day;
 - chance of an Awful day;
-- median score;
-- chance of a seven-day Poor-or-Awful spell;
-- Good-or-better Comfort, Dry, Bright and Calm shares.
+- chance that a seven-day window contains at least three consecutive Poor or Awful days;
+- physical Comfort, Dry, Clear sky and Calm evidence with units.
 
-AgERA5 is delivered on a 0.1° grid, but it is topography-corrected and interpolated from coarser ERA5 evidence. The interface therefore says about 30 km weather detail. Rain evidence is 0.25°. AgERA5 local days use eight longitude zones rather than civil time. These limits are source facts, not reasons to invent precision.
+ERA5 is stored on its source 0.25° grid and described as about 28 km weather detail. Each grid point uses its exact valid civil dates and an IANA civil-local 10:00–20:00 daytime window. November is the first complete production canary. No seasonal control appears as available until its history, land authority, scalar tiles and point evidence pass publication checks.
 
 Natural Earth 5.1.1 centre-on-land cells are the climate land authority. Water is transparent. A named coastal place can use the nearest valid land cell; the place sheet says when this happens. Missing inland evidence must remain missing and fails publication checks.
 
@@ -70,7 +69,7 @@ The orthogonal components are:
 
 - **Comfort**: temperature and moisture together, including hot-humid and cold-damp discomfort;
 - **Dry**: rain amount and meaningful wet time;
-- **Bright**: solar energy, sunshine and cloud;
+- **Clear sky**: cloud cover only; daylight and solar energy can appear as unscored context;
 - **Calm**: wind comfort under the selected preference.
 
 Deal-breakers stop cold, oppressive, very wet or very windy days from winning through an average. A physically valid calculation that gives a plainly implausible product answer still requires product review before changing score policy.
@@ -115,7 +114,7 @@ Point evidence is stored in compact spatial blocks. The client fetches only the 
 
 React owns typed application state, accessibility and progressive disclosure. MapLibre owns navigation, labels, borders and compositing. The scalar custom layer owns weather colour only.
 
-The interface has one control family and one visual hierarchy. Overall, Comfort, Dry, Bright and Calm are coordinated views of one stored judgement. Forecast mode uses real dates. Climate mode uses monthly distributions rather than a fake calendar.
+The interface has one control family and one visual hierarchy. Overall, Comfort, Dry, Clear sky and Calm are coordinated views of one stored judgement. Forecast mode uses real dates. Climate mode uses monthly distributions rather than a fake calendar.
 
 The scalar renderer indexes each forecast or climate catalog once. Per-frame linear scans are forbidden. Ordinary map movement must not produce a task over 100 ms.
 

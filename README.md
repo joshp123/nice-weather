@@ -13,16 +13,16 @@ The visible lenses are:
 - **Overall**: the complete warm-weather judgement;
 - **Comfort**: temperature and moisture together;
 - **Dry**: rain amount and wet time;
-- **Bright**: sunshine, solar energy and cloud;
+- **Clear sky**: cloud cover only;
 - **Calm**: wind comfort for the selected preference.
 
-**Warm & sunny** favours comfortable warmth, brightness, dryness and low wind. **Cycling** makes rain and wind more costly. The warm bias is deliberate: 22–27°C is ideal and 16°C is mediocre.
+**Warm & sunny** favours comfortable warmth, clear sky, dryness and low wind. **Cycling** makes rain and wind more costly. The warm bias is deliberate: 22–27°C is ideal and 16°C is mediocre.
 
 ## Current data
 
 - **Worldwide forecast:** ECMWF IFS on its public 0.25° delivery grid, labelled as about 28 km weather detail.
 - **European forecast refinement:** DWD ICON-EU at about 7 km for complete supported days. A daily record comes wholly from IFS or ICON-EU; fields are never mixed.
-- **Recent climate:** AgERA5 daily evidence for 2006–2025. Every real day is scored before monthly probabilities are calculated. The delivery grid is 0.1°, atmospheric evidence is about 30 km and rain evidence is 0.25°.
+- **Recent climate:** the rejected AgERA5 publication is not active. Its replacement uses hourly ERA5 evidence for 2006–2025 on the source 0.25° grid. It builds exact civil-local daytime records before it scores and aggregates each real day. November is the current production canary; the product will not describe climate data as available until a validated month is published.
 - **Land:** Natural Earth 5.1.1. Water stays transparent. A coastal place can use its nearest valid land cell, which is disclosed in the place view.
 - **Places:** a pinned worldwide GeoNames index with local names, alternate names and transliterations.
 
@@ -54,17 +54,15 @@ go run ./cmd/niceweather forecast-world \
   --out ./artifacts
 ```
 
-Build one AgERA5 climate month from existing source checkpoints. The Copernicus bearer token is read from standard input and must not be stored in the repository:
+The ERA5 climate pipeline has three explicit stages: immutable year-month history, one checksum-trusted land authority, then a validated month publication. Inspect the exact required paths and checksums before a production run:
 
 ```bash
-printf '%s' "$AGERA5_BEARER_TOKEN" | go run ./cmd/niceweather climate-world \
-  --month 1 \
-  --checkpoints /absolute/path/to/checkpoints \
-  --land-cache /absolute/path/to/land-cache \
-  --out /absolute/path/to/artifacts
+go run ./cmd/niceweather era5-history-month -h
+go run ./cmd/niceweather era5-publication-authority -h
+go run ./cmd/niceweather era5-climate-month -h
 ```
 
-Repeat for months 1–12. Each validated month is immutable. The climate pointer changes only when the published month set is coherent.
+Each year-month history shard and each published month is immutable. A one-month preview index can support the November product canary. The complete climate verifier accepts only a coherent twelve-month publication.
 
 Build the worldwide place index from pinned GeoNames extracts, then rebuild the forecast-bound destination shortlist:
 
