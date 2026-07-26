@@ -20,6 +20,7 @@ import (
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/era5climate"
 	"nice-weather-finder/internal/era5climateproduct"
+	"nice-weather-finder/internal/era5publication"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/product"
 	"nice-weather-finder/internal/providers/agera5"
@@ -141,6 +142,10 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		err = runERA5ClimateMonthCommand(ctx, os.Args[2:], os.Stdout, os.Stderr, buildERA5ClimateMonth)
+	case "era5-publication-authority":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		err = runERA5PublicationAuthorityCommand(ctx, os.Args[2:], os.Stdout, os.Stderr, era5publication.Build)
 	case "verify-climate":
 		err = runVerifyClimateCommand(os.Args[2:], os.Stdout, os.Stderr, climatetiles.VerifyCompletePublication)
 	case "places":
@@ -201,7 +206,7 @@ func usage() {
 }
 
 func writeUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|agera5-canary|era5-history-month|era5-climate-month|climate-world|verify-climate|serve|places|best-weather> [options]")
+	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|agera5-canary|era5-history-month|era5-publication-authority|era5-climate-month|climate-world|verify-climate|serve|places|best-weather> [options]")
 }
 
 func formatOptionalTime(value time.Time) string {
@@ -254,6 +259,63 @@ type era5ClimateMonthSummary struct {
 }
 
 type era5ClimateMonthRunner func(context.Context, era5ClimateMonthConfig) (era5ClimateMonthSummary, error)
+
+type era5PublicationAuthorityRunner func(context.Context, era5publication.Config) (era5publication.Summary, error)
+
+func runERA5PublicationAuthorityCommand(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	run era5PublicationAuthorityRunner,
+) error {
+	if ctx == nil || stdout == nil || stderr == nil || run == nil {
+		return errors.New("era5-publication-authority command dependencies are unavailable")
+	}
+	flags := flag.NewFlagSet("era5-publication-authority", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	plan := flags.String("plan", "", "absolute accepted gzip JSON cell plan path (required)")
+	planSHA := flags.String("plan-sha256", "", "trusted compressed plan SHA-256 (required)")
+	landCache := flags.String("land-cache", "", "absolute Natural Earth cache directory (required)")
+	out := flags.String("out", "", "absolute output directory for the mask and authority sidecar (required)")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("era5-publication-authority accepts no positional arguments")
+	}
+	config := era5publication.Config{
+		PlanPath: *plan, PlanSHA256: *planSHA,
+		LandCacheRoot: *landCache, OutputRoot: *out,
+	}
+	for _, required := range []struct{ name, value string }{
+		{"--plan", config.PlanPath}, {"--plan-sha256", config.PlanSHA256},
+		{"--land-cache", config.LandCacheRoot}, {"--out", config.OutputRoot},
+	} {
+		if required.value == "" {
+			return fmt.Errorf("era5-publication-authority %s is required", required.name)
+		}
+	}
+	summary, err := run(ctx, config)
+	if err != nil {
+		return err
+	}
+	state := "built"
+	if summary.Existing {
+		state = "already valid"
+	}
+	_, err = fmt.Fprintf(stdout,
+		"ERA5 publication authority %s: %d land centres; display mask SHA-256 %s; authority SHA-256 %s; %s.\n",
+		state, summary.CentreLandCells, summary.DisplayMaskSHA256,
+		summary.PublicationAuthoritySHA256, summary.OutputRoot,
+	)
+	if err != nil {
+		return fmt.Errorf("write ERA5 publication authority summary: %w", err)
+	}
+	return nil
+}
 
 func runERA5ClimateMonthCommand(
 	ctx context.Context,

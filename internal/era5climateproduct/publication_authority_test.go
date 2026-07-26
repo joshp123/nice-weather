@@ -1,6 +1,7 @@
 package era5climateproduct
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -51,6 +52,54 @@ func TestLegacyPlanRequiresExactPublicationAuthority(t *testing.T) {
 		catalog.Source.PublicationAuthoritySHA256 != authoritySHA ||
 		catalog.Source.PublicationAuthoritySHA256 == catalog.Source.AcquisitionPlanSHA256 {
 		t.Fatalf("catalog did not distinguish acquisition and publication authority: %+v", catalog.Source)
+	}
+}
+
+func TestEncodePublicationAuthorityIsCanonicalAndReloadable(t *testing.T) {
+	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
+	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	first, err := EncodePublicationAuthority(plan, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := EncodePublicationAuthority(plan, append([]byte(nil), values...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first.JSON, second.JSON) || first.SHA256 != second.SHA256 ||
+		first.DisplayMaskSHA256 != second.DisplayMaskSHA256 || first.CentreLandCells != 1 {
+		t.Fatalf("publication authority encoding is not stable: first=%+v second=%+v", first, second)
+	}
+	root := t.TempDir()
+	authorityPath := filepath.Join(root, "authority.json")
+	maskPath := filepath.Join(root, "mask.bin")
+	if err := os.WriteFile(authorityPath, first.JSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(maskPath, values, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := LoadPublicationAuthority(authorityPath, first.SHA256, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadDisplayMaskWithAuthority(maskPath, plan, authority); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEncodePublicationAuthorityRejectsWrongMaskCountAndValues(t *testing.T) {
+	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
+	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	wrongCount := append([]byte(nil), values...)
+	wrongCount[Rows/2*Columns+Columns/2] = 0
+	if _, err := EncodePublicationAuthority(plan, wrongCount); err == nil {
+		t.Fatal("encoded a display mask whose land count disagreed with the plan")
+	}
+	invalid := append([]byte(nil), values...)
+	invalid[0] = 2
+	if _, err := EncodePublicationAuthority(plan, invalid); err == nil {
+		t.Fatal("encoded a display mask with a value outside 0 or 1")
 	}
 }
 

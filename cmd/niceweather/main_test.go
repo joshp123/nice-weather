@@ -18,6 +18,7 @@ import (
 
 	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/era5publication"
 	"nice-weather-finder/internal/providers/era5hourly"
 	weatherupdate "nice-weather-finder/internal/update"
 )
@@ -26,7 +27,7 @@ func TestUsageListsOnlyActiveArtifactCommands(t *testing.T) {
 	var output bytes.Buffer
 	writeUsage(&output)
 
-	for _, command := range []string{"forecast-world", "era5-history-month", "era5-climate-month", "climate-world", "places", "best-weather", "serve"} {
+	for _, command := range []string{"forecast-world", "era5-history-month", "era5-publication-authority", "era5-climate-month", "climate-world", "places", "best-weather", "serve"} {
 		if !strings.Contains(output.String(), command) {
 			t.Errorf("usage omits active command %q: %s", command, output.String())
 		}
@@ -35,6 +36,69 @@ func TestUsageListsOnlyActiveArtifactCommands(t *testing.T) {
 		if strings.Contains(output.String(), retired) {
 			t.Errorf("usage still advertises retired command %q: %s", retired, output.String())
 		}
+	}
+}
+
+func TestERA5PublicationAuthorityCommandPassesExactInputsAndReportsDigests(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	called := 0
+	err := runERA5PublicationAuthorityCommand(context.Background(), []string{
+		"--plan", "/trusted/world-2025-11.json.gz",
+		"--plan-sha256", strings.Repeat("a", 64),
+		"--land-cache", "/large-disk/land-cache",
+		"--out", "/large-disk/authority",
+	}, &stdout, &stderr, func(_ context.Context, config era5publication.Config) (era5publication.Summary, error) {
+		called++
+		if config != (era5publication.Config{
+			PlanPath: "/trusted/world-2025-11.json.gz", PlanSHA256: strings.Repeat("a", 64),
+			LandCacheRoot: "/large-disk/land-cache", OutputRoot: "/large-disk/authority",
+		}) {
+			t.Fatalf("config = %+v", config)
+		}
+		return era5publication.Summary{
+			OutputRoot: "/large-disk/authority", CentreLandCells: 364_578,
+			DisplayMaskSHA256:          strings.Repeat("b", 64),
+			PublicationAuthoritySHA256: strings.Repeat("c", 64),
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 || stderr.Len() != 0 || strings.Count(strings.TrimSpace(stdout.String()), "\n") != 0 {
+		t.Fatalf("called=%d stdout=%q stderr=%q", called, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"built", "364578 land centres", strings.Repeat("b", 64), strings.Repeat("c", 64), "/large-disk/authority"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("summary lacks %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestERA5PublicationAuthorityCommandRejectsMissingAndPositionalInputs(t *testing.T) {
+	valid := []string{
+		"--plan", "/trusted/plan.json.gz", "--plan-sha256", strings.Repeat("a", 64),
+		"--land-cache", "/large-disk/cache", "--out", "/large-disk/authority",
+	}
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"missing plan", valid[2:], "--plan is required"},
+		{"positional", append(append([]string(nil), valid...), "extra"), "accepts no positional arguments"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			var stdout, stderr bytes.Buffer
+			err := runERA5PublicationAuthorityCommand(context.Background(), test.args, &stdout, &stderr,
+				func(context.Context, era5publication.Config) (era5publication.Summary, error) {
+					called = true
+					return era5publication.Summary{}, nil
+				})
+			if err == nil || !strings.Contains(err.Error(), test.want) || called {
+				t.Fatalf("called=%t error=%v; want %q", called, err, test.want)
+			}
+		})
 	}
 }
 
