@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/climatetiles"
-	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/era5climateproduct"
 	"nice-weather-finder/internal/era5publication"
 	"nice-weather-finder/internal/providers/era5hourly"
 	weatherupdate "nice-weather-finder/internal/update"
@@ -130,6 +130,7 @@ func TestERA5ClimateMonthCommandPassesExactInputsAndReportsInstalledRelease(t *t
 				ReleaseID: "era5-2006-2025-month-11-v1", Period: "month-11",
 				Shards: 20, ShardBytes: 17_502_469_120, Cells: 364_578,
 				CellDays: 226_037_884, OutputFiles: 1_077, OutputBytes: 482_344_960,
+				IndexState: era5climateproduct.IndexStatePreview, Months: 1,
 				Elapsed: 8*time.Minute + 14*time.Second,
 			}, nil
 		})
@@ -140,7 +141,7 @@ func TestERA5ClimateMonthCommandPassesExactInputsAndReportsInstalledRelease(t *t
 		t.Fatalf("called=%d stdout=%q stderr=%q", called, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"month-11", "release era5-2006-2025-month-11-v1", "20 shards/17502469120 bytes",
+		"month-11", "release era5-2006-2025-month-11-v1", "preview index with 1 month(s)", "20 shards/17502469120 bytes",
 		"364578 cells/226037884 complete local days", "1077 files/482344960 bytes", "8m14s",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -461,21 +462,18 @@ func TestClimateWorldCommandBuildsCanonicalMonthAndPrintsBoundedSummary(t *testi
 	}
 }
 
-func TestVerifyClimateCommandUsesReadOnlyGateAndPrintsProductEvidence(t *testing.T) {
+func TestVerifyClimateCommandUsesERA5ReadOnlyGate(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	called := 0
-	verify := func(root string, probes []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error) {
+	verify := func(root string) (era5climateproduct.PublicationVerification, error) {
 		called++
-		if root != "/verified/artifacts" || len(probes) != len(defaultClimateVerificationProbes()) {
-			t.Fatalf("verification input = %q, %d probes", root, len(probes))
+		if root != "/verified/artifacts" {
+			t.Fatalf("verification input = %q", root)
 		}
-		profile := delivery.ClimateProfileDistribution{RatingShares: delivery.ClimateRatingShares{Good: 600, VeryGood: 200, Excellent: 100}}
-		return climatetiles.PublicationVerification{
-			Pointer: climatetiles.Pointer{IndexID: "typical-2006-2025"},
-			Index:   climatetiles.Index{ReferencePeriod: climatetiles.ReferencePeriod{FirstYear: 2006, LastYear: 2025}},
-			Probes: []climatetiles.VerificationProbeResult{
-				{Probe: climatetiles.VerificationProbe{Label: "Málaga in November"}, Record: delivery.ClimateDistributionRecord{ComfortGoodPercent: 82, DryGoodPercent: 91, BrightGoodPercent: 88, Nice: profile, Cycling: profile, Valid: true}},
-				{Probe: climatetiles.VerificationProbe{Label: "Gulf of Guinea in January"}},
+		return era5climateproduct.PublicationVerification{
+			Pointer: era5climateproduct.Pointer{IndexID: "era5-2006-2025"},
+			Index: era5climateproduct.Index{
+				ReferencePeriod: era5climateproduct.ReferencePeriod{FirstYear: 2006, LastYear: 2025},
 			},
 		}, nil
 	}
@@ -485,11 +483,7 @@ func TestVerifyClimateCommandUsesReadOnlyGateAndPrintsProductEvidence(t *testing
 	if called != 1 || stderr.Len() != 0 {
 		t.Fatalf("called=%d stderr=%q", called, stderr.String())
 	}
-	for _, want := range []string{
-		"Climate publication valid: 12 months, 2006-2025, index typical-2006-2025.",
-		"Málaga in November: Nice 90%; awful 0%; poor week 0.0%; median 0; cycling 90%; comfort 82%; dry 91%; bright 88%; calm 0%; point and scalar match.",
-		"Gulf of Guinea in January: no data; scalar map is transparent.",
-	} {
+	for _, want := range []string{"Climate publication valid: 12 months, 2006-2025, index era5-2006-2025."} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout does not contain %q:\n%s", want, stdout.String())
 		}
@@ -498,15 +492,15 @@ func TestVerifyClimateCommandUsesReadOnlyGateAndPrintsProductEvidence(t *testing
 
 func TestVerifyClimateCommandRejectsArgumentsAndPropagatesFailure(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := runVerifyClimateCommand([]string{"unexpected"}, &stdout, &stderr, func(string, []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error) {
+	if err := runVerifyClimateCommand([]string{"unexpected"}, &stdout, &stderr, func(string) (era5climateproduct.PublicationVerification, error) {
 		t.Fatal("verification ran after an invalid positional argument")
-		return climatetiles.PublicationVerification{}, nil
+		return era5climateproduct.PublicationVerification{}, nil
 	}); err == nil || !strings.Contains(err.Error(), "accepts no positional arguments") {
 		t.Fatalf("positional argument error = %v", err)
 	}
 	want := errors.New("publication invalid")
-	if err := runVerifyClimateCommand(nil, &stdout, &stderr, func(string, []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error) {
-		return climatetiles.PublicationVerification{}, want
+	if err := runVerifyClimateCommand(nil, &stdout, &stderr, func(string) (era5climateproduct.PublicationVerification, error) {
+		return era5climateproduct.PublicationVerification{}, want
 	}); !errors.Is(err, want) {
 		t.Fatalf("verification error = %v", err)
 	}

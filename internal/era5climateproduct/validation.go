@@ -157,6 +157,81 @@ func ValidateRelease(releaseRoot string, plan era5hourly.CellPlan, displayMask D
 	return catalog, nil
 }
 
+// ValidatePublishedRelease verifies an already deep-validated immutable
+// release without requiring its external acquisition plan. It checks the
+// catalog, exact file set, all checksums and records, and point/scalar parity.
+// ValidateRelease remains the stronger source-plan publication gate.
+func ValidatePublishedRelease(releaseRoot string) (Catalog, error) {
+	info, err := os.Lstat(releaseRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return Catalog{}, errors.New("ERA5 climate release root must be a real directory")
+	}
+	catalogBytes, err := readBounded(filepath.Join(releaseRoot, CatalogFilename), maximumCatalogBytes)
+	if err != nil {
+		return Catalog{}, err
+	}
+	catalog, err := ParseCatalog(catalogBytes)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if filepath.Base(releaseRoot) != catalog.ReleaseID {
+		return Catalog{}, errors.New("ERA5 climate release directory does not match its catalog")
+	}
+	maskBytes, err := readBounded(filepath.Join(releaseRoot, catalog.Source.DisplayMaskPath), Rows*Columns)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if len(maskBytes) != Rows*Columns {
+		return Catalog{}, errors.New("ERA5 climate display mask size changed")
+	}
+	maskDigest := sha256.Sum256(maskBytes)
+	if hex.EncodeToString(maskDigest[:]) != catalog.Source.DisplayMaskSHA256 {
+		return Catalog{}, errors.New("ERA5 climate display mask checksum mismatch")
+	}
+	for index, value := range maskBytes {
+		if value > 1 {
+			return Catalog{}, fmt.Errorf("ERA5 climate display mask cell %d is invalid", index)
+		}
+	}
+
+	verifier := &Builder{
+		config:          Config{ReleaseID: catalog.ReleaseID, MaximumZoom: catalog.MaximumZoom},
+		period:          catalog.Period,
+		planSHA256:      catalog.Source.AcquisitionPlanSHA256,
+		displayMask:     DisplayMask{values: maskBytes},
+		mainRecords:     make([]byte, Rows*Columns*delivery.ClimatePointRecordBytes),
+		overrideRecords: make([]byte, Rows*delivery.ClimatePointRecordBytes),
+		mainScalars:     make([][]byte, len(fields)),
+		overrideScalars: make([][]byte, len(fields)),
+		overridePresent: make([]bool, Rows),
+	}
+	for field := range fields {
+		verifier.mainScalars[field] = make([]byte, Rows*Columns)
+		verifier.overrideScalars[field] = make([]byte, Rows)
+	}
+	expectedFiles := map[string]struct{}{
+		CatalogFilename:                {},
+		catalog.Source.DisplayMaskPath: {},
+	}
+	mainCount, datelineCount, err := validatePointAssets(
+		releaseRoot, catalog, verifier, nil, nil, expectedFiles,
+	)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if mainCount+datelineCount != catalog.Source.LogicalCellCount ||
+		datelineCount != catalog.Source.DatelineCellCount {
+		return Catalog{}, errors.New("ERA5 climate catalog logical cell counts do not match point assets")
+	}
+	if err := validateScalarAssets(releaseRoot, catalog, verifier, expectedFiles); err != nil {
+		return Catalog{}, err
+	}
+	if err := validateExactFileSet(releaseRoot, expectedFiles); err != nil {
+		return Catalog{}, err
+	}
+	return catalog, nil
+}
+
 func validateCatalog(catalog Catalog) error {
 	if catalog.Version != CatalogVersion || !validIdentifier(catalog.ReleaseID) ||
 		!validPeriodValue(catalog.Period) || catalog.MaximumZoom > MaximumZoom ||
@@ -306,7 +381,7 @@ func validatePointAssets(
 			if !record.Distribution.Valid {
 				continue
 			}
-			if !expectedMain[row*Columns+column] {
+			if expectedMain != nil && !expectedMain[row*Columns+column] {
 				return 0, 0, errors.New("ERA5 climate point block occupies a cell outside the source plan")
 			}
 			data++
@@ -350,7 +425,7 @@ func validatePointAssets(
 			if !record.Distribution.Valid {
 				continue
 			}
-			if !expectedOverride[row] {
+			if expectedOverride != nil && !expectedOverride[row] {
 				return 0, 0, errors.New("ERA5 climate dateline block occupies a row outside the source plan")
 			}
 			data++
@@ -366,14 +441,18 @@ func validatePointAssets(
 		}
 		datelineCount += data
 	}
-	for offset, expected := range expectedMain {
-		if expected != (verifier.mainRecords[offset*delivery.ClimatePointRecordBytes] != 0) {
-			return 0, 0, errors.New("ERA5 climate main point occupancy does not equal the source plan")
+	if expectedMain != nil {
+		for offset, expected := range expectedMain {
+			if expected != (verifier.mainRecords[offset*delivery.ClimatePointRecordBytes] != 0) {
+				return 0, 0, errors.New("ERA5 climate main point occupancy does not equal the source plan")
+			}
 		}
 	}
-	for row, expected := range expectedOverride {
-		if expected != (verifier.overrideRecords[row*delivery.ClimatePointRecordBytes] != 0) {
-			return 0, 0, errors.New("ERA5 climate dateline occupancy does not equal the source plan")
+	if expectedOverride != nil {
+		for row, expected := range expectedOverride {
+			if expected != (verifier.overrideRecords[row*delivery.ClimatePointRecordBytes] != 0) {
+				return 0, 0, errors.New("ERA5 climate dateline occupancy does not equal the source plan")
+			}
 		}
 	}
 	return mainCount, datelineCount, nil

@@ -1,8 +1,8 @@
 package appserver
 
 import (
+	"bytes"
 	"compress/gzip"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,15 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"nice-weather-finder/internal/climatebuild"
-	"nice-weather-finder/internal/climatetiles"
-	"nice-weather-finder/internal/delivery"
+	"nice-weather-finder/internal/era5climateproduct"
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/places"
-	"nice-weather-finder/internal/providers/agera5"
 	"nice-weather-finder/internal/tiledelivery"
 )
 
@@ -396,17 +393,46 @@ func TestClimateArtifactsUseIsolatedStaticHTTPContract(t *testing.T) {
 
 	blockURL := "/" + blockPath
 	rangeRequest := httptest.NewRequest(http.MethodGet, blockURL, nil)
-	rangeRequest.Header.Set("Range", "bytes=160-189")
+	rangeRequest.Header.Set("Range", "bytes=64-127")
 	rangeRequest.Header.Set("Accept-Encoding", "gzip")
 	partial := httptest.NewRecorder()
 	app.handler.ServeHTTP(partial, rangeRequest)
-	if partial.Code != http.StatusPartialContent || partial.Body.String() != string(blockBody[160:190]) || partial.Header().Get("Content-Range") != fmt.Sprintf("bytes 160-189/%d", len(blockBody)) || partial.Header().Get("Content-Length") != "30" || partial.Header().Get("Accept-Ranges") != "bytes" || partial.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || partial.Header().Get("Content-Encoding") != "" || partial.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+	if partial.Code != http.StatusPartialContent || partial.Body.String() != string(blockBody[64:128]) || partial.Header().Get("Content-Range") != fmt.Sprintf("bytes 64-127/%d", len(blockBody)) || partial.Header().Get("Content-Length") != "64" || partial.Header().Get("Accept-Ranges") != "bytes" || partial.Header().Get("Content-Type") != era5climateproduct.PointMediaType || partial.Header().Get("Content-Encoding") != "" || partial.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("climate block range: %d %+v body=%d", partial.Code, partial.Header(), partial.Body.Len())
 	}
 	head := httptest.NewRecorder()
 	app.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, blockURL, nil))
-	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(len(blockBody)) || head.Header().Get("Content-Type") != tiledelivery.ClimateBlockMediaType || head.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") != fmt.Sprint(len(blockBody)) || head.Header().Get("Content-Type") != era5climateproduct.PointMediaType || head.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("climate block HEAD: %d %+v body=%d", head.Code, head.Header(), head.Body.Len())
+	}
+
+	datelinePath := "climate/releases/" + index.Months[0].ReleaseID + "/points/" + climateCatalog.Period + "/dateline/020.nwd"
+	datelineBody := append([]byte(nil), blockBody[:128]...)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(app.root, filepath.FromSlash(datelinePath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(datelinePath)), datelineBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	datelineRequest := httptest.NewRequest(http.MethodGet, "/"+datelinePath, nil)
+	datelineRequest.Header.Set("Range", "bytes=64-127")
+	dateline := httptest.NewRecorder()
+	app.handler.ServeHTTP(dateline, datelineRequest)
+	if dateline.Code != http.StatusPartialContent || dateline.Body.String() != string(datelineBody[64:128]) || dateline.Header().Get("Content-Type") != era5climateproduct.OverrideMediaType || dateline.Header().Get("Content-Range") != "bytes 64-127/128" {
+		t.Fatalf("climate dateline range: %d %+v body=%d", dateline.Code, dateline.Header(), dateline.Body.Len())
+	}
+
+	clearSkyPath := "climate/releases/" + index.Months[0].ReleaseID + "/scores/" + climateCatalog.Period + "/clear_sky_good/4/0/0.nws"
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(app.root, filepath.FromSlash(clearSkyPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.root, filepath.FromSlash(clearSkyPath)), scalarBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	clearSky := httptest.NewRecorder()
+	app.handler.ServeHTTP(clearSky, httptest.NewRequest(http.MethodGet, "/"+clearSkyPath, nil))
+	if clearSky.Code != http.StatusOK || clearSky.Header().Get("Content-Type") != tiledelivery.ScalarMediaType {
+		t.Fatalf("clear-sky scalar: %d %+v", clearSky.Code, clearSky.Header())
 	}
 
 	secondPointer := []byte(`{"version":2,"indexId":"second-index","indexSha256":"` + strings.Repeat("b", 64) + `"}`)
@@ -433,7 +459,7 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 	}
 
 	releaseID := "safe-release"
-	blockPath := "climate/releases/" + releaseID + "/points/month-12/112/112.nwc"
+	blockPath := "climate/releases/" + releaseID + "/points/month-12/main/045/044.nwc"
 	outside := filepath.Join(t.TempDir(), "secret.nwc")
 	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
 		t.Fatal(err)
@@ -486,11 +512,16 @@ func TestClimateRoutesRejectUnsafePathsSymlinksAndMethods(t *testing.T) {
 		"/climate/releases/%252e%252e/catalog.json",
 		"/climate/releases/safe-release/points/month-01/001/../002.nwc",
 		"/climate/releases/safe-release/points/month-01/001/%2e%2e%2f002.nwc",
+		"/climate/releases/safe-release/points/month-01/001/002.nwc",
 		"/climate/releases/safe-release/points/month-13/001/002.nwc",
 		"/climate/releases/safe-release/points/month-+1/001/002.nwc",
 		"/climate/releases/safe-release/points/month-01/01/002.nwc",
 		"/climate/releases/safe-release/points/month-01/+01/002.nwc",
+		"/climate/releases/safe-release/points/month-01/main/046/000.nwc",
+		"/climate/releases/safe-release/points/month-01/main/000/045.nwc",
+		"/climate/releases/safe-release/points/month-01/dateline/046.nwd",
 		"/climate/releases/safe-release/scores/month-01/unknown/4/1/2.nws",
+		"/climate/releases/safe-release/scores/month-01/bright_good/4/1/2.nws",
 		"/climate/releases/safe-release/scores/month-01/nice_good/5/1/2.nws",
 		"/climate/releases/safe-release/scores/month-01/nice_good/4/01/2.nws",
 		"/climate/releases/safe-release/scores/month-01/nice_good/4/+1/2.nws",
@@ -944,107 +975,57 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func publishClimateHTTPPreview(t *testing.T, artifacts string) (climatetiles.Pointer, climatetiles.Index, climatetiles.Catalog) {
+func publishClimateHTTPPreview(t *testing.T, artifacts string) (era5climateproduct.Pointer, era5climateproduct.Index, era5climateproduct.Catalog) {
 	t.Helper()
-	reference := installClimateHTTPFixtureMonth(t, artifacts, 1, 61, climateHTTPFixtureProvenance())
-	pointer, err := climatetiles.BuildAndPublishIndex(context.Background(), artifacts, "typical-2006-2025-preview-01", climatetiles.IndexStatePreview, []climatetiles.MonthReference{reference})
-	if err != nil {
-		t.Fatal(err)
+	releaseID, period, indexID := "era5-http-01", "month-01", "era5-http-preview"
+	releaseRoot := filepath.Join(artifacts, "climate", "releases", releaseID)
+	pointPath := "points/" + period + "/main/020/020.nwc"
+	scalarPath := "scores/" + period + "/comfort_good/4/0/0.nws"
+	pointBody := make([]byte, 64+16*32*64)
+	copy(pointBody, []byte("NWE5CPT1"))
+	scalarBody := bytes.Repeat([]byte{61}, tiledelivery.ScalarTileBytes)
+	for relative, body := range map[string][]byte{pointPath: pointBody, scalarPath: scalarBody} {
+		path := filepath.Join(releaseRoot, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	_, index, err := climatetiles.ValidateCurrentIndex(artifacts)
-	if err != nil {
-		t.Fatal(err)
+	catalog := era5climateproduct.Catalog{
+		Version: era5climateproduct.CatalogVersion, ReleaseID: releaseID, Period: period,
+		PointBlocks: []era5climateproduct.PointBlock{{Path: pointPath}},
+		ScalarTiles: []era5climateproduct.ScalarTile{{Field: era5climateproduct.FieldComfortGood, Path: scalarPath}},
 	}
-	catalog, err := climatetiles.ValidateRelease(filepath.Join(artifacts, "climate", "releases", reference.ReleaseID))
-	if err != nil {
-		t.Fatal(err)
+	catalogBody := writeClimateHTTPJSON(t, filepath.Join(releaseRoot, "catalog.json"), catalog)
+	catalogDigest := sha256.Sum256(catalogBody)
+	index := era5climateproduct.Index{
+		Version: era5climateproduct.IndexVersion, IndexID: indexID, State: era5climateproduct.IndexStatePreview,
+		Months: []era5climateproduct.MonthReference{{Period: period, ReleaseID: releaseID, CatalogSHA256: hex.EncodeToString(catalogDigest[:])}},
 	}
+	indexPath := filepath.Join(artifacts, "climate", "indexes", indexID+".json")
+	indexBody := writeClimateHTTPJSON(t, indexPath, index)
+	indexDigest := sha256.Sum256(indexBody)
+	pointer := era5climateproduct.Pointer{Version: era5climateproduct.PointerVersion, IndexID: indexID, IndexSHA256: hex.EncodeToString(indexDigest[:])}
+	writeClimateHTTPJSON(t, filepath.Join(artifacts, "climate", "current.json"), pointer)
 	return pointer, index, catalog
 }
 
-func installClimateHTTPFixtureMonth(t *testing.T, artifacts string, month int, score byte, provenance climatetiles.Provenance) climatetiles.MonthReference {
+func writeClimateHTTPJSON(t *testing.T, path string, value any) []byte {
 	t.Helper()
-	releaseID := fmt.Sprintf("climate-http-%02d", month)
-	period := fmt.Sprintf("month-%02d", month)
-	reference, err := climatetiles.BuildAndInstallMonth(context.Background(), artifacts, releaseID, func(ctx context.Context, stage climatetiles.Stage) (climatetiles.Catalog, error) {
-		if err := ctx.Err(); err != nil {
-			return climatetiles.Catalog{}, err
-		}
-		block := agera5.BlockCoordinate{Latitude: 79, Longitude: 54}
-		identity, err := tiledelivery.NewClimateBlockIdentity(releaseID, period, block)
-		if err != nil {
-			return climatetiles.Catalog{}, err
-		}
-		records := make([]delivery.ClimateDistributionRecord, int(identity.LatitudeCount)*int(identity.LongitudeCount))
-		for index := range records {
-			records[index] = climateHTTPFixtureRecord()
-		}
-		pointPath := climatetiles.PointBlockPath(period, block)
-		pointAsset, err := tiledelivery.WriteClimateBlock(filepath.Join(stage.ReleaseRoot, filepath.FromSlash(pointPath)), releaseID, period, block, records)
-		if err != nil {
-			return climatetiles.Catalog{}, err
-		}
-		point, err := climatetiles.PointBlockFromAsset(stage.ReleaseRoot, pointAsset)
-		if err != nil {
-			return climatetiles.Catalog{}, err
-		}
-		tiles := make([]climatetiles.ScalarTile, 0, len(climatetiles.Fields())*(climatetiles.MaximumZoom+1))
-		for zoom := uint8(0); zoom <= climatetiles.MaximumZoom; zoom++ {
-			id, err := tiledelivery.NewID(string(climatetiles.FieldComfortGood), zoom, 0, 0)
-			if err != nil {
-				return climatetiles.Catalog{}, err
-			}
-			encoded, stats, err := tiledelivery.BuildScalarTile(id, func(tiledelivery.ScalarSample) (uint8, bool, error) { return score, true, nil })
-			if err != nil {
-				return climatetiles.Catalog{}, err
-			}
-			digest := sha256.Sum256(encoded)
-			for _, field := range climatetiles.Fields() {
-				relative := climatetiles.ScalarTilePath(period, field, zoom, 0, 0)
-				filename := filepath.Join(stage.ReleaseRoot, filepath.FromSlash(relative))
-				if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
-					return climatetiles.Catalog{}, err
-				}
-				if err := os.WriteFile(filename, encoded, 0o644); err != nil {
-					return climatetiles.Catalog{}, err
-				}
-				tiles = append(tiles, climatetiles.ScalarTile{
-					Field: field, Zoom: zoom, Path: relative, Bytes: uint64(len(encoded)),
-					SHA256: hex.EncodeToString(digest[:]), MediaType: tiledelivery.ScalarMediaType,
-					DataTexels: stats.DataTexels, NoDataTexels: stats.NoDataTexels,
-				})
-			}
-		}
-		return climatetiles.NewCatalog(releaseID, period, provenance, []climatetiles.PointBlock{point}, tiles), nil
-	})
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return reference
-}
-
-func climateHTTPFixtureProvenance() climatetiles.Provenance {
-	source := sha256.Sum256([]byte("AgERA5 HTTP fixture"))
-	land := sha256.Sum256([]byte("Natural Earth HTTP fixture"))
-	return climatetiles.Provenance{
-		SourceEvidenceSHA256: hex.EncodeToString(source[:]),
-		LandMaskSetSHA256:    hex.EncodeToString(land[:]),
-		DerivationContract:   climatebuild.CheckpointDerivationContract,
+	body = append(body, '\n')
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func climateHTTPFixtureRecord() delivery.ClimateDistributionRecord {
-	profile := delivery.ClimateProfileDistribution{
-		MedianScore: 65, CalmGoodPercent: 75, PoorWeekPermille: 125,
-		RatingShares: delivery.ClimateRatingShares{Awful: 50, Poor: 100, Mixed: 200, Good: 300, VeryGood: 250, Excellent: 100},
-	}
-	cycling := profile
-	cycling.MedianScore = 58
-	cycling.CalmGoodPercent = 60
-	return delivery.ClimateDistributionRecord{
-		ComfortGoodPercent: 70, DryGoodPercent: 80, BrightGoodPercent: 65,
-		Nice: profile, Cycling: cycling, Valid: true,
-	}
+	return body
 }
 
 func readClimateArtifact(t *testing.T, root, relative string) []byte {

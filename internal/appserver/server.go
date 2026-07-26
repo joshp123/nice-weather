@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"nice-weather-finder/internal/climatetiles"
+	"nice-weather-finder/internal/era5climateproduct"
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
@@ -724,8 +724,11 @@ func validClimateArtifactPath(requestPath string) bool {
 	if len(parts) == 4 {
 		return parts[3] == "catalog.json"
 	}
-	if len(parts) == 7 && parts[3] == "points" && validClimatePeriod(parts[4]) {
-		return validFixedWidthNumber(parts[5], 3, 112) && validFixedWidthNumber(strings.TrimSuffix(parts[6], ".nwc"), 3, 112) && strings.HasSuffix(parts[6], ".nwc")
+	if len(parts) == 8 && parts[3] == "points" && validClimatePeriod(parts[4]) && parts[5] == "main" {
+		return validFixedWidthNumber(parts[6], 3, 45) && validFixedWidthNumber(strings.TrimSuffix(parts[7], ".nwc"), 3, 44) && strings.HasSuffix(parts[7], ".nwc")
+	}
+	if len(parts) == 7 && parts[3] == "points" && validClimatePeriod(parts[4]) && parts[5] == "dateline" {
+		return validFixedWidthNumber(strings.TrimSuffix(parts[6], ".nwd"), 3, 45) && strings.HasSuffix(parts[6], ".nwd")
 	}
 	if len(parts) == 9 && parts[3] == "scores" && validClimatePeriod(parts[4]) && validClimateField(parts[5]) {
 		zoom, ok := canonicalNumber(parts[6], 4)
@@ -757,7 +760,7 @@ func validClimatePeriod(value string) bool {
 }
 
 func validClimateField(value string) bool {
-	for _, field := range climatetiles.Fields() {
+	for _, field := range era5climateproduct.Fields() {
 		if value == string(field) {
 			return true
 		}
@@ -895,7 +898,10 @@ func contentTypeForPath(path string) string {
 		return tiledelivery.ScalarMediaType
 	}
 	if filepath.Ext(path) == ".nwc" {
-		return tiledelivery.ClimateBlockMediaType
+		return era5climateproduct.PointMediaType
+	}
+	if filepath.Ext(path) == ".nwd" {
+		return era5climateproduct.OverrideMediaType
 	}
 	contentType := mime.TypeByExtension(filepath.Ext(path))
 	if contentType == "" {

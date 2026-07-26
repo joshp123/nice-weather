@@ -147,7 +147,7 @@ func main() {
 		defer stop()
 		err = runERA5PublicationAuthorityCommand(ctx, os.Args[2:], os.Stdout, os.Stderr, era5publication.Build)
 	case "verify-climate":
-		err = runVerifyClimateCommand(os.Args[2:], os.Stdout, os.Stderr, climatetiles.VerifyCompletePublication)
+		err = runVerifyClimateCommand(os.Args[2:], os.Stdout, os.Stderr, era5climateproduct.VerifyCompletePublication)
 	case "places":
 		flags := flag.NewFlagSet("places", flag.ContinueOnError)
 		source := flags.String("source", "", "directory containing pinned GeoNames extracts")
@@ -231,7 +231,7 @@ func buildBestWeatherWhenReady(ctx context.Context, artifactRoot string) (destin
 
 type globalClimateRunner func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error)
 
-type climateVerificationRunner func(string, []climatetiles.VerificationProbe) (climatetiles.PublicationVerification, error)
+type climateVerificationRunner func(string) (era5climateproduct.PublicationVerification, error)
 
 type era5HistoryMonthRunner func(context.Context, era5hourly.DailyShardBuildConfig) (era5hourly.DailyShardBuildSummary, error)
 
@@ -255,6 +255,8 @@ type era5ClimateMonthSummary struct {
 	CellDays    uint64
 	OutputFiles int
 	OutputBytes uint64
+	IndexState  era5climateproduct.IndexState
+	Months      int
 	Elapsed     time.Duration
 }
 
@@ -367,8 +369,9 @@ func runERA5ClimateMonthCommand(
 		return err
 	}
 	_, err = fmt.Fprintf(stdout,
-		"ERA5 climate month built: %s; release %s; %d shards/%d bytes; %d cells/%d complete local days; %d files/%d bytes; %s.\n",
-		summary.Period, summary.ReleaseID, summary.Shards, summary.ShardBytes,
+		"ERA5 climate month built and published: %s; release %s; %s index with %d month(s); %d shards/%d bytes; %d cells/%d complete local days; %d files/%d bytes; %s.\n",
+		summary.Period, summary.ReleaseID, summary.IndexState, summary.Months,
+		summary.Shards, summary.ShardBytes,
 		summary.Cells, summary.CellDays, summary.OutputFiles, summary.OutputBytes,
 		summary.Elapsed.Round(time.Millisecond),
 	)
@@ -447,7 +450,16 @@ func buildERA5ClimateMonth(ctx context.Context, config era5ClimateMonthConfig) (
 				return errors.New("installed ERA5 climate release identity changed")
 			}
 			summary.OutputFiles, summary.OutputBytes, err = inspectERA5ClimateRelease(releaseRoot)
-			return err
+			if err != nil {
+				return err
+			}
+			publication, err := era5climateproduct.PublishValidatedMonth(ctx, config.ProductRoot, catalog)
+			if err != nil {
+				return fmt.Errorf("publish ERA5 climate index: %w", err)
+			}
+			summary.IndexState = publication.Index.State
+			summary.Months = len(publication.Index.Months)
+			return nil
 		},
 		era5hourly.OpenDailyShardForPlan,
 		func(shard *era5hourly.DailyShard) error { return shard.Close() },
@@ -609,7 +621,7 @@ func runVerifyClimateCommand(args []string, stdout, stderr io.Writer, verify cli
 	if flags.NArg() != 0 {
 		return errors.New("verify-climate accepts no positional arguments")
 	}
-	verification, err := verify(*out, defaultClimateVerificationProbes())
+	verification, err := verify(*out)
 	if err != nil {
 		return err
 	}
@@ -617,46 +629,7 @@ func runVerifyClimateCommand(args []string, stdout, stderr io.Writer, verify cli
 		verification.Index.ReferencePeriod.FirstYear, verification.Index.ReferencePeriod.LastYear, verification.Pointer.IndexID); err != nil {
 		return fmt.Errorf("write climate verification summary: %w", err)
 	}
-	for _, result := range verification.Probes {
-		if !result.Record.Valid {
-			if _, err := fmt.Fprintf(stdout, "%s: no data; scalar map is transparent.\n", result.Probe.Label); err != nil {
-				return fmt.Errorf("write climate verification probe: %w", err)
-			}
-			continue
-		}
-		if _, err := fmt.Fprintf(stdout, "%s: Nice %d%%; awful %d%%; poor week %.1f%%; median %d; cycling %d%%; comfort %d%%; dry %d%%; bright %d%%; calm %d%%; point and scalar match.\n",
-			result.Probe.Label, result.Record.Nice.GoodOrBetterPercent(), result.Record.Nice.AwfulPercent(), float64(result.Record.Nice.PoorWeekPermille)/10, result.Record.Nice.MedianScore, result.Record.Cycling.GoodOrBetterPercent(),
-			result.Record.ComfortGoodPercent, result.Record.DryGoodPercent, result.Record.BrightGoodPercent, result.Record.Nice.CalmGoodPercent); err != nil {
-			return fmt.Errorf("write climate verification probe: %w", err)
-		}
-	}
 	return nil
-}
-
-// Coordinates are exact 0.1-degree source centres, so each native point and
-// rendered maximum-zoom texel have one unambiguous owner.
-func defaultClimateVerificationProbes() []climatetiles.VerificationProbe {
-	return []climatetiles.VerificationProbe{
-		{Label: "Málaga in November", Period: "month-11", Longitude: -4.5, Latitude: 36.7, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Isla Cristina exact cell in November", Period: "month-11", Longitude: -7.3, Latitude: 37.2, Expectation: climatetiles.ProbeRequiresNoData},
-		{Label: "Nearest Isla Cristina climate cell in November", Period: "month-11", Longitude: -7.4, Latitude: 37.2, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Amsterdam in January", Period: "month-01", Longitude: 4.9, Latitude: 52.4, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "London in January", Period: "month-01", Longitude: -0.1, Latitude: 51.5, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Singapore in May", Period: "month-05", Longitude: 103.8, Latitude: 1.3, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Cairo in May", Period: "month-05", Longitude: 31.2, Latitude: 30.0, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Tromsø exact cell in January", Period: "month-01", Longitude: 19.0, Latitude: 69.7, Expectation: climatetiles.ProbeRequiresNoData},
-		{Label: "Nearest Tromsø climate cell in January", Period: "month-01", Longitude: 18.9, Latitude: 69.7, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Tromsø exact cell in July", Period: "month-07", Longitude: 19.0, Latitude: 69.7, Expectation: climatetiles.ProbeRequiresNoData},
-		{Label: "Nearest Tromsø climate cell in July", Period: "month-07", Longitude: 18.9, Latitude: 69.7, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Canberra in January", Period: "month-01", Longitude: 149.1, Latitude: -35.3, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Canberra in July", Period: "month-07", Longitude: 149.1, Latitude: -35.3, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "São Paulo in January", Period: "month-01", Longitude: -46.6, Latitude: -23.6, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Jungfrau in January", Period: "month-01", Longitude: 8.0, Latitude: 46.5, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Fiji in January", Period: "month-01", Longitude: 178.4, Latitude: -18.1, Expectation: climatetiles.ProbeRequiresData},
-		{Label: "Gulf of Guinea in January", Period: "month-01", Longitude: 0.0, Latitude: 0.0, Expectation: climatetiles.ProbeRequiresNoData},
-		{Label: "East dateline ocean in January", Period: "month-01", Longitude: 179.9, Latitude: 0.0, Expectation: climatetiles.ProbeRequiresNoData},
-		{Label: "West dateline ocean in January", Period: "month-01", Longitude: -179.9, Latitude: 0.0, Expectation: climatetiles.ProbeRequiresNoData},
-	}
 }
 
 func runClimateWorldCommand(

@@ -60,6 +60,11 @@ var fields = []Field{
 	FieldCyclingCalmGood,
 }
 
+// Fields returns the canonical ERA5 climate scalar fields in publication order.
+func Fields() []Field {
+	return append([]Field(nil), fields...)
+}
+
 // Config binds one immutable month release to its exact source plan.
 type Config struct {
 	StagingRoot string
