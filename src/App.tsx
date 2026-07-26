@@ -862,7 +862,7 @@ function ClimateComponentRows({ data, profile, active, onChange }: { data: Clima
   const rows = [
     ['comfort', 'Comfort', data.comfortGoodPercent],
     ['dry', 'Dry', data.dryGoodPercent],
-    ['bright', 'Clear sky', data.brightGoodPercent],
+    ['bright', 'Clear sky', data.clearSkyGoodPercent],
     ['wind', 'Calm', data[profile].calmGoodPercent],
   ] as const;
   return <div className="componentRows climateComponents" aria-label="Chance of good weather by component">{rows.map(([id, label, value]) => (
@@ -974,7 +974,7 @@ export function pointWithinActiveSearchCoverage(point: Pick<MapPoint, 'lat' | 'l
 export function climateFieldFor(lens: Lens, profile: Profile): ClimateField {
   if (lens === 'comfort') return 'comfort_good';
   if (lens === 'dry') return 'dry_good';
-  if (lens === 'bright') return 'bright_good';
+  if (lens === 'bright') return 'clear_sky_good';
   if (lens === 'wind') return profile === 'nice' ? 'nice_calm_good' : 'cycling_calm_good';
   return profile === 'nice' ? 'nice_good' : 'cycling_good';
 }

@@ -276,7 +276,7 @@ describe('clear weather copy', () => {
     expect(climateFieldFor('overall', 'cycling')).toBe('cycling_good');
     expect(climateFieldFor('comfort', 'cycling')).toBe('comfort_good');
     expect(climateFieldFor('dry', 'nice')).toBe('dry_good');
-    expect(climateFieldFor('bright', 'nice')).toBe('bright_good');
+    expect(climateFieldFor('bright', 'nice')).toBe('clear_sky_good');
     expect(climateFieldFor('wind', 'nice')).toBe('nice_calm_good');
     expect(climateFieldFor('wind', 'cycling')).toBe('cycling_calm_good');
   });
@@ -519,17 +519,27 @@ const legend: WeatherManifest['legend'] = [
 
 function climateIndex(state: ClimateIndex['state'], periods: string[]): ClimateIndex {
   return {
-    version: 1,
+    version: 2,
     indexId: 'climate-index',
     state,
     referencePeriod: { firstYear: 2006, lastYear: 2025 },
-    provenance: {
-      sourceEvidenceSha256: 'a'.repeat(64),
-      landMaskSetSha256: 'b'.repeat(64),
-      derivationContract: 'agera5-v2.0|daily-metrics-v1|extrema-order-v1|weather-score-v2|climate-distribution-v1|natural-earth-5.1.1-centre-land|2006-2025',
+    geometry: { projection: 'EPSG:4326', west: -180, east: 180, south: -90, north: 90, rows: 721, columns: 1440, cellResolutionDegrees: 0.25, cellRegistration: 'exact-era5-grid-point-centres' },
+    source: {
+      dataset: 'ERA5', kind: 'hourly-reanalysis-reduced-to-iana-civil-local-days', gridDegrees: 0.25,
+      localDay: 'IANA civil local daytime 10:00–20:00, exact valid dates, 2006–2025',
+      landAuthority: 'Natural Earth 5.1.1 source-cell-footprint intersection', landSourceSha256: 'a'.repeat(64),
+      publicationAuthorityKind: 'checksum-trusted-publication-authority-v1',
+      logicalCellCount: 2, datelineCellCount: 1,
+      displayMaskAuthority: 'Natural Earth 5.1.1 centre-on-land at exact ERA5 0.25 degree grid points',
+      displayMaskDerivation: 'test authority', displayMaskSha256: 'b'.repeat(64), displayMaskBytes: 1038240,
     },
+    positiveDateline: { longitude: 180, meaning: 'independent +180 degree civil-day records; never alias to -180 degree records', canonicalColumns: 1440, overrideRecordBytes: 64 },
+    probability: { unit: 'whole-percent', denominator: 'complete-real-days-in-reference-month', threshold: 'canonical-rating-good-or-better', goodMinimumScore: 55, noDataValue: 255, fields: ['comfort_good', 'dry_good', 'clear_sky_good', 'nice_good', 'nice_calm_good', 'cycling_good', 'cycling_calm_good'] },
+    scalarSemantics: { maximumZoomMeaning: 'exact evaluated point value sampled only where the ERA5 grid-point centre is land', parentAggregation: 'rounded arithmetic mean of available four child texels; no-data excluded' },
+    maximumZoom: 4,
+    pointRecordBytes: 64,
     months: periods.map((period) => ({ period, releaseId: `release-${period}`, catalogSha256: 'c'.repeat(64) })),
-  } as ClimateIndex;
+  };
 }
 
 function climateEvidence(): ClimatePointEvidence {
@@ -550,8 +560,14 @@ function climateEvidence(): ClimatePointEvidence {
     usedAdjacentCell: false,
     comfortGoodPercent: 77,
     dryGoodPercent: 82,
-    brightGoodPercent: 74,
+    clearSkyGoodPercent: 74,
     nice: profile(68, 9, 71, 61),
     cycling: profile(59, 13, 64, 52),
+    physical: {
+      daytimeTemperatureP10C: 17, daytimeTemperatureP50C: 22, daytimeTemperatureP90C: 27,
+      daytimeMinimumP50C: 15, daytimeMaximumP50C: 29, dewPointP50C: 12, dewPointP90C: 17,
+      relativeHumidityP50Percent: 60, muggyDayPercent: 5, rainFreeDayPercent: 82, rainP90MM: 4.2,
+      cloudCoverP50Percent: 32, clearSkyDayPercent: 74, windP50KPH: 9, windP90KPH: 21, days: 600,
+    },
   };
 }
