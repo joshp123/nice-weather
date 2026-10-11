@@ -15,15 +15,12 @@ import (
 
 	"nice-weather-finder/internal/appserver"
 	"nice-weather-finder/internal/climate"
-	"nice-weather-finder/internal/climatecanary"
-	"nice-weather-finder/internal/climatetiles"
 	"nice-weather-finder/internal/destinations"
 	"nice-weather-finder/internal/era5climate"
 	"nice-weather-finder/internal/era5climateproduct"
 	"nice-weather-finder/internal/era5publication"
 	"nice-weather-finder/internal/places"
 	"nice-weather-finder/internal/product"
-	"nice-weather-finder/internal/providers/agera5"
 	"nice-weather-finder/internal/providers/era5hourly"
 	weatherupdate "nice-weather-finder/internal/update"
 )
@@ -98,42 +95,6 @@ func main() {
 				}
 			}
 		}
-	case "agera5-canary":
-		flags := flag.NewFlagSet("agera5-canary", flag.ContinueOnError)
-		blockLatitude := flags.Int("block-lat", -1, "AgERA5 latitude block index (required, 0-112)")
-		blockLongitude := flags.Int("block-lon", -1, "AgERA5 longitude block index (required, 0-112)")
-		year := flags.Int("year", 0, "complete UTC calendar year (required)")
-		staging := flags.String("staging", "./.cache/agera5-canary", "parent for disposable canary staging")
-		synthetic := flags.Bool("synthetic", false, "exercise the canary without network access or a token")
-		if err = flags.Parse(os.Args[2:]); err == nil {
-			if flags.NArg() != 0 {
-				err = fmt.Errorf("agera5-canary accepts no positional arguments")
-			} else {
-				ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-				defer stop()
-				var summary climatecanary.Summary
-				summary, err = climatecanary.Run(ctx, climatecanary.Config{
-					Block: agera5.BlockCoordinate{Latitude: *blockLatitude, Longitude: *blockLongitude},
-					Year:  *year, StagingParent: *staging, TokenReader: os.Stdin, Synthetic: *synthetic,
-				})
-				if err == nil {
-					fmt.Printf("AgERA5 canary: %s block %d,%d; %s through %s; %d/%d days; %d complete + %d no-data cells in %dx%d; %d extrema repairs (largest %.3f C), %d daytime-range clamps (%d below, %d above; largest %.3f C), %d dew-point caps (largest %.3f C); transfer %d bytes in %d responses/%d chunks; compressed %d bytes (largest %d, response limit %d); decoded %d bytes total, %d retained peak; sampled peak heap %d bytes; %s\n",
-						summary.Source, summary.Block.Latitude, summary.Block.Longitude,
-						summary.FirstDate.Format(time.DateOnly), summary.LastDate.Format(time.DateOnly),
-						summary.ProcessedDays, summary.ExpectedDays, summary.CompleteCells, summary.NoDataCells,
-						summary.Width, summary.Height, summary.TemperatureRepairs, summary.MaximumTemperatureRepairC,
-						summary.ComfortTemperatureRepairs, summary.ComfortTemperatureBelowRangeRepairs, summary.ComfortTemperatureAboveRangeRepairs, summary.MaximumComfortTemperatureRepairC,
-						summary.DewPointRepairs, summary.MaximumDewPointRepairC,
-						summary.FetchedBytes, summary.Responses, summary.Chunks,
-						summary.CompressedChunkBytes, summary.MaximumCompressedChunkBytes, summary.ChunkResponseLimitBytes,
-						summary.DecodedChunkBytes, summary.PeakRetainedDecodedBytes, summary.SampledPeakHeapBytes, summary.Elapsed.Round(time.Millisecond))
-				}
-			}
-		}
-	case "climate-world":
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		err = runClimateWorldCommand(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr, weatherupdate.RunGlobalClimate)
 	case "era5-history-month":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -206,7 +167,7 @@ func usage() {
 }
 
 func writeUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|agera5-canary|era5-history-month|era5-publication-authority|era5-climate-month|climate-world|verify-climate|serve|places|best-weather> [options]")
+	fmt.Fprintln(output, "usage: niceweather <global-canary|forecast-world|era5-history-month|era5-publication-authority|era5-climate-month|verify-climate|serve|places|best-weather> [options]")
 }
 
 func formatOptionalTime(value time.Time) string {
@@ -228,8 +189,6 @@ func buildBestWeatherWhenReady(ctx context.Context, artifactRoot string) (destin
 	summary, err := destinations.BuildWorldwideCurrent(ctx, artifactRoot)
 	return summary, err == nil, err
 }
-
-type globalClimateRunner func(context.Context, weatherupdate.GlobalClimateConfig) (weatherupdate.GlobalClimateSummary, error)
 
 type climateVerificationRunner func(string) (era5climateproduct.PublicationVerification, error)
 
@@ -628,115 +587,6 @@ func runVerifyClimateCommand(args []string, stdout, stderr io.Writer, verify cli
 	if _, err := fmt.Fprintf(stdout, "Climate publication valid: 12 months, %d-%d, index %s.\n",
 		verification.Index.ReferencePeriod.FirstYear, verification.Index.ReferencePeriod.LastYear, verification.Pointer.IndexID); err != nil {
 		return fmt.Errorf("write climate verification summary: %w", err)
-	}
-	return nil
-}
-
-func runClimateWorldCommand(
-	ctx context.Context,
-	args []string,
-	stdin io.Reader,
-	stdout io.Writer,
-	stderr io.Writer,
-	run globalClimateRunner,
-) error {
-	if ctx == nil {
-		return errors.New("climate-world requires a context")
-	}
-	if run == nil {
-		return errors.New("climate-world runner is unavailable")
-	}
-	if stdin == nil {
-		return errors.New("climate-world requires the AgERA5 bearer token on standard input")
-	}
-	if stdout == nil || stderr == nil {
-		return errors.New("climate-world output streams are unavailable")
-	}
-	flags := flag.NewFlagSet("climate-world", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	month := flags.Int("month", 0, "calendar month to publish, from 1 to 12 (required)")
-	out := flags.String("out", "", "existing artifact directory (required)")
-	checkpoints := flags.String("checkpoints", "", "existing absolute checkpoint directory (required)")
-	landCache := flags.String("land-cache", "", "existing Natural Earth cache directory (required)")
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
-	}
-	if flags.NArg() != 0 {
-		return errors.New("climate-world accepts no positional arguments")
-	}
-	if *month < int(time.January) || *month > int(time.December) {
-		return errors.New("climate-world --month must be between 1 and 12")
-	}
-	if err := validateClimateWorldDirectory("--out", *out, false); err != nil {
-		return err
-	}
-	if err := validateClimateWorldDirectory("--checkpoints", *checkpoints, true); err != nil {
-		return err
-	}
-	if err := validateClimateWorldDirectory("--land-cache", *landCache, false); err != nil {
-		return err
-	}
-	selectedMonth := time.Month(*month)
-	if _, err := fmt.Fprintf(stdout, "Worldwide climate: building %s from daily AgERA5 data for 2006-2025. Valid checkpoints will be reused.\n", selectedMonth); err != nil {
-		return fmt.Errorf("write climate-world progress: %w", err)
-	}
-	summary, err := run(ctx, weatherupdate.GlobalClimateConfig{
-		ArtifactRoot:   *out,
-		CheckpointRoot: *checkpoints,
-		LandCacheRoot:  *landCache,
-		Period:         fmt.Sprintf("month-%02d", selectedMonth),
-		Month:          selectedMonth,
-		TokenReader:    stdin,
-	})
-	if err != nil {
-		return err
-	}
-	if !summary.MainPointerUnchanged {
-		return errors.New("worldwide climate build did not prove that the main weather release stayed unchanged")
-	}
-	if !summary.SelectedMonthInstalled || summary.Pointer.IndexID == "" || summary.MonthsAvailable < 1 || summary.MonthsAvailable > 12 ||
-		(summary.MonthsAvailable == 12 && summary.IndexState != climatetiles.IndexStateComplete) ||
-		(summary.MonthsAvailable < 12 && summary.IndexState != climatetiles.IndexStatePreview) {
-		return errors.New("worldwide climate build returned an invalid year-index summary")
-	}
-	if _, err := fmt.Fprintf(stdout, "Blocks: %d reused, %d built, %d water-only skipped. Source: %d responses, %d bytes.\n",
-		summary.BlocksReused, summary.BlocksBuilt, summary.BlocksSkipped,
-		summary.SourceResponses, summary.SourceResponseBytes); err != nil {
-		return fmt.Errorf("write climate-world block summary: %w", err)
-	}
-	if _, err := fmt.Fprintf(stdout, "Output: %s installed; %d/12 months available; %s index pointer %s; %d point blocks, %d scalar tiles; %d checkpoint bytes, %d artifact bytes.\n",
-		summary.ReleaseID, summary.MonthsAvailable, summary.IndexState, summary.Pointer.IndexID, summary.PointBlocks, summary.ScalarTiles,
-		summary.CheckpointBytes, summary.ArtifactBytes); err != nil {
-		return fmt.Errorf("write climate-world output summary: %w", err)
-	}
-	if _, err := fmt.Fprintf(stdout, "Quality: %d AgERA5-unsupported land cells left transparent; %d crossed-extrema repairs, largest %.3f C; %d daytime-range clamps beyond 5 C tolerance, largest %.3f C; %d dew-point caps, largest %.3f C; main weather release unchanged; elapsed %s.\n",
-		summary.UnsupportedLandCells, summary.TemperatureRepairs, summary.MaximumInversionC,
-		summary.ComfortTemperatureRepairs, summary.MaximumComfortTemperatureAdjustmentC,
-		summary.DewPointRepairs, summary.MaximumDewPointCapC, summary.Elapsed.Round(time.Second)); err != nil {
-		return fmt.Errorf("write climate-world quality summary: %w", err)
-	}
-	return nil
-}
-
-func validateClimateWorldDirectory(flagName, path string, absolute bool) error {
-	if path == "" {
-		return fmt.Errorf("climate-world %s is required", flagName)
-	}
-	if absolute && filepath.Clean(path) != path {
-		return fmt.Errorf("climate-world %s must be a clean directory path", flagName)
-	}
-	if absolute && (!filepath.IsAbs(path) || path == string(filepath.Separator)) {
-		return fmt.Errorf("climate-world %s must be an absolute directory other than the filesystem root", flagName)
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("inspect climate-world %s directory: %w", flagName, err)
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("climate-world %s must be an existing real directory", flagName)
 	}
 	return nil
 }

@@ -6,6 +6,8 @@ written_by: ai
 
 This is the current technical handoff for Nice Weather Finder. `AGENTS.md` defines the project rules. `.agent/execplan-pending.md` records product decisions, measurements and review evidence.
 
+`product-reset.md` records Josh's October 2026 direction, the inspected reference products and the next product milestone. Its complete annual journey replaces the earlier November-only product milestone; monthly builds remain internal acquisition steps.
+
 ## Product
 
 Nice Weather Finder is a worldwide decision map for choosing where to position yourself for pleasant weather. It is not a general forecast dashboard.
@@ -80,9 +82,9 @@ Deal-breakers stop cold, oppressive, very wet or very windy days from winning th
 - `internal/providers/ifs` retrieves exact ECMWF IFS GRIB messages and validates their identity, units and time semantics.
 - `internal/pipeline` normalises fields, aggregates local days, applies land support and invokes the canonical scorer.
 - `internal/weather` owns weather facts, scoring, ratings and summaries.
-- `internal/update` owns the complete worldwide forecast transaction and the global climate orchestration.
+- `internal/update` owns the complete worldwide forecast transaction.
 - `internal/forecastruns` validates immutable forecast catalogs and publishes `current.json` last.
-- `internal/climatebuild`, `internal/climateassembly` and `internal/climatetiles` build, validate and publish daily-distribution climate months.
+- `internal/providers/era5hourly`, `internal/era5climate`, `internal/era5publication` and `internal/era5climateproduct` derive, score and publish recent hourly ERA5 climate evidence.
 - `internal/places` owns the worldwide GeoNames index and static search shards.
 - `internal/destinations` builds the forecast-bound best-weather shortlist offline.
 - `internal/appserver` serves the frontend, immutable artifacts, pointer files and strict byte ranges.
@@ -148,9 +150,9 @@ Tests and metrics are evidence. Josh's walkthrough is the final product veto.
 
 The sole local URL is <http://127.0.0.1:5198/>. A data refresh hot-swaps. Restart only after changing the server binary or when the process itself has stopped.
 
-The intended public boundary is an opaque immutable artifact origin: private S3, CloudFront origin access control, the existing `jjpcodes.com` Route 53 zone and `nice.jjpcodes.com`. The mini-PC should publish outbound only. It does not need a public inbound port or a Tailscale Funnel.
+ChatGPT Sites is the chosen public delivery surface. The small Vite interface can use Sites static assets. The weather corpus needs Sites-managed object storage and a thin same-origin request layer that preserves GET, HEAD, exact byte ranges, content types and immutable caching. Acquisition, scoring and validation remain offline; publish only accepted compact artifacts, with immutable objects first and pointers last.
 
-Deployment remains a separate approval gate. Do not create AWS resources, alter DNS, expose the mini-PC or publish the site without Josh's explicit sign-off. The static origin contract must remain independent of React, today's tile schema and future overlays.
+Do not use AWS for this product. Do not expose the mini-PC. A production-sized Sites canary and browser acceptance must pass before public release. The delivery contract must remain independent of React, today's tile schema and future overlays.
 
 ## Nullschool evidence
 
