@@ -43,7 +43,8 @@ because Route53 charges for public queries. The existing DNS zone remains under
 `/Users/josh/code/opentofu-infra/websites/jjpcodes.com`.
 Forecast scheduling belongs to the existing `mini-server-1` Nix host: one outbound
 daily job runs `forecast-world`, then this publisher. No website listener runs on
-the host. The schedule is complete only after its actual first publish succeeds.
+the host. The first complete acquisition, forecast build and Sites publication
+succeeded on 2026-10-12.
 
 The Linux job uses a compiled binary and this publisher script. Source stays in
 this repository. Update them after accepting the source and forecast contract:
@@ -57,5 +58,5 @@ ssh root@mini-server-1 'chown nice-weather:nice-weather /var/lib/nice-weather-fi
 
 Nix declares Node, GDAL and ecCodes and loads the sealed publishing credential
 outside the Nix store. Runtime artifacts, source caches and staging files live
-under `/var/lib/nice-weather-finder`. The daily schedule is 21:30 UTC. The timer
-remains inactive until the first complete refresh and publication succeeds.
+under `/var/lib/nice-weather-finder`. The daily timer is enabled at 21:30 UTC;
+missed scheduled runs resume when the host returns.
