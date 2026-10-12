@@ -40,7 +40,7 @@ A daily forecast record comes wholly from one provider. Providers are not blende
 
 Forecast metrics use the local daytime window. The map, fortnight strip, opened day and physical evidence use the same stored XYZ daily record. European fortnight summaries use complete ICON-EU days and the corresponding global parent cell for remaining days. Regional summaries stay sparse; the world is never upsampled to imply finer detail.
 
-There is one point representation. The duplicate native `.nwf` output and codec are removed. An index identifies the visible snapshot separately from each immutable daily catalog identity, so existing daily records can be reused without changing their headers. `forecast-products` republishes derived summaries from those files without reacquiring source data.
+There is one point representation. The duplicate native `.nwf` output and codec are removed. An index identifies the visible snapshot separately from each immutable daily catalog identity, so existing daily records can be reused without changing their headers.
 
 The previous AgERA5 publication is rejected and inactive because its coarse longitude windows created a false north-south seam. The replacement uses hourly ERA5 evidence from 2006 through 2025. It builds exact IANA civil-local daytime records, scores each real day, then publishes:
 

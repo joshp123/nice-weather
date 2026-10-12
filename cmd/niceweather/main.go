@@ -39,16 +39,6 @@ func main() {
 		if err = flags.Parse(os.Args[2:]); err == nil {
 			err = appserver.Serve(appserver.Config{WebRoot: *web, ArtifactRoot: *artifacts, Listen: *listen})
 		}
-	case "forecast-products":
-		flags := flag.NewFlagSet("forecast-products", flag.ContinueOnError)
-		out := flags.String("out", "./artifacts", "artifact directory")
-		source := flags.String("from", "", "active source snapshot identity")
-		index := flags.String("index", "", "new snapshot identity")
-		if err = flags.Parse(os.Args[2:]); err == nil {
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			err = weatherupdate.RebuildForecastProducts(ctx, *out, *source, *index)
-		}
 	case "forecast-world":
 		flags := flag.NewFlagSet("forecast-world", flag.ContinueOnError)
 		out := flags.String("out", "./artifacts", "artifact directory")
@@ -153,7 +143,7 @@ func usage() {
 }
 
 func writeUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage: niceweather <forecast-world|forecast-products|era5-climate-year|era5-publication-authority|verify-climate|serve|places|best-weather> [options]")
+	fmt.Fprintln(output, "usage: niceweather <forecast-world|era5-climate-year|era5-publication-authority|verify-climate|serve|places|best-weather> [options]")
 }
 
 func formatOptionalTime(value time.Time) string {

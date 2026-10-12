@@ -127,17 +127,6 @@ type Index struct {
 // candidate is newer when its IFS baseline advances, or when the same IFS
 // baseline gains a newer ICON-EU refinement. Older provider runs are rejected.
 func Publish(ctx context.Context, artifactRoot, indexID string) (Pointer, error) {
-	return publish(ctx, artifactRoot, indexID, "")
-}
-
-// PublishRebuilt replaces one explicitly named snapshot after rebuilding its derived ranges.
-func PublishRebuilt(ctx context.Context, artifactRoot, indexID, sourceID string) (Pointer, error) {
-	if !validIdentifier(sourceID) || sourceID == indexID {
-		return Pointer{}, errors.New("forecast rebuild requires distinct source and publication identities")
-	}
-	return publish(ctx, artifactRoot, indexID, sourceID)
-}
-func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (result Pointer, resultErr error) {
 	if ctx == nil || !validIdentifier(indexID) {
 		return Pointer{}, errors.New("forecast publication requires a context and safe index ID")
 	}
@@ -164,15 +153,12 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 	if err != nil {
 		return Pointer{}, err
 	}
-	if replacementOf != "" && (!hasCurrent || current.Current.IndexID != replacementOf) {
-		return Pointer{}, errors.New("forecast changed before its derived products were published")
-	}
 	// Re-publishing the exact visible immutable run is a read-only idempotent
 	// operation. New candidates pass the current contract.
 	if hasCurrent && current.Current.IndexID == indexID {
 		return current, nil
 	}
-	candidate, err := buildIndex(forecastRoot, indexID, true)
+	candidate, err := buildIndex(forecastRoot, indexID)
 	if err != nil {
 		return Pointer{}, err
 	}
@@ -182,7 +168,7 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 	}
 	sum := sha256.Sum256(payload)
 	candidateReference := IndexReference{IndexID: indexID, Path: indexPath(indexID), SHA256: hex.EncodeToString(sum[:])}
-	if hasCurrent && replacementOf == "" {
+	if hasCurrent {
 		candidateRun, _ := baselineRun(candidate)
 		currentRun, _ := baselineRun(currentIndex)
 		advances, err := forecastEvidenceAdvances(candidate, currentIndex)
@@ -202,7 +188,7 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 	if err := installIndex(forecastRoot, candidateReference, payload); err != nil {
 		return Pointer{}, err
 	}
-	installed, err := validateIndexReference(forecastRoot, candidateReference)
+	installed, err := loadIndexMetadataReference(forecastRoot, candidateReference)
 	if err != nil {
 		return Pointer{}, fmt.Errorf("validate installed forecast index: %w", err)
 	}
@@ -217,15 +203,6 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 	}
 	if err := ctx.Err(); err != nil {
 		return Pointer{}, err
-	}
-	if err := verifyDirectoryIdentity(forecastRoot, rootIdentity); err != nil {
-		return Pointer{}, err
-	}
-	// Revalidate after the installation window. A day installer that was still
-	// changing a run, or a non-cooperating pointer writer, makes this attempt
-	// fail closed. The immutable orphan index is safe to adopt on retry.
-	if _, err := validateIndexReference(forecastRoot, candidateReference); err != nil {
-		return Pointer{}, fmt.Errorf("forecast run changed before pointer publication: %w", err)
 	}
 	if err := verifyDirectoryIdentity(forecastRoot, rootIdentity); err != nil {
 		return Pointer{}, err
@@ -318,7 +295,7 @@ func loadIndexMetadataReference(forecastRoot string, reference IndexReference) (
 	return index, nil
 }
 
-func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
+func buildIndex(forecastRoot, indexID string) (Index, error) {
 	runRoot := filepath.Join(forecastRoot, "runs", indexID)
 	entries, err := readRealDirectory(runRoot)
 	if err != nil {
@@ -338,7 +315,7 @@ func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 			}
 			seenRange = true
 		case IndexFilename:
-			if !allowIndex || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 				return Index{}, errors.New("forecast run index entry is unexpected or unsafe")
 			}
 		case ".install.lock":
@@ -705,7 +682,7 @@ func validateIndexReference(forecastRoot string, reference IndexReference) (Inde
 	if index.IndexID != reference.IndexID {
 		return Index{}, errors.New("forecast index path and identity differ")
 	}
-	rebuilt, err := buildIndex(forecastRoot, index.IndexID, true)
+	rebuilt, err := buildIndex(forecastRoot, index.IndexID)
 	if err != nil {
 		return Index{}, err
 	}
