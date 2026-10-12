@@ -1093,7 +1093,8 @@ function PeriodStatus({ view, now, climate, forecast, day, selectedForecast }: {
 
 function worldwideForecastStatus(forecast?: ForecastSnapshot, day?: DayForecastProduct, selectedForecast?: PointWeather, now = new Date()): { primary: string; meta: string; stale: boolean } {
   if (!forecast) return { primary: 'Loading forecast', meta: '', stale: false };
-  const run = day?.tiers.find(({ tier }) => tier === 'global')?.evidence.runUtc ?? forecast.range.source.runUtc;
+  const selectedRun = selectedForecast?.source.basis === 'forecast' ? selectedForecast.source.runAt : undefined;
+  const run = selectedRun ?? day?.tiers.find(({ tier }) => tier === 'global')?.evidence.runUtc ?? forecast.range.source.runUtc;
   const status = forecastRunStatus(run, forecast.range.source.staleAfterHours, now);
   const detail = selectedForecast
     ? selectedForecastDetail(selectedForecast)
