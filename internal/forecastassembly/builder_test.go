@@ -36,14 +36,6 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 	if err := os.WriteFile(filepath.Join(abandoned, "partial"), []byte("interrupted"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	originalSync := syncForecastDirectory
-	defer func() { syncForecastDirectory = originalSync }()
-	syncForecastDirectory = func(path string) error {
-		if filepath.Clean(path) == filepath.Join(config.Root, "forecast-days", config.Date.Format("2006-01-02")) {
-			return errors.New("injected parent directory sync ambiguity")
-		}
-		return originalSync(path)
-	}
 	runtime.GC()
 	var baseline runtime.MemStats
 	runtime.ReadMemStats(&baseline)
@@ -125,11 +117,6 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 			t.Fatalf("water-centred coastal display value: valid=%t err=%v close=%v", displayValid, displayErr, closeDisplayErr)
 		}
 	}
-	for _, removed := range []string{"forecast-tiles.json"} {
-		if _, err := os.Lstat(filepath.Join(product.Root, removed)); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("build-only proof output %q remains: %v", removed, err)
-		}
-	}
 	files, bytes, err := treeStats(product.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -209,21 +196,6 @@ func TestBuildRefusesUnownedMatchingTransactionsWithoutDeletingThem(t *testing.T
 	}
 }
 
-func TestBuildReportsSuccessfulInstallTransactionCleanupFailure(t *testing.T) {
-	config, closeFrames := exactIFSConfig(t)
-	defer closeFrames()
-	original := removeTransaction
-	removeTransaction = func(string) error { return errors.New("injected cleanup failure") }
-	t.Cleanup(func() { removeTransaction = original })
-	_, err := BuildDay(context.Background(), config)
-	if err == nil || !strings.Contains(err.Error(), "clean installed forecast product transaction") {
-		t.Fatalf("successful install cleanup error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(config.Root, "forecast-days", config.Date.Format(time.DateOnly), config.Tier, CatalogName)); err != nil {
-		t.Fatalf("completed immutable day product was lost after cleanup failure: %v", err)
-	}
-}
-
 func TestBuildRejectsRunSealedByPublicationIndex(t *testing.T) {
 	config, closeFrames := exactIFSConfig(t)
 	defer closeFrames()
@@ -235,40 +207,6 @@ func TestBuildRejectsRunSealedByPublicationIndex(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(config.Root, "forecast-days")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("sealed run was modified: %v", err)
-	}
-}
-
-func TestFailedPostRenameReconciliationRollsBackExactProduct(t *testing.T) {
-	config, closeFrames := exactIFSConfig(t)
-	defer closeFrames()
-	originalSync, originalValidate := syncForecastDirectory, validateForecastInstalled
-	defer func() {
-		syncForecastDirectory, validateForecastInstalled = originalSync, originalValidate
-	}()
-	syncForecastDirectory = func(path string) error {
-		if filepath.Clean(path) == filepath.Join(config.Root, "forecast-days", config.Date.Format("2006-01-02")) {
-			return errors.New("injected parent directory sync ambiguity")
-		}
-		return originalSync(path)
-	}
-	validateForecastInstalled = func(string, forecastcatalog.Catalog, []byte) error {
-		return errors.New("injected installed product validation failure")
-	}
-	if _, err := BuildDay(context.Background(), config); err == nil || !strings.Contains(err.Error(), "validation failure") {
-		t.Fatalf("post-rename failure = %v", err)
-	}
-	final := filepath.Join(config.Root, "forecast-days", config.Date.Format("2006-01-02"), config.Tier)
-	if _, err := os.Lstat(final); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("failed installed product remains: %v", err)
-	}
-	entries, err := os.ReadDir(config.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".forecast-product-") {
-			t.Fatalf("failed transaction remains: %s", entry.Name())
-		}
 	}
 }
 

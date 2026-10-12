@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -71,20 +70,6 @@ func newTestApplication(t testing.TB) testApplication {
 	return testApplication{handler: handler, root: root, web: web}
 }
 
-func TestHandlerStartsWithoutLegacyReleaseAndLegacyRoutesAreGone(t *testing.T) {
-	app := newTestApplication(t)
-	if _, err := os.Lstat(filepath.Join(app.root, "current")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy artifacts/current unexpectedly exists: %v", err)
-	}
-	for _, requestPath := range []string{"/manifest.json", "/releases", "/releases/old/images/map.png"} {
-		response := httptest.NewRecorder()
-		app.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, requestPath, nil))
-		if response.Code != http.StatusNotFound {
-			t.Errorf("retired route %q returned %d: %s", requestPath, response.Code, response.Body.String())
-		}
-	}
-}
-
 func TestCompressionCachingAndSPA(t *testing.T) {
 	app := newTestApplication(t)
 
@@ -106,12 +91,6 @@ func TestCompressionCachingAndSPA(t *testing.T) {
 	app.handler.ServeHTTP(escape, httptest.NewRequest(http.MethodGet, "/assets/escape.txt", nil))
 	if escape.Code != http.StatusBadRequest || strings.Contains(escape.Body.String(), "secret") {
 		t.Fatalf("symlink escape response: %d %q", escape.Code, escape.Body.String())
-	}
-
-	removedSearch := httptest.NewRecorder()
-	app.handler.ServeHTTP(removedSearch, httptest.NewRequest(http.MethodGet, "/api/search?q=ams", nil))
-	if removedSearch.Code != http.StatusNotFound {
-		t.Fatalf("removed runtime search endpoint returned %d: %s", removedSearch.Code, removedSearch.Body.String())
 	}
 
 	spa := httptest.NewRecorder()

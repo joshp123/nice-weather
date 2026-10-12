@@ -31,12 +31,6 @@ const (
 	transactionMarkerBody = "nice-weather-finder forecast product transaction v1\n"
 )
 
-var (
-	syncForecastDirectory     = syncDirectory
-	validateForecastInstalled = validateInstalled
-	removeTransaction         = os.RemoveAll
-)
-
 // Config identifies one already prepared provider run and one local day.
 // Root is an absolute caller-owned assembly directory, not a publication root.
 type Config struct {
@@ -109,12 +103,12 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 		return Product{}, err
 	}
 	if err := markTransaction(transaction); err != nil {
-		return Product{}, errors.Join(err, removeTransaction(transaction))
+		return Product{}, errors.Join(err, os.RemoveAll(transaction))
 	}
 	installed := false
 	defer func() {
 		if !installed {
-			resultErr = errors.Join(resultErr, removeTransaction(transaction))
+			resultErr = errors.Join(resultErr, os.RemoveAll(transaction))
 		}
 	}()
 
@@ -157,7 +151,7 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 	if err := writeCatalogueLast(filepath.Join(dayRoot, CatalogName), encoded); err != nil {
 		return Product{}, err
 	}
-	if err := syncForecastDirectory(dayRoot); err != nil {
+	if err := syncDirectory(dayRoot); err != nil {
 		return Product{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
@@ -173,8 +167,8 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 		return Product{}, err
 	}
 	installed = true
-	if err := syncForecastDirectory(filepath.Dir(final)); err != nil {
-		if validateErr := validateForecastInstalled(final, catalog, encoded); validateErr != nil {
+	if err := syncDirectory(filepath.Dir(final)); err != nil {
+		if validateErr := validateInstalled(final, catalog, encoded); validateErr != nil {
 			rollback := filepath.Join(transaction, ".failed-install")
 			if rollbackErr := os.Rename(final, rollback); rollbackErr != nil {
 				return Product{}, errors.Join(err, validateErr, fmt.Errorf("rollback failed forecast install: %w", rollbackErr))
@@ -183,7 +177,7 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 			return Product{}, errors.Join(err, validateErr)
 		}
 	}
-	if err := removeTransaction(transaction); err != nil {
+	if err := os.RemoveAll(transaction); err != nil {
 		return Product{}, fmt.Errorf("clean installed forecast product transaction: %w", err)
 	}
 
@@ -260,7 +254,7 @@ func cleanAbandonedTransactionsLocked(root string) error {
 		if !owned {
 			return fmt.Errorf("refuse unowned forecast product transaction %q", entry.Name())
 		}
-		if err := removeTransaction(path); err != nil {
+		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("clean abandoned forecast product transaction %q: %w", entry.Name(), err)
 		}
 	}

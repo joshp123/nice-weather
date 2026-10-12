@@ -32,7 +32,7 @@ The six ordered judgements are Awful, Poor, Mixed, Good, Very good and Excellent
 | --- | --- | --- | ---: |
 | Next 14 days | DWD ICON-EU where complete; IFS elsewhere | worldwide, with European refinement | about 7–28 km |
 | Individual forecast days | DWD ICON-EU where complete; IFS elsewhere | worldwide, with European refinement | about 7 km or 28 km |
-| Recent climate | ERA5 hourly evidence, 2006–2025 | worldwide land; replacement build in progress | source 0.25° grid, about 28 km |
+| Recent climate | ERA5 hourly evidence, 2006–2025 | worldwide land; replacement build in progress | source 0.25° grid, about 31 km |
 
 The forecast pointer currently identifies one complete IFS baseline and the newest complete ICON-EU refinement. A newer ICON-EU run may replace an older refinement under the same IFS baseline only when every global evidence hash is unchanged and no existing European detail day is lost. Forecast publication cannot move the date horizon backwards.
 
@@ -49,7 +49,7 @@ The previous AgERA5 publication is rejected and inactive because its coarse long
 - chance that a seven-day window contains at least three consecutive Poor or Awful days;
 - physical Comfort, Dry, Clear sky and Calm evidence with units.
 
-ERA5 uses its source 0.25° grid and is described as about 28 km weather detail. Each grid point uses its exact valid civil dates and an IANA civil-local 10:00–20:00 daytime window. `era5-climate-year` reads each native land tile once from the pinned lossless temporal layout, reduces all twenty years into twelve monthly distributions, and resumes durable tile checkpoints. One following source tile downloads while the current tile reduces; temporary hourly storage stays near 1.4 GB. Worldwide month publication starts after every land tile is complete. The annual journey requires all twelve accepted months.
+ERA5 uses its source 0.25° delivery grid and retains about 31 km model detail. Each grid point uses its exact valid civil dates and an IANA civil-local 10:00–20:00 daytime window. `era5-climate-year` reads each native land tile once from the pinned lossless temporal layout, reduces all twenty years into twelve monthly distributions, and resumes durable tile checkpoints. One following source tile downloads while the current tile reduces; temporary hourly storage stays near 1.4 GB. Worldwide month publication starts after every land tile is complete. The annual journey requires all twelve accepted months.
 
 Natural Earth 5.1.1 centre-on-land cells are the climate land authority. Water is transparent. A named coastal place can use the nearest valid land cell; the place sheet says when this happens. Missing inland evidence must remain missing and fails publication checks.
 
