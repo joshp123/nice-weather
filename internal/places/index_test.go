@@ -288,10 +288,7 @@ func TestBuildIsDeterministicAndHonoursSearchContract(t *testing.T) {
 
 	firstParent := t.TempDir()
 	config := fixtureConfig(t, source, filepath.Join(firstParent, "release"))
-	config.limits.required = []requiredPlace{
-		{id: 2520600, queries: []string{"Cádiz", "Cadiz"}},
-		{id: 2514256, queries: []string{"Málaga", "Malaga"}},
-	}
+
 	first, err := build(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -351,7 +348,6 @@ func TestValidateOutputRejectsStructurallyValidAlteredShard(t *testing.T) {
 	}, nil)
 	output := filepath.Join(t.TempDir(), "release")
 	config := fixtureConfig(t, source, output)
-	config.limits.required = nil
 	summary, err := build(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -394,7 +390,6 @@ func TestGlobalShardHeadroomFitsManifestBound(t *testing.T) {
 	config := fixtureConfig(t, source, output)
 	config.limits.maxPlaces = currentShardCount
 	config.limits.maxShards = currentShardCount
-	config.limits.required = nil
 	summary, err := build(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +429,6 @@ func TestBuildRejectsShardSizeAndLeavesNoRelease(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "release")
 	config := fixtureConfig(t, source, output)
 	config.limits.maxShardGzip = 1
-	config.limits.required = nil
 	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), "gzip size") {
 		t.Fatalf("oversize shard error = %v", err)
 	}
@@ -455,7 +449,6 @@ func TestBuildRejectsShardCount(t *testing.T) {
 	}, nil)
 	config := fixtureConfig(t, source, filepath.Join(t.TempDir(), "release"))
 	config.limits.maxShards = 1
-	config.limits.required = nil
 	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), "shard count 2") {
 		t.Fatalf("shard-count error = %v", err)
 	}
@@ -466,7 +459,6 @@ func TestBuildRejectsMalformedGeoNamesRows(t *testing.T) {
 	source := makeGlobalSource(t, nil, nil)
 	config := fixtureConfig(t, source, filepath.Join(t.TempDir(), "release"))
 	writeZip(t, filepath.Join(source, "allCountries.zip"), "allCountries.txt", "1\tshort\n")
-	config.limits.required = nil
 	if _, err := build(context.Background(), config); err == nil || !strings.Contains(err.Error(), "place row has 2 fields") {
 		t.Fatalf("malformed source error = %v", err)
 	}

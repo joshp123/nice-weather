@@ -115,10 +115,6 @@ type dayPlan struct {
 	Detailed bool
 }
 
-func planDaysForCoverage(now time.Time, detailed, baseline forecastCoverage, policy forecastPlanPolicy) ([]dayPlan, error) {
-	return planDaysForCoverageCount(now, detailed, baseline, policy, productDays)
-}
-
 func planDaysForCoverageCount(now time.Time, detailed, baseline forecastCoverage, policy forecastPlanPolicy, dayCount int) ([]dayPlan, error) {
 	now = now.UTC()
 	detailed.run = detailed.run.UTC()

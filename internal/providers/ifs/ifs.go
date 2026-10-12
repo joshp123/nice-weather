@@ -450,20 +450,6 @@ func latestWorldwideCycle(now time.Time) time.Time {
 	return candidate
 }
 
-func (c *Client) DownloadMessage(ctx context.Context, run Run, step int, parameter string, dst io.Writer) error {
-	if dst == nil {
-		return errors.New("IFS destination writer is nil")
-	}
-	if _, wanted := wantedFields[parameter]; !wanted {
-		return fmt.Errorf("unsupported IFS surface field %q", parameter)
-	}
-	messages, err := c.FetchIndex(ctx, run, step)
-	if err != nil {
-		return err
-	}
-	return c.DownloadIndexedMessage(ctx, run, step, messages[parameter], dst)
-}
-
 func (c *Client) DownloadIndexedMessage(ctx context.Context, run Run, step int, message Message, dst io.Writer) error {
 	if _, wanted := wantedFields[message.parameter]; !wanted {
 		return fmt.Errorf("unsupported IFS surface field %q", message.parameter)

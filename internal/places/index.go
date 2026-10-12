@@ -73,17 +73,11 @@ type bounds struct {
 	North float64 `json:"north"`
 }
 
-type requiredPlace struct {
-	id      int64
-	queries []string
-}
-
 type limits struct {
 	minPlaces    int
 	maxPlaces    int
 	maxShards    int
 	maxShardGzip int64
-	required     []requiredPlace
 }
 
 type buildConfig struct {
@@ -103,25 +97,6 @@ var globalLimits = limits{
 	maxPlaces:    1_100_000,
 	maxShards:    maximumShardCount,
 	maxShardGzip: maximumShardGzipBytes,
-	required: []requiredPlace{
-		{id: 2750053, queries: []string{"Nijmegen"}},
-		{id: 611717, queries: []string{"Tbilisi"}},
-		{id: 2520600, queries: []string{"Cádiz", "Cadiz"}},
-		{id: 3093133, queries: []string{"Łódź", "Lodz"}},
-		{id: 2514256, queries: []string{"Málaga", "Malaga"}},
-		{id: 2655710, queries: []string{"Biddestone"}},
-		{id: 5128581, queries: []string{"New York City", "New York"}},
-		{id: 3448439, queries: []string{"São Paulo", "Sao Paulo"}},
-		{id: 3369157, queries: []string{"Cape Town"}},
-		{id: 2542997, queries: []string{"Marrakesh", "Marrakech"}},
-		{id: 1205733, queries: []string{"Chattogram", "Chittagong"}},
-		{id: 104515, queries: []string{"Makkah", "Mecca"}},
-		{id: 2028462, queries: []string{"Ulan Bator", "Ulaanbaatar"}},
-		{id: 1880252, queries: []string{"Singapore"}},
-		{id: 2147714, queries: []string{"Sydney"}},
-		{id: 2193733, queries: []string{"Auckland"}},
-		{id: 2127202, queries: []string{"Anadyr"}},
-	},
 }
 
 // BuildGlobal consumes pinned GeoNames allCountries and alternateNamesV2
@@ -309,9 +284,6 @@ func build(ctx context.Context, config buildConfig) (Summary, error) {
 	}
 	if len(shards) == 0 || len(shards) > config.limits.maxShards {
 		return Summary{}, fmt.Errorf("shard count %d exceeds gate 1..%d", len(shards), config.limits.maxShards)
-	}
-	if err := verifyRequiredPlaces(shards, config.limits.required); err != nil {
-		return Summary{}, err
 	}
 
 	staging, err := makeStaging(config.outputDir)
@@ -903,25 +875,6 @@ func foldSpecial(value rune) string {
 func shardName(key string) string {
 	padded := key + strings.Repeat("_", shardPrefixLength)
 	return strings.ReplaceAll(padded[:shardPrefixLength], " ", "_")
-}
-
-func verifyRequiredPlaces(shards map[string][]record, required []requiredPlace) error {
-	for _, fixture := range required {
-		for _, query := range fixture.queries {
-			key := normalize(query)
-			found := false
-			for _, record := range shards[shardName(key)] {
-				if record.GeoNameID == fixture.id && record.Key == key {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("required query %q does not resolve geoname id %d", query, fixture.id)
-			}
-		}
-	}
-	return nil
 }
 
 func sortRecords(records []record) {

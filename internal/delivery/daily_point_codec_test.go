@@ -1,6 +1,10 @@
 package delivery
 
-import "testing"
+import (
+	"bytes"
+	"encoding/hex"
+	"testing"
+)
 
 func TestExportedDailyPointCodecUsesCanonicalValidation(t *testing.T) {
 	record, err := DailyPointRecordFromWeather(DailyRecord{
@@ -38,4 +42,30 @@ func TestExportedDailyPointCodecUsesCanonicalValidation(t *testing.T) {
 			t.Fatalf("no-data byte %d = %d", index, value)
 		}
 	}
+}
+
+func TestEuropeanGustBoundaryRecordUsesCanonicalScores(t *testing.T) {
+	encoded, err := hex.DecodeString("ceffccffd4ffa3ff250070017b0276005e0364487f0008000004040300e3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, err := DecodeDailyPointRecord(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if point.NiceWind != 4 || point.NiceScore != 4 || point.CyclingWind != 0 || point.CyclingScore != 3 {
+		t.Fatalf("European Oct 12 record: %+v", point)
+	}
+	canonical, err := DailyPointRecordFromWeather(point.Weather)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip := make([]byte, DailyPointRecordBytes)
+	if err := EncodeDailyPointRecord(roundTrip, canonical); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, roundTrip) {
+		t.Fatalf("canonical record = %x; want %x", roundTrip, encoded)
+	}
+	t.Logf("Oct 12 European record = %x", roundTrip)
 }

@@ -1,11 +1,9 @@
 package places
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,38 +13,15 @@ const sampleReleaseID = "fixture-places-20260718-v1"
 
 // publishSample supplies a small valid release for publication operating-path tests.
 func publishSample(artifactRoot string) (Pointer, error) {
-	placeRoot, err := publicationRoot(artifactRoot)
+	fixtureRoot, err := os.MkdirTemp(filepath.Dir(artifactRoot), ".places-test-")
 	if err != nil {
 		return Pointer{}, err
 	}
-	if err := validateExistingPointer(placeRoot); err != nil {
+	defer os.RemoveAll(fixtureRoot)
+	if err := writeSampleRelease(fixtureRoot); err != nil {
 		return Pointer{}, err
 	}
-	target := filepath.Join(placeRoot, "releases", sampleReleaseID)
-	if _, err := os.Lstat(target); err == nil {
-		manifestDigest, err := validatedManifestDigest(target)
-		if err != nil {
-			return Pointer{}, fmt.Errorf("existing sample place release is invalid: %w", err)
-		}
-		pointer := Pointer{ReleaseID: sampleReleaseID, ManifestSHA256: manifestDigest}
-		if err := writePointer(placeRoot, pointer); err != nil {
-			return Pointer{}, err
-		}
-		return pointer, nil
-	} else if !os.IsNotExist(err) {
-		return Pointer{}, err
-	}
-
-	staging, err := os.MkdirTemp(placeRoot, ".sample-")
-	if err != nil {
-		return Pointer{}, err
-	}
-	defer os.RemoveAll(staging)
-	release := filepath.Join(staging, "release")
-	if err := writeSampleRelease(release); err != nil {
-		return Pointer{}, err
-	}
-	return installRelease(context.Background(), placeRoot, release, sampleReleaseID)
+	return Publish(artifactRoot, fixtureRoot, sampleReleaseID)
 }
 
 func writeSampleRelease(root string) error {

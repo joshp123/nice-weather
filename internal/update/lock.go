@@ -9,18 +9,6 @@ import (
 
 type updateLock struct{ file *os.File }
 
-func acquireUpdateLock(cache string) (*updateLock, error) {
-	lock, err := acquireDirectoryLock(cache)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.RemoveAll(filepath.Join(cache, "staging")); err != nil {
-		_ = lock.Close()
-		return nil, err
-	}
-	return lock, nil
-}
-
 func acquireDirectoryLock(directory string) (*updateLock, error) {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return nil, err

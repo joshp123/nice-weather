@@ -311,7 +311,7 @@ func validateIndexShape(index Index) error {
 		index.Source.Dataset != "ERA5" || index.Source.Kind != "hourly-reanalysis-reduced-to-iana-civil-local-days" ||
 		index.Source.GridDegrees != GridDegrees || index.Source.LocalDay != LocalDayAuthority ||
 		index.Source.LandAuthority != LandAuthority || !validTrustedSHA256(index.Source.LandSourceSHA256) ||
-		(index.Source.PublicationAuthorityKind != inlineAuthorityKind && index.Source.PublicationAuthorityKind != sidecarAuthorityKind) ||
+		index.Source.PublicationAuthorityKind != sidecarAuthorityKind ||
 		index.Source.LogicalCellCount < 1 || index.Source.LogicalCellCount > Rows*Columns+Rows ||
 		index.Source.DatelineCellCount < 0 || index.Source.DatelineCellCount > Rows ||
 		index.Source.DisplayMaskAuthority != DisplayMaskAuthority || index.Source.DisplayMaskDerivation == "" ||

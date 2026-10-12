@@ -68,7 +68,7 @@ export type ClimateIndexSource = Readonly<{
   localDay: typeof LOCAL_DAY;
   landAuthority: typeof LAND_AUTHORITY;
   landSourceSha256: string;
-  publicationAuthorityKind: 'checksum-trusted-acquisition-plan' | 'checksum-trusted-publication-authority-v1';
+  publicationAuthorityKind: 'checksum-trusted-publication-authority-v1';
   logicalCellCount: number;
   datelineCellCount: number;
   displayMaskAuthority: typeof DISPLAY_MASK_AUTHORITY;
@@ -452,11 +452,11 @@ function parseCatalogSource(value: unknown): ClimateCatalog['source'] {
   const data = exactObject(value, ['dataset', 'kind', 'referenceFirstYear', 'referenceLastYear', 'gridDegrees', 'localDay', 'landAuthority', 'landSourceSha256', 'acquisitionPlanSha256', 'logicalPlanSha256', 'publicationAuthorityKind', 'publicationAuthoritySha256', 'logicalCellCount', 'datelineCellCount', 'displayMaskAuthority', 'displayMaskDerivation', 'displayMaskSha256', 'displayMaskPath', 'displayMaskBytes']);
   validateSharedSource(data);
   if (data.referenceFirstYear !== 2006 || data.referenceLastYear !== 2025 || !trustedSHA(data.acquisitionPlanSha256) || !trustedSHA(data.logicalPlanSha256) || !trustedSHA(data.publicationAuthoritySha256) || !integer(data.logicalCellCount, 1, ROWS * COLUMNS + ROWS) || !integer(data.datelineCellCount, 0, ROWS) || data.displayMaskPath !== 'display-mask.bin') throw new ClimateDataError('invalid');
-  if (data.publicationAuthorityKind === 'checksum-trusted-acquisition-plan' ? data.publicationAuthoritySha256 !== data.acquisitionPlanSha256 : data.publicationAuthoritySha256 === data.acquisitionPlanSha256) throw new ClimateDataError('invalid');
+  if (data.publicationAuthoritySha256 === data.acquisitionPlanSha256) throw new ClimateDataError('invalid');
   return data as ClimateCatalog['source'];
 }
 function validateSharedSource(data: Record<string, any>): void {
-  if (data.dataset !== 'ERA5' || data.kind !== SOURCE_KIND || data.gridDegrees !== GRID_DEGREES || data.localDay !== LOCAL_DAY || data.landAuthority !== LAND_AUTHORITY || !trustedSHA(data.landSourceSha256) || (data.publicationAuthorityKind !== 'checksum-trusted-acquisition-plan' && data.publicationAuthorityKind !== 'checksum-trusted-publication-authority-v1') || !integer(data.logicalCellCount, 1, ROWS * COLUMNS + ROWS) || !integer(data.datelineCellCount, 0, ROWS) || data.displayMaskAuthority !== DISPLAY_MASK_AUTHORITY || typeof data.displayMaskDerivation !== 'string' || data.displayMaskDerivation.length < 1 || !trustedSHA(data.displayMaskSha256) || data.displayMaskBytes !== ROWS * COLUMNS) throw new ClimateDataError('invalid');
+  if (data.dataset !== 'ERA5' || data.kind !== SOURCE_KIND || data.gridDegrees !== GRID_DEGREES || data.localDay !== LOCAL_DAY || data.landAuthority !== LAND_AUTHORITY || !trustedSHA(data.landSourceSha256) || data.publicationAuthorityKind !== 'checksum-trusted-publication-authority-v1' || !integer(data.logicalCellCount, 1, ROWS * COLUMNS + ROWS) || !integer(data.datelineCellCount, 0, ROWS) || data.displayMaskAuthority !== DISPLAY_MASK_AUTHORITY || typeof data.displayMaskDerivation !== 'string' || data.displayMaskDerivation.length < 1 || !trustedSHA(data.displayMaskSha256) || data.displayMaskBytes !== ROWS * COLUMNS) throw new ClimateDataError('invalid');
 }
 function parseDateline(value: unknown): ClimateDatelineSemantics {
   const data = exactObject(value, ['longitude', 'meaning', 'canonicalColumns', 'overrideRecordBytes']);

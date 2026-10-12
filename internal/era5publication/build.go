@@ -1,5 +1,5 @@
 // Package era5publication generates the checksum-trusted display authority
-// required to publish climate products from legacy ERA5 acquisition plans.
+// required to publish climate products from ERA5 acquisition plans.
 package era5publication
 
 import (
@@ -74,9 +74,6 @@ func build(ctx context.Context, config Config, runner pipeline.CommandRunner, pr
 	plan, err := era5hourly.LoadCellPlan(config.PlanPath, config.PlanSHA256)
 	if err != nil {
 		return summary, err
-	}
-	if _, _, _, _, inline := plan.DisplayMaskAuthority(); inline {
-		return summary, errors.New("ERA5 acquisition plan already contains display-mask authority")
 	}
 	if plan.LandSourceSHA256() != weatherupdate.LandSourceSHA256 {
 		return summary, fmt.Errorf("ERA5 acquisition plan land source %s does not match pinned Natural Earth %s", plan.LandSourceSHA256(), weatherupdate.LandSourceSHA256)

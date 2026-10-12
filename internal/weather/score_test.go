@@ -21,6 +21,24 @@ func known(value float64) OptionalFloat {
 	return OptionalFloat{Value: value, Available: true}
 }
 
+func TestPublishedEuropeanGustBoundaryScoresIdenticallyAcrossArchitectures(t *testing.T) {
+	day := DailyMetrics{
+		ComfortableTempC: -5, MinTempC: -5.2, MaxTempC: -4.4,
+		DewPointC: known(-9.3), RainMM: 3.7, WetTimeFraction: known(.862),
+		WindSpeedKPH: 36.8, GustKPH: known(63.5), SolarEnergyMJm2: known(1.18),
+		CloudCoverPercent: known(100), RelativeHumidityPercent: known(72),
+		NativeResolutionKM: 7, Valid: true,
+	}
+	nice, cycling, err := ScoreProfilesChecked(day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nice.Components != (Components{Thermal: 8, Wind: 4}) || nice.Score != 4 || cycling.Components != (Components{Thermal: 8}) || cycling.Score != 3 {
+		t.Fatalf("published Oct 12 European record: Nice %+v, Cycling %+v", nice, cycling)
+	}
+	t.Logf("Nice %d wind %d; Cycling %d wind %d", nice.Score, nice.Components.Wind, cycling.Score, cycling.Components.Wind)
+}
+
 func TestIdealDayScoresHighly(t *testing.T) {
 	for _, profile := range []Profile{ProfileNice, ProfileCycling} {
 		result := Score(idealDay(), profile)
@@ -51,13 +69,9 @@ func TestScoreProfilesExactlyMatchesSingleProfilePath(t *testing.T) {
 		days = append(days, day)
 	}
 	for index, day := range days {
-		nice, cycling := ScoreProfiles(day)
-		checkedNice, checkedCycling, err := ScoreProfilesChecked(day)
+		nice, cycling, err := ScoreProfilesChecked(day)
 		if err != nil {
-			t.Fatalf("day %d checked profiles: %v", index, err)
-		}
-		if checkedNice != nice || checkedCycling != cycling {
-			t.Fatalf("day %d checked profiles = %+v %+v, want %+v %+v", index, checkedNice, checkedCycling, nice, cycling)
+			t.Fatal(err)
 		}
 		if want := Score(day, ProfileNice); nice != want {
 			t.Fatalf("day %d Nice = %+v, want %+v", index, nice, want)
@@ -68,9 +82,6 @@ func TestScoreProfilesExactlyMatchesSingleProfilePath(t *testing.T) {
 	}
 	invalid := idealDay()
 	invalid.Valid = false
-	if nice, cycling := ScoreProfiles(invalid); nice != (Result{}) || cycling != (Result{}) {
-		t.Fatalf("invalid profiles = %+v %+v", nice, cycling)
-	}
 	if nice, cycling, err := ScoreProfilesChecked(invalid); nice != (Result{}) || cycling != (Result{}) || err == nil || err.Error() != "weather data is marked invalid" {
 		t.Fatalf("checked invalid profiles = %+v %+v, error %v", nice, cycling, err)
 	}

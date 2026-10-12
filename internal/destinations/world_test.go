@@ -47,7 +47,7 @@ func TestWorldwideLookupReadsTheExactCanonicalRangeRecord(t *testing.T) {
 	globalColumn := id.X*tiledelivery.TileSize + uint32(column)
 	blockRow := globalRow / uint32(forecastrange.BlockRows)
 	blockColumn := globalColumn / uint32(forecastrange.BlockColumns)
-	identity, err := forecastrange.NewBlockIdentity("forecast-test", blockRow, blockColumn)
+	identity, err := forecastrange.NewTierBlockIdentity("forecast-test", forecasttiles.TierGlobal, blockRow, blockColumn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestWorldwideLookupReadsTheExactCanonicalRangeRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalog := forecastrange.Catalog{ReleaseID: identity.ReleaseID, PointBlocks: []forecastrange.PointBlock{{
-		Row: blockRow, Column: blockColumn, Path: forecastrange.BlockPath(blockRow, blockColumn),
+		Row: blockRow, Column: blockColumn, Path: forecastrange.TierBlockPath(forecasttiles.TierGlobal, blockRow, blockColumn),
 		Bytes: asset.Bytes, SHA256: asset.SHA256, PayloadSHA256: asset.PayloadSHA256, DataRecords: asset.DataRecords, NoDataRecords: asset.NoDataRecords,
 	}}}
 	lookup := newWorldwideLookup(context.Background(), root, catalog)
@@ -83,7 +83,7 @@ func TestWorldwideLookupReadsTheExactCanonicalRangeRecord(t *testing.T) {
 	if _, _, err := lookup.lookup("unknown", longitude, latitude); err == nil {
 		t.Fatal("unknown destination profile was accepted")
 	}
-	if got := filepath.Clean(asset.Path); got != filepath.Join(root, filepath.FromSlash(forecastrange.BlockPath(blockRow, blockColumn))) {
+	if got := filepath.Clean(asset.Path); got != filepath.Join(root, filepath.FromSlash(forecastrange.TierBlockPath(forecasttiles.TierGlobal, blockRow, blockColumn))) {
 		t.Fatalf("block path = %q", got)
 	}
 }

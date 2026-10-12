@@ -28,8 +28,8 @@ func TestLoadCellPlanAcceptedWorldwideConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	cells := plan.Cells()
-	if plan.Year() != 2025 || plan.Month() != 11 || plan.LandCellCount() != 364526 ||
-		plan.TimezoneCount() != 422 || len(cells) != 364578 || plan.SHA256() != acceptedSHA {
+	if plan.Year() != 2025 || plan.Month() != 11 ||
+		len(cells) != 364578 || plan.SHA256() != acceptedSHA {
 		t.Fatalf("accepted plan summary = %+v, cells=%d", plan, len(cells))
 	}
 	positive := cells[len(cells)-52:]
@@ -66,11 +66,6 @@ func TestLoadCellPlanValidatesChecksumPlanesCountsAndAuthorities(t *testing.T) {
 	if plan.Cells()[0].Longitude != 0 {
 		t.Fatal("caller mutated an opaque validated cell plan")
 	}
-	landSource, derivation, maskSHA, centreLandCells, ok := plan.DisplayMaskAuthority()
-	if !ok || landSource != strings.Repeat("1", 64) || derivation != planCentreLandDerivation ||
-		maskSHA != valid.CentreLandMaskSHA256 || centreLandCells != 1 {
-		t.Fatalf("display-mask authority = %q, %q, %q, %d, %t", landSource, derivation, maskSHA, centreLandCells, ok)
-	}
 	if days, ok := plan.ExpectedDayCount(0); !ok || days != 600 {
 		t.Fatalf("November UTC expected days = %d, %t; want 600, true", days, ok)
 	}
@@ -87,9 +82,6 @@ func TestLoadCellPlanValidatesChecksumPlanesCountsAndAuthorities(t *testing.T) {
 	}{
 		{"geometry", func(plan *encodedCellPlan) { plan.Columns-- }},
 		{"authority", func(plan *encodedCellPlan) { plan.TimezoneAuthority = "changed" }},
-		{"centre mask derivation", func(plan *encodedCellPlan) { plan.CentreLandMaskDerivation = "changed" }},
-		{"centre mask checksum", func(plan *encodedCellPlan) { plan.CentreLandMaskSHA256 = strings.Repeat("g", 64) }},
-		{"incomplete centre mask authority", func(plan *encodedCellPlan) { plan.CentreLandMaskSHA256 = "" }},
 		{"land count", func(plan *encodedCellPlan) { plan.LandCells++ }},
 		{"overflowing declared count", func(plan *encodedCellPlan) { plan.LandCells = int(^uint(0) >> 1) }},
 		{"excess dateline support", func(plan *encodedCellPlan) { plan.PositiveDatelineSupportRows = GridRows + 1 }},
@@ -195,15 +187,13 @@ func minimalEncodedCellPlan(t *testing.T, antimeridian bool) encodedCellPlan {
 		Year:          2025, Month: 11,
 		Rows: GridRows, Columns: GridColumns,
 		GridDegrees: .25, FirstLatitude: 90, FirstLongitude: -180,
-		CellRegistration:         planCellRegistration,
-		LandAuthority:            planLandAuthority,
-		LandFeatureFilter:        planLandFilter,
-		LandFeatureClassAudit:    "test fixture",
-		LandSourceSHA256:         strings.Repeat("1", 64),
-		CentreLandMaskDerivation: planCentreLandDerivation,
-		CentreLandMaskSHA256:     hex.EncodeToString(maskSHA[:]),
-		TimezoneAuthority:        planTimezoneAuthority,
-		LandCells:                1, WaterCells: GridRows*GridColumns - 1,
+		CellRegistration:      planCellRegistration,
+		LandAuthority:         planLandAuthority,
+		LandFeatureFilter:     planLandFilter,
+		LandFeatureClassAudit: "test fixture",
+		LandSourceSHA256:      strings.Repeat("1", 64),
+		TimezoneAuthority:     planTimezoneAuthority,
+		LandCells:             1, WaterCells: GridRows*GridColumns - 1,
 		CentreLandCells:     1,
 		LandMaskSHA256:      hex.EncodeToString(maskSHA[:]),
 		TimezoneIndexSHA256: hex.EncodeToString(timezoneSHA[:]),

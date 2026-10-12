@@ -117,53 +117,6 @@ func TestBuilderRequiresEveryPlanCellExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestBuilderFailedCommitLeavesNoReleaseOrTemporaryAssets(t *testing.T) {
-	root := t.TempDir()
-	cells := []era5hourly.Cell{{Latitude: -0.25, Longitude: 0.25}}
-	builder := newTestBuilder(t, root, "failed", cells)
-	if err := builder.Add(testResult(0, cells[0], 70)); err != nil {
-		t.Fatal(err)
-	}
-	builder.beforeInstall = func() error { return errors.New("injected install failure") }
-	if err := builder.Commit(); err == nil {
-		t.Fatal("commit unexpectedly succeeded")
-	}
-	if _, err := os.Stat(filepath.Join(root, "releases", "failed")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("failed release became visible: %v", err)
-	}
-	matches, err := filepath.Glob(filepath.Join(root, ".era5-climate-product-*"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 0 {
-		t.Fatalf("temporary assets remain after failed commit: %v", matches)
-	}
-}
-
-func TestBuilderFinalParentSyncFailureRollsBackVisibleRelease(t *testing.T) {
-	root := t.TempDir()
-	cell := era5hourly.Cell{Latitude: -0.25, Longitude: 0.25}
-	builder := newTestBuilder(t, root, "fsync-failed", []era5hourly.Cell{cell})
-	if err := builder.Add(testResult(0, cell, 70)); err != nil {
-		t.Fatal(err)
-	}
-	finalParent := filepath.Join(root, "releases")
-	failed := false
-	builder.syncDirectory = func(path string) error {
-		if path == finalParent && !failed {
-			failed = true
-			return errors.New("injected final parent fsync failure")
-		}
-		return syncDirectory(path)
-	}
-	if err := builder.Commit(); err == nil || !failed {
-		t.Fatalf("final parent sync error = %v, failed=%t", err, failed)
-	}
-	if _, err := os.Lstat(filepath.Join(finalParent, "fsync-failed")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("failed release remains visible: %v", err)
-	}
-}
-
 func TestBuilderRejectsAmbiguousPlanCoordinatesAndAbortWritesNothing(t *testing.T) {
 	root := t.TempDir()
 	cells := []era5hourly.Cell{
@@ -212,12 +165,17 @@ func testPlanAndMask(
 	centreCells []era5hourly.Cell,
 ) (era5hourly.CellPlan, DisplayMask) {
 	t.Helper()
-	plan, displayValues := testPlanAndMaskData(t, month, cells, centreCells, true)
+	plan, displayValues := testPlanAndMaskData(t, month, cells, centreCells)
 	maskPath := filepath.Join(t.TempDir(), "display-mask.bin")
 	if err := os.WriteFile(maskPath, displayValues, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mask, err := LoadDisplayMask(maskPath, plan)
+	authorityPath, authoritySHA := writeTestPublicationAuthority(t, testPublicationAuthority(plan, displayValues))
+	authority, err := LoadPublicationAuthority(authorityPath, authoritySHA, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mask, err := LoadDisplayMaskWithAuthority(maskPath, plan, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +187,6 @@ func testPlanAndMaskData(
 	month int,
 	cells []era5hourly.Cell,
 	centreCells []era5hourly.Cell,
-	includeInlineAuthority bool,
 ) (era5hourly.CellPlan, []byte) {
 	t.Helper()
 	landMask := make([]byte, Rows*Columns)
@@ -291,7 +248,6 @@ func testPlanAndMaskData(
 		centreLandCells += int(value)
 	}
 	landSHA := sha256.Sum256(landMask)
-	displaySHA := sha256.Sum256(displayValues)
 	timezoneSHA := sha256.Sum256(timezoneIndexes)
 	positiveRows := make([]int, 0, len(positiveTimezones))
 	for row := range positiveTimezones {
@@ -331,10 +287,6 @@ func testPlanAndMaskData(
 		"landMaskBase64":      base64.StdEncoding.EncodeToString(landMask),
 		"timezoneIndexBase64": base64.StdEncoding.EncodeToString(timezoneIndexes),
 		"timezones":           zones, "positiveDatelineTimezoneAudits": audits,
-	}
-	if includeInlineAuthority {
-		encoded["centreLandMaskDerivation"] = era5hourly.CentreLandMaskDerivation
-		encoded["centreLandMaskSha256"] = hex.EncodeToString(displaySHA[:])
 	}
 	jsonBytes, err := json.Marshal(encoded)
 	if err != nil {

@@ -44,10 +44,6 @@ const (
 var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	datePattern       = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-
-	loadInstalledTier  = validateInstalledTier
-	loadInstalledRange = forecastrange.ValidateInstalled
-	publicationGate    = func() {}
 )
 
 // IndexReference identifies one immutable, cacheable run index.
@@ -58,7 +54,7 @@ type IndexReference struct {
 }
 
 // Pointer is the only mutable forecast publication artifact. Previous is the
-// exact complete run that Rollback will restore; publication failures leave it
+// exact complete run used by already-open clients; publication failures leave it
 // and Current unchanged.
 type Pointer struct {
 	Version  int             `json:"version"`
@@ -129,8 +125,7 @@ type Index struct {
 // Publish validates one already installed run, installs its immutable index,
 // then changes current.json last. Cooperative publishers are serialized. A
 // candidate is newer when its IFS baseline advances, or when the same IFS
-// baseline gains a newer ICON-EU refinement. An intentional older move uses
-// Rollback.
+// baseline gains a newer ICON-EU refinement. Older provider runs are rejected.
 func Publish(ctx context.Context, artifactRoot, indexID string) (Pointer, error) {
 	return publish(ctx, artifactRoot, indexID, "")
 }
@@ -165,24 +160,12 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 	}
 	defer releaseLock(runLock)
 
-	var current Pointer
-	var currentIndex Index
-	var currentPayload []byte
-	var hasCurrent bool
-	if replacementOf == "" {
-		current, currentIndex, currentPayload, hasCurrent, err = readExistingPointer(forecastRoot)
-	} else {
-		currentPayload, err = readRegularBounded(filepath.Join(forecastRoot, "current.json"), maximumPointerBytes)
-		if err == nil {
-			current, err = parsePointer(currentPayload)
-			hasCurrent = true
-			if err == nil && current.Current.IndexID != replacementOf {
-				err = errors.New("forecast changed before its derived products were published")
-			}
-		}
-	}
+	current, currentIndex, currentPayload, hasCurrent, err := readExistingPointer(forecastRoot)
 	if err != nil {
 		return Pointer{}, err
+	}
+	if replacementOf != "" && (!hasCurrent || current.Current.IndexID != replacementOf) {
+		return Pointer{}, errors.New("forecast changed before its derived products were published")
 	}
 	// Re-publishing the exact visible immutable run is a read-only idempotent
 	// operation. New candidates pass the current contract.
@@ -232,7 +215,6 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 		previous := current.Current
 		next.Previous = &previous
 	}
-	publicationGate()
 	if err := ctx.Err(); err != nil {
 		return Pointer{}, err
 	}
@@ -262,67 +244,6 @@ func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (
 		return Pointer{}, err
 	}
 	return next, nil
-}
-
-// Rollback atomically swaps Current and Previous after validating both exact
-// immutable indexes again. It is the only operation that may move to an older
-// provider run, and repeating it deterministically toggles the same two runs.
-func Rollback(ctx context.Context, artifactRoot string) (Pointer, error) {
-	if ctx == nil {
-		return Pointer{}, errors.New("forecast rollback requires a context")
-	}
-	forecastRoot, err := existingPublicationRoot(artifactRoot)
-	if err != nil {
-		return Pointer{}, err
-	}
-	lock, err := acquireLock(forecastRoot)
-	if err != nil {
-		return Pointer{}, err
-	}
-	defer releaseLock(lock)
-	rootIdentity, err := directoryIdentity(forecastRoot)
-	if err != nil {
-		return Pointer{}, err
-	}
-	pointer, _, payload, found, err := readExistingPointer(forecastRoot)
-	if err != nil {
-		return Pointer{}, err
-	}
-	if !found || pointer.Previous == nil {
-		return Pointer{}, errors.New("forecast rollback has no previous complete run")
-	}
-	if err := ctx.Err(); err != nil {
-		return Pointer{}, err
-	}
-	previous := pointer.Current
-	next := Pointer{Version: PointerVersion, Current: *pointer.Previous, Previous: &previous}
-	publicationGate()
-	if err := verifyDirectoryIdentity(forecastRoot, rootIdentity); err != nil {
-		return Pointer{}, err
-	}
-	if _, err := validateIndexReference(forecastRoot, next.Current); err != nil {
-		return Pointer{}, fmt.Errorf("validate rollback target: %w", err)
-	}
-	if _, err := validateIndexReference(forecastRoot, *next.Previous); err != nil {
-		return Pointer{}, fmt.Errorf("validate rollback source: %w", err)
-	}
-	if err := verifyDirectoryIdentity(forecastRoot, rootIdentity); err != nil {
-		return Pointer{}, err
-	}
-	if err := pointerUnchanged(forecastRoot, payload, true); err != nil {
-		return Pointer{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Pointer{}, err
-	}
-	committed, err := writePointer(forecastRoot, next)
-	if err != nil && committed {
-		visible, _, visibleErr := ValidateCurrent(artifactRoot)
-		if visibleErr == nil && samePointer(visible, next) {
-			return next, nil
-		}
-	}
-	return next, err
 }
 
 // ValidateCurrent verifies the pointer, its current immutable index, all 14
@@ -517,7 +438,7 @@ func buildRangeReference(forecastRoot string, index Index, tier string) (RangeRe
 		return RangeReference{}, err
 	}
 	root := filepath.Join(forecastRoot, "runs", index.IndexID, "forecast-ranges", forecastrange.Period, tier)
-	catalog, payload, err := loadInstalledRange(root)
+	catalog, payload, err := forecastrange.ValidateInstalled(root)
 	if err != nil {
 		return RangeReference{}, fmt.Errorf("validate forecast range: %w", err)
 	}
@@ -579,7 +500,7 @@ func rangeInputs(index Index) []forecastrange.InputCatalog {
 
 func tierReference(forecastRoot, indexID, date, tier string) (TierReference, error) {
 	root := filepath.Join(forecastRoot, "runs", indexID, "forecast-days", date, tier)
-	catalog, digest, bytes, err := loadInstalledTier(root)
+	catalog, digest, bytes, err := validateInstalledTier(root)
 	if err != nil {
 		return TierReference{}, fmt.Errorf("validate forecast %s %s: %w", date, tier, err)
 	}

@@ -28,26 +28,10 @@ var fields = []Field{
 }
 
 // Fields returns a copy so callers cannot mutate the provider catalogue.
-func Fields() []Field {
-	result := make([]Field, len(fields))
-	copy(result, fields)
-	return result
-}
-
 func RequiredFields() []Field {
 	result := make([]Field, 0, len(fields))
 	for _, field := range fields {
 		if field.Required {
-			result = append(result, field)
-		}
-	}
-	return result
-}
-
-func PreferredFields() []Field {
-	result := make([]Field, 0, len(fields))
-	for _, field := range fields {
-		if !field.Required {
 			result = append(result, field)
 		}
 	}

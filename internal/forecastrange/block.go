@@ -59,10 +59,6 @@ type Block struct {
 	records []delivery.RangePointRecord
 }
 
-func NewBlockIdentity(releaseID string, row, column uint32) (BlockIdentity, error) {
-	return NewTierBlockIdentity(releaseID, forecasttiles.TierGlobal, row, column)
-}
-
 func NewTierBlockIdentity(releaseID, tier string, row, column uint32) (BlockIdentity, error) {
 	identity := BlockIdentity{ReleaseID: releaseID, Period: Period, Tier: tier, Row: row, Column: column}
 	count := pixelsForTier(tier) / uint32(BlockColumns)
@@ -70,10 +66,6 @@ func NewTierBlockIdentity(releaseID, tier string, row, column uint32) (BlockIden
 		return BlockIdentity{}, errors.New("forecast range block identity is invalid")
 	}
 	return identity, nil
-}
-
-func BlockPath(row, column uint32) string {
-	return TierBlockPath(forecasttiles.TierGlobal, row, column)
 }
 
 func TierBlockPath(tier string, row, column uint32) string {

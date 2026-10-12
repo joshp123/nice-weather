@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
@@ -718,15 +717,6 @@ func tileSourceSamplesIntersect(coordinate tileCoordinate, grid delivery.GridSpe
 		}
 	}
 	return false
-}
-
-func pathMatches(actual, relative string) bool {
-	if actual == "" {
-		return false
-	}
-	clean := filepath.Clean(actual)
-	want := filepath.Clean(filepath.FromSlash(relative))
-	return clean == want || strings.HasSuffix(clean, string(filepath.Separator)+want)
 }
 
 func validIdentifier(value string) bool {

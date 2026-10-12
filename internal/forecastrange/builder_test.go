@@ -65,7 +65,7 @@ func TestBuildExactWorldRangeProductPreservesStoredFingerprintsAndScalarParity(t
 	globalColumn := fixtureTileX*tiledelivery.TileSize + fixtureCol
 	blockRow, blockColumn := globalRow/uint32(BlockRows), globalColumn/uint32(BlockColumns)
 	entry := product.Catalog.PointBlocks[blockRow*blockCount+blockColumn]
-	identity, _ := NewBlockIdentity("range-run", blockRow, blockColumn)
+	identity, _ := NewTierBlockIdentity("range-run", forecasttiles.TierGlobal, blockRow, blockColumn)
 	block, err := OpenBlock(filepath.Join(product.Root, filepath.FromSlash(entry.Path)), identity, entry.SHA256)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestBuildTileRequiresEveryStoredDay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records, _, err := buildTileRecords(context.Background(), loaded, fixtureTileX, fixtureTileY)
+	records, _, err := buildTileRecordsAtZoom(context.Background(), loaded, fixtureTileX, fixtureTileY, MaxZoom)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestBuildReportsSuccessfulInstallTransactionCleanupFailure(t *testing.T) {
 
 func TestRangeBlockWrapsXAndNeverWrapsY(t *testing.T) {
 	root := t.TempDir()
-	identity, _ := NewBlockIdentity("range-run", 16, 0)
+	identity, _ := NewTierBlockIdentity("range-run", forecasttiles.TierGlobal, 16, 0)
 	record := constantRangeRecord(t, 70)
 	records := make([]delivery.RangePointRecord, int(BlockRows)*int(BlockColumns))
 	for index := range records {
@@ -304,7 +304,7 @@ func TestRangeAntimeridianPointAndScalarOutputsStayAvailable(t *testing.T) {
 		globalRow := id.Y*tiledelivery.TileSize + uint32(row)
 		globalColumn := id.X*tiledelivery.TileSize + uint32(column)
 		blockRow, blockColumn := globalRow/uint32(BlockRows), globalColumn/uint32(BlockColumns)
-		identity, err := NewBlockIdentity("range-run", blockRow, blockColumn)
+		identity, err := NewTierBlockIdentity("range-run", forecasttiles.TierGlobal, blockRow, blockColumn)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -584,7 +584,7 @@ func TestWorstCaseWorldCatalogueFitsStaticDeliveryLimit(t *testing.T) {
 	}
 	for row := uint32(0); row < blockCount; row++ {
 		for column := uint32(0); column < blockCount; column++ {
-			catalog.PointBlocks = append(catalog.PointBlocks, PointBlock{Row: row, Column: column, Path: BlockPath(row, column), Bytes: BlockBytes, SHA256: fixtureDigest("block"), PayloadSHA256: fixtureDigest("payload"), DataRecords: uint32(BlockRows) * uint32(BlockColumns)})
+			catalog.PointBlocks = append(catalog.PointBlocks, PointBlock{Row: row, Column: column, Path: TierBlockPath(forecasttiles.TierGlobal, row, column), Bytes: BlockBytes, SHA256: fixtureDigest("block"), PayloadSHA256: fixtureDigest("payload"), DataRecords: uint32(BlockRows) * uint32(BlockColumns)})
 		}
 	}
 	for y := uint32(0); y < 1<<MaxZoom; y++ {

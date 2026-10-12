@@ -1179,12 +1179,6 @@ export function temperatureRange(minimum: number, maximum: number): string {
 }
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
 export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search places' : 'Search anywhere'; }
-export function rainDisplay(data: DailyPoint): { label: string; value: string } {
-  const amount = `${format(data.metrics.rainMm, 1)} mm`;
-  return !data.metrics.wetTimeFraction
-    ? { label: 'Rain', value: amount }
-    : { label: 'Rain', value: `${amount} · ${wetDaytimeDuration(data.metrics.wetTimeFraction)}` };
-}
 export function wetDaytimeDuration(fraction: number): string {
   const hours = Math.max(0, Math.min(1, fraction)) * 10;
   if (hours === 0) return 'no wet hours';

@@ -28,54 +28,15 @@ type DisplayMask struct {
 	publicationAuthoritySHA256 string
 }
 
-type displayAuthority struct {
-	landSourceSHA256           string
-	derivation                 string
-	maskSHA256                 string
-	centreLandCells            int
-	acquisitionPlanSHA256      string
-	logicalPlanSHA256          string
-	publicationAuthorityKind   string
-	publicationAuthoritySHA256 string
-}
-
-// LoadDisplayMask accepts the one canonical 721x1440 centre-on-land plane
-// whose digest and Natural Earth source are bound into the trusted cell plan.
-func LoadDisplayMask(path string, plan era5hourly.CellPlan) (DisplayMask, error) {
-	landSourceSHA256, derivation, expectedSHA256, centreLandCells, ok := plan.DisplayMaskAuthority()
-	if !ok {
-		return DisplayMask{}, errors.New("ERA5 display mask requires canonical authority from its trusted cell plan")
-	}
-	return loadDisplayMask(path, plan, displayAuthority{
-		landSourceSHA256: landSourceSHA256, derivation: derivation,
-		maskSHA256: expectedSHA256, centreLandCells: centreLandCells,
-		acquisitionPlanSHA256: plan.SHA256(), logicalPlanSHA256: plan.LogicalSHA256(),
-		publicationAuthorityKind: inlineAuthorityKind, publicationAuthoritySHA256: plan.SHA256(),
-	})
-}
-
-// LoadDisplayMaskWithAuthority accepts a legacy plan only when a separately
-// checksum-trusted authority binds that exact plan and the canonical mask.
+// LoadDisplayMaskWithAuthority validates the exact centre-on-land mask against
+// its checksum-trusted publication authority and acquisition plan.
 func LoadDisplayMaskWithAuthority(path string, plan era5hourly.CellPlan, authority PublicationAuthority) (DisplayMask, error) {
-	return loadDisplayMask(path, plan, displayAuthority{
-		landSourceSHA256:           authority.landSourceSHA256,
-		derivation:                 authority.displayMaskDerivation,
-		maskSHA256:                 authority.displayMaskSHA256,
-		centreLandCells:            authority.centreLandCells,
-		acquisitionPlanSHA256:      authority.acquisitionPlanSHA256,
-		logicalPlanSHA256:          authority.logicalPlanSHA256,
-		publicationAuthorityKind:   sidecarAuthorityKind,
-		publicationAuthoritySHA256: authority.sha256,
-	})
-}
-
-func loadDisplayMask(path string, plan era5hourly.CellPlan, authority displayAuthority) (DisplayMask, error) {
 	if path == "" || authority.acquisitionPlanSHA256 != plan.SHA256() ||
 		authority.logicalPlanSHA256 != plan.LogicalSHA256() ||
 		authority.landSourceSHA256 != plan.LandSourceSHA256() ||
-		authority.derivation != era5hourly.CentreLandMaskDerivation ||
-		!validTrustedSHA256(authority.landSourceSHA256) || !validTrustedSHA256(authority.maskSHA256) ||
-		!validTrustedSHA256(authority.publicationAuthoritySHA256) ||
+		authority.displayMaskDerivation != era5hourly.CentreLandMaskDerivation ||
+		!validTrustedSHA256(authority.landSourceSHA256) || !validTrustedSHA256(authority.displayMaskSHA256) ||
+		!validTrustedSHA256(authority.sha256) ||
 		authority.centreLandCells < 1 || authority.centreLandCells >= Rows*Columns {
 		return DisplayMask{}, errors.New("ERA5 display mask requires canonical authority from its trusted cell plan")
 	}
@@ -102,7 +63,7 @@ func loadDisplayMask(path string, plan era5hourly.CellPlan, authority displayAut
 	}
 	digest := sha256.Sum256(values)
 	actual := hex.EncodeToString(digest[:])
-	if actual != authority.maskSHA256 {
+	if actual != authority.displayMaskSHA256 {
 		return DisplayMask{}, errors.New("ERA5 display mask checksum mismatch")
 	}
 	landCells := 0
@@ -117,11 +78,11 @@ func loadDisplayMask(path string, plan era5hourly.CellPlan, authority displayAut
 	}
 	return DisplayMask{
 		values: values, sha256: actual, landSourceSHA256: authority.landSourceSHA256,
-		derivation: authority.derivation, centreLandCells: authority.centreLandCells,
+		derivation: authority.displayMaskDerivation, centreLandCells: authority.centreLandCells,
 		acquisitionPlanSHA256:      authority.acquisitionPlanSHA256,
 		logicalPlanSHA256:          authority.logicalPlanSHA256,
-		publicationAuthorityKind:   authority.publicationAuthorityKind,
-		publicationAuthoritySHA256: authority.publicationAuthoritySHA256,
+		publicationAuthorityKind:   sidecarAuthorityKind,
+		publicationAuthoritySHA256: authority.sha256,
 	}, nil
 }
 
@@ -134,12 +95,5 @@ func (mask DisplayMask) matchesPlan(plan era5hourly.CellPlan) bool {
 		!validTrustedSHA256(mask.publicationAuthoritySHA256) {
 		return false
 	}
-	if mask.publicationAuthorityKind == sidecarAuthorityKind {
-		return true
-	}
-	landSourceSHA256, derivation, maskSHA256, centreLandCells, ok := plan.DisplayMaskAuthority()
-	return mask.publicationAuthorityKind == inlineAuthorityKind && ok &&
-		mask.publicationAuthoritySHA256 == plan.SHA256() && mask.sha256 == maskSHA256 &&
-		mask.landSourceSHA256 == landSourceSHA256 && mask.derivation == derivation &&
-		mask.centreLandCells == centreLandCells
+	return mask.publicationAuthorityKind == sidecarAuthorityKind
 }

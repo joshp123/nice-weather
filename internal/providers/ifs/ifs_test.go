@@ -334,7 +334,11 @@ func TestDownloadMessageFetchesAndBindsTheIndex(t *testing.T) {
 	}))
 	client.Root = "https://example.test"
 	var dst bytes.Buffer
-	if err := client.DownloadMessage(context.Background(), run, 360, "2t", &dst); err != nil {
+	messages, err := client.FetchIndex(context.Background(), run, 360)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DownloadIndexedMessage(context.Background(), run, 360, messages["2t"], &dst); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(dst.Bytes(), grib) {

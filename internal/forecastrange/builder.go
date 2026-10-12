@@ -272,10 +272,6 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 	return Product{Root: final, Catalog: catalog, Stats: stats}, nil
 }
 
-func buildTileRecords(ctx context.Context, inputs []loadedInput, x, y uint32) ([]delivery.RangePointRecord, uint64, error) {
-	return buildTileRecordsAtZoom(ctx, inputs, x, y, MaxZoom)
-}
-
 func rangeRecord(displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord) (delivery.RangePointRecord, error) {
 	nice := make([]weather.Result, delivery.ForecastPointDayCount)
 	cycling := make([]weather.Result, delivery.ForecastPointDayCount)

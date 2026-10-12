@@ -64,19 +64,8 @@ func Score(m DailyMetrics, profile Profile) Result {
 	return scoreProfile(m, profile, components)
 }
 
-// ScoreProfiles evaluates both canonical profiles with one validation and one
-// calculation of the shared physical components. It is for bulk products that
-// always publish Nice and Cycling together; Score remains the single-profile
-// entry point.
-func ScoreProfiles(m DailyMetrics) (nice, cycling Result) {
-	nice, cycling, _ = ScoreProfilesChecked(m)
-	return nice, cycling
-}
-
-// ScoreProfilesChecked is the diagnostic form of ScoreProfiles. It preserves
-// the same canonical scoring path while returning the validation error that
-// made a provider day unavailable. Bulk builders use it so they do not have
-// to validate once for diagnostics and then again while scoring.
+// ScoreProfilesChecked evaluates both profiles with shared physical components
+// and returns the validation error that made a provider day unavailable.
 func ScoreProfilesChecked(m DailyMetrics) (nice, cycling Result, err error) {
 	if err := validateForScoring(m); err != nil {
 		return Result{}, Result{}, err
@@ -116,8 +105,9 @@ func scoreProfile(m DailyMetrics, profile Profile, components Components) Result
 		w = weights{warmth: .45, dryness: .25, sun: .20, wind: .10}
 	}
 
-	value := float64(components.Thermal)*w.warmth + float64(components.Dryness)*w.dryness +
-		float64(components.Sun)*w.sun + float64(components.Wind)*w.wind
+	// Explicit float64 products prevent architecture-dependent fused multiply-add rounding.
+	value := float64(float64(components.Thermal)*w.warmth) + float64(float64(components.Dryness)*w.dryness) +
+		float64(float64(components.Sun)*w.sun) + float64(float64(components.Wind)*w.wind)
 	value = applyDealbreakers(value, m, profile, components)
 	score := rounded(value)
 	return Result{
@@ -214,15 +204,15 @@ func thermalScore(m DailyMetrics) int {
 			damp = math.Max(damp, math.Min(1, m.RainMM/6))
 		}
 		if m.CloudCoverPercent.Available {
-			damp = .55*damp + .45*math.Max(0, (m.CloudCoverPercent.Value-45)/55)
+			damp = float64(.55*damp) + float64(.45*math.Max(0, (m.CloudCoverPercent.Value-45)/55))
 		}
 		if m.RelativeHumidityPercent.Available {
-			damp = .75*damp + .25*math.Max(0, (m.RelativeHumidityPercent.Value-70)/30)
+			damp = float64(.75*damp) + float64(.25*math.Max(0, (m.RelativeHumidityPercent.Value-70)/30))
 		}
 		windExposure := math.Max(0, math.Min(1, (m.WindSpeedKPH-8)/24))
-		damp = math.Min(1, .75*damp+.25*windExposure)
+		damp = math.Min(1, float64(.75*damp)+float64(.25*windExposure))
 		coldWeight := math.Min(1, math.Max(0, (16-m.ComfortableTempC)/9))
-		coldDamp = 100 * (1 - coldWeight*damp)
+		coldDamp = 100 * (1 - float64(coldWeight*damp))
 	}
 	return rounded(math.Min(base, math.Min(heat, coldDamp)))
 }
@@ -277,7 +267,7 @@ func dewPointFromRelativeHumidity(temperatureC, relativeHumidityPercent float64)
 		return -100
 	}
 	const a, b = 17.625, 243.04
-	gamma := math.Log(relativeHumidityPercent/100) + a*temperatureC/(b+temperatureC)
+	gamma := math.Log(relativeHumidityPercent/100) + float64(a*temperatureC)/(b+temperatureC)
 	return b * gamma / (a - gamma)
 }
 
@@ -289,7 +279,7 @@ func piecewise(value float64, points []point) float64 {
 		if value <= points[index].input {
 			left, right := points[index-1], points[index]
 			position := (value - left.input) / (right.input - left.input)
-			return left.score + position*(right.score-left.score)
+			return left.score + float64(position*(right.score-left.score))
 		}
 	}
 	return points[len(points)-1].score

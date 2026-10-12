@@ -253,9 +253,8 @@ func validateCatalog(catalog Catalog) error {
 		!validTrustedSHA256(source.AcquisitionPlanSHA256) ||
 		!validTrustedSHA256(source.LogicalPlanSHA256) ||
 		!validTrustedSHA256(source.PublicationAuthoritySHA256) ||
-		(source.PublicationAuthorityKind != inlineAuthorityKind && source.PublicationAuthorityKind != sidecarAuthorityKind) ||
-		(source.PublicationAuthorityKind == inlineAuthorityKind && source.PublicationAuthoritySHA256 != source.AcquisitionPlanSHA256) ||
-		(source.PublicationAuthorityKind == sidecarAuthorityKind && source.PublicationAuthoritySHA256 == source.AcquisitionPlanSHA256) ||
+		source.PublicationAuthorityKind != sidecarAuthorityKind ||
+		source.PublicationAuthoritySHA256 == source.AcquisitionPlanSHA256 ||
 		source.LogicalCellCount < 1 ||
 		source.LogicalCellCount > Rows*Columns+Rows || source.DatelineCellCount < 0 ||
 		source.DatelineCellCount > Rows || source.DisplayMaskAuthority != DisplayMaskAuthority ||

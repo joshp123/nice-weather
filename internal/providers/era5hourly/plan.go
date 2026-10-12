@@ -22,30 +22,26 @@ const (
 	maxPlanBytes      = 8 * 1024 * 1024
 	maxPlanGzipBytes  = 2 * 1024 * 1024
 
-	planCellRegistration     = "exact-era5-grid-point-centres"
-	planLandAuthority        = "Natural Earth 5.1.1 1:10m polygon intersects 0.25 degree ERA5 source-cell footprint"
-	planLandFilter           = "featurecla IS NULL OR featurecla = 'Land'"
-	planTimezoneAuthority    = "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1"
-	planCentreLandDerivation = "Natural Earth 5.1.1 featurecla Land point intersection at exact ERA5 grid-point centres v1"
+	planCellRegistration  = "exact-era5-grid-point-centres"
+	planLandAuthority     = "Natural Earth 5.1.1 1:10m polygon intersects 0.25 degree ERA5 source-cell footprint"
+	planLandFilter        = "featurecla IS NULL OR featurecla = 'Land'"
+	planTimezoneAuthority = "github.com/ringsaturn/tzf-dist@v0.0.2026-b-fix1"
 
 	// CentreLandMaskDerivation is the canonical display-mask derivation which
 	// a separately trusted publication authority must name exactly.
-	CentreLandMaskDerivation = planCentreLandDerivation
+	CentreLandMaskDerivation = "Natural Earth 5.1.1 featurecla Land point intersection at exact ERA5 grid-point centres v1"
 )
 
 // CellPlan is an opaque validated ordered set of logical land cells. It can
 // only be created by LoadCellPlan.
 type CellPlan struct {
-	year, month          int
-	cells                []Cell
-	sha256               string
-	logicalSHA256        string
-	landCells            int
-	centreLandCells      int
-	timezones            int
-	landSourceSHA256     string
-	centreLandMaskSHA256 string
-	expectedDays         []uint16
+	year, month      int
+	cells            []Cell
+	sha256           string
+	logicalSHA256    string
+	centreLandCells  int
+	landSourceSHA256 string
+	expectedDays     []uint16
 }
 
 func (plan CellPlan) Year() int                { return plan.year }
@@ -53,20 +49,8 @@ func (plan CellPlan) Month() int               { return plan.month }
 func (plan CellPlan) SHA256() string           { return plan.sha256 }
 func (plan CellPlan) LogicalSHA256() string    { return plan.logicalSHA256 }
 func (plan CellPlan) LandSourceSHA256() string { return plan.landSourceSHA256 }
-func (plan CellPlan) LandCellCount() int       { return plan.landCells }
 func (plan CellPlan) CentreLandCellCount() int { return plan.centreLandCells }
-func (plan CellPlan) TimezoneCount() int       { return plan.timezones }
 func (plan CellPlan) CellCount() int           { return len(plan.cells) }
-
-// DisplayMaskAuthority returns the exact source and canonical derivation
-// bound into the checksum-trusted plan. A false result means this older plan
-// cannot authorise climate display publication.
-func (plan CellPlan) DisplayMaskAuthority() (landSourceSHA256, derivation, maskSHA256 string, centreLandCells int, ok bool) {
-	if plan.landSourceSHA256 == "" || plan.centreLandMaskSHA256 == "" {
-		return "", "", "", 0, false
-	}
-	return plan.landSourceSHA256, planCentreLandDerivation, plan.centreLandMaskSHA256, plan.centreLandCells, true
-}
 
 // ExpectedDayCount returns the exact number of valid civil local daytime
 // records for one plan cell and month across 2006–2025.
@@ -92,11 +76,12 @@ type encodedCellPlan struct {
 	FirstLatitude  float64 `json:"firstLatitude"`
 	FirstLongitude float64 `json:"firstLongitude"`
 
-	CellRegistration         string `json:"cellRegistration"`
-	LandAuthority            string `json:"landAuthority"`
-	LandFeatureFilter        string `json:"landFeatureFilter"`
-	LandFeatureClassAudit    string `json:"landFeatureClassAudit"`
-	LandSourceSHA256         string `json:"landSourceSha256"`
+	CellRegistration      string `json:"cellRegistration"`
+	LandAuthority         string `json:"landAuthority"`
+	LandFeatureFilter     string `json:"landFeatureFilter"`
+	LandFeatureClassAudit string `json:"landFeatureClassAudit"`
+	LandSourceSHA256      string `json:"landSourceSha256"`
+	// These empty fields preserve the compressed plans of the running annual build.
 	CentreLandMaskDerivation string `json:"centreLandMaskDerivation"`
 	CentreLandMaskSHA256     string `json:"centreLandMaskSha256"`
 	TimezoneAuthority        string `json:"timezoneAuthority"`
@@ -216,10 +201,9 @@ func LoadCellPlan(path, expectedCompressedSHA256 string) (CellPlan, error) {
 	return CellPlan{
 		year: encoded.Year, month: encoded.Month, cells: cells,
 		sha256: compressedSHAHex, logicalSHA256: logicalPlanSHA256(encoded.Year, encoded.Month, cells, expectedDays),
-		landCells:       encoded.LandCells,
-		centreLandCells: encoded.CentreLandCells,
-		timezones:       len(encoded.Timezones), landSourceSHA256: encoded.LandSourceSHA256,
-		centreLandMaskSHA256: encoded.CentreLandMaskSHA256, expectedDays: expectedDays,
+		centreLandCells:  encoded.CentreLandCells,
+		landSourceSHA256: encoded.LandSourceSHA256,
+		expectedDays:     expectedDays,
 	}, nil
 }
 
@@ -290,8 +274,8 @@ func DeriveMonthPlan(original CellPlan, path, expectedSHA256, output string, mon
 	return result, nil
 }
 
-// logicalPlanSHA256 fingerprints the validated plan semantics used by daily
-// shards and climate publication. It is independent of JSON and gzip encoding.
+// logicalPlanSHA256 fingerprints the validated plan semantics independently
+// of JSON and gzip encoding.
 func logicalPlanSHA256(year, month int, cells []Cell, expectedDays []uint16) string {
 	digest := sha256.New()
 	writeString := func(value string) {
@@ -399,16 +383,8 @@ func (plan encodedCellPlan) validateAndCells() ([]Cell, error) {
 	if _, err := parseSHA256(plan.LandSourceSHA256); err != nil {
 		return nil, fmt.Errorf("ERA5 cell plan land source checksum: %w", err)
 	}
-	if (plan.CentreLandMaskDerivation == "") != (plan.CentreLandMaskSHA256 == "") {
-		return nil, errors.New("ERA5 cell plan centre-land authority is incomplete")
-	}
-	if plan.CentreLandMaskDerivation != "" {
-		if plan.CentreLandMaskDerivation != planCentreLandDerivation {
-			return nil, errors.New("ERA5 cell plan centre-land derivation changed")
-		}
-		if _, err := parseSHA256(plan.CentreLandMaskSHA256); err != nil {
-			return nil, fmt.Errorf("ERA5 cell plan centre-land mask checksum: %w", err)
-		}
+	if plan.CentreLandMaskDerivation != "" || plan.CentreLandMaskSHA256 != "" {
+		return nil, errors.New("ERA5 display authority must be provided separately from the acquisition plan")
 	}
 	totalCells := GridRows * GridColumns
 	declaredCounts := []int{

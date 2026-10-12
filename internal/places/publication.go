@@ -385,15 +385,6 @@ func installRelease(ctx context.Context, placeRoot, source, releaseID string) (P
 	return candidate, nil
 }
 
-func validatedManifestDigest(root string) (string, error) {
-	rootFS, err := openCheckedRoot(root)
-	if err != nil {
-		return "", err
-	}
-	defer rootFS.Close()
-	return validatedManifestDigestRoot(rootFS)
-}
-
 func validatedManifestDigestRoot(rootFS *os.Root) (string, error) {
 	before, err := readRootRegularBounded(rootFS, "manifest.json", maximumManifestBytes)
 	if err != nil {
@@ -471,15 +462,6 @@ func validateCurrentWithVisitor(placeRoot string, visit func(Candidate) error) (
 		return Pointer{}, errors.New("place pointer manifest checksum does not match release")
 	}
 	return pointer, nil
-}
-
-func pointerForRelease(root, releaseID string) (Pointer, error) {
-	payload, err := readRegularBounded(filepath.Join(root, "manifest.json"), maximumManifestBytes)
-	if err != nil {
-		return Pointer{}, err
-	}
-	digest := sha256.Sum256(payload)
-	return Pointer{ReleaseID: releaseID, ManifestSHA256: hex.EncodeToString(digest[:])}, nil
 }
 
 func writePointer(placeRoot string, pointer Pointer) error {

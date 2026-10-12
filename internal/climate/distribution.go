@@ -306,33 +306,6 @@ func (profile ProfileDistribution) AwfulFraction() float64 {
 	return float64(profile.Ratings.Awful) / float64(total)
 }
 
-func (profile ProfileDistribution) CalmGoodFraction() float64 {
-	return dayFraction(profile.CalmGoodDays, profile.Ratings.total())
-}
-
-func (profile ProfileDistribution) PoorWeekFraction() float64 {
-	return dayFraction(profile.PoorWeekWindows, profile.SevenDayWindows)
-}
-
-func (distribution CellDistribution) ComfortGoodFraction() float64 {
-	return dayFraction(distribution.ComfortGoodDays, distribution.Days)
-}
-
-func (distribution CellDistribution) DryGoodFraction() float64 {
-	return dayFraction(distribution.DryGoodDays, distribution.Days)
-}
-
-func (distribution CellDistribution) BrightGoodFraction() float64 {
-	return dayFraction(distribution.BrightGoodDays, distribution.Days)
-}
-
-func dayFraction(numerator, denominator int) float64 {
-	if denominator == 0 {
-		return 0
-	}
-	return float64(numerator) / float64(denominator)
-}
-
 func calendarContiguous(observations []scoredObservation) bool {
 	for index := 1; index < len(observations); index++ {
 		if !observations[index].contiguous {

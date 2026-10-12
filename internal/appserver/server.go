@@ -441,9 +441,6 @@ func (app *application) addForecastRange(snapshot *forecastSnapshot, index forec
 	return nil
 }
 
-func rangeCatalogMatchesIndex(catalog forecastrange.Catalog, index forecastruns.Index) bool {
-	return rangeCatalogMatchesReference(catalog, index, index.Range)
-}
 func rangeCatalogMatchesReference(catalog forecastrange.Catalog, index forecastruns.Index, reference forecastruns.RangeReference) bool {
 	if catalog.ReleaseID != index.IndexID || catalog.Period != reference.Period ||
 		catalog.Source.Provider != reference.Provider || catalog.Tier() != reference.Tier ||

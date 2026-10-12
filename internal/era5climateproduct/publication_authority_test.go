@@ -13,13 +13,10 @@ import (
 	"nice-weather-finder/internal/providers/era5hourly"
 )
 
-func TestLegacyPlanRequiresExactPublicationAuthority(t *testing.T) {
+func TestPublicationUsesExactPlanAndDisplayAuthority(t *testing.T) {
 	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
-	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell})
 	maskPath := writeTestMask(t, values)
-	if _, err := LoadDisplayMask(maskPath, plan); err == nil {
-		t.Fatal("legacy acquisition plan authorised display publication without a sidecar")
-	}
 
 	encoded := testPublicationAuthority(plan, values)
 	authorityPath, authoritySHA := writeTestPublicationAuthority(t, encoded)
@@ -31,7 +28,7 @@ func TestLegacyPlanRequiresExactPublicationAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builder, err := New(testConfig(t.TempDir(), "legacy-authority"), plan, mask)
+	builder, err := New(testConfig(t.TempDir(), "authority"), plan, mask)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +54,7 @@ func TestLegacyPlanRequiresExactPublicationAuthority(t *testing.T) {
 
 func TestEncodePublicationAuthorityIsCanonicalAndReloadable(t *testing.T) {
 	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
-	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell})
 	first, err := EncodePublicationAuthority(plan, values)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +87,7 @@ func TestEncodePublicationAuthorityIsCanonicalAndReloadable(t *testing.T) {
 
 func TestEncodePublicationAuthorityRejectsWrongMaskCountAndValues(t *testing.T) {
 	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
-	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell})
 	wrongCount := append([]byte(nil), values...)
 	wrongCount[Rows/2*Columns+Columns/2] = 0
 	if _, err := EncodePublicationAuthority(plan, wrongCount); err == nil {
@@ -103,22 +100,13 @@ func TestEncodePublicationAuthorityRejectsWrongMaskCountAndValues(t *testing.T) 
 	}
 }
 
-func TestPublicationAuthorityCannotReplaceInlinePlanAuthority(t *testing.T) {
-	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
-	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, true)
-	path, sha := writeTestPublicationAuthority(t, testPublicationAuthority(plan, values))
-	if _, err := LoadPublicationAuthority(path, sha, plan); err == nil {
-		t.Fatal("sidecar replaced display authority already bound into the acquisition plan")
-	}
-}
-
 func TestPublicationAuthorityRejectsSwappedPlanSourceCountDerivationAndChecksum(t *testing.T) {
 	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
-	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	plan, values := testPlanAndMaskData(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell})
 	encoded := testPublicationAuthority(plan, values)
 	path, sha := writeTestPublicationAuthority(t, encoded)
 
-	otherPlan, _ := testPlanAndMaskData(t, 12, []era5hourly.Cell{cell}, []era5hourly.Cell{cell}, false)
+	otherPlan, _ := testPlanAndMaskData(t, 12, []era5hourly.Cell{cell}, []era5hourly.Cell{cell})
 	if _, err := LoadPublicationAuthority(path, sha, otherPlan); err == nil {
 		t.Fatal("publication authority accepted a different acquisition plan")
 	}
@@ -152,7 +140,7 @@ func TestPublicationAuthorityRejectsSwappedMask(t *testing.T) {
 		{Latitude: 0, Longitude: 0, TimezoneID: "UTC"},
 		{Latitude: 0, Longitude: 0.25, TimezoneID: "UTC"},
 	}
-	plan, values := testPlanAndMaskData(t, 11, cells, cells[:1], false)
+	plan, values := testPlanAndMaskData(t, 11, cells, cells[:1])
 	encoded := testPublicationAuthority(plan, values)
 	authorityPath, authoritySHA := writeTestPublicationAuthority(t, encoded)
 	authority, err := LoadPublicationAuthority(authorityPath, authoritySHA, plan)

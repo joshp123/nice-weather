@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { BestWeatherResults, climateFieldFor, climateRailPeriods, climateReliability, climateUiModel, ClimateDetails, ClimatePointHeading, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastOutcomeCopy, nearbyClimateCellQualifier, periodRailHasMore, placeSearchPrompt, PointHeadingFor, rainDisplay, RangeDetails, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
+import { BestWeatherResults, climateFieldFor, climateRailPeriods, climateReliability, climateUiModel, ClimateDetails, ClimatePointHeading, clearSearchAfterMapSelection, dayCountLabel, forecastMapTiles, forecastMapUsesDetail, forecastOutcomeCopy, nearbyClimateCellQualifier, periodRailHasMore, placeSearchPrompt, PointHeadingFor, RangeDetails, revealFocusedPeriod, revealSelectedPeriod, scalarPalette, ScoreRamp, temperatureRange, wetDaytimeDuration } from './App';
 import type { BestWeatherPlace } from './data/bestWeather';
 import type { ClimateIndex, ClimatePointEvidence } from './data/climateClient';
 import { forecastTierForPoint, type DayForecastProduct } from './data/forecastClient';
@@ -99,11 +99,7 @@ describe('map controls', () => {
 
 describe('clear weather copy', () => {
 
-  it('puts forecast rain amount and wet daytime duration together', () => {
-    const forecast = { metrics: { rainMm: .8, wetTimeFraction: .5 }, source: { basis: 'forecast' } } as DailyPoint;
-
-    expect(rainDisplay(forecast)).toEqual({ label: 'Rain', value: '0.8 mm · about 5 wet hours' });
-    expect(rainDisplay({ metrics: { rainMm: 0, wetTimeFraction: 0 }, source: { basis: 'forecast' } } as DailyPoint)).toEqual({ label: 'Rain', value: '0.0 mm' });
+  it('shows the duration of wet daytime weather', () => {
     expect(wetDaytimeDuration(.01)).toBe('under ½ wet hour');
     expect(wetDaytimeDuration(.1)).toBe('about 1 wet hour');
   });

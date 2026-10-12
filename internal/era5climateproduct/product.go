@@ -98,8 +98,6 @@ type Builder struct {
 	period          string
 	planSHA256      string
 	state           builderState
-	beforeInstall   func() error
-	syncDirectory   func(string) error
 }
 
 type builderState uint8
@@ -141,7 +139,6 @@ func newBuilder(config Config, plan era5hourly.CellPlan, month int, planSHA256 s
 
 	builder := &Builder{
 		config:          config,
-		syncDirectory:   syncDirectory,
 		period:          fmt.Sprintf("month-%02d", month),
 		planSHA256:      planSHA256,
 		plan:            plan,
@@ -301,17 +298,12 @@ func (builder *Builder) Commit() error {
 	if err := syncTree(releaseRoot); err != nil {
 		return fmt.Errorf("sync staged ERA5 climate release: %w", err)
 	}
-	if builder.beforeInstall != nil {
-		if err := builder.beforeInstall(); err != nil {
-			return err
-		}
-	}
 
 	finalParent := filepath.Join(builder.config.StagingRoot, "releases")
 	if err := os.MkdirAll(finalParent, 0o755); err != nil {
 		return err
 	}
-	if err := builder.syncDirectory(builder.config.StagingRoot); err != nil {
+	if err := syncDirectory(builder.config.StagingRoot); err != nil {
 		return err
 	}
 	finalRoot := filepath.Join(finalParent, builder.config.ReleaseID)
@@ -323,7 +315,7 @@ func (builder *Builder) Commit() error {
 	if err := os.Rename(releaseRoot, finalRoot); err != nil {
 		return err
 	}
-	if err := builder.syncDirectory(finalParent); err != nil {
+	if err := syncDirectory(finalParent); err != nil {
 		return builder.rollbackInstalledRelease(finalRoot, releaseRoot, finalParent, err)
 	}
 	builder.state = stateCommitted
@@ -336,7 +328,7 @@ func (builder *Builder) rollbackInstalledRelease(finalRoot, stagedRoot, finalPar
 	if recoveryErr != nil {
 		recoveryErr = errors.Join(recoveryErr, os.RemoveAll(finalRoot))
 	}
-	resyncErr := builder.syncDirectory(finalParent)
+	resyncErr := syncDirectory(finalParent)
 	_, visibleErr := os.Lstat(finalRoot)
 	if visibleErr == nil {
 		visibleErr = errors.New("failed ERA5 climate release remains visible after rollback")

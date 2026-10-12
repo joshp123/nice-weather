@@ -91,7 +91,7 @@ func TestClimateDistributionMeasuresOnlyCalendarContiguousPoorRuns(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Nice.LongestPoorRun != 3 || result.Nice.SevenDayWindows != 480 || result.Nice.PoorWeekWindows != 3 || result.Nice.PoorWeekFraction() != float64(3)/480 {
+	if result.Nice.LongestPoorRun != 3 || result.Nice.SevenDayWindows != 480 || result.Nice.PoorWeekWindows != 3 {
 		t.Fatalf("poor persistence = %+v; want one three-day run in 3 of 480 complete seven-day windows", result.Nice)
 	}
 }
@@ -155,7 +155,7 @@ func TestClimateDistributionSharesPhysicalLensesAndKeepsProfileCalmMonotonic(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ComfortGoodFraction() != .5 || result.DryGoodFraction() != .5 || result.BrightGoodFraction() != .5 || result.Nice.CalmGoodFraction() != 1 || result.Cycling.CalmGoodFraction() != 0 {
+	if result.ComfortGoodDays != result.Days/2 || result.DryGoodDays != result.Days/2 || result.BrightGoodDays != result.Days/2 || result.Nice.CalmGoodDays != result.Days || result.Cycling.CalmGoodDays != 0 {
 		t.Fatalf("distribution = %+v", result)
 	}
 	record, err := result.DeliveryRecord()

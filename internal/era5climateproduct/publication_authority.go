@@ -17,13 +17,10 @@ const (
 	publicationAuthorityVersion = 1
 	maximumAuthorityBytes       = 4096
 
-	inlineAuthorityKind  = "checksum-trusted-acquisition-plan"
 	sidecarAuthorityKind = "checksum-trusted-publication-authority-v1"
 )
 
-// PublicationAuthority is a separately trusted augmentation for a legacy
-// acquisition plan. It adds display authority without changing that plan or
-// the daily shards which bind its compressed checksum.
+// PublicationAuthority binds the acquisition plan to the canonical display mask.
 type PublicationAuthority struct {
 	sha256                string
 	acquisitionPlanSHA256 string
@@ -59,16 +56,13 @@ type PublicationAuthorityArtifact struct {
 	CentreLandCells   int
 }
 
-// EncodePublicationAuthority binds one legacy acquisition plan to an exact
+// EncodePublicationAuthority binds one acquisition plan to an exact
 // centre-on-land display mask. It does not write or trust either artifact.
 func EncodePublicationAuthority(plan era5hourly.CellPlan, displayMask []byte) (PublicationAuthorityArtifact, error) {
 	var result PublicationAuthorityArtifact
 	if !validTrustedSHA256(plan.SHA256()) || !validTrustedSHA256(plan.LogicalSHA256()) ||
 		!validTrustedSHA256(plan.LandSourceSHA256()) {
 		return result, errors.New("ERA5 publication authority requires a validated acquisition plan")
-	}
-	if _, _, _, _, inline := plan.DisplayMaskAuthority(); inline {
-		return result, errors.New("ERA5 publication authority cannot replace authority already bound into the acquisition plan")
 	}
 	if len(displayMask) != Rows*Columns {
 		return result, fmt.Errorf("ERA5 display mask has %d bytes; want %d", len(displayMask), Rows*Columns)
@@ -115,9 +109,6 @@ func LoadPublicationAuthority(path, expectedSHA256 string, plan era5hourly.CellP
 	var result PublicationAuthority
 	if !validTrustedSHA256(expectedSHA256) {
 		return result, errors.New("ERA5 publication authority requires a trusted lowercase SHA-256")
-	}
-	if _, _, _, _, inline := plan.DisplayMaskAuthority(); inline {
-		return result, errors.New("ERA5 publication authority cannot replace authority already bound into the acquisition plan")
 	}
 	body, err := readBounded(path, maximumAuthorityBytes)
 	if err != nil {

@@ -14,11 +14,16 @@ func TestLoadDisplayMaskRejectsSizeChecksumAndValuesBeforeUse(t *testing.T) {
 	root := t.TempDir()
 	cell := era5hourly.Cell{Latitude: 0, Longitude: 0, TimezoneID: "UTC"}
 	plan, canonical := testPlanAndMask(t, 11, []era5hourly.Cell{cell}, []era5hourly.Cell{cell})
+	authorityPath, authoritySHA := writeTestPublicationAuthority(t, testPublicationAuthority(plan, canonical.values))
+	authority, err := LoadPublicationAuthority(authorityPath, authoritySHA, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
 	short := filepath.Join(root, "short.bin")
 	if err := os.WriteFile(short, []byte{1}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadDisplayMask(short, plan); err == nil {
+	if _, err := LoadDisplayMaskWithAuthority(short, plan, authority); err == nil {
 		t.Fatal("accepted a short display mask")
 	}
 
@@ -35,7 +40,7 @@ func TestLoadDisplayMaskRejectsSizeChecksumAndValuesBeforeUse(t *testing.T) {
 		if err := os.WriteFile(path, values, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := LoadDisplayMask(path, plan); err == nil {
+		if _, err := LoadDisplayMaskWithAuthority(path, plan, authority); err == nil {
 			t.Fatalf("accepted forged %s display mask", name)
 		}
 	}

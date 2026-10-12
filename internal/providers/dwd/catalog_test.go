@@ -27,16 +27,5 @@ func TestCatalogueSeparatesRequiredAndPreferredFields(t *testing.T) {
 			t.Errorf("preferred field %q is missing: %v", name, err)
 		}
 	}
-	if got, want := len(PreferredFields()), 3; got != want {
-		t.Fatalf("preferred field count = %d, want %d", got, want)
-	}
-}
 
-func TestFieldsReturnsCopy(t *testing.T) {
-	first := Fields()
-	first[0].Name = "changed"
-	second := Fields()
-	if second[0].Name == "changed" {
-		t.Fatal("Fields exposed mutable provider catalogue")
-	}
 }
