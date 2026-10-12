@@ -51,6 +51,8 @@ The previous AgERA5 publication is rejected and inactive because its coarse long
 
 ERA5 uses its source 0.25° delivery grid and retains about 31 km model detail. Each grid point uses its exact valid civil dates and an IANA civil-local 10:00–20:00 daytime window. `era5-climate-year` reads each native land tile once from the pinned lossless temporal layout, reduces all twenty years into twelve monthly distributions, and resumes durable tile checkpoints. One following source tile downloads while the current tile reduces; temporary hourly storage stays near 1.4 GB. Worldwide month publication starts after every land tile is complete. The annual journey requires all twelve accepted months.
 
+The current private acquisition contains a documented ERA5 analysed-wind defect that reaches a daytime land cell. Annual publication is withheld until official ERA5 4v wind evidence is obtained and affected daily reductions are rebuilt. Passing physical limits alone does not make these source values acceptable. Corrected processing must distinguish its checkpoints from uncorrected reductions.
+
 Natural Earth 5.1.1 centre-on-land cells are the climate land authority. Water is transparent. A named coastal place can use the nearest valid land cell; the place sheet says when this happens. Missing inland evidence must remain missing and fails publication checks.
 
 The worldwide place index comes from pinned GeoNames extracts. It keeps European settlements and globally useful populated or administratively significant places. Search matches canonical names, local names, alternate names and transliterations. There is no selected-city list.
