@@ -1,12 +1,9 @@
 package pipeline
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"image/color"
-	"image/png"
 	"math"
 	"os"
 	"os/exec"
@@ -43,21 +40,6 @@ func TestDecodeUsesBinaryCropAndExplicitMetadata(t *testing.T) {
 	}
 	if !runner.sawFloat {
 		t.Fatal("GRIB intermediate was not requested as NC_FLOAT")
-	}
-}
-
-func TestDecodeRasterUsesAlignedBilinearCropWithoutGRIBMetadata(t *testing.T) {
-	runner := &fakeRunner{t: t}
-	decoder, err := NewDecoder(runner, delivery.GridBounds{West: 150, East: 152, South: -35, North: -34})
-	if err != nil {
-		t.Fatal(err)
-	}
-	grid, err := decoder.DecodeRaster(context.Background(), "/vsicurl/https://example.test/climate.tif", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if grid.Spec.Rows != 1 || grid.Spec.Cols != 2 || len(grid.Values) != 2 || !runner.sawRaster {
-		t.Fatalf("unexpected raster crop: %+v", grid.Spec)
 	}
 }
 
@@ -174,22 +156,6 @@ func TestRealECCodesFloatDecodePreservesEqualCumulativeRain(t *testing.T) {
 	}
 	if len(normalized) != 2 || !finite32(normalized[1].Grid.Values[target]) || math.Abs(float64(normalized[1].Grid.Values[target])) > 1e-5 {
 		t.Fatalf("equal cumulative rain became an invalid/non-zero interval: %v", normalized)
-	}
-}
-
-func TestApplyLandMaskUsesExactBinaryGrid(t *testing.T) {
-	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 3, South: 0, North: 1}, Rows: 1, Cols: 3}
-	metrics := []weather.DailyMetrics{{Valid: true}, {Valid: true}, {Valid: true}}
-	mask := FloatGrid{Spec: spec, Values: []float32{0, 1, 0}}
-	if err := ApplyLandMask(spec, metrics, mask); err != nil {
-		t.Fatal(err)
-	}
-	if metrics[0].Valid || !metrics[1].Valid || metrics[2].Valid {
-		t.Fatalf("water was not made invalid: %+v", metrics)
-	}
-	mask.Values[0] = .5
-	if err := ApplyLandMask(spec, metrics, mask); err == nil {
-		t.Fatal("non-binary land mask was accepted")
 	}
 }
 
@@ -1037,61 +1003,6 @@ func TestSixHourlyPointAndCumulativeFramesCoverBothWorldwideDayExtremes(t *testi
 	}
 }
 
-func TestDeliveryAndOverlayShareCanonicalMetricsAndLegend(t *testing.T) {
-	metric := weather.DailyMetrics{
-		ComfortableTempC: 24, MinTempC: 22, MaxTempC: 26,
-		RainMM: 0, WetTimeFraction: weather.OptionalFloat{Value: 0, Available: true},
-		SolarEnergyMJm2:   weather.OptionalFloat{Value: 18, Available: true},
-		CloudCoverPercent: weather.OptionalFloat{Value: 15, Available: true},
-		WindSpeedKPH:      8, GustKPH: weather.OptionalFloat{Value: 14, Available: true},
-		DewPointC:               weather.OptionalFloat{Value: 12, Available: true},
-		RelativeHumidityPercent: weather.OptionalFloat{Value: 45, Available: true},
-		NativeResolutionKM:      7, Valid: true,
-	}
-	records, err := DeliveryRecords([]weather.DailyMetrics{metric, {}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !records[0].Valid || records[0].ComfortableTemperatureDeciC != 240 || records[0].RainDeciMM != 0 || records[1].Valid {
-		t.Fatalf("unexpected delivery records: %+v", records)
-	}
-	paletteStops := delivery.CanonicalPalette()
-	var output bytes.Buffer
-	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 2, South: 0, North: 1}, Rows: 1, Cols: 2}
-	if err := RenderWebMercatorOverlay(&output, spec, []weather.DailyMetrics{metric, {}}, weather.ProfileNice, paletteStops); err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pixel := color.NRGBAModel.Convert(decoded.At(0, 0)).(color.NRGBA)
-	wantPalette, err := scorePalette(paletteStops)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := wantPalette[weather.Score(metric, weather.ProfileNice).Score]
-	if pixel != want {
-		t.Fatalf("excellent pixel drifted from manifest legend: %02x%02x%02x/%d", pixel.R, pixel.G, pixel.B, pixel.A)
-	}
-	_, _, _, a := decoded.At(1, 0).RGBA()
-	if a != 0 {
-		t.Fatal("no-data pixel is not transparent")
-	}
-}
-
-func TestScorePaletteKeepsSemanticBoundariesVisible(t *testing.T) {
-	palette, err := scorePalette(delivery.CanonicalPalette())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, boundary := range []int{25, 40, 55, 70, 85} {
-		if palette[boundary-1] == palette[boundary] {
-			t.Fatalf("semantic boundary %d has no visible colour change", boundary)
-		}
-	}
-}
-
 func TestDWDIntervalMaximumGustShortNameIsAccepted(t *testing.T) {
 	if !shortNameMatches(Gust, "max_i10fg") {
 		t.Fatal("live ICON-EU maximum gust short name was rejected")
@@ -1104,165 +1015,6 @@ func TestDWDSolarComponentsKeepDistinctShortNames(t *testing.T) {
 	}
 	if !shortNameMatches(SolarDiffuse, "ASWDIFD_S") || shortNameMatches(SolarDiffuse, "ASWDIR_S") {
 		t.Fatal("diffuse shortwave field identity is not strict")
-	}
-}
-
-func TestWebMercatorOverlayRowsUseValidAwareOverlap(t *testing.T) {
-	spec := delivery.GridSpec{
-		Bounds: delivery.GridBounds{West: 0, East: 1, South: 0, North: 80},
-		Rows:   4, Cols: 1,
-	}
-	valid := weather.DailyMetrics{
-		ComfortableTempC: 24, MinTempC: 22, MaxTempC: 26, RainMM: 0,
-		WetTimeFraction:   weather.OptionalFloat{Value: 0, Available: true},
-		SolarEnergyMJm2:   weather.OptionalFloat{Value: 18, Available: true},
-		CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
-		DewPointC:         weather.OptionalFloat{Value: 12, Available: true},
-		WindSpeedKPH:      8, NativeResolutionKM: 7, Valid: true,
-	}
-	metrics := []weather.DailyMetrics{valid, {}, {}, valid}
-	var output bytes.Buffer
-	if err := RenderWebMercatorOverlay(&output, spec, metrics, weather.ProfileNice, delivery.CanonicalPalette()); err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, imageHeight, err := delivery.WebMercatorImageDimensions(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Bounds().Dy() != imageHeight {
-		t.Fatalf("overlay height = %d; want projected height %d", decoded.Bounds().Dy(), imageHeight)
-	}
-	// Verify every output row uses the shared valid-aware overlap selector.
-	for row := 0; row < imageHeight; row++ {
-		_, _, wantOpaque := delivery.SelectWebMercatorSource(spec, row, 0, func(sourceRow, _ uint32) bool {
-			return sourceRow == 0 || sourceRow == 3
-		})
-		_, _, _, alpha := decoded.At(0, row).RGBA()
-		if got := alpha != 0; got != wantOpaque {
-			t.Fatalf("destination row %d opaque = %v; want %v", row, got, wantOpaque)
-		}
-	}
-}
-
-func TestWebMercatorImageDimensionsMakeProjectedPixelsSquare(t *testing.T) {
-	spec := delivery.GridSpec{
-		Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5},
-		Rows:   680, Cols: 1104,
-	}
-	width, height, err := delivery.WebMercatorImageDimensions(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if width != 1104 || height <= int(spec.Rows) {
-		t.Fatalf("projected image dimensions = %dx%d; want native columns and Mercator-adjusted rows", width, height)
-	}
-	longitudeRadiansPerPixel := (spec.Bounds.East - spec.Bounds.West) * math.Pi / 180 / float64(width)
-	projectY := func(latitude float64) float64 { return math.Asinh(math.Tan(latitude * math.Pi / 180)) }
-	mercatorYPerPixel := (projectY(spec.Bounds.North) - projectY(spec.Bounds.South)) / float64(height)
-	if math.Abs(longitudeRadiansPerPixel-mercatorYPerPixel) > longitudeRadiansPerPixel*.001 {
-		t.Fatalf("projected pixels are not square: dx=%g dy=%g", longitudeRadiansPerPixel, mercatorYPerPixel)
-	}
-}
-
-func TestPointLookupMatchesRenderedPixelAtCoastalCoordinates(t *testing.T) {
-	tests := []struct {
-		name     string
-		spec     delivery.GridSpec
-		lon, lat float64
-		periods  int
-	}{
-		{
-			name: "Athens outlook grid",
-			spec: delivery.GridSpec{
-				Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5},
-				Rows:   170, Cols: 276,
-			},
-			lon: 23.7275, lat: 37.9838, periods: 1,
-		},
-		{
-			name: "Nice climate grid",
-			spec: delivery.GridSpec{
-				Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5},
-				Rows:   425, Cols: 690,
-			},
-			lon: 7.262, lat: 43.7102, periods: 12,
-		},
-	}
-	metric := weather.DailyMetrics{
-		ComfortableTempC: 24, MinTempC: 21, MaxTempC: 27, RainMM: 0,
-		WetTimeFraction:   weather.OptionalFloat{Value: 0, Available: true},
-		SolarEnergyMJm2:   weather.OptionalFloat{Value: 20, Available: true},
-		CloudCoverPercent: weather.OptionalFloat{Value: 20, Available: true},
-		DewPointC:         weather.OptionalFloat{Value: 11, Available: true},
-		WindSpeedKPH:      7, NativeResolutionKM: 7, Valid: true,
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			row := uint32(math.Floor((test.spec.Bounds.North - test.lat) / ((test.spec.Bounds.North - test.spec.Bounds.South) / float64(test.spec.Rows))))
-			col := uint32(math.Floor((test.lon - test.spec.Bounds.West) / ((test.spec.Bounds.East - test.spec.Bounds.West) / float64(test.spec.Cols))))
-			metrics := make([]weather.DailyMetrics, int(test.spec.Rows)*int(test.spec.Cols))
-			metrics[int(row)*int(test.spec.Cols)+int(col)] = metric
-			records, err := DeliveryRecords(metrics)
-			if err != nil {
-				t.Fatal(err)
-			}
-			geometry, pointRecords, err := delivery.DailyPointRecords(test.spec, records)
-			if err != nil {
-				t.Fatal(err)
-			}
-			pointPath := filepath.Join(t.TempDir(), "period.nwp")
-			if _, err := delivery.WriteDailyPointAsset(pointPath, "test-release", delivery.PointKindForecastDay, geometry, pointRecords); err != nil {
-				t.Fatal(err)
-			}
-			points, err := delivery.OpenPointAsset(pointPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer points.Close()
-			point, valid, err := points.DailyAt(test.lon, test.lat)
-			if err != nil || !valid || point.Weather != records[int(row)*int(test.spec.Cols)+int(col)] {
-				t.Fatalf("point lookup record mismatch: valid=%v err=%v got=%+v", valid, err, point.Weather)
-			}
-			got := point.Weather
-			pixelRow, pixelCol, ok := delivery.WebMercatorPixel(test.spec, test.lon, test.lat)
-			if !ok {
-				t.Fatal("coordinate did not map to an overlay pixel")
-			}
-			for period := 1; period <= test.periods; period++ {
-				for _, profile := range []weather.Profile{weather.ProfileNice, weather.ProfileCycling} {
-					pointMetrics, err := got.WeatherMetrics(metric.NativeResolutionKM)
-					if err != nil {
-						t.Fatal(err)
-					}
-					palette, err := scorePalette(delivery.CanonicalPalette())
-					if err != nil {
-						t.Fatal(err)
-					}
-					for _, lens := range []weather.Lens{weather.LensOverall, weather.LensComfort, weather.LensDry, weather.LensBright, weather.LensCalm} {
-						var output bytes.Buffer
-						if err := RenderWebMercatorLens(&output, test.spec, metrics, profile, lens, delivery.CanonicalPalette()); err != nil {
-							t.Fatal(err)
-						}
-						decoded, err := png.Decode(bytes.NewReader(output.Bytes()))
-						if err != nil {
-							t.Fatal(err)
-						}
-						actual := color.NRGBAModel.Convert(decoded.At(pixelCol, pixelRow)).(color.NRGBA)
-						value, ok := weather.LensValue(pointMetrics, profile, lens)
-						if !ok {
-							t.Fatalf("period %d %s %s point lens unavailable", period, profile, lens)
-						}
-						if want := palette[value]; actual != want {
-							t.Fatalf("period %d %s %s point/image mismatch: pixel=%+v point value=%d want=%+v", period, profile, lens, actual, value, want)
-						}
-					}
-				}
-			}
-		})
 	}
 }
 

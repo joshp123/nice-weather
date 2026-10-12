@@ -23,6 +23,7 @@ import (
 	"nice-weather-finder/internal/forecastcatalog"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
+	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
 )
 
@@ -59,12 +60,6 @@ const (
 )
 
 var errForecastPublicationChanged = errors.New("forecast publication changed while loading")
-
-var (
-	loadForecastMetadata      = forecastruns.LoadCurrentMetadata
-	parseForecastCatalog      = forecastcatalog.Parse
-	parseForecastRangeCatalog = forecastrange.Parse
-)
 
 type apiError struct {
 	Error struct {
@@ -319,7 +314,7 @@ func (app *application) currentForecastSnapshot() (*forecastSnapshot, error) {
 }
 
 func (app *application) loadForecastSnapshot() (*forecastSnapshot, error) {
-	pointer, current, previous, err := loadForecastMetadata(app.artifactRoot)
+	pointer, current, previous, err := forecastruns.LoadCurrentMetadata(app.artifactRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -384,21 +379,14 @@ func (app *application) addForecastRun(snapshot *forecastSnapshot, reference for
 			if uint64(len(catalogRaw)) != tier.CatalogBytes || hex.EncodeToString(catalogDigest[:]) != tier.CatalogSHA256 {
 				return errors.New("forecast catalogue does not match the run index")
 			}
-			catalog, err := parseForecastCatalog(catalogRaw)
-			if err != nil || catalog.ReleaseID != index.IndexID || catalog.LocalDate != day.Date || catalog.Tier != tier.Tier {
+			catalog, err := forecastcatalog.Parse(catalogRaw)
+			if err != nil || catalog.ReleaseID != tier.ReleaseID || catalog.LocalDate != day.Date || catalog.Tier != tier.Tier {
 				return errors.New("forecast catalogue identity is invalid")
 			}
 			if err := addForecastAsset(snapshot.assets, catalogPath, forecastAsset{bytes: uint64(len(catalogRaw)), sha256: tier.CatalogSHA256, mediaType: "application/json"}); err != nil {
 				return err
 			}
 			tierRoot := filepath.ToSlash(filepath.Dir(catalogPath))
-			for _, block := range catalog.PointBlocks {
-				if !block.Omitted {
-					if err := addCatalogForecastAsset(snapshot.assets, tierRoot, block.Path, block.Bytes, block.SHA256, block.MediaType); err != nil {
-						return err
-					}
-				}
-			}
 			for _, point := range catalog.DailyPointBlocks {
 				if err := addCatalogForecastAsset(snapshot.assets, tierRoot, point.Path, point.Bytes, point.SHA256, point.MediaType); err != nil {
 					return err
@@ -411,11 +399,16 @@ func (app *application) addForecastRun(snapshot *forecastSnapshot, reference for
 			}
 		}
 	}
-	return app.addForecastRange(snapshot, index)
+	if err := app.addForecastRange(snapshot, index, index.Range); err != nil {
+		return err
+	}
+	if index.RegionalRange != nil {
+		return app.addForecastRange(snapshot, index, *index.RegionalRange)
+	}
+	return nil
 }
 
-func (app *application) addForecastRange(snapshot *forecastSnapshot, index forecastruns.Index) error {
-	reference := index.Range
+func (app *application) addForecastRange(snapshot *forecastSnapshot, index forecastruns.Index, reference forecastruns.RangeReference) error {
 	catalogPath := "forecast/" + reference.CatalogPath
 	catalogRaw, err := app.readBoundedArtifact(catalogPath, forecastrange.MaximumCatalogBytes)
 	if err != nil {
@@ -425,8 +418,8 @@ func (app *application) addForecastRange(snapshot *forecastSnapshot, index forec
 	if uint64(len(catalogRaw)) != reference.CatalogBytes || hex.EncodeToString(digest[:]) != reference.CatalogSHA256 {
 		return errors.New("forecast range catalogue does not match the run index")
 	}
-	catalog, err := parseForecastRangeCatalog(catalogRaw)
-	if err != nil || !rangeCatalogMatchesIndex(catalog, index) {
+	catalog, err := forecastrange.Parse(catalogRaw)
+	if err != nil || !rangeCatalogMatchesReference(catalog, index, reference) {
 		return errors.New("forecast range catalogue identity is invalid")
 	}
 	if err := addForecastAsset(snapshot.assets, catalogPath, forecastAsset{bytes: uint64(len(catalogRaw)), sha256: reference.CatalogSHA256, mediaType: "application/json"}); err != nil {
@@ -449,15 +442,18 @@ func (app *application) addForecastRange(snapshot *forecastSnapshot, index forec
 }
 
 func rangeCatalogMatchesIndex(catalog forecastrange.Catalog, index forecastruns.Index) bool {
-	reference := index.Range
+	return rangeCatalogMatchesReference(catalog, index, index.Range)
+}
+func rangeCatalogMatchesReference(catalog forecastrange.Catalog, index forecastruns.Index, reference forecastruns.RangeReference) bool {
 	if catalog.ReleaseID != index.IndexID || catalog.Period != reference.Period ||
-		catalog.Source.Provider != reference.Provider || catalog.Source.Tier != reference.Tier ||
+		catalog.Source.Provider != reference.Provider || catalog.Tier() != reference.Tier ||
 		catalog.Source.Product != reference.Product || catalog.Source.RunUTC != reference.RunUTC ||
 		catalog.Source.NativeResolutionKM != reference.NativeResolutionKM || catalog.Source.StaleAfterHours != reference.StaleAfterHours ||
 		len(catalog.Dates) != len(index.Days) || len(catalog.Inputs) != len(index.Days) {
 		return false
 	}
 	prefix := filepath.ToSlash(filepath.Join("runs", index.IndexID)) + "/"
+	regionalIndex := 0
 	for day, entry := range index.Days {
 		if len(entry.Tiers) == 0 {
 			return false
@@ -468,8 +464,19 @@ func rangeCatalogMatchesIndex(catalog forecastrange.Catalog, index forecastruns.
 			input.Bytes != global.CatalogBytes || input.SHA256 != global.CatalogSHA256 {
 			return false
 		}
+		if reference.Tier == forecasttiles.TierEurope && len(entry.Tiers) == 2 {
+			if regionalIndex >= len(catalog.RegionalInputs) {
+				return false
+			}
+			regional := entry.Tiers[0]
+			input := catalog.RegionalInputs[regionalIndex]
+			if input.Date != entry.Date || input.Path != strings.TrimPrefix(regional.CatalogPath, prefix) || input.Bytes != regional.CatalogBytes || input.SHA256 != regional.CatalogSHA256 {
+				return false
+			}
+			regionalIndex++
+		}
 	}
-	return true
+	return regionalIndex == len(catalog.RegionalInputs)
 }
 
 func addCatalogForecastAsset(assets map[string]forecastAsset, root, relative string, size uint64, checksum, mediaType string) error {

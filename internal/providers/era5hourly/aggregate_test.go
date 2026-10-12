@@ -271,6 +271,7 @@ func TestAggregateMonthAbortsEveryPartialOrInvalidMonth(t *testing.T) {
 		{"missing final", good[:len(good)-1], &recordingSink{}},
 		{"time gap", append(append([]Frame{}, good[:5]...), good[6:]...), &recordingSink{}},
 		{"negative rain", mutateFrame(good, 10, func(frame *Frame) { frame.RainM[0] = -.1 }), &recordingSink{}},
+		{"solar below measured zero-correction bound", mutateFrame(good, 10, func(frame *Frame) { frame.SolarJM2[0] = -3 }), &recordingSink{}},
 		{"bad cloud", mutateFrame(good, 10, func(frame *Frame) { frame.Cloud[0] = 2 }), &recordingSink{}},
 		{"hot corruption", mutateFrame(good, 10, func(frame *Frame) { frame.TemperatureK[0] = 500 }), &recordingSink{}},
 		{"cold dew corruption", mutateFrame(good, 10, func(frame *Frame) { frame.DewPointK[0] = 100 }), &recordingSink{}},

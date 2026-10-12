@@ -1,12 +1,12 @@
 ---
-written_by: ai
+written_by: AI, GPT-6 (Codex), 2026-10-12
 ---
 
 # Project context
 
 This is the current technical handoff for Nice Weather Finder. `AGENTS.md` defines the project rules. `.agent/execplan-pending.md` records product decisions, measurements and review evidence.
 
-`product-reset.md` records Josh's October 2026 direction, the inspected reference products and the next product milestone. Its complete annual journey replaces the earlier November-only product milestone; monthly builds remain internal acquisition steps.
+`product-reset.md` records Josh's October 2026 direction, the inspected reference products and the next product milestone. The complete annual journey replaces the earlier November-only milestone.
 
 ## Product
 
@@ -30,7 +30,7 @@ The six ordered judgements are Awful, Poor, Mixed, Good, Very good and Excellent
 
 | View | Source | Coverage | Honest weather detail |
 | --- | --- | --- | ---: |
-| Next 14 days | ECMWF IFS | worldwide | about 28 km |
+| Next 14 days | DWD ICON-EU where complete; IFS elsewhere | worldwide, with European refinement | about 7–28 km |
 | Individual forecast days | DWD ICON-EU where complete; IFS elsewhere | worldwide, with European refinement | about 7 km or 28 km |
 | Recent climate | ERA5 hourly evidence, 2006–2025 | worldwide land; replacement build in progress | source 0.25° grid, about 28 km |
 
@@ -38,7 +38,9 @@ The forecast pointer currently identifies one complete IFS baseline and the newe
 
 A daily forecast record comes wholly from one provider. Providers are not blended field by field. IFS supplies the worldwide baseline. ICON-EU replaces complete daily records inside its proven support.
 
-Forecast metrics use the local daytime window. The source run, forecast range and native detail remain available without burdening the main answer.
+Forecast metrics use the local daytime window. The map, fortnight strip, opened day and physical evidence use the same stored XYZ daily record. European fortnight summaries use complete ICON-EU days and the corresponding global parent cell for remaining days. Regional summaries stay sparse; the world is never upsampled to imply finer detail.
+
+There is one point representation. The duplicate native `.nwf` output and codec are removed. An index identifies the visible snapshot separately from each immutable daily catalog identity, so existing daily records can be reused without changing their headers. `forecast-products` republishes derived summaries from those files without reacquiring source data.
 
 The previous AgERA5 publication is rejected and inactive because its coarse longitude windows created a false north-south seam. The replacement uses hourly ERA5 evidence from 2006 through 2025. It builds exact IANA civil-local daytime records, scores each real day, then publishes:
 
@@ -47,7 +49,7 @@ The previous AgERA5 publication is rejected and inactive because its coarse long
 - chance that a seven-day window contains at least three consecutive Poor or Awful days;
 - physical Comfort, Dry, Clear sky and Calm evidence with units.
 
-ERA5 is stored on its source 0.25° grid and described as about 28 km weather detail. Each grid point uses its exact valid civil dates and an IANA civil-local 10:00–20:00 daytime window. November is the first complete production canary. No seasonal control appears as available until its history, land authority, scalar tiles and point evidence pass publication checks.
+ERA5 uses its source 0.25° grid and is described as about 28 km weather detail. Each grid point uses its exact valid civil dates and an IANA civil-local 10:00–20:00 daytime window. `era5-climate-year` reads each native land tile once from the pinned lossless temporal layout, reduces all twenty years into twelve monthly distributions, and resumes durable tile checkpoints. One following source tile downloads while the current tile reduces; temporary hourly storage stays near 1.4 GB. Worldwide month publication starts after every land tile is complete. The annual journey requires all twelve accepted months.
 
 Natural Earth 5.1.1 centre-on-land cells are the climate land authority. Water is transparent. A named coastal place can use the nearest valid land cell; the place sheet says when this happens. Missing inland evidence must remain missing and fails publication checks.
 
@@ -84,7 +86,7 @@ Deal-breakers stop cold, oppressive, very wet or very windy days from winning th
 - `internal/weather` owns weather facts, scoring, ratings and summaries.
 - `internal/update` owns the complete worldwide forecast transaction.
 - `internal/forecastruns` validates immutable forecast catalogs and publishes `current.json` last.
-- `internal/providers/era5hourly`, `internal/era5climate`, `internal/era5publication` and `internal/era5climateproduct` derive, score and publish recent hourly ERA5 climate evidence.
+- `internal/era5annual` owns the annual source/checkpoint/publication loop. `internal/providers/era5hourly` aggregates exact civil days, `internal/era5climate` reduces their canonical distributions and physical quantiles, `internal/era5publication` builds land authority, and `internal/era5climateproduct` publishes immutable monthly artifacts.
 - `internal/places` owns the worldwide GeoNames index and static search shards.
 - `internal/destinations` builds the forecast-bound best-weather shortlist offline.
 - `internal/appserver` serves the frontend, immutable artifacts, pointer files and strict byte ranges.
@@ -108,7 +110,7 @@ artifacts/best-weather/releases/<id>.json   immutable destination shortlist
 
 Pointer files are small and non-cacheable. Versioned artifacts are release-scoped, checksum-bound, immutable and cacheable. A publisher installs complete immutable content first and changes its pointer last. The server validates and hot-swaps forecast snapshots. Climate, place and shortlist clients revalidate their static pointers and immutable files before changing visible state.
 
-Scalar `.nws` tiles contain evaluated values, not final RGB colours. The browser verifies the declared SHA-256, uploads one-channel textures and applies the canonical continuous palette in WebGL. Viewport loading bounds network, memory and GPU use. The current forecast baseline uses z3 scalar tiles; European detail uses z5. Climate uses z4.
+Scalar `.nws` tiles contain evaluated values, not final RGB colours. The browser verifies the declared SHA-256, uploads one-channel textures and applies six discrete suitability colours in WebGL. Viewport loading bounds network, memory and GPU use. The current forecast baseline uses z3 scalar tiles; European detail uses z5. Climate uses z4.
 
 Point evidence is stored in compact spatial blocks. The client fetches only the selected block. Exact immutable files support GET, HEAD and HTTP Range with strict content type, length and cache headers.
 
@@ -141,7 +143,7 @@ The localhost performance gates are:
 - near-display frame rate during ordinary movement;
 - no ordinary long task above 100 ms;
 - bounded heap, weather transfer and GPU textures;
-- no weather request or application animation while idle;
+- no application animation while idle; small forecast-pointer checks run every five minutes while visible and when resuming the page;
 - no browser warning, error or failed weather request.
 
 Tests and metrics are evidence. Josh's walkthrough is the final product veto.
@@ -152,7 +154,7 @@ The sole local URL is <http://127.0.0.1:5198/>. A data refresh hot-swaps. Restar
 
 ChatGPT Sites is the chosen public delivery surface. The small Vite interface can use Sites static assets. The weather corpus needs Sites-managed object storage and a thin same-origin request layer that preserves GET, HEAD, exact byte ranges, content types and immutable caching. Acquisition, scoring and validation remain offline; publish only accepted compact artifacts, with immutable objects first and pointers last.
 
-Do not use AWS for this product. Do not expose the mini-PC. A production-sized Sites canary and browser acceptance must pass before public release. The delivery contract must remain independent of React, today's tile schema and future overlays.
+Sites serves the website and weather artifacts through its included managed hosting, without a personal Cloudflare account or paid plan. The canonical address is `https://nice-weather.jjpcodes.chatgpt.site`. The optional weather custom domain and its three Route53 records were removed to avoid metered DNS queries. Do not expose the mini-PC. Inspect the actual hosted application before claiming deployment complete.
 
 ## Nullschool evidence
 

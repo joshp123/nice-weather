@@ -18,7 +18,6 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
 	"nice-weather-finder/internal/weather"
@@ -39,9 +38,10 @@ var (
 )
 
 type Config struct {
-	Root      string
-	ReleaseID string
-	Inputs    []InputCatalog
+	Root           string
+	ReleaseID      string
+	Inputs         []InputCatalog
+	RegionalInputs []InputCatalog
 }
 
 type Stats struct {
@@ -74,6 +74,7 @@ type loadedInput struct {
 	catalog   forecastcatalog.Catalog
 	root      string
 	points    map[tileKey]forecastcatalog.DailyPointBlock
+	regional  *loadedInput
 }
 
 func Build(ctx context.Context, config Config) (result Product, resultErr error) {
@@ -101,13 +102,21 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 	if err != nil {
 		return Product{}, err
 	}
-	final := filepath.Join(config.Root, productDirectory, Period, forecastpoints.TierGlobal)
+	tier := forecasttiles.TierGlobal
+	zoom := MaxZoom
+	if len(config.RegionalInputs) > 0 {
+		tier, zoom = forecasttiles.TierEurope, RegionalMaxZoom
+		if err := attachRegionalInputs(config, inputs); err != nil {
+			return Product{}, err
+		}
+	}
+	final := filepath.Join(config.Root, productDirectory, Period, tier)
 	if _, err := os.Lstat(final); err == nil {
 		catalog, encoded, err := validateInstalled(final)
 		if err != nil {
 			return Product{}, fmt.Errorf("existing forecast range product is invalid: %w", err)
 		}
-		if catalog.ReleaseID != config.ReleaseID || !slicesEqualInputs(catalog.Inputs, config.Inputs) {
+		if catalog.ReleaseID != config.ReleaseID || (!slicesEqualInputs(catalog.Inputs, config.Inputs) || !slicesEqualInputs(catalog.RegionalInputs, config.RegionalInputs)) {
 			return Product{}, errors.New("immutable forecast range product already exists with different inputs")
 		}
 		return Product{Root: final, Catalog: catalog, Stats: statsFromCatalog(catalog, uint64(len(encoded)))}, nil
@@ -140,51 +149,50 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 	catalog := Catalog{
 		Version: CatalogVersion, ProductContract: ProductContract, ReleaseID: config.ReleaseID, Period: Period,
 		Dates: dates, Source: source,
-		Grid:             Grid{Projection: "EPSG:3857-XYZ", Zoom: MaxZoom, TileSize: tiledelivery.TileSize, Rows: worldPixels, Columns: worldPixels},
+		Grid:             Grid{Projection: "EPSG:3857-XYZ", Zoom: zoom, TileSize: tiledelivery.TileSize, Rows: uint32(tiledelivery.TileSize) << zoom, Columns: uint32(tiledelivery.TileSize) << zoom},
 		Scores:           Scores{Unit: forecastcatalog.ScoreUnit, NoDataValue: forecastcatalog.ScoreNoData, MediaType: tiledelivery.ScalarMediaType, Profiles: []weather.Profile{weather.ProfileNice, weather.ProfileCycling}, Fields: append([]FieldContract(nil), fieldContracts...)},
 		PointBlockLayout: PointBlockLayout{Rows: BlockRows, Columns: BlockColumns, HeaderBytes: BlockHeaderBytes, RecordBytes: delivery.RangePointRecordBytes, MediaType: BlockMediaType},
-		Inputs:           append([]InputCatalog(nil), config.Inputs...), PointBlocks: make([]PointBlock, 0, blockCount*blockCount), ScalarCoverage: make([]MaxZoomOutcome, 0, 64), ScalarTiles: []ScalarTile{},
+		Inputs:           append([]InputCatalog(nil), config.Inputs...), RegionalInputs: append([]InputCatalog(nil), config.RegionalInputs...), PointBlocks: make([]PointBlock, 0, blockCount*blockCount), ScalarCoverage: make([]MaxZoomOutcome, 0, 64), ScalarTiles: []ScalarTile{},
 	}
 	stats := Stats{}
-	for y := uint32(0); y < 1<<MaxZoom; y++ {
-		for x := uint32(0); x < 1<<MaxZoom; x++ {
-			if err := ctx.Err(); err != nil {
-				return Product{}, err
+	for _, tile := range inputTiles(inputs, zoom) {
+		x, y := tile.x, tile.y
+		if err := ctx.Err(); err != nil {
+			return Product{}, err
+		}
+		records, inputBytes, err := buildTileRecordsAtZoom(ctx, inputs, x, y, zoom)
+		if err != nil {
+			return Product{}, fmt.Errorf("build forecast range tile %d/%d/%d: %w", zoom, x, y, err)
+		}
+		stats.MaxInputPointBytes = max(stats.MaxInputPointBytes, inputBytes)
+		stats.MaxInputPointRecords = max(stats.MaxInputPointRecords, uint64(delivery.ForecastPointDayCount*tiledelivery.TileSize*tiledelivery.TileSize))
+		outcome := MaxZoomOutcome{Zoom: zoom, X: x, Y: y, NoDataRecords: tiledelivery.TileSize * tiledelivery.TileSize}
+		for _, record := range records {
+			if record.Nice.Valid {
+				outcome.DataRecords++
+				outcome.NoDataRecords--
 			}
-			records, inputBytes, err := buildTileRecords(ctx, inputs, x, y)
-			if err != nil {
-				return Product{}, fmt.Errorf("build forecast range tile %d/%d/%d: %w", MaxZoom, x, y, err)
-			}
-			stats.MaxInputPointBytes = max(stats.MaxInputPointBytes, inputBytes)
-			stats.MaxInputPointRecords = max(stats.MaxInputPointRecords, uint64(delivery.ForecastPointDayCount*tiledelivery.TileSize*tiledelivery.TileSize))
-			outcome := MaxZoomOutcome{Zoom: MaxZoom, X: x, Y: y, NoDataRecords: tiledelivery.TileSize * tiledelivery.TileSize}
-			for _, record := range records {
-				if record.Nice.Valid {
-					outcome.DataRecords++
-					outcome.NoDataRecords--
+		}
+		outcome.Omitted = outcome.DataRecords == 0
+		catalog.ScalarCoverage = append(catalog.ScalarCoverage, outcome)
+		for blockY := uint32(0); blockY < tiledelivery.TileSize/uint32(BlockRows); blockY++ {
+			for blockX := uint32(0); blockX < tiledelivery.TileSize/uint32(BlockColumns); blockX++ {
+				blockRow := y*(tiledelivery.TileSize/uint32(BlockRows)) + blockY
+				blockColumn := x*(tiledelivery.TileSize/uint32(BlockColumns)) + blockX
+				blockRecords := tileBlock(records, blockY, blockX)
+				identity, _ := NewTierBlockIdentity(config.ReleaseID, tier, blockRow, blockColumn)
+				asset, err := WriteBlock(stagedRoot, identity, blockRecords)
+				if err != nil {
+					return Product{}, err
 				}
-			}
-			outcome.Omitted = outcome.DataRecords == 0
-			catalog.ScalarCoverage = append(catalog.ScalarCoverage, outcome)
-			for blockY := uint32(0); blockY < tiledelivery.TileSize/uint32(BlockRows); blockY++ {
-				for blockX := uint32(0); blockX < tiledelivery.TileSize/uint32(BlockColumns); blockX++ {
-					blockRow := y*(tiledelivery.TileSize/uint32(BlockRows)) + blockY
-					blockColumn := x*(tiledelivery.TileSize/uint32(BlockColumns)) + blockX
-					blockRecords := tileBlock(records, blockY, blockX)
-					identity, _ := NewBlockIdentity(config.ReleaseID, blockRow, blockColumn)
-					asset, err := WriteBlock(stagedRoot, identity, blockRecords)
-					if err != nil {
-						return Product{}, err
-					}
-					entry, err := blockEntry(stagedRoot, asset)
-					if err != nil {
-						return Product{}, err
-					}
-					catalog.PointBlocks = append(catalog.PointBlocks, entry)
-					stats.DataRecords += uint64(asset.DataRecords)
-					stats.NoDataRecords += uint64(asset.NoDataRecords)
-					stats.MaxRangeBlockBytes = max(stats.MaxRangeBlockBytes, uint64(len(blockRecords))*delivery.RangePointRecordBytes)
+				entry, err := blockEntry(stagedRoot, asset)
+				if err != nil {
+					return Product{}, err
 				}
+				catalog.PointBlocks = append(catalog.PointBlocks, entry)
+				stats.DataRecords += uint64(asset.DataRecords)
+				stats.NoDataRecords += uint64(asset.NoDataRecords)
+				stats.MaxRangeBlockBytes = max(stats.MaxRangeBlockBytes, uint64(len(blockRecords))*delivery.RangePointRecordBytes)
 			}
 		}
 	}
@@ -207,7 +215,7 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 	if err := ValidateFiles(stagedRoot, catalog); err != nil {
 		return Product{}, err
 	}
-	if err := verifyInputsUnchanged(config.Root, config.Inputs); err != nil {
+	if err := verifyInputsUnchanged(config.Root, append(append([]InputCatalog(nil), config.Inputs...), config.RegionalInputs...)); err != nil {
 		return Product{}, err
 	}
 	encoded, err := Marshal(catalog)
@@ -255,6 +263,8 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 	if err := removeTransaction(transaction); err != nil {
 		return Product{}, fmt.Errorf("clean installed forecast range transaction: %w", err)
 	}
+	closure := statsFromCatalog(catalog, uint64(len(encoded)))
+	stats.PointFiles, stats.PointBytes, stats.ScalarFiles, stats.ScalarBytes = closure.PointFiles, closure.PointBytes, closure.ScalarFiles, closure.ScalarBytes
 	stats.CatalogBytes = uint64(len(encoded))
 	stats.OutputFiles = stats.PointFiles + stats.ScalarFiles + 1
 	stats.OutputBytes = stats.PointBytes + stats.ScalarBytes + stats.CatalogBytes
@@ -263,69 +273,7 @@ func Build(ctx context.Context, config Config) (result Product, resultErr error)
 }
 
 func buildTileRecords(ctx context.Context, inputs []loadedInput, x, y uint32) ([]delivery.RangePointRecord, uint64, error) {
-	var daily [delivery.ForecastPointDayCount][]delivery.DailyPointRecord
-	var bytes uint64
-	for index, input := range inputs {
-		daily[index] = make([]delivery.DailyPointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
-		blocksPerTile := uint32(tiledelivery.TileSize / tiledelivery.PointBlockSize)
-		for blockY := uint32(0); blockY < blocksPerTile; blockY++ {
-			for blockX := uint32(0); blockX < blocksPerTile; blockX++ {
-				point, ok := input.points[tileKey{MaxZoom, x*blocksPerTile + blockX, y*blocksPerTile + blockY}]
-				if !ok {
-					continue
-				}
-				path := filepath.Join(input.root, filepath.FromSlash(point.Path))
-				if err := rejectSymlinkPath(input.root, point.Path); err != nil {
-					return nil, 0, err
-				}
-				reader, err := tiledelivery.OpenPoint(path)
-				if err != nil {
-					return nil, 0, err
-				}
-				meta := reader.Metadata()
-				if meta.ReleaseID != input.catalog.ReleaseID || meta.Period != input.catalog.LocalDate || meta.ID.Tier != input.catalog.Tier || meta.ID.Zoom != point.Zoom || meta.ID.X != point.X || meta.ID.Y != point.Y || meta.Bytes != point.Bytes || meta.SHA256 != point.SHA256 || meta.PayloadSHA256 != point.PayloadSHA256 {
-					_ = reader.Close()
-					return nil, 0, errors.New("daily point block does not match its catalogue")
-				}
-				block, readErr := reader.Records()
-				closeErr := reader.Close()
-				if readErr != nil || closeErr != nil {
-					return nil, 0, errors.Join(readErr, closeErr)
-				}
-				for row := 0; row < tiledelivery.PointBlockSize; row++ {
-					destination := (int(blockY)*tiledelivery.PointBlockSize+row)*tiledelivery.TileSize + int(blockX)*tiledelivery.PointBlockSize
-					copy(daily[index][destination:destination+tiledelivery.PointBlockSize], block[row*tiledelivery.PointBlockSize:(row+1)*tiledelivery.PointBlockSize])
-				}
-				bytes += point.Bytes
-			}
-		}
-	}
-	records := make([]delivery.RangePointRecord, tiledelivery.TileSize*tiledelivery.TileSize)
-	for recordIndex := range records {
-		if recordIndex%tiledelivery.TileSize == 0 {
-			if err := ctx.Err(); err != nil {
-				return nil, 0, err
-			}
-		}
-		var displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord
-		complete := true
-		for day := range displays {
-			if daily[day] == nil || !daily[day][recordIndex].Weather.Valid {
-				complete = false
-				break
-			}
-			displays[day] = daily[day][recordIndex]
-		}
-		if !complete {
-			continue
-		}
-		record, err := rangeRecord(displays)
-		if err != nil {
-			return nil, 0, err
-		}
-		records[recordIndex] = record
-	}
-	return records, bytes, nil
+	return buildTileRecordsAtZoom(ctx, inputs, x, y, MaxZoom)
 }
 
 func rangeRecord(displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord) (delivery.RangePointRecord, error) {
@@ -379,41 +327,38 @@ func buildScalars(ctx context.Context, writer *tiledelivery.Writer, root string,
 		blocks[[2]uint32{block.Row, block.Column}] = block
 	}
 	maxAssets := make(map[tiledelivery.ID]tiledelivery.ScalarAsset)
-	count := uint32(1) << MaxZoom
-	for y := uint32(0); y < count; y++ {
-		for x := uint32(0); x < count; x++ {
-			outcome := catalog.ScalarCoverage[int(y*count+x)]
-			if outcome.Omitted {
-				continue
-			}
-			sampler := &blockSampler{root: root, releaseID: catalog.ReleaseID, assets: blocks, cache: make(map[[2]uint32]*Block)}
-			for _, field := range Fields() {
-				id, err := scalarID(field, MaxZoom, x, y)
-				if err != nil {
-					return err
-				}
-				asset, err := writer.WriteScalar(id, Period, func(sample tiledelivery.ScalarSample) (uint8, bool, error) {
-					return sampler.sample(sample.GlobalX, sample.GlobalY, field)
-				})
-				if err != nil {
-					return err
-				}
-				if asset.Omitted {
-					return fmt.Errorf("forecast range scalar %s %d/%d/%d lost range data", field, MaxZoom, x, y)
-				}
-				maxAssets[id] = asset
-				entry, err := scalarEntry(root, asset, field)
-				if err != nil {
-					return err
-				}
-				catalog.ScalarTiles = append(catalog.ScalarTiles, entry)
-				stats.MaxScalarBytes = max(stats.MaxScalarBytes, uint64(tiledelivery.ScalarTileBytes))
-			}
-			stats.MaxDecodedBlockBytes = max(stats.MaxDecodedBlockBytes, uint64(len(sampler.cache))*BlockBytes)
+	for _, outcome := range catalog.ScalarCoverage {
+		x, y := outcome.X, outcome.Y
+		if outcome.Omitted {
+			continue
 		}
+		sampler := &blockSampler{root: root, releaseID: catalog.ReleaseID, tier: catalog.Tier(), assets: blocks, cache: make(map[[2]uint32]*Block)}
+		for _, field := range Fields() {
+			id, err := tierScalarID(catalog.Tier(), field, catalog.Grid.Zoom, x, y)
+			if err != nil {
+				return err
+			}
+			asset, err := writer.WriteScalar(id, Period, func(sample tiledelivery.ScalarSample) (uint8, bool, error) {
+				return sampler.sample(sample.GlobalX, sample.GlobalY, field)
+			})
+			if err != nil {
+				return err
+			}
+			if asset.Omitted {
+				return fmt.Errorf("forecast range scalar %s %d/%d/%d lost range data", field, catalog.Grid.Zoom, x, y)
+			}
+			maxAssets[id] = asset
+			entry, err := scalarEntry(root, asset, field)
+			if err != nil {
+				return err
+			}
+			catalog.ScalarTiles = append(catalog.ScalarTiles, entry)
+			stats.MaxScalarBytes = max(stats.MaxScalarBytes, uint64(tiledelivery.ScalarTileBytes))
+		}
+		stats.MaxDecodedBlockBytes = max(stats.MaxDecodedBlockBytes, uint64(len(sampler.cache))*BlockBytes)
 	}
 	level := maxAssets
-	for zoom := int(MaxZoom) - 1; zoom >= 0; zoom-- {
+	for zoom := int(catalog.Grid.Zoom) - 1; zoom >= 0; zoom-- {
 		next := make(map[tiledelivery.ID]tiledelivery.ScalarAsset)
 		count := uint32(1) << uint8(zoom)
 		for y := uint32(0); y < count; y++ {
@@ -422,7 +367,7 @@ func buildScalars(ctx context.Context, writer *tiledelivery.Writer, root string,
 					return err
 				}
 				for _, field := range Fields() {
-					id, err := scalarID(field, uint8(zoom), x, y)
+					id, err := tierScalarID(catalog.Tier(), field, uint8(zoom), x, y)
 					if err != nil {
 						return err
 					}
@@ -456,27 +401,27 @@ func buildScalars(ctx context.Context, writer *tiledelivery.Writer, root string,
 }
 
 type blockSampler struct {
-	root, releaseID string
-	assets          map[[2]uint32]PointBlock
-	cache           map[[2]uint32]*Block
+	root, releaseID, tier string
+	assets                map[[2]uint32]PointBlock
+	cache                 map[[2]uint32]*Block
 }
 
 func (sampler *blockSampler) sample(globalX, globalY int64, field forecasttiles.Field) (uint8, bool, error) {
-	if globalY < 0 || globalY >= int64(worldPixels) {
+	if globalY < 0 || globalY >= int64(pixelsForTier(sampler.tier)) {
 		return 0, false, nil
 	}
-	globalX %= int64(worldPixels)
+	globalX %= int64(pixelsForTier(sampler.tier))
 	if globalX < 0 {
-		globalX += int64(worldPixels)
+		globalX += int64(pixelsForTier(sampler.tier))
 	}
 	key := [2]uint32{uint32(globalY) / uint32(BlockRows), uint32(globalX) / uint32(BlockColumns)}
-	asset := sampler.assets[key]
-	if asset.Omitted {
+	asset, exists := sampler.assets[key]
+	if !exists || asset.Omitted {
 		return 0, false, nil
 	}
 	block, ok := sampler.cache[key]
 	if !ok {
-		identity, _ := NewBlockIdentity(sampler.releaseID, key[0], key[1])
+		identity, _ := NewTierBlockIdentity(sampler.releaseID, sampler.tier, key[0], key[1])
 		var err error
 		block, err = OpenBlock(filepath.Join(sampler.root, filepath.FromSlash(asset.Path)), identity, asset.SHA256)
 		if err != nil {
@@ -522,7 +467,7 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog Catalog) (uin
 		x, y  uint32
 	}]ScalarTile)
 	for _, scalar := range catalog.ScalarTiles {
-		if scalar.Zoom == MaxZoom {
+		if scalar.Zoom == catalog.Grid.Zoom {
 			scalars[struct {
 				field forecasttiles.Field
 				x, y  uint32
@@ -537,7 +482,7 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog Catalog) (uin
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		sampler := &blockSampler{root: root, releaseID: catalog.ReleaseID, assets: blocks, cache: make(map[[2]uint32]*Block)}
+		sampler := &blockSampler{root: root, releaseID: catalog.ReleaseID, tier: catalog.Tier(), assets: blocks, cache: make(map[[2]uint32]*Block)}
 		for _, field := range Fields() {
 			scalar := scalars[struct {
 				field forecasttiles.Field
@@ -571,14 +516,10 @@ func verifyMaxZoomParity(ctx context.Context, root string, catalog Catalog) (uin
 }
 
 func ValidateFiles(root string, catalog Catalog) error {
-	return validateFiles(root, catalog, false)
-}
-
-func validateFiles(root string, catalog Catalog, allowLegacyStaleAfter bool) error {
 	if root == "" || !filepath.IsAbs(root) {
 		return errors.New("forecast range root must be absolute")
 	}
-	if err := validateCatalog(catalog, allowLegacyStaleAfter); err != nil {
+	if err := Validate(catalog); err != nil {
 		return err
 	}
 	maxCounts := make(map[[2]uint32][2]uint32, len(catalog.ScalarCoverage))
@@ -594,7 +535,7 @@ func validateFiles(root string, catalog Catalog, allowLegacyStaleAfter bool) err
 		if err := rejectSymlinkPath(root, entry.Path); err != nil {
 			return err
 		}
-		identity, _ := NewBlockIdentity(catalog.ReleaseID, entry.Row, entry.Column)
+		identity, _ := NewTierBlockIdentity(catalog.ReleaseID, catalog.Tier(), entry.Row, entry.Column)
 		block, err := OpenBlock(filepath.Join(root, filepath.FromSlash(entry.Path)), identity, entry.SHA256)
 		if err != nil {
 			return err
@@ -648,8 +589,8 @@ func loadInputs(config Config) ([]loadedInput, Source, []string, error) {
 		if err != nil {
 			return nil, Source{}, nil, err
 		}
-		wantPath := filepath.ToSlash(filepath.Join("forecast-days", reference.Date, forecastpoints.TierGlobal, forecastcatalogFilename))
-		if reference.Path != wantPath || catalog.ReleaseID != config.ReleaseID || catalog.LocalDate != reference.Date || catalog.Provider != forecastpoints.ProviderIFS || catalog.Tier != forecastpoints.TierGlobal || catalog.Evidence.Product != forecastcatalog.ProductIFSControl || catalog.Evidence.NativeResolutionKM != 28 || catalog.ScalarMaxZoom != MaxZoom {
+		wantPath := filepath.ToSlash(filepath.Join("forecast-days", reference.Date, forecasttiles.TierGlobal, forecastcatalogFilename))
+		if reference.Path != wantPath || (index > 0 && catalog.ReleaseID != loaded[0].catalog.ReleaseID) || catalog.LocalDate != reference.Date || catalog.Provider != forecasttiles.ProviderIFS || catalog.Tier != forecasttiles.TierGlobal || catalog.Evidence.Product != forecastcatalog.ProductIFSControl || catalog.Evidence.NativeResolutionKM != 28 || catalog.ScalarMaxZoom != MaxZoom {
 			return nil, Source{}, nil, fmt.Errorf("input catalogue %d is not the indexed global IFS daily product", index)
 		}
 		if index == 0 {
@@ -673,7 +614,7 @@ func loadInputs(config Config) ([]loadedInput, Source, []string, error) {
 			return nil, Source{}, nil, errors.New("forecast range input catalogues are not 14 consecutive dates in order")
 		}
 	}
-	return loaded, Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: run, NativeResolutionKM: 28, StaleAfterHours: StaleAfterHours}, dates, nil
+	return loaded, Source{Provider: forecasttiles.ProviderIFS, Tier: forecasttiles.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: run, NativeResolutionKM: 28, StaleAfterHours: StaleAfterHours}, dates, nil
 }
 
 func verifyInputsUnchanged(root string, inputs []InputCatalog) error {
@@ -696,7 +637,7 @@ func blockEntry(root string, asset BlockAsset) (PointBlock, error) {
 		return entry, nil
 	}
 	relative, err := relativePath(root, asset.Path)
-	if err != nil || relative != BlockPath(entry.Row, entry.Column) {
+	if err != nil || relative != TierBlockPath(asset.Identity.Tier, entry.Row, entry.Column) {
 		return PointBlock{}, errors.New("forecast range block path is invalid")
 	}
 	entry.Path, entry.Bytes, entry.SHA256, entry.PayloadSHA256 = relative, asset.Bytes, asset.SHA256, asset.PayloadSHA256
@@ -708,7 +649,7 @@ func scalarEntry(root string, asset tiledelivery.ScalarAsset, field forecasttile
 	if err != nil {
 		return ScalarTile{}, err
 	}
-	want, _ := scalarPath(field, asset.ID.Zoom, asset.ID.X, asset.ID.Y)
+	want, _ := tierScalarPath(strings.Split(asset.ID.Tier, ".")[0], field, asset.ID.Zoom, asset.ID.X, asset.ID.Y)
 	if relative != want {
 		return ScalarTile{}, errors.New("forecast range scalar path is invalid")
 	}
@@ -716,11 +657,14 @@ func scalarEntry(root string, asset tiledelivery.ScalarAsset, field forecasttile
 }
 
 func scalarID(field forecasttiles.Field, zoom uint8, x, y uint32) (tiledelivery.ID, error) {
+	return tierScalarID(forecasttiles.TierGlobal, field, zoom, x, y)
+}
+func tierScalarID(tier string, field forecasttiles.Field, zoom uint8, x, y uint32) (tiledelivery.ID, error) {
 	suffix := map[forecasttiles.Field]string{forecasttiles.FieldThermal: ".th", forecasttiles.FieldDryness: ".dr", forecasttiles.FieldSun: ".su", forecasttiles.FieldNiceScore: ".ns", forecasttiles.FieldNiceWind: ".nw", forecasttiles.FieldCyclingScore: ".cs", forecasttiles.FieldCyclingWind: ".cw"}[field]
 	if suffix == "" {
 		return tiledelivery.ID{}, errors.New("unknown forecast range scalar field")
 	}
-	return tiledelivery.NewID(forecastpoints.TierGlobal+suffix, zoom, int64(x), int64(y))
+	return tiledelivery.NewID(tier+suffix, zoom, int64(x), int64(y))
 }
 
 func validateInstalled(root string) (Catalog, []byte, error) {
@@ -739,7 +683,7 @@ func validateInstalled(root string) (Catalog, []byte, error) {
 	if err := validateTree(root, catalog); err != nil {
 		return Catalog{}, nil, err
 	}
-	if err := validateFiles(root, catalog, true); err != nil {
+	if err := ValidateFiles(root, catalog); err != nil {
 		return Catalog{}, nil, err
 	}
 	after, err := readRegularBounded(filepath.Join(root, CatalogFilename), MaximumCatalogBytes)

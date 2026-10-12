@@ -330,48 +330,9 @@ func TestValidateReleaseRejectsSymlinkedShardEvenWhenTargetBytesAreValid(t *test
 	}
 }
 
-func TestSampleReleaseUsesProductionSchemaAndNamedFixturePlaces(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "artifacts")
-	pointer, err := PublishSample(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pointer.ReleaseID != SampleReleaseID {
-		t.Fatalf("sample release ID = %q", pointer.ReleaseID)
-	}
-	release := filepath.Join(root, "places", "releases", SampleReleaseID)
-	summary, err := ValidateRelease(release)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if summary.PlaceCount != 7 || summary.SearchKeyCount != 7 {
-		t.Fatalf("sample summary = %+v", summary)
-	}
-	for query, id := range map[string]int64{
-		"madrid": 3_117_735, "nijmegen": 2_750_053, "malaga": 2_514_256, "cadiz": 2_520_600,
-		"lodz": 3_093_133, "tbilisi": 611_717, "biddestone": 2_655_710,
-	} {
-		payload, err := os.ReadFile(filepath.Join(release, "shards", shardName(query)+".json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var got shard
-		if err := json.Unmarshal(payload, &got); err != nil {
-			t.Fatal(err)
-		}
-		found := false
-		for _, item := range got.Records {
-			found = found || item.Key == query && item.GeoNameID == id
-		}
-		if !found {
-			t.Errorf("sample query %q does not resolve GeoNames ID %d", query, id)
-		}
-	}
-}
-
 func TestWalkCurrentVisitsEachValidatedPlaceOnce(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "artifacts")
-	pointer, err := PublishSample(root)
+	pointer, err := publishSample(root)
 	if err != nil {
 		t.Fatal(err)
 	}

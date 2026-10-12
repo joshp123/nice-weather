@@ -68,7 +68,7 @@ describe('WorldwideClimateClient ERA5 contract', () => {
     expect(fixture.calls.filter((call) => call.endsWith('.nwc'))).toHaveLength(1);
   });
 
-  it.each(['sha', 'payload-sha', 'content-range', 'content-length', 'media-type'] as const)('fails closed for invalid point transport: %s', async (transportFault) => {
+  it.each(['sha', 'payload-sha', 'content-range', 'media-type'] as const)('fails closed for invalid point transport: %s', async (transportFault) => {
     const fixture = await publication({ transportFault });
     await expect(new WorldwideClimateClient({ fetcher: fixture.fetcher }).loadPoint('month-11', -180, 0)).rejects.toMatchObject({ code: 'invalid' });
   });
@@ -139,7 +139,7 @@ type Options = {
   mutateCatalog?: (catalog: any) => void;
   changePointerAfter?: number;
   delayPoint?: boolean;
-  transportFault?: 'sha' | 'payload-sha' | 'content-range' | 'content-length' | 'media-type';
+  transportFault?: 'sha' | 'payload-sha' | 'content-range' | 'media-type';
 };
 
 async function publication(options: Options = {}) {
@@ -183,9 +183,9 @@ async function publication(options: Options = {}) {
   const catalogBytes = jsonBytes(catalog);
   const catalogSha = await digest(catalogBytes);
   const index: any = {
-    version: 2, indexId: 'era5-index', state: 'preview', referencePeriod: { firstYear: 2006, lastYear: 2025 },
+    version: 2, indexId: 'era5-index', state: 'complete', referencePeriod: { firstYear: 2006, lastYear: 2025 },
     geometry, source: sourceCommon, positiveDateline, probability, scalarSemantics, maximumZoom: 4, pointRecordBytes: 64,
-    months: [{ period: 'month-11', releaseId: 'era5-nov', catalogSha256: catalogSha }],
+    months: Array.from({ length: 12 }, (_, month) => ({ period: `month-${String(month + 1).padStart(2, '0')}`, releaseId: month === 10 ? 'era5-nov' : `era5-${String(month + 1).padStart(2, '0')}`, catalogSha256: catalogSha })),
   };
   options.mutateIndex?.(index);
   const indexBytes = jsonBytes(index);
@@ -218,9 +218,8 @@ async function publication(options: Options = {}) {
       let media = path.endsWith('.nwd') ? 'application/vnd.nice-weather.era5-climate-dateline-block' : 'application/vnd.nice-weather.era5-climate-point-block';
       if (path.endsWith('.nwc') && options.transportFault === 'media-type') media = 'application/octet-stream';
       const range = new Headers(init?.headers).get('Range') ?? ''; rangeHeaders.push(range);
-      const contentLength = path.endsWith('.nwc') && options.transportFault === 'content-length' ? value.length - 1 : value.length;
       const contentRange = path.endsWith('.nwc') && options.transportFault === 'content-range' ? `bytes 1-${value.length - 1}/${value.length}` : `bytes 0-${value.length - 1}/${value.length}`;
-      return new Response(value.slice().buffer, { status: 206, headers: { 'Content-Type': media, 'Content-Length': String(contentLength), 'Content-Range': contentRange } });
+      return new Response(value.slice().buffer, { status: 206, headers: { 'Content-Type': media, 'Content-Range': contentRange } });
     }
     return new Response('', { status: 404 });
   };
@@ -242,6 +241,6 @@ async function pointAsset(magic: string, latitudeBlock: number, longitudeBlock: 
   return { bytes, sha256: await digest(bytes), payloadSha256 };
 }
 function jsonBytes(value: unknown): Uint8Array { return new TextEncoder().encode(JSON.stringify(value)); }
-function jsonResponse(body: Uint8Array): Response { return new Response(body.slice().buffer, { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Length': String(body.length) } }); }
+function jsonResponse(body: Uint8Array): Response { return new Response(body.slice().buffer, { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'br' } }); }
 async function digest(bytes: Uint8Array): Promise<string> { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource)), (value) => value.toString(16).padStart(2, '0')).join(''); }
 function hexBytes(value: string): Uint8Array { return Uint8Array.from(value.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16)); }

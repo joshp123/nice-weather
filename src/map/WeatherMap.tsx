@@ -1,18 +1,15 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
-import maplibregl, { type Map, type MapSourceDataEvent } from 'maplibre-gl';
+import maplibregl, { type Map } from 'maplibre-gl';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { telemetry } from '../telemetry';
 import { activateRendererAttempt, decideRendererFailure, detachRenderer, recordFailure, withCurrentRenderer, type RendererFailureReason } from './failureWindow';
-import { CanvasFallback } from './canvasFallback';
 import { initialWorldwideCamera, minimumWorldwideCoverZoom } from './initialCamera';
 import { scoreOverlayBefore } from './overlayPlacement';
 import { ScalarTileLayer, type GeographicBounds, type ScalarPaletteColour, type ScalarTileID, type ScalarTileSource, type TileDraw } from './scalarTileLayer';
 
-const DEFAULT_BOUNDS: [number, number, number, number] = [-25, 30, 45, 72];
-const EUROPE_MAX_BOUNDS: [[number, number], [number, number]] = [[-36, 20], [58, 77]];
 const SCALAR_LAYER_ID = 'weather-score-scalar';
 
-export type MapPoint = { lat: number; lon: number; label?: string; allowNearbyClimate?: boolean };
+export type MapPoint = { lat: number; lon: number; label?: string; secondaryLabel?: string; allowNearbyClimate?: boolean };
 export type OverlayState =
   | { status: 'idle' }
   | { status: 'loading' | 'ready'; assetUrl: string }
@@ -28,34 +25,29 @@ export type ScalarOverlay = Readonly<{
   sha256ForTile: (tile: ScalarTileID) => string;
   tileAvailable: (tile: ScalarTileID) => boolean;
   maxTextures?: number;
-  sourceZoomForMap?: (mapZoom: number) => number;
   visibleTilesForMap?: (bounds: GeographicBounds, mapZoom: number) => readonly TileDraw[];
   sourceForTile?: (tile: ScalarTileID) => ScalarTileSource | undefined;
 }>;
 
 type Props = {
-  overlayUrl?: string;
   scalarOverlay?: ScalarOverlay;
-  worldwide?: boolean;
-  bounds?: [number, number, number, number];
+  initialCamera?: { longitude: number; latitude: number; zoom: number };
   selectedPoint?: MapPoint;
   focusPoint?: MapPoint & { token: number };
   onSelect: (point: MapPoint, intent?: { focusDetails?: boolean }) => void;
   onViewportChange?: (viewport: { latitude: number; longitude: number; zoom: number; bounds: GeographicBounds }) => void;
   onReady?: (elapsedMs: number) => void;
-  onOverlayReady?: (elapsedMs: number, renderer: 'maplibre' | 'canvas', assetUrl: string) => void;
+  onOverlayReady?: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => void;
   onOverlayState?: (state: OverlayState) => void;
 };
 
 export function WeatherMap(props: Props) {
-  const [renderer, setRenderer] = useState<'maplibre' | 'canvas'>('maplibre');
+  const [renderer, setRenderer] = useState<'maplibre' | 'unavailable'>('maplibre');
   const [rendererAttempt, setRendererAttempt] = useState(0);
   const recovery = useRef({ activeAttempt: 0, retryUsed: false, retryPending: false });
   const retryTimer = useRef<number | undefined>(undefined);
   recovery.current = activateRendererAttempt(recovery.current, rendererAttempt);
   const [command, setCommand] = useState<MapCommand | undefined>(undefined);
-  const [verifiedOverlay, setVerifiedOverlay] = useState<string | undefined>();
-  const overlayGeneration = useRef(0);
   const onOverlayStateRef = useRef(props.onOverlayState);
   onOverlayStateRef.current = props.onOverlayState;
   const handleFailure = useCallback((reason: MapFailureReason, failedAttempt: number) => {
@@ -69,67 +61,26 @@ export function WeatherMap(props: Props) {
     }
     window.clearTimeout(retryTimer.current);
     retryTimer.current = undefined;
-    telemetry('map-renderer-fallback', { reason });
-    setRenderer('canvas');
+    telemetry('map-unavailable', { reason });
+    setRenderer('unavailable');
   }, []);
   const handleActiveFailure = useCallback((reason: MapFailureReason) => {
     handleFailure(reason, rendererAttempt);
   }, [handleFailure, rendererAttempt]);
   useEffect(() => () => window.clearTimeout(retryTimer.current), []);
   useLayoutEffect(() => {
-    const generation = ++overlayGeneration.current;
-    setVerifiedOverlay(undefined);
-    if (props.scalarOverlay) {
-      onOverlayStateRef.current?.({ status: 'loading', assetUrl: props.scalarOverlay.key });
-      return;
-    }
-    if (!props.overlayUrl) {
-      onOverlayStateRef.current?.({ status: 'idle' });
-      return;
-    }
-    const assetUrl = props.overlayUrl;
-    onOverlayStateRef.current?.({ status: 'loading', assetUrl });
-    const controller = new AbortController();
-    let active = true;
-    const deadline = window.setTimeout(() => controller.abort('timeout'), 8_000);
-    fetch(assetUrl, { method: 'HEAD', cache: 'force-cache', signal: controller.signal })
-      .then((response) => {
-        if (!active || generation !== overlayGeneration.current) return;
-        if (response.status === 409) {
-          onOverlayStateRef.current?.({ status: 'error', assetUrl, reason: 'stale-release' });
-          return;
-        }
-        if (!response.ok) {
-          onOverlayStateRef.current?.({ status: 'error', assetUrl, reason: 'load-failed' });
-          return;
-        }
-        setVerifiedOverlay(assetUrl);
-      })
-      .catch((error: unknown) => {
-        if (!active || generation !== overlayGeneration.current) return;
-        const reason = controller.signal.aborted && controller.signal.reason === 'timeout' ? 'timeout' : 'load-failed';
-        onOverlayStateRef.current?.({ status: 'error', assetUrl, reason });
-      })
-      .finally(() => window.clearTimeout(deadline));
-    return () => {
-      active = false;
-      window.clearTimeout(deadline);
-      controller.abort();
-    };
-  }, [props.overlayUrl, props.scalarOverlay]);
-  const targetOverlay = props.scalarOverlay?.key ?? props.overlayUrl;
+    onOverlayStateRef.current?.(props.scalarOverlay ? { status: 'loading', assetUrl: props.scalarOverlay.key } : { status: 'idle' });
+  }, [props.scalarOverlay]);
+  const targetOverlay = props.scalarOverlay?.key;
   const rendererProps = {
     ...props,
-    overlayUrl: verifiedOverlay,
-    targetOverlayUrl: props.overlayUrl,
-    onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre' | 'canvas', assetUrl: string) => {
+    onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => {
       if (assetUrl !== targetOverlay) return;
       onOverlayStateRef.current?.({ status: 'ready', assetUrl });
       props.onOverlayReady?.(elapsedMs, renderer, assetUrl);
     },
     onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => {
       if (assetUrl !== targetOverlay) return;
-      setVerifiedOverlay(undefined);
       onOverlayStateRef.current?.({ status: 'error', assetUrl, reason });
     },
   };
@@ -149,19 +100,7 @@ export function WeatherMap(props: Props) {
       <p id="map-instructions" className="srOnly">Use arrow keys to pan the map. Use plus and minus to zoom. Press Enter to show weather at the centre.</p>
       {renderer === 'maplibre'
         ? <MapLibreMap key={rendererAttempt} {...rendererProps} command={command} onFailure={handleActiveFailure} />
-        : <CanvasFallback
-            scalarOverlay={props.scalarOverlay}
-            worldwide={props.worldwide}
-            bounds={props.bounds ?? DEFAULT_BOUNDS}
-            selectedPoint={props.selectedPoint}
-            focusPoint={props.focusPoint}
-            command={command}
-            onSelect={props.onSelect}
-            onViewportChange={props.onViewportChange}
-            onReady={props.onReady}
-            onOverlayReady={(elapsedMs, nextRenderer, assetUrl) => rendererProps.onRendererOverlayReady(elapsedMs, nextRenderer, assetUrl)}
-            onOverlayError={rendererProps.onRendererOverlayError}
-          />}
+        : <div className="mapUnavailable" role="status"><div><strong>Map unavailable</strong><p>This browser could not display the map. Reload to try again.</p></div></div>}
     </div>
   );
 }
@@ -169,28 +108,24 @@ export function WeatherMap(props: Props) {
 type MapFailureReason = RendererFailureReason;
 
 type RendererProps = Props & {
-  targetOverlayUrl?: string;
-  onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre' | 'canvas', assetUrl: string) => void;
+  onRendererOverlayReady: (elapsedMs: number, renderer: 'maplibre', assetUrl: string) => void;
   onRendererOverlayError: (assetUrl: string, reason: 'load-failed' | 'timeout') => void;
 };
 
-function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = false, bounds = DEFAULT_BOUNDS, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: (reason: MapFailureReason) => void }) {
+function MapLibreMap({ scalarOverlay, initialCamera: restoredCamera, selectedPoint, focusPoint, onSelect, onViewportChange, onReady, onRendererOverlayReady, onRendererOverlayError, command, onFailure }: RendererProps & { command?: MapCommand; onFailure: (reason: MapFailureReason) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
   const onSelectRef = useRef(onSelect);
   const loadedRef = useRef(false);
-  const boundsRef = useRef(bounds);
   const onReadyRef = useRef(onReady);
   const onViewportChangeRef = useRef(onViewportChange);
   const onOverlayReadyRef = useRef(onRendererOverlayReady);
   const onOverlayErrorRef = useRef(onRendererOverlayError);
-  const overlayGeneration = useRef(0);
-  const cameraOwnedByUser = useRef(false);
+  const cameraOwnedByUser = useRef(Boolean(restoredCamera));
   const [styleLoaded, setStyleLoaded] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   onSelectRef.current = onSelect;
-  boundsRef.current = bounds;
   onReadyRef.current = onReady;
   onViewportChangeRef.current = onViewportChange;
   onOverlayReadyRef.current = onRendererOverlayReady;
@@ -203,21 +138,15 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     let map: Map;
     const initialWidth = container.clientWidth || window.innerWidth;
     const initialHeight = container.clientHeight || window.innerHeight;
-    const initialCamera = worldwide
-      ? initialWorldwideCamera(initialWidth, initialHeight)
-      : { longitude: 9.5, latitude: 48.5, zoom: window.matchMedia('(max-width: 680px)').matches ? 3.15 : 4 };
+    const initialCamera = restoredCamera ?? initialWorldwideCamera(initialWidth, initialHeight);
     try {
       map = new maplibregl.Map({
         container,
-        style: 'https://tiles.openfreemap.org/styles/positron',
+        style: 'https://tiles.openfreemap.org/styles/dark',
         center: [initialCamera.longitude, initialCamera.latitude],
         zoom: initialCamera.zoom,
-        minZoom: worldwide ? minimumWorldwideCoverZoom(initialWidth, initialHeight) : 2.5,
+        minZoom: minimumWorldwideCoverZoom(initialWidth, initialHeight),
         maxZoom: 9,
-        // With world copies disabled, MapLibre already constrains the map to
-        // one canonical world. Exact -180/180 max bounds wrap to the same x
-        // coordinate inside MapLibre and make its initial transform singular.
-        maxBounds: worldwide ? undefined : EUROPE_MAX_BOUNDS,
         attributionControl: false,
         dragRotate: false,
         pitchWithRotate: false,
@@ -234,7 +163,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     mapRef.current = map;
     let resizeFrame = 0;
     const applyInitialCamera = () => {
-      if (!worldwide || cameraOwnedByUser.current || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+      if (cameraOwnedByUser.current || container.clientWidth <= 0 || container.clientHeight <= 0) return;
       const camera = initialWorldwideCamera(container.clientWidth, container.clientHeight);
       map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
       map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom });
@@ -242,7 +171,7 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     const resizeObserver = new ResizeObserver(() => {
       window.cancelAnimationFrame(resizeFrame);
       resizeFrame = window.requestAnimationFrame(() => {
-        if (worldwide && container.clientWidth > 0 && container.clientHeight > 0) map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
+        if (container.clientWidth > 0 && container.clientHeight > 0) map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
         map.resize();
         applyInitialCamera();
       });
@@ -295,13 +224,31 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       onReadyRef.current?.(Math.round(performance.now() - startedAt));
     };
     map.once('style.load', () => {
-      const currentBounds = boundsRef.current;
-      const compact = window.matchMedia('(max-width: 680px)').matches;
-      if (worldwide) applyInitialCamera();
-      else map.fitBounds([[currentBounds[0], currentBounds[1]], [currentBounds[2], currentBounds[3]]], {
-          padding: { top: 72, right: compact ? 24 : 42, bottom: compact ? 250 : 190, left: compact ? 24 : 42 },
-          animate: false,
-        });
+      applyInitialCamera();
+      for (const layer of map.getStyle().layers ?? []) {
+        if (layer.type === 'background') map.setPaintProperty(layer.id, 'background-color', '#242b33');
+        if (layer.id === 'water') {
+          map.setPaintProperty(layer.id, 'fill-color', '#101820');
+          map.setPaintProperty(layer.id, 'fill-antialias', true);
+          map.setPaintProperty(layer.id, 'fill-outline-color', '#627081');
+        }
+        if (layer.type === 'symbol' && /^place_/.test(layer.id)) {
+          map.setLayoutProperty(layer.id, 'icon-image', '');
+          if (/^place_country/.test(layer.id)) map.setLayerZoomRange(layer.id, 0, layer.maxzoom ?? 24);
+          else map.setLayoutProperty(layer.id, 'text-transform', 'none');
+          map.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name:en'], ['get', 'name']]);
+          map.setPaintProperty(layer.id, 'text-color', '#f2f4f6');
+          map.setPaintProperty(layer.id, 'text-halo-color', '#18212d');
+          map.setPaintProperty(layer.id, 'text-halo-width', 1.4);
+          map.setPaintProperty(layer.id, 'text-halo-blur', 0);
+        }
+        if (layer.type === 'line' && /^boundary_/.test(layer.id)) {
+          map.setFilter(layer.id, ['all', layer.filter ?? ['literal', true], ['!=', ['get', 'maritime'], 1]] as maplibregl.FilterSpecification);
+          map.setPaintProperty(layer.id, 'line-color', '#f2f4f6');
+          map.setPaintProperty(layer.id, 'line-opacity', .45);
+          map.setPaintProperty(layer.id, 'line-blur', 0);
+        }
+      }
       setStyleLoaded(true);
       map.once('render', markReady);
       map.triggerRepaint();
@@ -318,8 +265,6 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
         failMap('context');
         return;
       }
-      const sourceID = (event as maplibregl.ErrorEvent & { sourceId?: string }).sourceId;
-      if (sourceID === 'weather-score-image' || /\/releases\/[^/]+\/images\//.test(message)) return;
       const failureWindow = recordFailure(baseMapFailures, performance.now());
       baseMapFailures = failureWindow.failures;
       if (failureWindow.sustained) {
@@ -344,78 +289,6 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     };
   }, [onFailure]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleLoaded) return;
-    if (worldwide) {
-      map.setMaxBounds(null);
-      const container = map.getContainer();
-      if (container.clientWidth > 0 && container.clientHeight > 0) map.setMinZoom(minimumWorldwideCoverZoom(container.clientWidth, container.clientHeight));
-      telemetry('map-coverage-changed', { coverage: 'worldwide' });
-      return;
-    }
-    map.setMinZoom(2.5);
-    map.setMaxBounds(EUROPE_MAX_BOUNDS);
-    const compact = window.matchMedia('(max-width: 680px)').matches;
-    map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {
-      padding: { top: 72, right: compact ? 24 : 42, bottom: compact ? 250 : 190, left: compact ? 24 : 42 },
-      animate: false,
-    });
-    telemetry('map-coverage-changed', { coverage: 'europe' });
-  }, [bounds, styleLoaded, worldwide]);
-
-  useLayoutEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleLoaded) return;
-    const generation = ++overlayGeneration.current;
-    removeOverlay(map);
-    if (!overlayUrl || overlayUrl !== targetOverlayUrl) return;
-    const activeMap = map;
-    const assetUrl = overlayUrl;
-    const startedAt = performance.now();
-    let reported = false;
-    let sourceLoaded = false;
-    const deadline = window.setTimeout(() => fail('timeout'), 8_000);
-    const readyAfterRender = () => {
-      if (reported || !sourceLoaded || generation !== overlayGeneration.current || !activeMap.isSourceLoaded('weather-score-image')) return;
-      reported = true;
-      cleanup();
-      onOverlayReadyRef.current?.(Math.round(performance.now() - startedAt), 'maplibre', assetUrl);
-    };
-    const onSourceData = (event: MapSourceDataEvent) => {
-      if (event.sourceId !== 'weather-score-image' || !activeMap.isSourceLoaded('weather-score-image') || sourceLoaded) return;
-      sourceLoaded = true;
-      activeMap.once('render', readyAfterRender);
-      activeMap.triggerRepaint();
-    };
-    const onSourceError = (event: maplibregl.ErrorEvent) => {
-      const sourceID = (event as maplibregl.ErrorEvent & { sourceId?: string }).sourceId;
-      const message = event.error?.message ?? '';
-      if (sourceID === 'weather-score-image' || message.includes(assetUrl)) fail('load-failed');
-    };
-    function fail(reason: 'load-failed' | 'timeout') {
-      if (reported || generation !== overlayGeneration.current) return;
-      reported = true;
-      cleanup();
-      withCurrentRenderer(mapRef.current, activeMap, removeOverlay);
-      onOverlayErrorRef.current(assetUrl, reason);
-    }
-    const cleanup = () => {
-      window.clearTimeout(deadline);
-      activeMap.off('sourcedata', onSourceData);
-      activeMap.off('render', readyAfterRender);
-      activeMap.off('error', onSourceError);
-    };
-    activeMap.on('sourcedata', onSourceData);
-    activeMap.on('error', onSourceError);
-    try {
-      installOverlay(activeMap, assetUrl, bounds);
-    } catch {
-      fail('load-failed');
-    }
-    return cleanup;
-  }, [bounds, overlayUrl, styleLoaded, targetOverlayUrl]);
-
   useLayoutEffect(() => {
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
@@ -424,15 +297,12 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
     if (!scalarOverlay) return;
     const startedAt = performance.now();
     const key = scalarOverlay.key;
-    let reported = false;
+    let readyReported = false;
+    let failed = false;
     const deadline = window.setTimeout(() => fail('timeout'), 8_000);
-    const ready = (visible: boolean) => {
-      if (!visible) {
-        fail('load-failed');
-        return;
-      }
-      if (reported) return;
-      reported = true;
+    const ready = () => {
+      if (readyReported || failed) return;
+      readyReported = true;
       window.clearTimeout(deadline);
       onOverlayReadyRef.current?.(Math.round(performance.now() - startedAt), 'maplibre', key);
     };
@@ -446,23 +316,24 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
       urlForTile: scalarOverlay.urlForTile,
       sha256ForTile: scalarOverlay.sha256ForTile,
       tileAvailable: scalarOverlay.tileAvailable,
-      sourceZoomForMap: scalarOverlay.sourceZoomForMap,
       visibleTilesForMap: scalarOverlay.visibleTilesForMap,
       sourceForTile: scalarOverlay.sourceForTile,
       onError: () => fail('load-failed'),
       onContractError: () => fail('load-failed'),
-      onRenderProof: ready,
+      onReady: ready,
     });
     function fail(reason: 'load-failed' | 'timeout') {
-      if (reported) return;
-      reported = true;
+      if (failed) return;
+      failed = true;
       window.clearTimeout(deadline);
       withCurrentRenderer(mapRef.current, activeMap, removeScalarOverlay);
       onOverlayErrorRef.current(key, reason);
     }
     try {
       const layers = activeMap.getStyle().layers ?? [];
-      activeMap.addLayer(layer, scoreOverlayBefore(layers));
+      const beforeId = scoreOverlayBefore(layers);
+      activeMap.addLayer(layer, beforeId);
+      if (activeMap.getLayer('water')) activeMap.moveLayer('water', beforeId);
     } catch {
       fail('load-failed');
     }
@@ -505,25 +376,6 @@ function MapLibreMap({ overlayUrl, targetOverlayUrl, scalarOverlay, worldwide = 
   return <><div ref={containerRef} className="maplibreSurface" aria-hidden="true" />{!mapLoaded && <div className="mapPending" aria-hidden="true"><span>Loading map</span></div>}</>;
 }
 
-function installOverlay(map: Map, url: string, bounds: [number, number, number, number]) {
-  const sourceId = 'weather-score-image';
-  map.addSource(sourceId, {
-    type: 'image',
-    url,
-    coordinates: [[bounds[0], bounds[3]], [bounds[2], bounds[3]], [bounds[2], bounds[1]], [bounds[0], bounds[1]]],
-  });
-  // Keep administrative boundaries and labels above the score field without
-  // pulling the basemap's complete road network above it at larger screens.
-  const layers = map.getStyle().layers ?? [];
-  const beforeId = scoreOverlayBefore(layers);
-  map.addLayer({ id: 'weather-score', type: 'raster', source: sourceId, paint: { 'raster-opacity': 1, 'raster-resampling': 'linear' } }, beforeId);
-}
-
 function removeScalarOverlay(map: Map) {
   if (map.getLayer(SCALAR_LAYER_ID)) map.removeLayer(SCALAR_LAYER_ID);
-}
-
-function removeOverlay(map: Map) {
-  if (map.getLayer('weather-score')) map.removeLayer('weather-score');
-  if (map.getSource('weather-score-image')) map.removeSource('weather-score-image');
 }

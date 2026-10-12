@@ -13,12 +13,11 @@ import (
 )
 
 const (
-	resultCount        = 6
-	bucketDegrees      = 0.5
-	primarySpacingKM   = 400.0
-	secondarySpacingKM = 250.0
-	worldSpacingKM     = 1_500.0
-	worldFallbackKM    = 900.0
+	resultCount      = 6
+	bucketDegrees    = 0.5
+	primarySpacingKM = 400.0
+	worldSpacingKM   = 1_500.0
+	worldFallbackKM  = 900.0
 )
 
 type Lookup func(profile string, longitude, latitude float64) (delivery.RangeRecord, bool, error)
@@ -48,18 +47,8 @@ type candidate struct {
 
 type bucket struct{ latitude, longitude int }
 
-// Evaluate visits the full place population once, applies the canonical range
-// record at every settlement, then returns a small spatially diverse shortlist
-// for each profile. The 0.5-degree buckets only remove near-duplicates; they do
-// not alter or smooth any weather score.
-func Evaluate(walk Walk, lookup Lookup) (map[string][]Result, error) {
-	return evaluate(walk, lookup, []float64{primarySpacingKM, secondarySpacingKM, 0})
-}
-
-// EvaluateWorldwide applies the same canonical evidence and place-quality
-// rules as Evaluate, but requires useful global separation before relaxing to
-// the established local deduplication distance. It has no country or city
-// allow-list: every settlement in the validated place release competes.
+// EvaluateWorldwide ranks every settlement by its canonical weather evidence,
+// then chooses a useful global spread before relaxing to local separation.
 func EvaluateWorldwide(walk Walk, lookup Lookup) (map[string][]Result, error) {
 	return evaluate(walk, lookup, []float64{worldSpacingKM, worldFallbackKM, primarySpacingKM, 0})
 }

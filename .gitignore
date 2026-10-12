@@ -9,3 +9,4 @@
 /output/
 /public/artifacts/
 /tsconfig*.tsbuildinfo
+__pycache__/

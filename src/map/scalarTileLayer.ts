@@ -29,12 +29,11 @@ export type ScalarTileLayerOptions = Readonly<{
   urlForTile: (tile: ScalarTileID) => string;
   sha256ForTile?: (tile: ScalarTileID) => string;
   tileAvailable?: (tile: ScalarTileID) => boolean;
-  sourceZoomForMap?: (mapZoom: number) => number;
   visibleTilesForMap?: (bounds: GeographicBounds, mapZoom: number) => readonly TileDraw[];
   sourceForTile?: (tile: ScalarTileID) => ScalarTileSource | undefined;
   onError?: (tile: ScalarTileID, error: Error) => void;
   onContractError?: (tile: ScalarTileID, error: Error) => void;
-  onRenderProof?: (visibleFragments: boolean) => void;
+  onReady?: () => void;
 }>;
 
 export type GeographicBounds = Readonly<{
@@ -149,10 +148,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
   private fallbackScoresLocation?: WebGLUniformLocation;
   private hasFallbackLocation?: WebGLUniformLocation;
   private paletteLocation?: WebGLUniformLocation;
-  private renderQuery?: WebGLQuery;
-  private renderQueryPending = false;
-  private renderedPixels = false;
-  private renderProofFailed = false;
+  private readyReported = false;
   private readonly textures = new Map<string, TileTexture>();
   private readonly uploads = new Map<string, { scores: Uint8Array; textureBounds: readonly [number, number, number, number]; fallbackScores?: Uint8Array; fallbackTextureBounds?: readonly [number, number, number, number] }>();
   private readonly requests = new Map<string, AbortController>();
@@ -208,7 +204,6 @@ export class ScalarTileLayer implements CustomLayerInterface {
   render(gl: WebGLRenderingContext | WebGL2RenderingContext, input: CustomRenderMethodInput): void {
     if (this.removed || !this.map || !this.program || !this.vertexArray || !this.paletteTexture || !this.matrixLocation || !this.boundsLocation || !this.textureBoundsLocation || !this.fallbackTextureBoundsLocation || !this.scoresLocation || !this.fallbackScoresLocation || !this.hasFallbackLocation || !this.paletteLocation) return;
     const gl2 = gl as WebGL2RenderingContext;
-    this.pollRenderProof(gl2);
     this.refreshVisible();
     this.evictTextures(gl2, this.uploads.size);
     this.flushUploads(gl2);
@@ -228,11 +223,7 @@ export class ScalarTileLayer implements CustomLayerInterface {
     gl2.enable(gl2.BLEND);
     gl2.blendFunc(gl2.ONE, gl2.ONE_MINUS_SRC_ALPHA);
 
-    const proveThisFrame = !this.renderedPixels && !this.renderProofFailed && !this.renderQueryPending && this.visible.some((draw) => this.textures.has(tileKey(draw.id)));
-    if (proveThisFrame) {
-      this.renderQuery = requireResource(gl2.createQuery(), 'render proof query');
-      gl2.beginQuery(gl2.ANY_SAMPLES_PASSED_CONSERVATIVE, this.renderQuery);
-    }
+    let drawn = false;
     for (const draw of this.visible) {
       const entry = this.textures.get(tileKey(draw.id));
       if (!entry) continue;
@@ -247,13 +238,13 @@ export class ScalarTileLayer implements CustomLayerInterface {
       gl2.activeTexture(gl2.TEXTURE1);
       gl2.bindTexture(gl2.TEXTURE_2D, entry.fallbackTexture ?? entry.texture);
       gl2.drawArrays(gl2.TRIANGLES, 0, 6);
-    }
-    if (proveThisFrame) {
-      gl2.endQuery(gl2.ANY_SAMPLES_PASSED_CONSERVATIVE);
-      this.renderQueryPending = true;
-      this.map.triggerRepaint();
+      drawn = true;
     }
     gl2.bindVertexArray(null);
+    if (!this.readyReported && (drawn || this.visible.every(({ id }) => this.unavailable.has(tileKey(id))))) {
+      this.readyReported = true;
+      this.options.onReady?.();
+    }
   }
 
   onRemove(_map: MapLibreMap, rawContext: WebGLRenderingContext | WebGL2RenderingContext): void {
@@ -275,7 +266,6 @@ export class ScalarTileLayer implements CustomLayerInterface {
     if (this.vertices) gl.deleteBuffer(this.vertices);
     if (this.vertexArray) gl.deleteVertexArray(this.vertexArray);
     if (this.program) gl.deleteProgram(this.program);
-    if (this.renderQuery) gl.deleteQuery(this.renderQuery);
     this.paletteTexture = undefined;
     this.vertices = undefined;
     this.vertexArray = undefined;
@@ -288,25 +278,8 @@ export class ScalarTileLayer implements CustomLayerInterface {
     this.fallbackScoresLocation = undefined;
     this.hasFallbackLocation = undefined;
     this.paletteLocation = undefined;
-    this.renderQuery = undefined;
-    this.renderQueryPending = false;
-    this.renderedPixels = false;
-    this.renderProofFailed = false;
+    this.readyReported = false;
     this.map = undefined;
-  }
-
-  resourceSnapshot(): Readonly<{ textures: number; pending: number; queued: number; unavailable: number; failed: number; renderedPixels: boolean; renderProofPending: boolean; renderProofFailed: boolean; gpuBytes: number }> {
-    return {
-      textures: this.textures.size,
-      pending: this.requests.size,
-      queued: this.queue.length,
-      unavailable: this.unavailable.size,
-      failed: this.failed.size,
-      renderedPixels: this.renderedPixels,
-      renderProofPending: this.renderQueryPending,
-      renderProofFailed: this.renderProofFailed,
-      gpuBytes: [...this.textures.values()].reduce((bytes, entry) => bytes + scalarTextureBytes() * (entry.fallbackTexture ? 2 : 1), 0) + (this.paletteTexture ? this.options.palette.length * 4 : 0),
-    };
   }
 
   private refreshVisible(): void {
@@ -321,11 +294,6 @@ export class ScalarTileLayer implements CustomLayerInterface {
       if (visible.some(({ id, worldX }) => !validTileID(id) || !Number.isInteger(worldX) || modulo(worldX, 2 ** id.z) !== id.x)) throw new Error('Scalar visible-tile resolver returned an invalid tile.');
       this.visible = [...visible];
       if (uniqueTileCount(this.visible) > this.options.maxTextures) throw new Error('Texture budget cannot cover the resolved scalar tiles.');
-    } else if (this.options.sourceZoomForMap) {
-      const zoom = this.options.sourceZoomForMap(this.map.getZoom());
-      if (!Number.isInteger(zoom) || zoom < this.options.minSourceZoom || zoom > this.options.maxSourceZoom) throw new Error('Scalar source resolver returned an invalid zoom.');
-      this.visible = coveringTiles(geographicBounds, zoom);
-      if (uniqueTileCount(this.visible) > this.options.maxTextures) throw new Error('Texture budget cannot cover the resolved scalar zoom.');
     } else {
       this.visible = boundedCoveringTiles(geographicBounds, Math.floor(this.map.getZoom()), this.options.minSourceZoom, this.options.maxSourceZoom, this.options.maxTextures);
     }
@@ -362,21 +330,6 @@ export class ScalarTileLayer implements CustomLayerInterface {
       if (!this.textures.has(key) && !this.uploads.has(key) && !this.requests.has(key) && !this.failed.has(key) && !queued.has(key)) this.queue.push({ id, key, source });
     }
     this.pumpRequests();
-  }
-
-  private pollRenderProof(gl: WebGL2RenderingContext): void {
-    if (!this.renderQueryPending || !this.renderQuery) return;
-    if (!gl.getQueryParameter(this.renderQuery, gl.QUERY_RESULT_AVAILABLE)) {
-      this.map?.triggerRepaint();
-      return;
-    }
-    const visible = Boolean(gl.getQueryParameter(this.renderQuery, gl.QUERY_RESULT));
-    gl.deleteQuery(this.renderQuery);
-    this.renderQuery = undefined;
-    this.renderQueryPending = false;
-    this.renderedPixels = visible;
-    this.renderProofFailed = !visible;
-    this.options.onRenderProof?.(visible);
   }
 
   private pumpRequests(): void {
@@ -455,11 +408,7 @@ export function scalarTextureBytes(): number {
 export async function readScalarResponse(response: Response, allowFallback = false): Promise<Uint8Array<ArrayBuffer>> {
   if (!response.ok) throw new Error(`score tile returned HTTP ${response.status}`);
   if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== SCALAR_MEDIA_TYPE) throw new Error('score tile has an invalid media type');
-  const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase() || 'identity';
-  if (encoding !== 'identity' && encoding !== 'gzip') throw new Error('score tile has an unsupported content encoding');
-  const expectedBytes = scalarTextureBytes();
-  if (encoding === 'identity' && response.headers.get('Content-Length') !== String(expectedBytes)) throw new Error('score tile has an invalid content length');
-  const scores = await readBoundedResponse(response, 'score tile', expectedBytes, { contentLength: encoding === 'gzip' ? 'encoded' : 'decoded' });
+  const scores = await readBoundedResponse(response, 'score tile', scalarTextureBytes());
   validateScores(scores, allowFallback);
   return scores;
 }

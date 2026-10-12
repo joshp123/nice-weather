@@ -30,30 +30,6 @@ func DefaultReferenceWindow() ReferenceWindow {
 	return ReferenceWindow{FirstYear: defaultReferenceFirstYear, LastYear: defaultReferenceLastYear}
 }
 
-func (window ReferenceWindow) validate() error {
-	if window.FirstYear < 1 || window.LastYear > 9998 || window.FirstYear > window.LastYear {
-		return fmt.Errorf("invalid climate reference window %d–%d", window.FirstYear, window.LastYear)
-	}
-	return nil
-}
-
-func (window ReferenceWindow) monthDates(month time.Month) ([]string, error) {
-	if err := window.validate(); err != nil {
-		return nil, err
-	}
-	if month < time.January || month > time.December {
-		return nil, fmt.Errorf("invalid climate month %d", month)
-	}
-	dates := make([]string, 0, 31*(window.LastYear-window.FirstYear+1))
-	for year := window.FirstYear; year <= window.LastYear; year++ {
-		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
-		for day := 1; day <= lastDay; day++ {
-			dates = append(dates, time.Date(year, month, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02"))
-		}
-	}
-	return dates, nil
-}
-
 // RatingCounts is a complete count of canonical daily judgements.
 type RatingCounts struct {
 	Awful     int
@@ -156,49 +132,6 @@ func (accumulator *profileAccumulator) add(result weather.Result) error {
 		accumulator.calmGood++
 	}
 	return accumulator.ratings.add(result.Rating)
-}
-
-// Aggregate evaluates every historical day once for both canonical profiles.
-// It rejects partial windows so missing observations cannot masquerade as
-// climate probability.
-func Aggregate(days []AgERA5Day, window ReferenceWindow) (CellDistribution, error) {
-	if err := window.validate(); err != nil {
-		return CellDistribution{}, err
-	}
-	if len(days) == 0 {
-		return CellDistribution{}, errors.New("at least one AgERA5 day is required")
-	}
-	firstDate, err := time.Parse("2006-01-02", days[0].Date)
-	if err != nil {
-		return CellDistribution{}, fmt.Errorf("invalid first AgERA5 date %q", days[0].Date)
-	}
-	month := firstDate.Month()
-	expectedDates, err := window.monthDates(month)
-	if err != nil {
-		return CellDistribution{}, err
-	}
-	expected := make([]time.Time, len(expectedDates))
-	for index, value := range expectedDates {
-		expected[index], err = time.Parse("2006-01-02", value)
-		if err != nil {
-			return CellDistribution{}, err
-		}
-	}
-	observations := make([]DailyObservation, len(days))
-	for index, day := range days {
-		date, parseErr := time.Parse("2006-01-02", day.Date)
-		if parseErr != nil || date.Year() < window.FirstYear || date.Year() > window.LastYear || date.Month() != month || math.Abs(day.Latitude-days[0].Latitude) > 1e-9 || math.Abs(day.Longitude-days[0].Longitude) > 1e-9 {
-			return CellDistribution{}, fmt.Errorf("AgERA5 distribution requires one cell and month from %d–%d", window.FirstYear, window.LastYear)
-		}
-		metrics, metricsErr := day.Metrics()
-		if metricsErr != nil {
-			return CellDistribution{}, fmt.Errorf("day %s: %w", day.Date, metricsErr)
-		}
-		observations[index] = DailyObservation{
-			Date: date, Latitude: day.Latitude, Longitude: day.Longitude, Metrics: metrics,
-		}
-	}
-	return AggregateObservations(observations, expected)
 }
 
 // AggregateObservations evaluates a complete set of source-neutral daily
@@ -531,4 +464,8 @@ func allocatePermille(counts [6]int) ([6]uint16, error) {
 		remainders[largest] = -1
 	}
 	return result, nil
+}
+
+func isUTCDate(date time.Time) bool {
+	return date.Location() == time.UTC && date.Hour() == 0 && date.Minute() == 0 && date.Second() == 0 && date.Nanosecond() == 0
 }

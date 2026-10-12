@@ -30,6 +30,7 @@ const (
 	// Six MJ/m² in one hour is an average surface flux of 1.67 kW/m².
 	// It is above plausible solar input and below the daily validator ceiling.
 	maximumHourlySolarMJm2 = 6
+	minimumHourlySolarJM2  = -2
 
 	TimezoneContractVersion = "iana-civil-daytime-2006-2025-v1"
 	climateFirstYear        = 2006
@@ -60,6 +61,8 @@ type AggregationStats struct {
 	Days                           int
 	HumiditySaturationClampedHours int
 	MaximumDewPointExcessC         float64
+	SolarZeroClampedCellHours      int
+	MinimumClampedSolarJM2         float64
 }
 
 // MonthSink starts one atomic month transaction. A transaction must not make
@@ -176,10 +179,14 @@ func AggregateMonth(
 			return stats, fmt.Errorf("ERA5 hourly month contains a frame after %s", lastRequired.Format(time.RFC3339))
 		}
 		for index, cell := range cells {
-			if cell.SourceIndex >= frame.Rows*frame.Columns {
-				return stats, fmt.Errorf("ERA5 source index %d is outside the frame", cell.SourceIndex)
+			sourceIndex := cell.SourceIndex
+			if frame.planOrder {
+				sourceIndex = index
 			}
-			sample, err := readInstantSample(frame, cell.SourceIndex, &stats)
+			if sourceIndex >= frame.Rows*frame.Columns {
+				return stats, fmt.Errorf("ERA5 source index %d is outside the frame", sourceIndex)
+			}
+			sample, err := readInstantSample(frame, sourceIndex, &stats)
 			if err != nil {
 				return stats, fmt.Errorf("ERA5 cell %d hour %s: %w", index, frame.ValidTime.Format(time.RFC3339), err)
 			}
@@ -206,6 +213,10 @@ func AggregateMonth(
 			endFraction := overlapEnd.Sub(intervalStart).Hours()
 			for _, cellIndex := range group.cells {
 				cell := cells[cellIndex]
+				sourceIndex := cell.SourceIndex
+				if frame.planOrder {
+					sourceIndex = cellIndex
+				}
 				if !previousSet[cellIndex] {
 					return stats, fmt.Errorf("ERA5 cell %d lacks the temperature precursor for %s", cellIndex, label.Format(time.DateOnly))
 				}
@@ -219,7 +230,7 @@ func AggregateMonth(
 					state.date = label
 					state.windowHours = windowEnd.Sub(windowStart).Hours()
 				}
-				if err := addHour(state, frame, cell.SourceIndex, previousSamples[cellIndex], currentSamples[cellIndex], weight, startFraction, endFraction); err != nil {
+				if err := addHour(state, frame, sourceIndex, previousSamples[cellIndex], currentSamples[cellIndex], weight, startFraction, endFraction, &stats); err != nil {
 					return stats, fmt.Errorf("ERA5 cell %d day %s: %w", cellIndex, label.Format(time.DateOnly), err)
 				}
 			}
@@ -474,8 +485,6 @@ func requiredEnvelope(groups []zoneGroup) (time.Time, time.Time) {
 func readInstantSample(frame Frame, sourceIndex int, stats *AggregationStats) (instantSample, error) {
 	temperature := float64(frame.TemperatureK[sourceIndex]) - 273.15
 	dewPoint := float64(frame.DewPointK[sourceIndex]) - 273.15
-	rain := float64(frame.RainM[sourceIndex]) * 1000
-	solar := float64(frame.SolarJM2[sourceIndex]) / 1_000_000
 	cloud := float64(frame.Cloud[sourceIndex])
 	wind := math.Hypot(float64(frame.WindUMPS[sourceIndex]), float64(frame.WindVMPS[sourceIndex])) * 3.6
 	excess := math.Max(dewPoint-temperature, 0)
@@ -491,8 +500,7 @@ func readInstantSample(frame Frame, sourceIndex int, stats *AggregationStats) (i
 	if temperature < minimumTemperatureC || temperature > maximumTemperatureC ||
 		dewPoint < minimumDewPointC || dewPoint > maximumDewPointC ||
 		wind > maximumWindKPH ||
-		rain < 0 || solar < 0 || solar > maximumHourlySolarMJm2 || cloud < 0 || cloud > 1 ||
-		!finite(temperature, dewPoint, humidity, rain, solar, cloud, wind) {
+		cloud < 0 || cloud > 1 || !finite(temperature, dewPoint, humidity, cloud, wind) {
 		return instantSample{}, errors.New("hourly fields are outside their physical range")
 	}
 	return instantSample{
@@ -504,9 +512,18 @@ func readInstantSample(frame Frame, sourceIndex int, stats *AggregationStats) (i
 	}, nil
 }
 
-func addHour(state *cellState, frame Frame, sourceIndex int, previous, current instantSample, weight, startFraction, endFraction float64) error {
+func addHour(state *cellState, frame Frame, sourceIndex int, previous, current instantSample, weight, startFraction, endFraction float64, stats *AggregationStats) error {
 	rain := float64(frame.RainM[sourceIndex]) * 1000
-	solar := float64(frame.SolarJM2[sourceIndex]) / 1_000_000
+	solarJM2 := float64(frame.SolarJM2[sourceIndex])
+	if solarJM2 < 0 && solarJM2 >= minimumHourlySolarJM2 {
+		stats.SolarZeroClampedCellHours++
+		stats.MinimumClampedSolarJM2 = math.Min(stats.MinimumClampedSolarJM2, solarJM2)
+		solarJM2 = 0
+	}
+	solar := solarJM2 / 1_000_000
+	if rain < 0 || solar < 0 || solar > maximumHourlySolarMJm2 || !finite(rain, solar) {
+		return fmt.Errorf("daytime accumulation outside physical range at %s: rain=%.9g mm, solar=%.9g J/m²", frame.ValidTime.Format(time.RFC3339), rain, solar*1_000_000)
+	}
 	startTemperature := interpolate(previous.temperature, current.temperature, startFraction)
 	endTemperature := interpolate(previous.temperature, current.temperature, endFraction)
 	state.temperature += intervalMean(previous.temperature, current.temperature, startFraction, endFraction) * weight

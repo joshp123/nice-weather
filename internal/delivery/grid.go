@@ -63,15 +63,6 @@ type DailyRecord struct {
 	HasWetTime                  bool
 }
 
-type GridMetadata struct {
-	Version    uint16
-	Bounds     GridBounds
-	Rows       uint32
-	Cols       uint32
-	RecordSize uint16
-	SHA256     string
-}
-
 func validateGridSpec(spec GridSpec) error {
 	b := spec.Bounds
 	if spec.Rows == 0 || spec.Cols == 0 {

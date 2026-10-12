@@ -2,19 +2,38 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { nextDetailsFocusIntent, restoreFocus, shouldFocusDetails, type DetailsFocusIntent } from './accessibility';
 import { loadBestWeather, type BestWeatherPlace } from './data/bestWeather';
 import { ClimateDataError, WorldwideClimateClient, type ClimateCatalog, type ClimateField, type ClimateIndex, type ClimatePointEvidence } from './data/climateClient';
-import { ForecastDataError, WorldwideForecastClient, forecastDetailDeclared, forecastRunStatus, isStale, type DayForecastProduct, type ForecastField, type ForecastSnapshot } from './data/forecastClient';
+import { ForecastDataError, WorldwideForecastClient, forecastDetailDeclared, forecastRunStatus, isStale, type DayForecastProduct, type RangeForecastCatalog, type ForecastField, type ForecastSnapshot } from './data/forecastClient';
 import { WorldwidePlaceSearch, type PlaceSearchResult, type PlaceSearchViewport } from './data/placeSearch';
-import type { DailyPoint, Lens, Period, PointWeather, Profile, View, WeatherManifest } from './data/types';
+import type { DailyPoint, Lens, PointWeather, Profile, View, PaletteStop } from './data/types';
 import type { MapPoint, OverlayState, ScalarOverlay } from './map/WeatherMap';
 import { coveringTiles, type GeographicBounds, type ScalarPaletteColour, type TileDraw } from './map/scalarTileLayer';
 import { pointSourceLabel } from './presentation';
-import { DRY_SCORE_NOTE, PROFILE_WEIGHT_NOTES, ratingBandLabel } from './scoreGuide';
 import { reportResourceSummary, telemetry } from './telemetry';
 import { WEATHER_PRESENTATION, type WeatherPresentation } from './weatherPresentation';
 import './styles.css';
 
 const WeatherMap = lazy(() => import('./map/WeatherMap').then((module) => ({ default: module.WeatherMap })));
 const FORECAST_TEXTURE_BUDGET = 64;
+
+type RememberedView = { view: View; period: string; profile: Profile; lens: Lens; camera?: { longitude: number; latitude: number; zoom: number } };
+function rememberedView(): RememberedView {
+  const defaults: RememberedView = { view: 'range', period: '', profile: 'nice', lens: 'overall' };
+  try {
+    const saved = JSON.parse(localStorage.getItem('nice-weather-view') ?? 'null');
+    if (!saved) return defaults;
+    const camera = saved.camera;
+    return {
+      view: ['range', 'daily', 'climate'].includes(saved.view) ? saved.view : defaults.view,
+      period: typeof saved.period === 'string' ? saved.period : '',
+      profile: saved.profile === 'cycling' ? 'cycling' : 'nice',
+      lens: ['overall', 'comfort', 'dry', 'bright', 'wind'].includes(saved.lens) ? saved.lens : 'overall',
+      ...(camera && Number.isFinite(camera.longitude) && Math.abs(camera.longitude) <= 180 && Number.isFinite(camera.latitude) && Math.abs(camera.latitude) <= 85 && Number.isFinite(camera.zoom) && camera.zoom >= 0 && camera.zoom <= 9 ? { camera } : {}),
+    };
+  } catch { return defaults; }
+}
+function rememberView(view: RememberedView) {
+  try { localStorage.setItem('nice-weather-view', JSON.stringify(view)); } catch { /* Optional preference. */ }
+}
 
 type ClimateState =
   | { status: 'loading' | 'unavailable' }
@@ -30,29 +49,35 @@ type ForecastDayState =
   | { status: 'ready'; product: DayForecastProduct };
 type PointState =
   | { status: 'idle' | 'loading' }
-  | { status: 'ready'; kind: 'forecast'; data: PointWeather }
-  | { status: 'ready'; kind: 'climate'; data: ClimatePointEvidence }
+  | { status: 'ready'; kind: 'forecast'; data: PointWeather; point: MapPoint; period: string; profile: Profile }
+  | { status: 'ready'; kind: 'climate'; data: ClimatePointEvidence; point: MapPoint }
   | { status: 'error'; message: string };
-type ControlPanel = 'when' | 'lenses' | 'profile' | null;
 type PeriodChoice = Readonly<{ id: string; shortLabel: string; date?: string }>;
 
 export default function App() {
+  const savedView = useMemo(rememberedView, []);
+  const savedCamera = useRef(savedView.camera);
   const [climateState, setClimateState] = useState<ClimateState>({ status: 'loading' });
   const [climateCatalogState, setClimateCatalogState] = useState<ClimateCatalogState>({ status: 'idle' });
   const [forecastState, setForecastState] = useState<ForecastState>({ status: 'loading' });
   const [forecastDayState, setForecastDayState] = useState<ForecastDayState>({ status: 'idle' });
   const [climateRetry, setClimateRetry] = useState(0);
   const [forecastRetry, setForecastRetry] = useState(0);
-  const [view, setView] = useState<View>('range');
-  const [profile, setProfile] = useState<Profile>('nice');
-  const [lens, setLens] = useState<Lens>('overall');
-  const [periodId, setPeriodId] = useState('');
+  const [now, setNow] = useState(() => new Date());
+  const [view, setView] = useState<View>(() => savedView.view === 'daily' ? 'daily' : 'range');
+  const [profile, setProfile] = useState<Profile>(savedView.profile);
+  const [lens, setLens] = useState<Lens>(savedView.lens);
+  const [periodId, setPeriodId] = useState(savedView.period);
+  const [rangeEvidence, setRangeEvidence] = useState<{ point: MapPoint; profile: Profile; indexId: string; days: readonly DailyPoint[] }>();
+  const [rangeEvidenceUnavailable, setRangeEvidenceUnavailable] = useState(false);
+  const annualClimateClient = useMemo(() => new WorldwideClimateClient(), []);
+  const [annualEvidence, setAnnualEvidence] = useState<readonly ClimatePointEvidence[]>([]);
+  const restoredTime = useRef(false);
   const [selectedPoint, setSelectedPoint] = useState<MapPoint>();
   const [focusPoint, setFocusPoint] = useState<(MapPoint & { token: number })>();
   const [viewport, setViewport] = useState<PlaceSearchViewport>({ latitude: 48.5, longitude: 9.5 });
   const [mapNotice, setMapNotice] = useState('');
   const [overlayState, setOverlayState] = useState<OverlayState>({ status: 'idle' });
-  const [legendPanel, setLegendPanel] = useState<ControlPanel>(null);
   const [mapSelectionToken, setMapSelectionToken] = useState(0);
   const [pointState, setPointState] = useState<PointState>({ status: 'idle' });
   const [detailsFocusIntent, setDetailsFocusIntent] = useState<DetailsFocusIntent>({ token: 0, requested: false });
@@ -63,24 +88,40 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const startedAt = performance.now();
-    setForecastState({ status: 'loading' });
-    forecastClient.loadSnapshot(controller.signal)
-      .then((snapshot) => {
-        setForecastState({ status: 'ready', snapshot });
-        telemetry('forecast-index-ready', {
-          elapsedMs: Math.round(performance.now() - startedAt),
-          releaseId: snapshot.index.indexId,
-          days: snapshot.index.days.length,
-        });
-      })
-      .catch((error: Error) => {
+    let pending = false;
+    let lastAttempt = 0;
+    const revalidate = async () => {
+      setNow(new Date());
+      if (pending || Date.now() - lastAttempt < 5_000) return;
+      pending = true;
+      lastAttempt = Date.now();
+      const startedAt = performance.now();
+      try {
+        const snapshot = await forecastClient.loadSnapshot(controller.signal);
         if (controller.signal.aborted) return;
-        telemetry('forecast-index-error', { code: error instanceof ForecastDataError ? error.code : 'unexpected', name: error.name });
-        if (!(error instanceof ForecastDataError && error.code === 'unavailable')) console.warn('[nice-weather] Worldwide forecast unavailable.', error);
-        setForecastState({ status: 'unavailable' });
-      });
-    return () => controller.abort();
+        setForecastState((previous) => previous.status === 'ready' && previous.snapshot.index.indexId === snapshot.index.indexId ? previous : { status: 'ready', snapshot });
+        telemetry('forecast-index-ready', { elapsedMs: Math.round(performance.now() - startedAt), releaseId: snapshot.index.indexId, days: snapshot.index.days.length });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        telemetry('forecast-index-error', { code: error instanceof ForecastDataError ? error.code : 'unexpected', name: error instanceof Error ? error.name : 'unexpected' });
+        setForecastState((previous) => previous.status === 'ready' ? previous : { status: 'unavailable' });
+      } finally { pending = false; }
+    };
+    const resume = () => { if (document.visibilityState === 'visible') void revalidate(); };
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      setNow(new Date());
+      if (Date.now() - lastAttempt >= 5 * 60_000) void revalidate();
+    }, 60_000);
+    window.addEventListener('focus', resume);
+    document.addEventListener('visibilitychange', resume);
+    void revalidate();
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      window.removeEventListener('focus', resume);
+      document.removeEventListener('visibilitychange', resume);
+    };
   }, [forecastClient, forecastRetry]);
 
   useEffect(() => {
@@ -106,6 +147,10 @@ export default function App() {
     ? forecastState.snapshot.index.days.map(({ date }) => ({ id: date, date, shortLabel: forecastDayLabel(date) }))
     : [], [forecastState]);
   const forecastPeriod = forecastPeriods.find((item) => item.id === periodId) ?? forecastPeriods[0];
+  const activeDayProduct = view === 'daily' && forecastDayState.status === 'ready' && forecastState.status === 'ready'
+    && forecastDayState.product.date === forecastPeriod?.id
+    && forecastDayState.product.indexId === forecastState.snapshot.index.indexId
+    ? forecastDayState.product : undefined;
   const climateModel = climateUiModel(climateState.status === 'ready' ? climateState.index : undefined);
   const climateIndexId = climateState.status === 'ready' ? climateState.index.indexId : undefined;
   const climatePeriodId = view === 'climate'
@@ -117,6 +162,73 @@ export default function App() {
   const climateRail = climateRailPeriods(climateModel);
   const pointProfileKey = view === 'climate' ? 'climate' : profile;
   const activePeriodId = view === 'range' ? 'next-14-days' : view === 'daily' ? forecastPeriod?.id : climatePeriodId;
+  const pointMatchesSelection = pointState.status !== 'ready' || (pointState.point === selectedPoint && (pointState.kind === 'forecast'
+    ? view !== 'climate' && forecastState.status === 'ready' && pointState.data.releaseId === forecastState.snapshot.index.indexId && pointState.period === activePeriodId && pointState.profile === profile
+    : view === 'climate' && pointState.data.period === climatePeriodId && pointState.data.releaseId === expectedClimateReleaseId));
+  const visiblePointState: PointState = pointMatchesSelection ? pointState : { status: 'loading' };
+  const rangeDailyEvidence = rangeEvidence && rangeEvidence.point === selectedPoint && rangeEvidence.profile === profile
+    && forecastState.status === 'ready' && rangeEvidence.indexId === forecastState.snapshot.index.indexId ? rangeEvidence.days : [];
+
+  useEffect(() => {
+    if (climateState.status === 'loading') return;
+    if (!restoredTime.current) {
+      restoredTime.current = true;
+      const saved = savedView;
+      if (saved.view === 'climate' && climateModel.available) {
+        setView('climate');
+        setPeriodId(saved.period);
+        return;
+      }
+    }
+    rememberView({ view, period: periodId, profile, lens, camera: savedCamera.current });
+  }, [view, periodId, profile, lens, savedView, climateState.status, climateModel.available]);
+
+  useEffect(() => {
+    setRangeEvidence(undefined);
+    setRangeEvidenceUnavailable(false);
+    if (view !== 'range' || !selectedPoint || !pointMatchesSelection || forecastState.status !== 'ready' || pointState.status !== 'ready' || pointState.kind !== 'forecast' || pointState.data.kind !== 'range') return;
+    const controller = new AbortController();
+    const snapshot = forecastState.snapshot;
+    const point = pointState.data.sourceCell ? { lon: pointState.data.sourceCell.longitude, lat: pointState.data.sourceCell.latitude } : selectedPoint;
+    const presentation = { legend: manifest.legend, generatedAt: snapshot.range.source.runUtc };
+    async function loadPhysicalEvidence() {
+      const days = await forecastClient.loadPeriodEvidence(snapshot, point.lon, point.lat, profile, presentation, controller.signal);
+      if (!controller.signal.aborted) setRangeEvidence({ point: selectedPoint!, profile, indexId: snapshot.index.indexId, days });
+    }
+    loadPhysicalEvidence().catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      if (error instanceof ForecastDataError && error.code === 'stale') setForecastRetry((value) => value + 1);
+      else { setRangeEvidenceUnavailable(true); telemetry('place-physical-evidence-unavailable', { name: error instanceof Error ? error.name : 'unexpected' }); }
+    });
+    return () => controller.abort();
+  }, [view, selectedPoint, pointMatchesSelection, pointState, forecastState, profile, forecastClient, manifest]);
+
+  useEffect(() => {
+    setAnnualEvidence([]);
+    if (view !== 'climate' || !selectedPoint || climateState.status !== 'ready') return;
+    const controller = new AbortController();
+    const index = climateState.index;
+    const point = selectedPoint;
+    async function loadYear() {
+      const months: ClimatePointEvidence[] = [];
+      for (const reference of index.months) {
+        const evidence = await annualClimateClient.loadPoint(reference.period, point.lon, point.lat, controller.signal, point.allowNearbyClimate === true);
+        if (!evidence) return;
+        if (evidence.releaseId !== reference.releaseId || evidence.period !== reference.period) throw new ClimateDataError('stale');
+        const first = months[0];
+        if (first && (evidence.sourceCell.latitude !== first.sourceCell.latitude || evidence.sourceCell.longitude !== first.sourceCell.longitude)) return;
+        months.push(evidence);
+      }
+      if (!controller.signal.aborted && months.length === 12) setAnnualEvidence(months);
+    }
+    loadYear().catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      telemetry('annual-place-evidence-unavailable', { name: error instanceof Error ? error.name : 'unexpected' });
+      if (error instanceof ClimateDataError && error.code === 'stale') setClimateRetry((value) => value + 1);
+    });
+    return () => controller.abort();
+  }, [view, selectedPoint, climateState, annualClimateClient]);
+
   const refreshStaleClimate = useCallback((refreshKey: string) => {
     if (staleReloadedClimateIndex.current === refreshKey) return false;
     staleReloadedClimateIndex.current = refreshKey;
@@ -128,9 +240,6 @@ export default function App() {
   }, []);
 
   const refreshForecast = useCallback(() => {
-    setPointState({ status: 'idle' });
-    setForecastDayState({ status: 'idle' });
-    setPeriodId('');
     setForecastRetry((value) => value + 1);
     telemetry('forecast-refresh', {});
   }, []);
@@ -182,6 +291,7 @@ export default function App() {
     setForecastDayState({ status: 'loading' });
     forecastClient.loadDayCatalog(forecastState.snapshot, forecastPeriod.id, controller.signal)
       .then((product) => {
+        if (controller.signal.aborted) return;
         setForecastDayState({ status: 'ready', product });
         telemetry('forecast-day-ready', {
           elapsedMs: Math.round(performance.now() - startedAt),
@@ -214,6 +324,7 @@ export default function App() {
       const activeCatalog = climateCatalogState.catalog;
       climateClient.loadPoint(activePeriodId, selectedPoint.lon, selectedPoint.lat, controller.signal, selectedPoint.allowNearbyClimate === true)
         .then((data) => {
+          if (controller.signal.aborted) return;
           if (!data) {
             setPointState({ status: 'error', message: 'No recent climate record is available for this point.' });
             return;
@@ -223,7 +334,7 @@ export default function App() {
             setPointState({ status: 'error', message: 'Climate data changed. Select this place again.' });
             return;
           }
-          setPointState({ status: 'ready', kind: 'climate', data });
+          setPointState({ status: 'ready', kind: 'climate', data, point: selectedPoint });
           telemetry('climate-point-ready', { elapsedMs: Math.round(performance.now() - startedAt), period: data.period });
         })
         .catch((error: Error) => {
@@ -234,7 +345,7 @@ export default function App() {
         });
       return () => controller.abort();
     }
-    const dayProduct = forecastDayState.status === 'ready' ? forecastDayState.product : undefined;
+    const dayProduct = activeDayProduct;
     if (forecastState.status !== 'ready' || (view === 'daily' && !dayProduct)) {
       setPointState({ status: 'idle' });
       return () => controller.abort();
@@ -242,15 +353,22 @@ export default function App() {
     const presentation = { legend: manifest.legend, generatedAt: forecastState.snapshot.range.source.runUtc };
     let request: Promise<PointWeather>;
     if (view === 'range') {
-      request = forecastClient.loadRangePoint(forecastState.snapshot, selectedPoint.lon, selectedPoint.lat, profile, presentation, controller.signal);
+      request = forecastClient.loadRangePoint(forecastState.snapshot, selectedPoint.lon, selectedPoint.lat, profile, presentation, controller.signal, selectedPoint.allowNearbyClimate);
     } else {
       if (!dayProduct) return () => controller.abort();
-      request = forecastClient.loadDailyPoint(dayProduct, selectedPoint.lon, selectedPoint.lat, profile, presentation, controller.signal);
+      request = selectedPoint.allowNearbyClimate
+        ? forecastClient.loadRangePoint(forecastState.snapshot,selectedPoint.lon,selectedPoint.lat,profile,presentation,controller.signal,true).then(async (range) => {
+          const location=range.sourceCell;
+          const daily=await forecastClient.loadDailyPoint(dayProduct,location?.longitude ?? selectedPoint.lon,location?.latitude ?? selectedPoint.lat,profile,presentation,controller.signal);
+          return { ...daily,lon:selectedPoint.lon,lat:selectedPoint.lat,sourceCell:location };
+        })
+        : forecastClient.loadDailyPoint(dayProduct, selectedPoint.lon, selectedPoint.lat, profile, presentation, controller.signal);
     }
     request
       .then((data) => {
+        if (controller.signal.aborted) return;
         if (data.releaseId !== forecastState.snapshot.index.indexId) throw new ForecastDataError('stale');
-        setPointState({ status: 'ready', kind: 'forecast', data });
+        setPointState({ status: 'ready', kind: 'forecast', data, point: selectedPoint, period: activePeriodId, profile });
       })
       .catch((error: Error) => {
         if (controller.signal.aborted) return;
@@ -261,7 +379,7 @@ export default function App() {
         setPointState({ status: 'error', message: error instanceof ForecastDataError ? error.message : 'Weather is not available for this point.' });
       });
     return () => controller.abort();
-  }, [activePeriodId, climateCatalogState, climateClient, climateIndexId, forecastClient, forecastDayState, forecastState, manifest, pointProfileKey, refreshForecast, refreshStaleClimate, selectedPoint, view]);
+  }, [activeDayProduct, activePeriodId, climateCatalogState, climateClient, climateIndexId, forecastClient, forecastState, manifest, pointProfileKey, refreshForecast, refreshStaleClimate, selectedPoint, view]);
 
   const scalarOverlay = useMemo<ScalarOverlay | undefined>(() => {
     if (view === 'climate') {
@@ -288,35 +406,32 @@ export default function App() {
     if (forecastState.status !== 'ready') return undefined;
     const product = view === 'range'
       ? forecastState.snapshot.range
-      : forecastDayState.status === 'ready' ? forecastDayState.product : undefined;
+      : activeDayProduct;
     if (!product) return undefined;
     const field = forecastFieldFor(lens, profile);
     return {
-      key: `forecast:${forecastState.snapshot.index.indexId}:${view}:${view === 'daily' ? forecastDayState.status === 'ready' ? forecastDayState.product.date : '' : 'range'}:${field}`,
+      key: `forecast:${forecastState.snapshot.index.indexId}:${view}:${view === 'daily' ? activeDayProduct?.date : 'range'}:${field}`,
       minSourceZoom: 0,
-      maxSourceZoom: view === 'daily' ? 5 : 3,
+      maxSourceZoom: 5,
       maxTextures: FORECAST_TEXTURE_BUDGET,
       palette: scalarPalette(manifest),
       urlForTile: () => '',
       sha256ForTile: () => '',
       tileAvailable: () => false,
-      sourceZoomForMap: 'tiers' in product ? undefined : (mapZoom) => forecastClient.sourceZoomFor(product, mapZoom),
-      visibleTilesForMap: 'tiers' in product ? (bounds, mapZoom) => forecastMapTiles(product, bounds, mapZoom) : undefined,
+      visibleTilesForMap: (bounds, mapZoom) => forecastMapTiles(product, bounds, mapZoom),
       sourceForTile: (tile) => forecastClient.scalarSourceForOutputTile(product, field, tile),
     };
-  }, [climateCatalogState, climateClient, forecastClient, forecastDayState, forecastState, lens, manifest, profile, view]);
+  }, [activeDayProduct, climateCatalogState, climateClient, forecastClient, forecastState, lens, manifest, profile, view]);
 
   const handleView = (next: View) => {
     if (next === 'climate' && !climateModel.available) return;
     setMapNotice('');
     telemetry('view-changed', { view: next });
     setView(next);
-    setLegendPanel(null);
     setPeriodId('');
   };
 
   const selectPoint = (point: MapPoint, focus = true, focusDetails = false) => {
-    setLegendPanel(null);
     setSelectedPoint(point);
     setFocusPoint(focus ? { ...point, token: Date.now() } : undefined);
     setDetailsFocusIntent((current) => nextDetailsFocusIntent(current, focusDetails));
@@ -325,11 +440,11 @@ export default function App() {
   };
 
   return (
-    <main className={`appShell view-${view}${(view === 'daily' ? forecastPeriods.length > 0 : climateRail.length > 0) ? ' hasRail' : ''}${selectedPoint ? ' hasPoint' : ''}`}>
+    <main className={`appShell view-${view}${(view !== 'climate' ? forecastPeriods.length > 0 : climateRail.length > 0) ? ' hasRail' : ''}${selectedPoint ? ' hasPoint' : ''}`}>
       <Suspense fallback={<div className="mapCanvas mapLoading" aria-label="Loading map" />}>
         <WeatherMap
           scalarOverlay={scalarOverlay}
-          worldwide
+          initialCamera={savedView.camera}
           selectedPoint={selectedPoint}
           focusPoint={focusPoint}
           onSelect={(point, intent) => {
@@ -337,8 +452,10 @@ export default function App() {
             setMapSelectionToken((value) => value + 1);
             selectPoint(point, false, shouldFocusDetails(intent?.focusDetails ? 'map-keyboard' : 'map-pointer'));
           }}
-          onViewportChange={({ latitude, longitude }) => {
+          onViewportChange={({ latitude, longitude, zoom }) => {
             setViewport({ latitude, longitude });
+            savedCamera.current = { latitude, longitude, zoom };
+            rememberView({ view, period: periodId, profile, lens, camera: savedCamera.current });
           }}
           onReady={(elapsedMs) => telemetry('map-ready', { elapsedMs })}
           onOverlayState={(state) => {
@@ -356,13 +473,14 @@ export default function App() {
           <div className="wordmark" aria-label="Nice Weather"><SunMark /><span>Nice Weather</span></div>
           <PeriodStatus
             view={view}
+            now={now}
             climate={climateModel}
             forecast={forecastState.status === 'ready' ? forecastState.snapshot : undefined}
-            day={forecastDayState.status === 'ready' ? forecastDayState.product : undefined}
-            selectedForecast={pointState.status === 'ready' && pointState.kind === 'forecast' ? pointState.data : undefined}
+            day={activeDayProduct}
+            selectedForecast={visiblePointState.status === 'ready' && visiblePointState.kind === 'forecast' ? visiblePointState.data : undefined}
           />
         </div>
-        <PlaceSearch viewport={viewport} view={view} profile={profile} forecast={forecastState.status === 'ready' ? forecastState.snapshot : undefined} clearToken={mapSelectionToken} onEngage={() => setLegendPanel(null)} onLocate={() => locate((point) => {
+        <PlaceSearch now={now} viewport={viewport} view={view} profile={profile} forecast={forecastState.status === 'ready' ? forecastState.snapshot : undefined} clearToken={mapSelectionToken} onLocate={() => locate((point) => {
           setMapSelectionToken((value) => value + 1);
           selectPoint({ ...point, label: 'Current location' });
         }, setMapNotice)} onFound={(point, origin) => {
@@ -377,15 +495,20 @@ export default function App() {
 
       {selectedPoint && (
         <PointPanel
-          state={pointState}
+          state={visiblePointState}
           point={selectedPoint}
           legend={manifest.legend}
           lens={lens}
           profile={profile}
           climateModel={climateModel}
+          annualEvidence={annualEvidence}
+          onMonthChange={setPeriodId}
+          evidenceUnavailable={rangeEvidenceUnavailable}
+          dailyEvidence={rangeDailyEvidence}
+          onDayChange={(id) => { setView('daily'); setPeriodId(id); }}
           focusIntent={detailsFocusIntent}
           onLensChange={(next) => { setLens(next); telemetry('lens-changed', { lens: next, source: 'place-sheet' }); }}
-          escapeEnabled={legendPanel === null}
+          escapeEnabled
           onClose={() => {
             setSelectedPoint(undefined);
             setPointState({ status: 'idle' });
@@ -397,21 +520,20 @@ export default function App() {
 
       <section className="controlSurface cockpit" aria-label="Weather map controls">
         <div className="cockpitToolbar">
-          <ViewControl value={view} climate={climateModel} panel={legendPanel} onPanelChange={setLegendPanel} onChange={handleView} />
-          <LayerLegend
-            manifest={manifest}
-            view={view}
-            profile={profile}
-            lens={lens}
-            panel={legendPanel}
-            onPanelChange={setLegendPanel}
-            onChange={(next) => { setLens(next); telemetry('lens-changed', { lens: next }); }}
-          />
-          <ProfileControl value={profile} panel={legendPanel} onPanelChange={setLegendPanel} onChange={(next) => { setProfile(next); telemetry('profile-changed', { profile: next }); }} />
+          <div className="segmentedControl timeControl" role="group" aria-label="Weather period">
+            <button type="button" aria-pressed={view !== 'climate'} onClick={() => handleView('range')}>Forecast</button>
+            {climateModel.available && <button type="button" aria-pressed={view === 'climate'} onClick={() => handleView('climate')}>Year</button>}
+          </div>
+          <div className="segmentedControl preferenceControl" role="group" aria-label="Weather preference">
+            {(['nice', 'cycling'] as const).map((value) => <button key={value} type="button" aria-pressed={profile === value} onClick={() => { setProfile(value); telemetry('profile-changed', { profile: value }); }}>{value === 'nice' ? 'Nice' : 'Cycling'}</button>)}
+          </div>
+        </div>
+        {view !== 'climate' && forecastPeriods.length > 0 && <PeriodRail periods={[{ id: 'next-14-days', shortLabel: '14 days' }, ...forecastPeriods]} selectedId={view === 'range' ? 'next-14-days' : forecastPeriod?.id ?? ''} label="Forecast date" onChange={(id) => { setView(id === 'next-14-days' ? 'range' : 'daily'); setPeriodId(id === 'next-14-days' ? '' : id); telemetry('period-changed', { period: id, view: 'forecast' }); }} />}
+        {view === 'climate' && climatePeriodId && <PeriodRail periods={climateRail} selectedId={climatePeriodId} label="Month" onChange={setPeriodId} />}
+        <div className="segmentedControl lensControl" role="group" aria-label="Map lens">
+          {LENSES.map(({ id, label }) => <button key={id} type="button" aria-pressed={lens === id} onClick={() => { setLens(id); telemetry('lens-changed', { lens: id }); }}>{label}</button>)}
         </div>
         {overlayState.status !== 'error' && <ScoreRamp manifest={manifest} probability={view === 'climate'} profile={profile} />}
-        {view === 'daily' && forecastPeriod && <PeriodRail periods={forecastPeriods} selectedId={forecastPeriod.id} label="Forecast day" onChange={(id) => { setPeriodId(id); telemetry('period-changed', { period: id, view }); }} />}
-        {view === 'climate' && climatePeriodId && climateRail.length > 0 && <PeriodRail periods={climateRail} selectedId={climatePeriodId} label="Climate month" onChange={(id) => { setPeriodId(id); telemetry('period-changed', { period: id, view }); }} />}
       </section>
     </main>
   );
@@ -425,52 +547,6 @@ export type ClimateUiModel = Readonly<{
   referencePeriod: string;
   periods: readonly PeriodChoice[];
 }>;
-
-function ViewControl({ value, climate, panel, onPanelChange, onChange }: { value: View; climate: ClimateUiModel; panel: ControlPanel; onPanelChange: (panel: ControlPanel) => void; onChange: (value: View) => void }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const open = panel === 'when';
-  useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
-  const label = value === 'range' ? 'Next 14 days' : value === 'daily' ? 'Day by day' : climate.label;
-  const choose = (next: View) => {
-    onChange(next);
-    onPanelChange(null);
-    window.requestAnimationFrame(() => restoreFocus(trigger.current));
-  };
-  return (
-    <div className="toolbarMenu viewControl">
-      <button ref={trigger} type="button" className="toolbarTrigger" aria-expanded={open} aria-controls="weather-period-menu" aria-label={`Choose time period. Active: ${label}`} onClick={() => onPanelChange(open ? null : 'when')}>
-        <strong><span className="wideControlLabel">{label}</span><span className="compactControlLabel">{value === 'range' ? '14 days' : value === 'daily' ? 'By day' : climate.compactLabel}</span></strong><MenuChevron />
-      </button>
-      {open && <div id="weather-period-menu" className="controlSurface toolbarPopover" role="group" aria-label="Weather period">
-        <button type="button" aria-pressed={value === 'range'} onClick={() => choose('range')}><span>Next 14 days</span><MenuCheck selected={value === 'range'} /></button>
-        <button type="button" aria-pressed={value === 'daily'} onClick={() => choose('daily')}><span>Day by day</span><MenuCheck selected={value === 'daily'} /></button>
-        {climate.available && <button type="button" aria-pressed={value === 'climate'} onClick={() => choose('climate')}><span>{climate.label}</span><MenuCheck selected={value === 'climate'} /></button>}
-      </div>}
-    </div>
-  );
-}
-
-function ProfileControl({ value, panel, onPanelChange, onChange }: { value: Profile; panel: ControlPanel; onPanelChange: (panel: ControlPanel) => void; onChange: (value: Profile) => void }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const open = panel === 'profile';
-  useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
-  const choose = (next: Profile) => {
-    onChange(next);
-    onPanelChange(null);
-    window.requestAnimationFrame(() => restoreFocus(trigger.current));
-  };
-  return (
-    <div className="toolbarMenu profileControl">
-      <button ref={trigger} type="button" className="toolbarTrigger" aria-expanded={open} aria-controls="weather-profile-menu" aria-label={`Choose weather preference. Active: ${value === 'nice' ? 'Warm & sunny' : 'Cycling'}`} onClick={() => onPanelChange(open ? null : 'profile')}>
-        <strong>{value === 'nice' ? <><span className="wideControlLabel">Warm &amp; sunny</span><span className="compactControlLabel">Warm + sunny</span></> : 'Cycling'}</strong><MenuChevron />
-      </button>
-      {open && <div id="weather-profile-menu" className="controlSurface toolbarPopover alignRight" role="group" aria-label="Weather preference">
-        <button type="button" aria-pressed={value === 'nice'} onClick={() => choose('nice')}><span>Warm &amp; sunny</span><MenuCheck selected={value === 'nice'} /></button>
-        <button type="button" aria-pressed={value === 'cycling'} onClick={() => choose('cycling')}><span>Cycling</span><MenuCheck selected={value === 'cycling'} /></button>
-      </div>}
-    </div>
-  );
-}
 
 function PeriodRail({ periods, selectedId, label, onChange }: { periods: readonly PeriodChoice[]; selectedId: string; label: string; onChange: (id: string) => void }) {
   const rail = useRef<HTMLDivElement>(null);
@@ -515,77 +591,16 @@ function PeriodRail({ periods, selectedId, label, onChange }: { periods: readonl
 }
 
 export const LENSES: ReadonlyArray<{ id: Lens; label: string }> = [
-  { id: 'overall', label: 'Overall score' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Clear sky' }, { id: 'wind', label: 'Calm' },
+  { id: 'overall', label: 'Overall' }, { id: 'comfort', label: 'Comfort' }, { id: 'dry', label: 'Dry' }, { id: 'bright', label: 'Clear sky' }, { id: 'wind', label: 'Calm' },
 ];
 
-type LayerLegendProps = {
-  manifest: WeatherPresentation;
-  view: View;
-  profile: Profile;
-  lens: Lens;
-  panel: ControlPanel;
-  onPanelChange: (panel: ControlPanel) => void;
-  onChange: (lens: Lens) => void;
-};
-
-export function LayerLegend({ manifest, view, profile, lens, panel, onPanelChange, onChange }: LayerLegendProps) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const open = panel === 'lenses';
-  useEscape(open, () => { onPanelChange(null); restoreFocus(trigger.current); });
-  const climateOutcome = climateOutcomeCopy(profile);
-  const active = lens === 'overall' && view === 'climate' ? climateOutcome.daysLabel : LENSES.find((item) => item.id === lens)?.label ?? 'Overall score';
-  return (
-    <div className="legendControl">
-      <button ref={trigger} type="button" className="toolbarTrigger lensTrigger" aria-haspopup="dialog" aria-expanded={open} aria-label={`Choose map lens and explain scores. Active: ${active}`} onClick={() => onPanelChange(open ? null : 'lenses')}>
-        <strong><span className="wideControlLabel">{active}</span><span className="compactControlLabel">{lens === 'overall' ? 'Overall' : active}</span></strong><MenuChevron />
-      </button>
-      {open && (
-        <div className="controlSurface legendPopover" role="dialog" aria-label="Map lens and score guide">
-          <div className="layerMenu" role="group" aria-label="Map lens">
-            {LENSES.map((item) => <button key={item.id} type="button" aria-pressed={lens === item.id} onClick={() => { onChange(item.id); onPanelChange(null); window.requestAnimationFrame(() => restoreFocus(trigger.current)); }}><span>{item.id === 'overall' && view === 'climate' ? climateOutcome.daysLabel : item.label}</span><MenuCheck selected={lens === item.id} /></button>)}
-          </div>
-          <ScoreGuide manifest={manifest} climate={view === 'climate'} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MenuChevron() {
-  return <svg className="menuChevron" viewBox="0 0 12 8" aria-hidden="true"><path d="m1.5 1.5 4.5 4 4.5-4" /></svg>;
-}
-
-function MenuCheck({ selected }: { selected: boolean }) {
-  return <span className="menuCheck" aria-hidden="true">{selected ? '✓' : ''}</span>;
-}
-
-function ScoreGuide({ manifest, climate }: { manifest: WeatherPresentation; climate: boolean }) {
-  return (
-    <details className="scoreGuide">
-      <summary>How scores work</summary>
-      <div className="scoreGuideBody">
-        {climate ? <>
-          <p>The map shows the percentage of real days rated Good or better from 2006 to 2025.</p>
-          <p>Comfort, Dry and Clear sky show the chance of good conditions. Calm uses the selected weather preference.</p>
-          <p>Chance of 3 poor days in a row means a seven-day window contains at least three consecutive Poor or Awful days.</p>
-        </> : <>
-        <p>Overall score starts with four scores. Severe heat, cold, rain or wind can cap it.</p>
-        <p><strong>Warm &amp; sunny</strong> · {PROFILE_WEIGHT_NOTES.nice}</p>
-        <p><strong>Cycling</strong> · {PROFILE_WEIGHT_NOTES.cycling}</p>
-        <p>{DRY_SCORE_NOTE}</p>
-        <dl>{manifest.legend.map((category) => <div key={category.label}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{ratingBandLabel(category)}</dd></div>)}</dl>
-        <p>Forecasts cover the world. Europe uses finer detail where that complete source coverage is available.</p>
-        </>}
-      </div>
-    </details>
-  );
-}
-
 export function ScoreRamp({ manifest, probability = false, profile }: { manifest: WeatherPresentation; probability?: boolean; profile: Profile }) {
-  const gradient = `linear-gradient(90deg, ${manifest.palette.map((stop) => `${stop.color} ${stop.score}%`).join(', ')})`;
   const outcome = climateOutcomeCopy(profile);
-  return <div className="scoreRamp" aria-label={probability ? outcome.rampAriaLabel : 'Score colours run from Awful to Excellent'}>
-    <b>{probability ? outcome.rareLabel : 'Awful'}</b><i style={{ background: gradient }} aria-hidden="true" /><b>{probability ? outcome.usualLabel : 'Excellent'}</b>
+  return <div className="scoreRamp" aria-label={probability ? outcome.rampAriaLabel : 'Weather suitability colours'}>
+    {probability
+      ? <><span>{outcome.rareLabel}</span><i className="probabilityRamp" style={{ background: `linear-gradient(90deg, ${manifest.legend.map((band) => band.color).join(', ')})` }} /><span>{outcome.usualLabel}</span></>
+      : manifest.legend.map((band) => <span key={band.label}><i style={{ background: band.color }} />{band.label}</span>)}
+    <span className="noDataLegend"><i />No data</span>
   </div>;
 }
 
@@ -595,7 +610,7 @@ export type BestWeatherState =
   | { status: 'unavailable' }
   | { status: 'ready'; profile: Profile; results: readonly BestWeatherPlace[] };
 
-function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, onLocate, onFound }: { viewport: PlaceSearchViewport; view: View; profile: Profile; forecast?: ForecastSnapshot; clearToken: number; onEngage: () => void; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
+function PlaceSearch({ now, viewport, view, profile, forecast, clearToken, onLocate, onFound }: { now: Date; viewport: PlaceSearchViewport; view: View; profile: Profile; forecast?: ForecastSnapshot; clearToken: number; onLocate: () => void; onFound: (point: MapPoint, origin: HTMLElement | null) => void }) {
   const search = useMemo(() => new WorldwidePlaceSearch(), []);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
@@ -610,8 +625,7 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
   const bestWeatherRequestSequence = useRef(0);
   const blurTimer = useRef<number | undefined>(undefined);
   const emptyQuery = query.trim() === '';
-  const bestWeatherAllowed = view === 'range' && forecast !== undefined && !isStale(forecast.range.source.runUtc, forecast.range.source.staleAfterHours);
-  const recommendation = topBestWeatherRecommendation(bestWeather, profile, bestWeatherAllowed, query, focused);
+  const bestWeatherAllowed = view === 'range' && forecast !== undefined && !isStale(forecast.range.source.runUtc, forecast.range.source.staleAfterHours, now);
   const currentBestWeather = bestWeather.status !== 'ready' || bestWeather.profile === profile;
   const showBestWeather = bestWeatherAllowed && currentBestWeather && emptyQuery && !bestWeatherDismissed && bestWeather.status !== 'idle';
   const open = focused && (results.length > 0 || Boolean(status) || showBestWeather);
@@ -692,13 +706,12 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
   }, [query, search]);
 
   const choose = (result: PlaceSearchResult | BestWeatherPlace, source: 'search' | 'best-weather' = 'search') => {
-    const label = [result.name, result.admin1, result.country].filter((item, index, all) => item && all.indexOf(item) === index).join(', ');
-    setQuery(result.name);
+      setQuery(result.name);
     setResults([]);
     setStatus('');
     setFocused(false);
     input.current?.blur();
-    onFound({ lat: result.latitude, lon: result.longitude, label, allowNearbyClimate: true }, input.current);
+    onFound({ lat: result.latitude, lon: result.longitude, label: result.name, secondaryLabel: [result.admin1, result.country].filter((item, index, all) => item && item !== result.name && all.indexOf(item) === index).join(', '), allowNearbyClimate: true }, input.current);
     telemetry(source === 'search' ? 'search-selected' : 'best-weather-selected', { geonameId: result.geonameId, country: result.countryCode, profile });
   };
 
@@ -710,13 +723,6 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
       input.current?.blur();
       onFound({ ...coordinates, label: `${coordinates.lat.toFixed(3)}°, ${coordinates.lon.toFixed(3)}°` }, input.current);
     } else if (results[0]) choose(results[0]);
-  };
-
-  const openBestWeather = () => {
-    onEngage();
-    setBestWeatherDismissed(false);
-    setFocused(true);
-    input.current?.focus();
   };
 
   return (
@@ -733,7 +739,6 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
       <SearchIcon />
       <label className="srOnly" htmlFor="place-search">{prompt}</label>
       <input id="place-search" ref={input} value={query} placeholder={prompt} autoComplete="off" onPointerDown={engageInput} onFocus={() => {
-        onEngage();
         engageInput();
       }} onBlur={() => {
         window.clearTimeout(blurTimer.current);
@@ -759,15 +764,9 @@ function PlaceSearch({ viewport, view, profile, forecast, clearToken, onEngage, 
         </div>
       )}
     </form>
-    {recommendation && <BestWeatherTrigger recommendation={recommendation} onOpen={openBestWeather} />}
+
     </div>
   );
-}
-
-export function BestWeatherTrigger({ recommendation, onOpen }: { recommendation: BestWeatherPlace; onOpen: () => void }) {
-  return <button className="controlSurface recommendationTrigger" type="button" aria-label={`Best weather: ${recommendation.name}, ${recommendation.country}, score ${recommendation.score}. Show all six recommendations.`} aria-controls="place-results" onClick={onOpen}>
-    <span><small><span className="recommendationPrefix">Best · </span>{recommendation.country}</small><strong>{recommendation.name}</strong></span><b>{recommendation.score}</b>
-  </button>;
 }
 
 export function BestWeatherResults({ state, onChoose }: { state: BestWeatherState; onChoose: (result: BestWeatherPlace) => void }) {
@@ -785,11 +784,7 @@ export function BestWeatherResults({ state, onChoose }: { state: BestWeatherStat
   </>;
 }
 
-export function topBestWeatherRecommendation(state: BestWeatherState, profile: Profile, allowed: boolean, query: string, focused: boolean): BestWeatherPlace | undefined {
-  return allowed && query.trim() === '' && !focused && state.status === 'ready' && state.profile === profile ? state.results[0] : undefined;
-}
-
-function PointPanel({ state, point, legend, lens, profile, climateModel, focusIntent, onLensChange, escapeEnabled, onClose }: { state: PointState; point: MapPoint; legend: WeatherPresentation['legend']; lens: Lens; profile: Profile; climateModel: ClimateUiModel; focusIntent: DetailsFocusIntent; onLensChange: (lens: Lens) => void; escapeEnabled: boolean; onClose: () => void }) {
+function PointPanel({ state, point, legend, lens, profile, climateModel, dailyEvidence, evidenceUnavailable, annualEvidence, onMonthChange, onDayChange, focusIntent, onLensChange, escapeEnabled, onClose }: { state: PointState; point: MapPoint; legend: WeatherPresentation['legend']; lens: Lens; profile: Profile; climateModel: ClimateUiModel; dailyEvidence: readonly DailyPoint[]; evidenceUnavailable: boolean; annualEvidence: readonly ClimatePointEvidence[]; onMonthChange: (id: string) => void; onDayChange: (id: string) => void; focusIntent: DetailsFocusIntent; onLensChange: (lens: Lens) => void; escapeEnabled: boolean; onClose: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const close = useRef<HTMLButtonElement>(null);
@@ -803,15 +798,16 @@ function PointPanel({ state, point, legend, lens, profile, climateModel, focusIn
         <button ref={close} className="iconButton closeButton" type="button" onClick={onClose} aria-label="Close weather details">×</button>
         {state.status === 'ready' && (state.kind === 'climate'
           ? <ClimatePointHeading data={state.data} point={point} profile={profile} climateModel={climateModel} />
-          : <PointHeadingFor data={state.data} point={point} />)}
+          : <PointHeadingFor data={state.data} point={point} profile={profile} />)}
       </div>
       <div className="pointPanelBody">
+        {state.status === 'ready' && state.kind === 'forecast' && state.data.sourceCell && <p className="sourceLine">Nearest complete weather cell · {Math.max(1,Math.round(state.data.sourceCell.distanceKm))} km away</p>}
         {state.status === 'loading' && <PointSkeleton label={point.label} />}
         {state.status === 'error' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><strong>Weather unavailable</strong><p>{state.message}</p></div>}
         {state.status === 'ready' && (state.kind === 'climate'
-          ? <ClimateDetails data={state.data} point={point} profile={profile} lens={lens} onLensChange={onLensChange} climateModel={climateModel} />
+          ? <ClimateDetails data={state.data} point={point} profile={profile} lens={lens} onLensChange={onLensChange} climateModel={climateModel} annualEvidence={annualEvidence} onMonthChange={onMonthChange} />
           : state.data.kind === 'range'
-            ? <RangeDetails data={state.data} legend={legend} profile={profile} />
+            ? <RangeDetails data={state.data} legend={legend} profile={profile} dailyEvidence={dailyEvidence} evidenceUnavailable={evidenceUnavailable} lens={lens} onLensChange={onLensChange} onDayChange={onDayChange} />
             : <DailyDetails data={state.data} legend={legend} lens={lens} onLensChange={onLensChange} />)}
         {state.status === 'idle' && <div className="pointMessage"><h2>{point.label ?? 'Selected place'}</h2><p>{point.lat.toFixed(2)}°, {point.lon.toFixed(2)}°</p></div>}
       </div>
@@ -825,16 +821,31 @@ export function ClimatePointHeading({ data, point, profile, climateModel }: { da
   const month = monthName(data.period);
   const eyebrow = `Real ${month} days · ${climateModel.referencePeriod}`;
   const headline = profile === 'cycling' ? `Chance of a good cycling day in ${month}` : `Chance of a nice ${month} day`;
-  return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>{headline}</span></div></div>;
+  return <div className="pointHeading climatePointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2>{point.secondaryLabel && <small className="placeRegion">{point.secondaryLabel}</small>}</div><div className="score"><strong>{evidence.goodOrBetterPercent}%</strong><span>{headline}</span></div></div>;
 }
 
-export function ClimateDetails({ data, point, profile, lens, onLensChange, climateModel }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; lens: Lens; onLensChange: (lens: Lens) => void; climateModel: ClimateUiModel }) {
+export function ClimateDetails({ data, point, profile, lens, onLensChange, climateModel, annualEvidence = [], onMonthChange }: { data: ClimatePointEvidence; point: MapPoint; profile: Profile; lens: Lens; onLensChange: (lens: Lens) => void; climateModel: ClimateUiModel; annualEvidence?: readonly ClimatePointEvidence[]; onMonthChange?: (id: string) => void }) {
   return <>
     <p className="phonePointSummary climateReliability">{climateReliability(data, profile)}</p>
     <p className="rangeEvidence climateReliability">{climateReliability(data, profile)}</p>
     <ClimateComponentRows data={data} profile={profile} active={lens} onChange={onLensChange} />
-    <p className="sourceLine">Real daily evidence · {climateModel.referencePeriod} · worldwide · about 30 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
+    {annualEvidence.length === 12 && <AnnualWeatherChart months={annualEvidence} selected={data.period} profile={profile} onChange={onMonthChange} />}
+    <p className="sourceLine">Real daily evidence · {climateModel.referencePeriod} · worldwide · about 28 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
   </>;
+}
+
+function AnnualWeatherChart({ months, selected, profile, onChange }: { months: readonly ClimatePointEvidence[]; selected: string; profile: Profile; onChange?: (id: string) => void }) {
+  const ranked = [...months].sort((left, right) => right[profile].goodOrBetterPermille - left[profile].goodOrBetterPermille);
+  const best = ranked.slice(0, 3).sort((left, right) => monthNumber(left.period) - monthNumber(right.period));
+  return <section className="annualChart" aria-label="Compare every month">
+    <h3>{ranked[0][profile].goodOrBetterPermille === ranked[11][profile].goodOrBetterPermille ? 'Similar throughout the year' : `Best months: ${best.map((month) => shortMonthName(month.period)).join(', ')}`}</h3>
+    <div>{months.map((month) => {
+      const chance = month[profile].goodOrBetterPercent;
+      const colour = WEATHER_PRESENTATION.legend.find((band) => chance >= band.min && chance <= band.max)?.color;
+      return <button type="button" key={month.period} aria-pressed={selected === month.period} aria-label={`${monthName(month.period)}: ${chance}% ${profile === 'nice' ? 'nice days' : 'good cycling days'}`} onClick={() => onChange?.(month.period)}><span className="annualBar"><i style={{ height: `${chance}%`, background: colour }} /></span><span>{shortMonthName(month.period)}</span></button>;
+    })}</div>
+    <p>Chance of a {profile === 'nice' ? 'nice day' : 'good cycling day'} · January–December</p>
+  </section>;
 }
 
 export function nearbyClimateCellQualifier(data: ClimatePointEvidence, point: Pick<MapPoint, 'lat' | 'lon'>): string {
@@ -867,104 +878,100 @@ function ClimateComponentRows({ data, profile, active, onChange }: { data: Clima
   ))}</div>;
 }
 
-export function PointHeadingFor({ data, point }: { data: PointWeather; point: MapPoint }) {
+export function PointHeadingFor({ data, point, profile = 'nice' }: { data: PointWeather; point: MapPoint; profile?: Profile }) {
   const eyebrow = data.kind === 'range'
     ? `${shortRange(data.window.startDate, data.window.endDate)} · ${dayCountLabel(data.window.dayCount)}`
-    : data.source.basis === 'climate' ? `${data.periodLabel} · monthly average` : data.periodLabel;
+    : data.periodLabel;
+  if (data.kind === 'range') return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? 'Selected place'}</h2>{point.secondaryLabel && <small className="placeRegion">{point.secondaryLabel}</small>}</div><div className="score"><strong>{data.window.niceDays}<small>/{data.window.dayCount}</small></strong><span>{profile === 'cycling' ? 'cycling days' : 'nice days'}</span></div></div>;
   return <PointHeading point={point} eyebrow={eyebrow} score={data.score} category={data.category} />;
 }
 
-export function RangeDetails({ data, legend, profile }: { data: Extract<PointWeather, { kind: 'range' }>; legend: WeatherPresentation['legend']; profile: Profile }) {
-  const evidence = forecastScoreEvidence(data.days, legend);
-  const outcome = forecastOutcomeCopy(profile, data.window.niceDays);
-  return (
-    <>
-      <p className="phonePointSummary">{evidence}</p>
-      <p className="rangeEvidence">{evidence}</p>
-      <dl className="rangeFacts">
-        <div><dd>{data.window.niceDays}</dd><dt>{outcome.daysLabel}</dt></div>
-        <div className={data.window.awfulDays > 0 ? 'bad' : ''}><dd>{data.window.awfulDays}</dd><dt>Awful days</dt></div>
-        <div><dd>{data.window.longestPoorRun}<small> {data.window.longestPoorRun === 1 ? 'day' : 'days'}</small></dd><dt>Longest poor run</dt></div>
-      </dl>
-      <ForecastFingerprint days={data.days} legend={legend} />
-      <ComponentRows data={data} legend={legend} />
-      <p className="sourceLine">{pointSourceLine(data.source)}</p>
-    </>
-  );
+export function RangeDetails({ data, legend, profile, dailyEvidence = [], evidenceUnavailable = false, lens = 'overall', onLensChange, onDayChange }: { data: Extract<PointWeather, { kind: 'range' }>; legend: WeatherPresentation['legend']; profile: Profile; dailyEvidence?: readonly DailyPoint[]; evidenceUnavailable?: boolean; lens?: Lens; onLensChange?: (lens: Lens) => void; onDayChange?: (id: string) => void }) {
+  const physicalReady = dailyEvidence.length === data.window.dayCount;
+  const reason = physicalReady ? rangeWeatherReason(dailyEvidence) : '';
+  return <>
+    {reason && <p className="pointSummary rangeReason">{reason}</p>}
+    <p className="rangeRisk">{data.window.awfulDays} awful {data.window.awfulDays === 1 ? 'day' : 'days'} · longest poor stretch {data.window.longestPoorRun} {data.window.longestPoorRun === 1 ? 'day' : 'days'}</p>
+    {physicalReady ? <PhysicalWeatherRows days={dailyEvidence} active={lens} onChange={onLensChange} /> : <p className="physicalLoading" role="status">{evidenceUnavailable ? 'Daily weather is unavailable for this place.' : 'Loading daily weather…'}</p>}
+    <ForecastFingerprint days={data.days} legend={legend} onChange={onDayChange} />
+    <details className="sourceDetails"><summary>Forecast details</summary><p>{pointSourceLine(data.source)}</p><p>Typical values are medians of the daily forecasts for this place. Complete European days use the finer detail.</p></details>
+  </>;
+}
+
+function rangeWeatherReason(days: readonly DailyPoint[]): string {
+  const limits = (['comfort', 'dryness', 'sun', 'wind'] as const).map((component) => ({ component, days: days.filter((day) => day.components[component].value < 55) })).sort((left, right) => right.days.length - left.days.length);
+  const limited = limits[0];
+  if (!limited?.days.length) return 'Warm, dry, bright and calm through the fortnight.';
+  const count = limited.days.length;
+  const highest = (field: keyof DailyPoint['metrics']) => Math.max(...limited.days.map((day) => day.metrics[field]).filter((value): value is number => typeof value === 'number'));
+  if (limited.component === 'comfort') {
+    const hot = limited.days.filter((day) => day.temperatureNotice === 'hot');
+    const cold = limited.days.filter((day) => day.temperatureNotice === 'cold');
+    const noticed = hot.length >= cold.length ? hot : cold;
+    if (noticed.length === count) {
+      const hotNotice = noticed === hot;
+      const temperatures = noticed.map((day) => day.metrics.temperatureC);
+      const extreme = hotNotice ? Math.max(...temperatures) : Math.min(...temperatures);
+      return `${noticed.length === 1 ? '1 day is' : `${noticed.length} days are`} too ${hotNotice ? 'hot' : 'cool'} · daytime temperatures ${hotNotice ? 'reach' : 'fall to'} ${format(extreme, 0)}°C.`;
+    }
+    const temperatures = limited.days.map((day) => day.metrics.temperatureC);
+    const dewPoint = highest('dewPointC');
+    return `Comfort limits ${count} ${count === 1 ? 'day' : 'days'} · daytime ${temperatureRange(Math.min(...temperatures), Math.max(...temperatures))}C${Number.isFinite(dewPoint) ? ` · dew point up to ${format(dewPoint, 0)}°C` : ''}.`;
+  }
+  if (limited.component === 'dryness') return `Rain limits ${count} ${count === 1 ? 'day' : 'days'} · up to ${format(highest('rainMm'), 1)} mm during the daytime.`;
+  if (limited.component === 'sun') return `Cloud limits ${count} ${count === 1 ? 'day' : 'days'} · up to ${format(highest('cloudPct'), 0)}% cloud cover.`;
+  return `Wind limits ${count} ${count === 1 ? 'day' : 'days'} · up to ${format(highest('windKmh'), 0)} km/h${Number.isFinite(highest('gustKmh')) ? `, gusting ${format(highest('gustKmh'), 0)} km/h` : ''}.`;
 }
 
 function DailyDetails({ data, legend, lens, onLensChange }: { data: DailyPoint; legend: WeatherPresentation['legend']; lens: Lens; onLensChange: (lens: Lens) => void }) {
-  const rain = rainDisplay(data);
-  return (
-    <>
-      <p className="pointSummary">{data.summary}</p>
-      {data.source.basis === 'climate' && <p className="climateNote">Monthly average from {data.source.referencePeriod}; not the chance of a nice day. Rain is the average per day.</p>}
-      <dl className="weatherFacts">
-        <div className="comfortFact"><dt>Temperature</dt><dd>{temperatureRange(data.metrics.minTempC, data.metrics.maxTempC)}{comfortContext(data)}</dd></div>
-        <div><dt>{rain.label}</dt><dd>{rain.value}</dd></div>
-        <div><dt>{data.metrics.cloudPct !== undefined ? 'Cloud' : 'Sun energy'}</dt><dd>{data.metrics.cloudPct !== undefined ? `${format(data.metrics.cloudPct, 0)}%` : data.metrics.solarEnergyMJm2 !== undefined ? `${format(data.metrics.solarEnergyMJm2, 1)} MJ/m²` : '—'}</dd></div>
-        <div><dt>Wind</dt><dd>{format(data.metrics.windKmh, 0)} km/h</dd></div>
-      </dl>
-      <ComponentRows data={data} legend={legend} active={lens} onChange={onLensChange} />
-      <details className="sourceDetails">
-        <summary>Weather and source</summary>
-        <dl>
-          <div><dt>Daytime</dt><dd>{format(data.metrics.temperatureC, 0)}°C</dd></div>
-          <div><dt>Gusts</dt><dd>{optional(data.metrics.gustKmh, (value) => `${format(value, 0)} km/h`)}</dd></div>
-          <div><dt>Dew point</dt><dd>{optional(data.metrics.dewPointC, (value) => `${format(value, 0)}°C`)}</dd></div>
-          <div><dt>Humidity</dt><dd>{optional(data.metrics.humidityPct, (value) => `${format(value, 0)}%`)}</dd></div>
-        </dl>
-      </details>
-      <p className="sourceLine">{pointSourceLine(data.source)}</p>
-    </>
-  );
+  return <>
+    <p className="pointSummary">{data.summary}</p>
+    <PhysicalWeatherRows days={[data]} active={lens} onChange={onLensChange} />
+    <details className="sourceDetails"><summary>Forecast details</summary>
+      <p>{pointSourceLine(data.source)}</p>
+      <p>Daytime weather · 10:00–20:00 local time</p>
+    </details>
+  </>;
+}
+
+function PhysicalWeatherRows({ days, active, onChange }: { days: readonly DailyPoint[]; active: Lens; onChange?: (lens: Lens) => void }) {
+  const typical = (field: keyof DailyPoint['metrics']) => {
+    const values = days.map((day) => day.metrics[field]).filter((value): value is number => typeof value === 'number').sort((a, b) => a - b);
+    if (!values.length) return undefined;
+    const middle = Math.floor(values.length / 2);
+    return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+  };
+  const value = (field: keyof DailyPoint['metrics'], unit: string) => optional(typical(field), (number) => `${format(number, field === 'rainMm' ? 1 : 0)}${unit}`);
+  const range = days.length > 1;
+  const rows = [
+    { id: 'comfort', label: 'Comfort', value: `${value('temperatureC', '°C')}`, evidence: `${range ? 'Typical range ' : 'Daytime range '}${value('minTempC', '°C')}–${value('maxTempC', '°C')} · dew point ${value('dewPointC', '°C')}` },
+    { id: 'dry', label: 'Dry', value: value('rainMm', ' mm'), evidence: range ? `${days.filter((day) => day.metrics.rainMm < 0.1).length} rain-free days · typical daily rain` : 'Rain during the daytime' },
+    { id: 'bright', label: 'Clear sky', value: value('cloudPct', '% cloud'), evidence: range ? 'Typical daytime cloud cover' : 'Daytime cloud cover' },
+    { id: 'wind', label: 'Calm', value: value('windKmh', ' km/h'), evidence: `${range ? 'Typical daytime wind' : 'Daytime wind'}${typical('gustKmh') === undefined ? '' : ` · gusts ${value('gustKmh', ' km/h')}`}` },
+  ] as const;
+  return <div className="physicalRows" aria-label={range ? 'Typical daily forecast weather' : 'Daily forecast weather'}>{rows.map((row) => <button type="button" key={row.id} aria-pressed={active === row.id} onClick={() => onChange?.(row.id)}><span><strong>{row.label}</strong><small>{row.evidence}</small></span><b>{row.value}</b></button>)}</div>;
 }
 
 function PointHeading({ point, eyebrow, score, category }: { point: MapPoint; eyebrow: string; score: number; category: string }) {
-  return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2></div><div className="score"><strong>{Math.round(score)}</strong><span>Overall · {category}</span></div></div>;
+  return <div className="pointHeading"><div><p>{eyebrow}</p><h2>{point.label ?? `${point.lat.toFixed(2)}°, ${point.lon.toFixed(2)}°`}</h2>{point.secondaryLabel && <small className="placeRegion">{point.secondaryLabel}</small>}</div><div className="score"><strong>{Math.round(score)}</strong><span>Overall · {category}</span></div></div>;
 }
 
-function ComponentRows({ data, legend, active, onChange }: { data: PointWeather; legend: WeatherPresentation['legend']; active?: Lens; onChange?: (lens: Exclude<Lens, 'overall'>) => void }) {
-  const rows = [
-    ['comfort', 'Comfort', data.components.comfort], ['dry', 'Dry', data.components.dryness], ['bright', 'Clear sky', data.components.sun], ['wind', 'Calm', data.components.wind],
-  ] as const;
-  return <div className="componentRows" aria-label="Weather score parts">{rows.map(([id, label, score]) => {
-    const colour = legend.find((band) => band.label === score.category)?.color;
-    const content = <><span><strong>{label}</strong><small>{score.category}</small></span><i><b style={{ width: `${score.value}%`, backgroundColor: colour }} /></i><em>{score.value}</em></>;
-    return onChange ? <button key={id} type="button" aria-pressed={active === id} onClick={() => onChange(id)}>{content}</button> : <div key={id}>{content}</div>;
-  })}</div>;
-}
-
-function PointSkeleton({ label }: { label?: string }) { return <div className="pointSkeleton"><strong>{label ?? 'Selected place'}</strong><span /><span /><span /></div>; }
-
-function periodsFor(manifest: WeatherManifest | undefined, view: View): Period[] {
-  if (!manifest || view !== 'daily') return [];
-  return manifest.forecast.days;
-}
+function PointSkeleton({ label }: { label?: string }) { return <div className="pointSkeleton"><strong>{label ?? 'Selected place'}</strong><span /><span /></div>; }
 
 export function climateUiModel(index?: ClimateIndex): ClimateUiModel {
   if (!index) return { available: false, complete: false, label: 'Climate', compactLabel: 'Climate', referencePeriod: '', periods: [] };
   const periods = index.months.map(({ period }) => ({ id: period, shortLabel: shortMonthName(period) }));
   const referencePeriod = `${index.referencePeriod.firstYear}–${index.referencePeriod.lastYear}`;
-  if (index.state === 'complete') return { available: true, complete: true, label: 'Typical year', compactLabel: 'Climate', referencePeriod, periods };
-  if (periods.length === 1) {
-    const month = monthName(periods[0].id);
-    return { available: true, complete: false, label: `${month} climate`, compactLabel: month, referencePeriod, periods };
-  }
-  return { available: true, complete: false, label: 'Climate preview', compactLabel: 'Climate', referencePeriod, periods };
+  return { available: true, complete: true, label: 'Typical year', compactLabel: 'Climate', referencePeriod, periods };
 }
 
 export function climateRailPeriods(model: ClimateUiModel): readonly PeriodChoice[] {
   return model.periods.length > 1 ? model.periods : [];
 }
 
-export function pointWithinBounds(point: Pick<MapPoint, 'lat' | 'lon'>, bounds: readonly [number, number, number, number]): boolean {
-  return point.lon >= bounds[0] && point.lon <= bounds[2] && point.lat >= bounds[1] && point.lat <= bounds[3];
-}
 
-export function pointWithinActiveSearchCoverage(point: Pick<MapPoint, 'lat' | 'lon'>, view: View, bounds?: readonly [number, number, number, number]): boolean {
-  return view === 'climate' || !bounds || pointWithinBounds(point, bounds);
-}
+
+
 
 export function climateFieldFor(lens: Lens, profile: Profile): ClimateField {
   if (lens === 'comfort') return 'comfort_good';
@@ -982,18 +989,18 @@ export function forecastFieldFor(lens: Lens, profile: Profile): ForecastField {
   return profile === 'nice' ? 'nice_score' : 'cycling_score';
 }
 
-export function forecastMapTiles(product: DayForecastProduct, bounds: GeographicBounds, mapZoom: number): readonly TileDraw[] {
+export function forecastMapTiles(product: DayForecastProduct | RangeForecastCatalog, bounds: GeographicBounds, mapZoom: number): readonly TileDraw[] {
   return coveringTiles(bounds, forecastMapUsesDetail(product, bounds, mapZoom) ? 5 : 3);
 }
 
-export function forecastMapUsesDetail(product: DayForecastProduct, bounds: GeographicBounds, mapZoom: number): boolean {
-  if (mapZoom < 4 || !product.tiers.some(({ tier }) => tier === 'europe-detail')) return false;
+export function forecastMapUsesDetail(product: DayForecastProduct | RangeForecastCatalog, bounds: GeographicBounds, mapZoom: number): boolean {
+  if (mapZoom < 4 || ('tiers' in product ? !product.tiers.some(({ tier }) => tier === 'europe-detail') : !product.regional)) return false;
   const tiles = coveringTiles(bounds, 5);
   const uniqueTiles = new Set(tiles.map(({ id }) => `${id.z}/${id.x}/${id.y}`));
   return uniqueTiles.size <= FORECAST_TEXTURE_BUDGET && tiles.some(({ id }) => forecastDetailDeclared(product, id));
 }
 
-export function scalarPalette(manifest: Readonly<{ palette: readonly WeatherManifest['palette'][number][] }>): readonly ScalarPaletteColour[] {
+export function scalarPalette(manifest: Readonly<{ palette: readonly PaletteStop[] }>): readonly ScalarPaletteColour[] {
   const stops = [...manifest.palette].sort((left, right) => left.score - right.score);
   if (!stops.length || stops[0].score !== 0 || stops[stops.length - 1].score !== 100) throw new Error('Climate palette must cover 0 to 100.');
   return Array.from({ length: 101 }, (_, score) => {
@@ -1022,7 +1029,7 @@ function parseHexColour(value: string): readonly [number, number, number] {
 
 export function climateReliability(data: ClimatePointEvidence, profile: Profile): string {
   const evidence = data[profile];
-  return `${evidence.awfulPercent}% awful · ${formatPermille(evidence.poorWeekPermille)} chance of 3 poor days in a row`;
+  return `${evidence.awfulPercent}% awful · ${formatPermille(evidence.poorWeekPermille)} chance of 3 poor days in a 7-day window`;
 }
 
 function climateOutcomeCopy(profile: Profile): Readonly<{ daysLabel: string; rareLabel: string; usualLabel: string; rampAriaLabel: string }> {
@@ -1066,44 +1073,34 @@ function forecastDayLabel(value: string): string {
   return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
 }
 
-export function ForecastFingerprint({ days, legend }: { days: Extract<PointWeather, { kind: 'range' }>['days']; legend: WeatherPresentation['legend'] }) {
+export function ForecastFingerprint({ days, legend, onChange }: { days: Extract<PointWeather, { kind: 'range' }>['days']; legend: WeatherPresentation['legend']; onChange?: (id: string) => void }) {
   return <section className="forecastFingerprint" aria-labelledby="forecast-fingerprint-title">
     <h3 id="forecast-fingerprint-title">Day by day</h3>
     <ol>{days.map((day) => {
       const colour = legend.find((band) => band.label === day.category)?.color;
       return <li key={day.date} style={{ '--day-colour': colour } as CSSProperties} aria-label={`${forecastDayLabel(day.date)}, ${day.score}, ${day.category}`}>
-        <time dateTime={day.date}>{forecastDayLabel(day.date)}</time><strong>{day.score}</strong>
+        <button type="button" onClick={() => onChange?.(day.date)} aria-label={`${forecastDayLabel(day.date)}: ${day.category}. Show day`}><time dateTime={day.date}>{forecastDayLabel(day.date)}</time></button>
       </li>;
     })}</ol>
   </section>;
 }
 
-function lensAsset(period: Period, profile: Profile, lens: Lens) {
-  if (lens === 'overall') return period.images[profile];
-  if (lens === 'wind') return period.lenses[`wind-${profile}`];
-  return period.lenses[lens];
-}
 
-export function rangeLensAsset(window: WeatherManifest['forecast']['window'], profile: Profile, lens: Lens) {
-  if (lens === 'overall') return window.profiles[profile].image;
-  if (lens === 'wind') return window.lenses[`wind-${profile}`];
-  return window.lenses[lens];
-}
 
-function PeriodStatus({ view, climate, forecast, day, selectedForecast }: { view: View; climate: ClimateUiModel; forecast?: ForecastSnapshot; day?: DayForecastProduct; selectedForecast?: PointWeather }) {
+function PeriodStatus({ view, now, climate, forecast, day, selectedForecast }: { view: View; now: Date; climate: ClimateUiModel; forecast?: ForecastSnapshot; day?: DayForecastProduct; selectedForecast?: PointWeather }) {
   const status = view === 'climate'
-    ? { primary: climate.complete ? 'Recent climate' : 'Climate preview', meta: climate.referencePeriod ? `${climate.referencePeriod} · worldwide` : '', stale: false }
-    : worldwideForecastStatus(forecast, day, selectedForecast);
+    ? { primary: 'Recent climate', meta: climate.referencePeriod ? `${climate.referencePeriod} · worldwide` : '', stale: false }
+    : worldwideForecastStatus(forecast, day, selectedForecast, now);
   return <p className="metaLine mapStatus" role="status">
     <span className={status.stale ? 'statusPrimary isStale' : 'statusPrimary'}>{status.primary}</span>
     {status.meta && <><span className="statusSeparator" aria-hidden="true">·</span><span className="statusMeta">{status.meta}</span></>}
   </p>;
 }
 
-function worldwideForecastStatus(forecast?: ForecastSnapshot, day?: DayForecastProduct, selectedForecast?: PointWeather): { primary: string; meta: string; stale: boolean } {
+function worldwideForecastStatus(forecast?: ForecastSnapshot, day?: DayForecastProduct, selectedForecast?: PointWeather, now = new Date()): { primary: string; meta: string; stale: boolean } {
   if (!forecast) return { primary: 'Loading forecast', meta: '', stale: false };
   const run = day?.tiers.find(({ tier }) => tier === 'global')?.evidence.runUtc ?? forecast.range.source.runUtc;
-  const status = forecastRunStatus(run, forecast.range.source.staleAfterHours);
+  const status = forecastRunStatus(run, forecast.range.source.staleAfterHours, now);
   const detail = selectedForecast
     ? selectedForecastDetail(selectedForecast)
     : day?.tiers.some(({ tier }) => tier === 'europe-detail')
@@ -1113,8 +1110,7 @@ function worldwideForecastStatus(forecast?: ForecastSnapshot, day?: DayForecastP
 }
 
 function selectedForecastDetail(data: PointWeather): string {
-  if (data.source.basis === 'forecast-window') return `Worldwide · about ${Math.round(data.source.resolutionKm)} km`;
-  if (data.source.basis === 'climate') return `Worldwide · about ${Math.round(data.source.resolutionKm)} km`;
+  if (data.source.basis === 'forecast-window') return data.source.detailLabel.startsWith('European') ? 'European detail 7 km · remaining days 28 km' : `Worldwide · about ${Math.round(data.source.resolutionKm)} km`;
   const scope = data.source.detailLabel === 'Detailed forecast' ? 'European detail' : 'Worldwide';
   return `${scope} · about ${Math.round(data.source.resolutionKm)} km`;
 }
@@ -1125,40 +1121,9 @@ function pointSourceLine(source: PointWeather['source']): string {
   return `${source.detailLabel} · about ${Math.round(source.resolutionKm)} km · ${detail}`;
 }
 
-export function periodStatus(manifest: WeatherManifest, view: View, period?: Period, climate?: ClimateUiModel): { primary: string; meta: string; stale: boolean } {
-  const prefix = manifest.dataStatus === 'sample' ? 'Sample data · ' : '';
-  if (view === 'climate') return {
-    primary: `${prefix}${climate?.complete ? 'Recent climate' : 'Climate preview'}`,
-    meta: climate?.referencePeriod ? `${climate.referencePeriod} · worldwide` : '',
-    stale: false,
-  };
-  const status = forecastRunStatus(view === 'daily' && period ? period.sourceRunAt : manifest.forecast.updatedAt, manifest.forecast.staleAfterHours);
-  const primary = `${prefix}${status.stale ? 'Forecast out of date' : status.label}`;
-  if (view === 'range') return { primary, meta: forecastRangeMeta(manifest), stale: status.stale };
-  return { primary, meta: `${period?.kind === 'outlook' ? 'Outlook' : 'Detailed'} · about ${Math.round(period?.resolutionKm ?? 0)} km`, stale: status.stale };
-}
 
-export function forecastRangeMeta(manifest: WeatherManifest): string {
-  const groups = new Map<string, { count: number; kind: NonNullable<Period['kind']>; resolutionKm: number }>();
-  for (const day of manifest.forecast.days) {
-    if (!day.kind) continue;
-    const resolutionKm = Math.round(day.resolutionKm);
-    const key = `${day.kind}:${resolutionKm}`;
-    const group = groups.get(key);
-    if (group) group.count += 1;
-    else groups.set(key, { count: 1, kind: day.kind, resolutionKm });
-  }
-  if (!groups.size) return `Forecast detail · about ${Math.round(manifest.forecast.window.resolutionKm)} km`;
-  return Array.from(groups.values()).map(({ count, kind, resolutionKm }) => `${count} ${count === 1 ? 'day' : 'days'} ${kind} at ${resolutionKm} km`).join(' · ');
-}
 
-function comfortContext(data: DailyPoint) {
-  const parts = [
-    data.metrics.dewPointC === undefined ? undefined : `Dew ${format(data.metrics.dewPointC, 0)}°`,
-    data.metrics.humidityPct === undefined ? undefined : `${format(data.metrics.humidityPct, 0)}% humidity`,
-  ].filter(Boolean);
-  return parts.length ? <small>{parts.join(' · ')}</small> : null;
-}
+
 
 function useEscape(active: boolean, action: () => void) {
   const actionRef = useRef(action); actionRef.current = action;
@@ -1204,22 +1169,8 @@ export function revealFocusedPeriod(period: Pick<HTMLElement, 'scrollIntoView'>)
 export function periodRailHasMore(container: Pick<HTMLElement, 'scrollWidth' | 'clientWidth' | 'scrollLeft'> | null): boolean {
   return Boolean(container && container.scrollWidth - container.clientWidth - container.scrollLeft > 2);
 }
-export function bestWeatherAvailability(manifest: WeatherManifest | undefined, now = new Date()): { allowed: boolean; message: string } {
-  if (!manifest) return { allowed: false, message: 'Loading the forecast…' };
-  return isStale(manifest.forecast.updatedAt, manifest.forecast.staleAfterHours, now)
-    ? { allowed: false, message: 'The forecast is out of date. Search for a place instead.' }
-    : { allowed: true, message: '' };
-}
-export function forecastScoreEvidence(days: Extract<PointWeather, { kind: 'range' }>['days'], legend: WeatherPresentation['legend']): string {
-  const good = new Set(legend.slice(3).map((band) => band.label));
-  const poor = new Set(legend.slice(0, 2).map((band) => band.label));
-  const goodDays = days.filter((day) => good.has(day.category)).length;
-  const poorDays = days.filter((day) => poor.has(day.category)).length;
-  const ordered = days.map((day) => day.score).sort((a, b) => a - b);
-  const middle = Math.floor(ordered.length / 2);
-  const median = ordered.length % 2 ? ordered[middle] : Math.round((ordered[middle - 1] + ordered[middle]) / 2);
-  return `Good or better on ${goodDays} of ${days.length} days · Poor or Awful on ${poorDays} · median score ${median}`;
-}
+
+
 export function dayCountLabel(count: number): string { return `${count} ${count === 1 ? 'day' : 'days'}`; }
 export function temperatureRange(minimum: number, maximum: number): string {
   const low = format(minimum, 0);
@@ -1229,7 +1180,6 @@ export function temperatureRange(minimum: number, maximum: number): string {
 export function clearSearchAfterMapSelection(clearToken: number, clear: () => void): void { if (clearToken > 0) clear(); }
 export function placeSearchPrompt(view: View): string { return view === 'range' ? 'Search places' : 'Search anywhere'; }
 export function rainDisplay(data: DailyPoint): { label: string; value: string } {
-  if (data.source.basis === 'climate') return { label: 'Rain · daily average', value: `${format(data.metrics.rainMm, 1)} mm/day` };
   const amount = `${format(data.metrics.rainMm, 1)} mm`;
   return !data.metrics.wetTimeFraction
     ? { label: 'Rain', value: amount }

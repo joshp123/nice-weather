@@ -2,9 +2,7 @@ package destinations
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,102 +11,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"time"
-
-	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/places"
 )
 
-const Schema = "nice-best-weather-v1"
-
-type Artifact struct {
-	Schema         string              `json:"schema"`
-	WeatherRelease string              `json:"weatherReleaseId"`
-	PlaceRelease   string              `json:"placeReleaseId"`
-	StartDate      string              `json:"startDate"`
-	EndDate        string              `json:"endDate"`
-	GeneratedAt    string              `json:"generatedAt"`
-	Profiles       map[string][]Result `json:"profiles"`
-}
-
-type Pointer struct {
-	Schema         string `json:"schema"`
-	WeatherRelease string `json:"weatherReleaseId"`
-	PlaceRelease   string `json:"placeReleaseId"`
-	URL            string `json:"url"`
-	SHA256         string `json:"sha256"`
-}
-
-func (Pointer) publicationPointer() {}
-
-type BuildSummary struct {
-	ScannedPlaces int
-	Bytes         int
-	Elapsed       time.Duration
-	Pointer       Pointer
-}
-
-// BuildCurrent evaluates the complete current place release against the exact
-// current forecast-window grids, writes one immutable JSON artifact and rotates
-// its small pointer last. Public requests only read these files; no ranking or
-// full-index scan runs in the serving process.
-func BuildCurrent(ctx context.Context, artifactRoot string) (BuildSummary, error) {
-	started := time.Now()
-	current, ok := delivery.CurrentDir(artifactRoot)
-	if !ok {
-		return BuildSummary{}, errors.New("weather release is not published")
-	}
-	resolved, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		return BuildSummary{}, fmt.Errorf("resolve weather release: %w", err)
-	}
-	catalog, err := delivery.OpenProductionReleaseCatalog(resolved)
-	if err != nil {
-		return BuildSummary{}, fmt.Errorf("open weather release: %w", err)
-	}
-	defer catalog.Close()
-	manifest := catalog.Manifest()
-	var placePointer places.Pointer
-	scanned := 0
-	profiles, err := Evaluate(func(visit func(places.Candidate) error) error {
-		var walkErr error
-		placePointer, walkErr = places.WalkCurrent(artifactRoot, func(item places.Candidate) error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			scanned++
-			return visit(item)
-		})
-		return walkErr
-	}, catalog.LookupRange)
-	if err != nil {
-		return BuildSummary{}, err
-	}
-	window := manifest.Forecast.Window
-	payload, err := json.Marshal(Artifact{
-		Schema: Schema, WeatherRelease: manifest.ReleaseID, PlaceRelease: placePointer.ReleaseID,
-		StartDate: window.StartDate, EndDate: window.EndDate, GeneratedAt: manifest.GeneratedAt,
-		Profiles: profiles,
-	})
-	if err != nil {
-		return BuildSummary{}, err
-	}
-	if len(payload) > 32*1024 {
-		return BuildSummary{}, fmt.Errorf("best-weather artifact has %d bytes; limit is 32768", len(payload))
-	}
-	digest := sha256.Sum256(payload)
-	checksum := hex.EncodeToString(digest[:])
-	relative := filepath.ToSlash(filepath.Join("best-weather", "releases", manifest.ReleaseID+"-"+checksum[:16]+".json"))
-	pointer := Pointer{Schema: Schema, WeatherRelease: manifest.ReleaseID, PlaceRelease: placePointer.ReleaseID, URL: "/" + relative, SHA256: checksum}
-	if err := publish(artifactRoot, relative, payload, pointer); err != nil {
-		return BuildSummary{}, err
-	}
-	return BuildSummary{ScannedPlaces: scanned, Bytes: len(payload), Elapsed: time.Since(started), Pointer: pointer}, nil
-}
-
-type publicationPointer interface{ publicationPointer() }
-
-func publish(root, relative string, payload []byte, pointer publicationPointer) error {
+func publish(root, relative string, payload []byte, pointer WorldwidePointer) error {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return err

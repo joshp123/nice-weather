@@ -256,16 +256,6 @@ describe('WorldwidePlaceSearch', () => {
     await expect(harness.client.search('malaga')).rejects.toThrow('Place shard mal checksum does not match its manifest');
   });
 
-  it('rejects a declared oversized response before reading it', async () => {
-    const cancel = vi.fn();
-    const body = new ReadableStream<Uint8Array>({ cancel });
-    const fetcher = vi.fn(async () => new Response(body, { headers: { 'Content-Length': '1025' } }));
-    const client = new WorldwidePlaceSearch({ fetcher });
-
-    await expect(client.search('malaga')).rejects.toThrow('pointer is unexpectedly large');
-    expect(cancel).toHaveBeenCalledOnce();
-  });
-
   it('cancels a streaming response as soon as it crosses its byte bound', async () => {
     const cancel = vi.fn();
     const stream = new ReadableStream<Uint8Array>({

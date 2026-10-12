@@ -16,7 +16,6 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastassembly"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
@@ -34,6 +33,7 @@ type fixtureRange struct {
 	ReleaseID       string                       `json:"releaseId"`
 	RunUTC          string                       `json:"runUtc"`
 	StaleAfterHours int                          `json:"staleAfterHours"`
+	RegionalInputs  []forecastrange.InputCatalog `json:"regionalInputs,omitempty"`
 	Inputs          []forecastrange.InputCatalog `json:"inputs"`
 }
 
@@ -56,7 +56,7 @@ func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
 	if index.TierSelection.Method != SelectionMethod || index.TierSelection.Blend || !strings.HasSuffix(strings.Join(index.TierSelection.Priority, ","), ",global") {
 		t.Fatalf("tier policy = %+v", index.TierSelection)
 	}
-	if index.Range.Period != forecastrange.Period || index.Range.Provider != forecastpoints.ProviderIFS || index.Range.Tier != forecastpoints.TierGlobal || index.Range.RunUTC != "2026-07-22T12:00:00Z" {
+	if index.Range.Period != forecastrange.Period || index.Range.Provider != forecasttiles.ProviderIFS || index.Range.Tier != forecasttiles.TierGlobal || index.Range.RunUTC != "2026-07-22T12:00:00Z" {
 		t.Fatalf("range reference = %+v", index.Range)
 	}
 	for day, entry := range index.Days {
@@ -64,10 +64,10 @@ func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
 		if day == 0 || day == 2 || day == 4 {
 			wantTiers = 2
 		}
-		if len(entry.Tiers) != wantTiers || entry.Tiers[len(entry.Tiers)-1].Provider != forecastpoints.ProviderIFS || entry.Tiers[len(entry.Tiers)-1].NativeResolutionKM != 28 {
+		if len(entry.Tiers) != wantTiers || entry.Tiers[len(entry.Tiers)-1].Provider != forecasttiles.ProviderIFS || entry.Tiers[len(entry.Tiers)-1].NativeResolutionKM != 28 {
 			t.Fatalf("day %d tiers = %+v", day, entry.Tiers)
 		}
-		if wantTiers == 2 && (entry.Tiers[0].Provider != forecastpoints.ProviderICONEU || entry.Tiers[0].NativeResolutionKM != 7) {
+		if wantTiers == 2 && (entry.Tiers[0].Provider != forecasttiles.ProviderICONEU || entry.Tiers[0].NativeResolutionKM != 7) {
 			t.Fatalf("day %d Europe tier = %+v", day, entry.Tiers[0])
 		}
 	}
@@ -78,95 +78,6 @@ func TestPublishBuildsExactCompleteRunAndIsIdempotent(t *testing.T) {
 	}
 	if after := readFile(t, filepath.Join(artifacts, "forecast", pointer.Current.Path)); string(after) != string(indexBefore) {
 		t.Fatal("idempotent publication changed immutable index")
-	}
-}
-
-func TestPublishTransitionsAuthenticatedV3CurrentToV5(t *testing.T) {
-	useFixtureTierLoader(t)
-	artifacts := publicationFixture(t)
-	createRun(t, artifacts, "run-v3", "2026-07-23", "2026-07-22T12:00:00Z", nil)
-	legacyPointer, err := Publish(context.Background(), artifacts, "run-v3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	indexPath := filepath.Join(artifacts, "forecast", legacyPointer.Current.Path)
-	var legacy Index
-	if err := json.Unmarshal(readFile(t, indexPath), &legacy); err != nil {
-		t.Fatal(err)
-	}
-	legacy.ProductContract = "nice-weather-forecast-run-v3"
-	legacyPayload, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyPayload = append(legacyPayload, '\n')
-	if err := os.WriteFile(indexPath, legacyPayload, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	legacyPointer.Current.SHA256 = digest(string(legacyPayload))
-	writeFixtureJSON(t, filepath.Join(artifacts, "forecast", "current.json"), legacyPointer)
-
-	createRun(t, artifacts, "run-v5", "2026-07-24", "2026-07-23T12:00:00Z", nil)
-	pointer, err := Publish(context.Background(), artifacts, "run-v5")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pointer.Current.IndexID != "run-v5" || pointer.Previous != nil {
-		t.Fatalf("transition pointer = %+v", pointer)
-	}
-	if _, current, err := ValidateCurrent(artifacts); err != nil || current.ProductContract != ProductContract {
-		t.Fatalf("current after transition = %+v, %v", current, err)
-	}
-	if loaded, current, previous, err := LoadCurrentMetadata(artifacts); err != nil || loaded.Previous != nil || previous != nil || current.ProductContract != ProductContract {
-		t.Fatalf("metadata after transition = pointer=%+v current=%+v previous=%+v err=%v", loaded, current, previous, err)
-	}
-}
-
-func TestLegacyFreshnessCanOnlyBeRead(t *testing.T) {
-	useFixtureTierLoader(t)
-	artifacts := publicationFixture(t)
-	createRun(t, artifacts, "run-legacy", "2026-07-23", "2026-07-22T12:00:00Z", nil)
-	pointer, err := Publish(context.Background(), artifacts, "run-legacy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var index Index
-	if err := json.Unmarshal(readFile(t, filepath.Join(artifacts, "forecast", pointer.Current.Path)), &index); err != nil {
-		t.Fatal(err)
-	}
-	index.Range.StaleAfterHours = 18
-	var storedRange fixtureRange
-	rangePath := rangeFile(artifacts, "run-legacy")
-	if err := json.Unmarshal(readFile(t, rangePath), &storedRange); err != nil {
-		t.Fatal(err)
-	}
-	storedRange.StaleAfterHours = 18
-	writeFixtureJSON(t, rangePath, storedRange)
-	rangePayload := readFile(t, rangePath)
-	index.Range.CatalogBytes = uint64(len(rangePayload))
-	index.Range.CatalogSHA256 = digest(string(rangePayload))
-	payload, err := json.Marshal(index)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload = append(payload, '\n')
-	if _, err := parseIndex(payload); err != nil {
-		t.Fatalf("read legacy index: %v", err)
-	}
-	if _, err := marshalIndex(index); err == nil || !strings.Contains(err.Error(), "range reference is invalid") {
-		t.Fatalf("marshal legacy index error = %v", err)
-	}
-	indexPath := filepath.Join(artifacts, "forecast", pointer.Current.Path)
-	if err := os.WriteFile(indexPath, payload, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	pointer.Current.SHA256 = digest(string(payload))
-	writeFixtureJSON(t, filepath.Join(artifacts, "forecast", "current.json"), pointer)
-	if _, current, err := ValidateCurrent(artifacts); err != nil || current.Range.StaleAfterHours != 18 {
-		t.Fatalf("ValidateCurrent legacy index = %+v, %v", current.Range, err)
-	}
-	if again, err := Publish(context.Background(), artifacts, "run-legacy"); err != nil || !samePointer(pointer, again) {
-		t.Fatalf("idempotent legacy publication = %+v, %v", again, err)
 	}
 }
 
@@ -182,7 +93,7 @@ func TestLoadCurrentMetadataReadsOnlyPointerAndIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sparse := filepath.Join(artifacts, "forecast", "runs", "run-two", "forecast-days", "2026-07-24", forecastpoints.TierGlobal, "large-unread-payload")
+	sparse := filepath.Join(artifacts, "forecast", "runs", "run-two", "forecast-days", "2026-07-24", forecasttiles.TierGlobal, "large-unread-payload")
 	file, err := os.Create(sparse)
 	if err != nil {
 		t.Fatal(err)
@@ -218,13 +129,13 @@ func TestPublishRejectsIncompleteDishonestAndUnsafeRuns(t *testing.T) {
 		want   string
 	}{
 		{name: "missing global baseline", mutate: func(t *testing.T, root string) {
-			trashPath(t, filepath.Join(root, "forecast", "runs", "candidate", "forecast-days", "2026-07-26", forecastpoints.TierGlobal))
+			trashPath(t, filepath.Join(root, "forecast", "runs", "candidate", "forecast-days", "2026-07-26", forecasttiles.TierGlobal))
 		}, want: "entries"},
 		{name: "Europe after day five", mutate: func(t *testing.T, root string) {
-			writeTier(t, root, "candidate", "2026-07-28", forecastpoints.TierEurope, "2026-07-22T00:00:00Z", digest("icon"))
+			writeTier(t, root, "candidate", "2026-07-28", forecasttiles.TierEurope, "2026-07-22T00:00:00Z", digest("icon"))
 		}, want: "entries"},
 		{name: "mixed IFS runs", mutate: func(t *testing.T, root string) {
-			overwriteTier(t, root, "candidate", "2026-07-27", forecastpoints.TierGlobal, "2026-07-22T00:00:00Z", digest("ifs"))
+			overwriteTier(t, root, "candidate", "2026-07-27", forecasttiles.TierGlobal, "2026-07-22T00:00:00Z", digest("ifs"))
 			overwriteRange(t, root, "candidate", "2026-07-23", "2026-07-22T12:00:00Z")
 		}, want: "mixes IFS runs"},
 		{name: "missing range", mutate: func(t *testing.T, root string) {
@@ -283,7 +194,7 @@ func TestPublishRejectsIncompleteDishonestAndUnsafeRuns(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	catalog := filepath.Join(artifacts, "forecast", "runs", "candidate", "forecast-days", "2026-07-23", forecastpoints.TierGlobal, "catalog.json")
+	catalog := filepath.Join(artifacts, "forecast", "runs", "candidate", "forecast-days", "2026-07-23", forecasttiles.TierGlobal, "catalog.json")
 	if err := os.Remove(catalog); err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +246,7 @@ func TestFailedCandidateKeepsCurrentAndCanAdoptOrphanIndexOnRetry(t *testing.T) 
 		t.Fatal(err)
 	}
 	createRun(t, artifacts, "run-two", "2026-07-24", "2026-07-23T12:00:00Z", []int{0})
-	target := tierFile(artifacts, "run-two", "2026-07-24", forecastpoints.TierGlobal)
+	target := tierFile(artifacts, "run-two", "2026-07-24", forecasttiles.TierGlobal)
 	original := readFile(t, target)
 	originalGate := publicationGate
 	publicationGate = func() {
@@ -374,7 +285,7 @@ func TestPublishedRunRejectsLateOptionalTierInstallation(t *testing.T) {
 	}
 	runRoot := filepath.Join(artifacts, "forecast", "runs", "sealed-run")
 	_, err = forecastassembly.BuildDay(context.Background(), forecastassembly.Config{
-		Root: runRoot, ReleaseID: "sealed-run", Provider: forecastpoints.ProviderICONEU, Tier: forecastpoints.TierEurope,
+		Root: runRoot, ReleaseID: "sealed-run", Provider: forecasttiles.ProviderICONEU, Tier: forecasttiles.TierEurope,
 		Date:   time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC),
 		Series: pipeline.PreparedSeries{pipeline.Temperature: []*pipeline.PreparedFrame{nil}},
 		Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil },
@@ -445,8 +356,9 @@ func TestSameIFSRunCanPublishNewerEuropeRefinement(t *testing.T) {
 	createRun(t, artifacts, "icon-six", "2026-07-22", ifsRun, europeDays)
 	for _, day := range europeDays {
 		date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-		overwriteTier(t, artifacts, "icon-six", date, forecastpoints.TierEurope, "2026-07-22T06:00:00Z", digest("icon-six-evidence-"+date))
+		overwriteTier(t, artifacts, "icon-six", date, forecasttiles.TierEurope, "2026-07-22T06:00:00Z", digest("icon-six-evidence-"+date))
 	}
+	overwriteRange(t, artifacts, "icon-six", "2026-07-22", ifsRun)
 	next, err := Publish(context.Background(), artifacts, "icon-six")
 	if err != nil || next.Previous == nil || *next.Previous != current.Current {
 		t.Fatalf("newer Europe refinement publication = %+v, %v", next, err)
@@ -465,19 +377,21 @@ func TestSameIFSRunCanPublishNewerEuropeRefinement(t *testing.T) {
 		createRun(t, artifacts, stale.id, "2026-07-22", ifsRun, europeDays)
 		for _, day := range europeDays {
 			date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-			overwriteTier(t, artifacts, stale.id, date, forecastpoints.TierEurope, stale.iconRun, digest(stale.id+"-evidence-"+date))
+			overwriteTier(t, artifacts, stale.id, date, forecasttiles.TierEurope, stale.iconRun, digest(stale.id+"-evidence-"+date))
 		}
+		overwriteRange(t, artifacts, stale.id, "2026-07-22", ifsRun)
 		if _, err := Publish(context.Background(), artifacts, stale.id); err == nil || !strings.Contains(err.Error(), "stale forecast run") {
 			t.Fatalf("same or older Europe refinement %s error = %v", stale.iconRun, err)
 		}
 	}
 	createRun(t, artifacts, "changed-baseline", "2026-07-22", ifsRun, europeDays)
-	overwriteTier(t, artifacts, "changed-baseline", "2026-07-22", forecastpoints.TierGlobal, ifsRun, digest("changed-ifs-evidence"))
+	overwriteTier(t, artifacts, "changed-baseline", "2026-07-22", forecasttiles.TierGlobal, ifsRun, digest("changed-ifs-evidence"))
 	overwriteRange(t, artifacts, "changed-baseline", "2026-07-22", ifsRun)
 	for _, day := range europeDays {
 		date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-		overwriteTier(t, artifacts, "changed-baseline", date, forecastpoints.TierEurope, "2026-07-22T12:00:00Z", digest("changed-baseline-icon-"+date))
+		overwriteTier(t, artifacts, "changed-baseline", date, forecasttiles.TierEurope, "2026-07-22T12:00:00Z", digest("changed-baseline-icon-"+date))
 	}
+	overwriteRange(t, artifacts, "changed-baseline", "2026-07-22", ifsRun)
 	if _, err := Publish(context.Background(), artifacts, "changed-baseline"); err == nil || !strings.Contains(err.Error(), "stale forecast run") {
 		t.Fatalf("changed evidence under same IFS run error = %v", err)
 	}
@@ -485,8 +399,9 @@ func TestSameIFSRunCanPublishNewerEuropeRefinement(t *testing.T) {
 	createRun(t, artifacts, "reduced-refinement", "2026-07-22", ifsRun, []int{0, 1, 2, 3})
 	for day := 0; day < 4; day++ {
 		date := time.Date(2026, 7, 22+day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-		overwriteTier(t, artifacts, "reduced-refinement", date, forecastpoints.TierEurope, "2026-07-22T12:00:00Z", digest("reduced-refinement-icon-"+date))
+		overwriteTier(t, artifacts, "reduced-refinement", date, forecasttiles.TierEurope, "2026-07-22T12:00:00Z", digest("reduced-refinement-icon-"+date))
 	}
+	overwriteRange(t, artifacts, "reduced-refinement", "2026-07-22", ifsRun)
 	if _, err := Publish(context.Background(), artifacts, "reduced-refinement"); err == nil || !strings.Contains(err.Error(), "stale forecast run") {
 		t.Fatalf("reduced Europe refinement error = %v", err)
 	}
@@ -596,9 +511,9 @@ func createRun(t *testing.T, artifacts, id, startDate, ifsRun string, europeDays
 	}
 	for day := 0; day < 14; day++ {
 		date := start.AddDate(0, 0, day).Format("2006-01-02")
-		writeTier(t, artifacts, id, date, forecastpoints.TierGlobal, ifsRun, digest("ifs-evidence-"+ifsRun+"-"+date))
+		writeTier(t, artifacts, id, date, forecasttiles.TierGlobal, ifsRun, digest("ifs-evidence-"+ifsRun+"-"+date))
 		if europe[day] {
-			writeTier(t, artifacts, id, date, forecastpoints.TierEurope, "2026-07-22T00:00:00Z", digest("icon-evidence-"+date))
+			writeTier(t, artifacts, id, date, forecasttiles.TierEurope, "2026-07-22T00:00:00Z", digest("icon-evidence-"+date))
 		}
 	}
 	overwriteRange(t, artifacts, id, startDate, ifsRun)
@@ -613,17 +528,33 @@ func overwriteRange(t *testing.T, artifacts, id, startDate, run string) {
 	inputs := make([]forecastrange.InputCatalog, 14)
 	for day := range inputs {
 		date := start.AddDate(0, 0, day).Format(time.DateOnly)
-		payload := readFile(t, tierFile(artifacts, id, date, forecastpoints.TierGlobal))
+		payload := readFile(t, tierFile(artifacts, id, date, forecasttiles.TierGlobal))
 		inputs[day] = forecastrange.InputCatalog{
-			Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecastpoints.TierGlobal, "catalog.json")),
+			Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecasttiles.TierGlobal, "catalog.json")),
 			Bytes: uint64(len(payload)), SHA256: digest(string(payload)),
 		}
 	}
-	writeFixtureJSON(t, rangeFile(artifacts, id), fixtureRange{ReleaseID: id, RunUTC: run, StaleAfterHours: forecastrange.StaleAfterHours, Inputs: inputs})
+	fixture := fixtureRange{ReleaseID: id, RunUTC: run, StaleAfterHours: forecastrange.StaleAfterHours, Inputs: inputs}
+	writeFixtureJSON(t, rangeFile(artifacts, id), fixture)
+	for _, input := range inputs {
+		path := tierFile(artifacts, id, input.Date, forecasttiles.TierEurope)
+		payload, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.RegionalInputs = append(fixture.RegionalInputs, forecastrange.InputCatalog{Date: input.Date, Path: filepath.ToSlash(filepath.Join("forecast-days", input.Date, forecasttiles.TierEurope, "catalog.json")), Bytes: uint64(len(payload)), SHA256: digest(string(payload))})
+	}
+	if len(fixture.RegionalInputs) > 0 {
+		path := filepath.Join(filepath.Dir(filepath.Dir(rangeFile(artifacts, id))), forecasttiles.TierEurope, forecastrange.CatalogFilename)
+		writeFixtureJSON(t, path, fixture)
+	}
 }
 
 func rangeFile(artifacts, id string) string {
-	return filepath.Join(artifacts, "forecast", "runs", id, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename)
+	return filepath.Join(artifacts, "forecast", "runs", id, "forecast-ranges", forecastrange.Period, forecasttiles.TierGlobal, forecastrange.CatalogFilename)
 }
 
 func writeFixtureJSON(t *testing.T, path string, value any) {
@@ -677,9 +608,9 @@ func useFixtureTierLoader(t *testing.T) {
 		if err := decodeExactJSON(payload, &fixture); err != nil {
 			return forecastcatalog.Catalog{}, "", 0, err
 		}
-		provider, product, resolution := forecastpoints.ProviderIFS, forecastcatalog.ProductIFSControl, float64(28)
-		if fixture.Tier == forecastpoints.TierEurope {
-			provider, product, resolution = forecastpoints.ProviderICONEU, forecastcatalog.ProductICONEU, 7
+		provider, product, resolution := forecasttiles.ProviderIFS, forecastcatalog.ProductIFSControl, float64(28)
+		if fixture.Tier == forecasttiles.TierEurope {
+			provider, product, resolution = forecasttiles.ProviderICONEU, forecastcatalog.ProductICONEU, 7
 		}
 		sum := sha256.Sum256(payload)
 		return forecastcatalog.Catalog{
@@ -712,8 +643,13 @@ func useFixtureTierLoader(t *testing.T) {
 			staleAfterHours = forecastrange.StaleAfterHours
 		}
 		return forecastrange.Catalog{
-			ReleaseID: fixture.ReleaseID, Period: forecastrange.Period, Dates: dates, Inputs: fixture.Inputs,
-			Source: forecastrange.Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: fixture.RunUTC, NativeResolutionKM: 28, StaleAfterHours: staleAfterHours},
+			ReleaseID: fixture.ReleaseID, Period: forecastrange.Period, Dates: dates, Inputs: fixture.Inputs, RegionalInputs: fixture.RegionalInputs, Grid: forecastrange.Grid{Zoom: func() uint8 {
+				if filepath.Base(root) == forecasttiles.TierEurope {
+					return forecastrange.RegionalMaxZoom
+				}
+				return forecastrange.MaxZoom
+			}()},
+			Source: forecastrange.Source{Provider: forecasttiles.ProviderIFS, Tier: forecasttiles.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: fixture.RunUTC, NativeResolutionKM: 28, StaleAfterHours: staleAfterHours},
 		}, payload, nil
 	}
 	t.Cleanup(func() { loadInstalledTier, loadInstalledRange = original, originalRange })

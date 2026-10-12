@@ -8,7 +8,7 @@ import (
 
 func TestPublishKeepsOldPointerWhenImmutableArtifactConflicts(t *testing.T) {
 	root := t.TempDir()
-	first := Pointer{Schema: Schema, WeatherRelease: "weather-a", PlaceRelease: "places-a", URL: "/best-weather/releases/weather-a-aaaa.json", SHA256: "a"}
+	first := WorldwidePointer{Schema: WorldwideSchema, ForecastIndexID: "weather-a", PlaceReleaseID: "places-a", URL: "/best-weather/releases/weather-a-aaaa.json", SHA256: "a"}
 	relative := "best-weather/releases/weather-a-aaaa.json"
 	if err := publish(root, relative, []byte("first"), first); err != nil {
 		t.Fatal(err)
@@ -18,7 +18,7 @@ func TestPublishKeepsOldPointerWhenImmutableArtifactConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := Pointer{Schema: Schema, WeatherRelease: "weather-b", PlaceRelease: "places-b", URL: "/best-weather/releases/weather-b-bbbb.json", SHA256: "b"}
+	second := WorldwidePointer{Schema: WorldwideSchema, ForecastIndexID: "weather-b", PlaceReleaseID: "places-b", URL: "/best-weather/releases/weather-b-bbbb.json", SHA256: "b"}
 	if err := publish(root, relative, []byte("different"), second); err == nil {
 		t.Fatal("conflicting immutable artifact was accepted")
 	}
@@ -32,7 +32,7 @@ func TestPublishKeepsOldPointerWhenImmutableArtifactConflicts(t *testing.T) {
 }
 
 func TestPublishRejectsReleaseDirectoryAndTargetSymlinks(t *testing.T) {
-	pointer := Pointer{Schema: Schema, WeatherRelease: "weather-a", PlaceRelease: "places-a", URL: "/best-weather/releases/weather-a-aaaa.json", SHA256: "a"}
+	pointer := WorldwidePointer{Schema: WorldwideSchema, ForecastIndexID: "weather-a", PlaceReleaseID: "places-a", URL: "/best-weather/releases/weather-a-aaaa.json", SHA256: "a"}
 	relative := "best-weather/releases/weather-a-aaaa.json"
 
 	t.Run("release directory", func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestPublishRejectsSymlinkedArtifactRoot(t *testing.T) {
 	if err := os.Symlink(realRoot, linkRoot); err != nil {
 		t.Fatal(err)
 	}
-	pointer := Pointer{Schema: Schema, WeatherRelease: "weather-a", PlaceRelease: "places-a", URL: "/best-weather/releases/weather-a-aaaa.json", SHA256: "a"}
+	pointer := WorldwidePointer{Schema: WorldwideSchema, ForecastIndexID: "weather-a", PlaceReleaseID: "places-a", URL: "/best-weather/releases/weather-a-aaaa.json", SHA256: "a"}
 	if err := publish(linkRoot, "best-weather/releases/weather-a-aaaa.json", []byte("payload"), pointer); err == nil {
 		t.Fatal("symlinked artifact root was accepted")
 	}

@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"nice-weather-finder/internal/forecasttiles"
 	"os"
 	"path/filepath"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/tiledelivery"
 )
 
@@ -60,19 +60,28 @@ type Block struct {
 }
 
 func NewBlockIdentity(releaseID string, row, column uint32) (BlockIdentity, error) {
-	identity := BlockIdentity{ReleaseID: releaseID, Period: Period, Tier: forecastpoints.TierGlobal, Row: row, Column: column}
-	if !validIdentifier(releaseID) || row >= blockCount || column >= blockCount {
+	return NewTierBlockIdentity(releaseID, forecasttiles.TierGlobal, row, column)
+}
+
+func NewTierBlockIdentity(releaseID, tier string, row, column uint32) (BlockIdentity, error) {
+	identity := BlockIdentity{ReleaseID: releaseID, Period: Period, Tier: tier, Row: row, Column: column}
+	count := pixelsForTier(tier) / uint32(BlockColumns)
+	if !validIdentifier(releaseID) || (tier != forecasttiles.TierGlobal && tier != forecasttiles.TierEurope) || row >= count || column >= count {
 		return BlockIdentity{}, errors.New("forecast range block identity is invalid")
 	}
 	return identity, nil
 }
 
 func BlockPath(row, column uint32) string {
-	return filepath.ToSlash(filepath.Join("points", Period, forecastpoints.TierGlobal, fmt.Sprintf("r%02d-c%02d.nwr", row, column)))
+	return TierBlockPath(forecasttiles.TierGlobal, row, column)
+}
+
+func TierBlockPath(tier string, row, column uint32) string {
+	return filepath.ToSlash(filepath.Join("points", Period, tier, fmt.Sprintf("r%02d-c%02d.nwr", row, column)))
 }
 
 func WriteBlock(root string, identity BlockIdentity, records []delivery.RangePointRecord) (BlockAsset, error) {
-	canonical, err := NewBlockIdentity(identity.ReleaseID, identity.Row, identity.Column)
+	canonical, err := NewTierBlockIdentity(identity.ReleaseID, identity.Tier, identity.Row, identity.Column)
 	if err != nil || canonical != identity || root == "" || !filepath.IsAbs(root) {
 		return BlockAsset{}, errors.New("forecast range block writer identity or root is invalid")
 	}
@@ -99,7 +108,7 @@ func WriteBlock(root string, identity BlockIdentity, records []delivery.RangePoi
 	payloadDigest := sha256.Sum256(payload)
 	encoded := append(encodeBlockHeader(identity, payloadDigest), payload...)
 	wholeDigest := sha256.Sum256(encoded)
-	relative := BlockPath(identity.Row, identity.Column)
+	relative := TierBlockPath(identity.Tier, identity.Row, identity.Column)
 	path := filepath.Join(root, filepath.FromSlash(relative))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return BlockAsset{}, err
@@ -113,7 +122,7 @@ func WriteBlock(root string, identity BlockIdentity, records []delivery.RangePoi
 }
 
 func OpenBlock(path string, expected BlockIdentity, expectedSHA256 string) (*Block, error) {
-	canonical, err := NewBlockIdentity(expected.ReleaseID, expected.Row, expected.Column)
+	canonical, err := NewTierBlockIdentity(expected.ReleaseID, expected.Tier, expected.Row, expected.Column)
 	if err != nil || canonical != expected || !validSHA256(expectedSHA256) {
 		return nil, errors.New("expected forecast range block identity or checksum is invalid")
 	}
@@ -181,7 +190,7 @@ func (block *Block) RecordAt(longitude, latitude float64) (delivery.RangePointRe
 	if block == nil || len(block.records) == 0 {
 		return delivery.RangePointRecord{}, false, errors.New("forecast range block is unavailable")
 	}
-	id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, MaxZoom, longitude, latitude)
+	id, row, column, err := tiledelivery.At(block.meta.Identity.Tier, zoomForTier(block.meta.Identity.Tier), longitude, latitude)
 	if err != nil {
 		return delivery.RangePointRecord{}, false, err
 	}
@@ -209,11 +218,11 @@ func encodeBlockHeader(identity BlockIdentity, payload [sha256.Size]byte) []byte
 	binary.LittleEndian.PutUint16(header[12:14], delivery.RangePointRecordBytes)
 	binary.LittleEndian.PutUint16(header[14:16], BlockRows)
 	binary.LittleEndian.PutUint16(header[16:18], BlockColumns)
-	header[18], header[19] = MaxZoom, 1
+	header[18], header[19] = zoomForTier(identity.Tier), 1
 	binary.LittleEndian.PutUint32(header[20:24], identity.Row)
 	binary.LittleEndian.PutUint32(header[24:28], identity.Column)
-	binary.LittleEndian.PutUint32(header[28:32], worldPixels)
-	binary.LittleEndian.PutUint32(header[32:36], worldPixels)
+	binary.LittleEndian.PutUint32(header[28:32], pixelsForTier(identity.Tier))
+	binary.LittleEndian.PutUint32(header[32:36], pixelsForTier(identity.Tier))
 	header[36], header[37], header[38] = byte(len(identity.ReleaseID)), byte(len(identity.Period)), byte(len(identity.Tier))
 	releaseStart := fixedBlockHeaderBytes
 	periodStart := releaseStart + releaseIDBytes
@@ -226,7 +235,7 @@ func encodeBlockHeader(identity BlockIdentity, payload [sha256.Size]byte) []byte
 }
 
 func decodeBlockHeader(header []byte) (BlockIdentity, [sha256.Size]byte, error) {
-	if len(header) != BlockHeaderBytes || string(header[:8]) != string(blockMagic[:]) || binary.LittleEndian.Uint16(header[8:10]) != BlockVersion || binary.LittleEndian.Uint16(header[10:12]) != BlockHeaderBytes || binary.LittleEndian.Uint16(header[12:14]) != delivery.RangePointRecordBytes || binary.LittleEndian.Uint16(header[14:16]) != BlockRows || binary.LittleEndian.Uint16(header[16:18]) != BlockColumns || header[18] != MaxZoom || header[19] != 1 || binary.LittleEndian.Uint32(header[28:32]) != worldPixels || binary.LittleEndian.Uint32(header[32:36]) != worldPixels || !allZero(header[39:fixedBlockHeaderBytes]) || !allZero(header[payloadDigestOffset+sha256.Size:]) {
+	if len(header) != BlockHeaderBytes || string(header[:8]) != string(blockMagic[:]) || binary.LittleEndian.Uint16(header[8:10]) != BlockVersion || binary.LittleEndian.Uint16(header[10:12]) != BlockHeaderBytes || binary.LittleEndian.Uint16(header[12:14]) != delivery.RangePointRecordBytes || binary.LittleEndian.Uint16(header[14:16]) != BlockRows || binary.LittleEndian.Uint16(header[16:18]) != BlockColumns || (header[18] != MaxZoom && header[18] != RegionalMaxZoom) || header[19] != 1 || binary.LittleEndian.Uint32(header[28:32]) != uint32(tiledelivery.TileSize)<<header[18] || binary.LittleEndian.Uint32(header[32:36]) != uint32(tiledelivery.TileSize)<<header[18] || !allZero(header[39:fixedBlockHeaderBytes]) || !allZero(header[payloadDigestOffset+sha256.Size:]) {
 		return BlockIdentity{}, [sha256.Size]byte{}, errors.New("invalid forecast range block header")
 	}
 	releaseLength, periodLength, tierLength := int(header[36]), int(header[37]), int(header[38])
@@ -237,8 +246,8 @@ func decodeBlockHeader(header []byte) (BlockIdentity, [sha256.Size]byte, error) 
 	periodStart := releaseStart + releaseIDBytes
 	tierStart := periodStart + periodIDBytes
 	identity := BlockIdentity{ReleaseID: string(header[releaseStart : releaseStart+releaseLength]), Period: string(header[periodStart : periodStart+periodLength]), Tier: string(header[tierStart : tierStart+tierLength]), Row: binary.LittleEndian.Uint32(header[20:24]), Column: binary.LittleEndian.Uint32(header[24:28])}
-	canonical, err := NewBlockIdentity(identity.ReleaseID, identity.Row, identity.Column)
-	if err != nil || canonical != identity || !allZero(header[releaseStart+releaseLength:periodStart]) || !allZero(header[periodStart+periodLength:tierStart]) || !allZero(header[tierStart+tierLength:payloadDigestOffset]) {
+	canonical, err := NewTierBlockIdentity(identity.ReleaseID, identity.Tier, identity.Row, identity.Column)
+	if err != nil || canonical != identity || header[18] != zoomForTier(identity.Tier) || !allZero(header[releaseStart+releaseLength:periodStart]) || !allZero(header[periodStart+periodLength:tierStart]) || !allZero(header[tierStart+tierLength:payloadDigestOffset]) {
 		return BlockIdentity{}, [sha256.Size]byte{}, errors.New("invalid forecast range block identity")
 	}
 	var payload [sha256.Size]byte
@@ -281,3 +290,11 @@ func allZero(data []byte) bool {
 	}
 	return true
 }
+
+func zoomForTier(tier string) uint8 {
+	if tier == forecasttiles.TierEurope {
+		return RegionalMaxZoom
+	}
+	return MaxZoom
+}
+func pixelsForTier(tier string) uint32 { return uint32(tiledelivery.TileSize) << zoomForTier(tier) }

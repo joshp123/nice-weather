@@ -12,7 +12,6 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastassembly"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/forecasttiles"
@@ -28,7 +27,7 @@ func TestForecastProductionPublishesWholeCandidatePointerLastAndIsIdempotent(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.GlobalDays != productDays || summary.EuropeDays != 4 || summary.BuiltProducts != 19 || summary.ReusedProducts != 0 {
+	if summary.GlobalDays != productDays || summary.EuropeDays != 4 || summary.BuiltProducts != 20 || summary.ReusedProducts != 0 {
 		t.Fatalf("forecast production summary = %+v", summary)
 	}
 	if fixture.ifsStageCalls != 1 || fixture.iconStageCalls != 1 || fixture.publishCalls != 1 {
@@ -46,7 +45,7 @@ func TestForecastProductionPublishesWholeCandidatePointerLastAndIsIdempotent(t *
 	}
 	for day := 0; day < 5; day++ {
 		date := fixture.now.AddDate(0, 0, 1+day).Format(time.DateOnly)
-		_, statErr := os.Stat(filepath.Join(summary.CandidateRoot, "forecast-days", date, forecastpoints.TierEurope))
+		_, statErr := os.Stat(filepath.Join(summary.CandidateRoot, "forecast-days", date, forecasttiles.TierEurope))
 		if day < summary.EuropeDays && statErr != nil {
 			t.Fatalf("eligible ICON-EU day %s was omitted: %v", date, statErr)
 		}
@@ -60,7 +59,7 @@ func TestForecastProductionPublishesWholeCandidatePointerLastAndIsIdempotent(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.IndexID != summary.IndexID || again.BuiltProducts != 0 || again.ReusedProducts != 19 || fixture.ifsStageCalls+fixture.iconStageCalls != stageCalls || fixture.publishCalls != 2 {
+	if again.IndexID != summary.IndexID || again.BuiltProducts != 0 || again.ReusedProducts != 20 || fixture.ifsStageCalls+fixture.iconStageCalls != stageCalls || fixture.publishCalls != 2 {
 		t.Fatalf("idempotent run = %+v; stage calls=%d publish calls=%d", again, fixture.ifsStageCalls+fixture.iconStageCalls, fixture.publishCalls)
 	}
 }
@@ -156,7 +155,7 @@ func TestForecastProductionCleansPrivateCandidateBeforeResume(t *testing.T) {
 	fixture := newForecastProductionFixture(t)
 	first, last := fixture.now.AddDate(0, 0, 1), fixture.now.AddDate(0, 0, productDays)
 	indexID := forecastProductionID(fixture.ifsRun.Time, fixture.iconRun.StartedAt, 4, first, last)
-	if !strings.Contains(indexID, "-v5-") {
+	if !strings.Contains(indexID, "-v7-") {
 		t.Fatalf("forecast production ID does not include artifact contract: %s", indexID)
 	}
 	candidate := filepath.Join(fixture.config.ArtifactRoot, "forecast", ".candidate-"+indexID)
@@ -209,7 +208,7 @@ func TestForecastProductionCancellationRetainsOnlyPrivateCompletedProductsAndRes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.ReusedProducts != 2 || resumed.BuiltProducts != 17 || fixture.publishCalls != 1 {
+	if resumed.ReusedProducts != 2 || resumed.BuiltProducts != 18 || fixture.publishCalls != 1 {
 		t.Fatalf("resumed summary = %+v, publish calls=%d", resumed, fixture.publishCalls)
 	}
 	assertNoForecastSourceScratch(t, fixture.config.StagingRoot)
@@ -446,11 +445,13 @@ func (fixture *forecastProductionFixture) dependencies() forecastProductionDepen
 				return forecastrange.Product{}, errors.New("range build did not receive all global days")
 			}
 			for _, input := range config.Inputs {
-				if !strings.HasSuffix(input.Path, "/"+forecastpoints.TierGlobal+"/catalog.json") || strings.Contains(input.Path, forecastpoints.TierEurope) {
+				if !strings.HasSuffix(input.Path, "/"+forecasttiles.TierGlobal+"/catalog.json") || strings.Contains(input.Path, forecasttiles.TierEurope) {
 					return forecastrange.Product{}, fmt.Errorf("range input used a non-global tier: %s", input.Path)
 				}
 			}
-			root := filepath.Join(config.Root, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal)
+			tier := forecasttiles.TierGlobal
+            if len(config.RegionalInputs) > 0 { tier = forecasttiles.TierEurope; if len(config.RegionalInputs) != 4 { return forecastrange.Product{}, errors.New("regional range must retain four complete Europe days") } }
+            root := filepath.Join(config.Root, "forecast-ranges", forecastrange.Period, tier)
 			if exists, err := realDirectoryExists(root); err != nil {
 				return forecastrange.Product{}, err
 			} else if exists {
@@ -485,11 +486,11 @@ func (fixture *forecastProductionFixture) dependencies() forecastProductionDepen
 			}
 			for day := 0; day < productDays; day++ {
 				date := fixture.now.AddDate(0, 0, 1+day).Format(time.DateOnly)
-				if _, err := os.Stat(filepath.Join(candidate, "forecast-days", date, forecastpoints.TierGlobal)); err != nil {
+				if _, err := os.Stat(filepath.Join(candidate, "forecast-days", date, forecasttiles.TierGlobal)); err != nil {
 					return forecastruns.Pointer{}, fmt.Errorf("publish saw incomplete global day %s: %w", date, err)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(candidate, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename)); err != nil {
+			if _, err := os.Stat(filepath.Join(candidate, "forecast-ranges", forecastrange.Period, forecasttiles.TierGlobal, forecastrange.CatalogFilename)); err != nil {
 				return forecastruns.Pointer{}, fmt.Errorf("publish saw incomplete forecast range: %w", err)
 			}
 			if _, err := os.Stat(filepath.Join(artifactRoot, "forecast", ".candidate-"+indexID)); !errors.Is(err, os.ErrNotExist) {

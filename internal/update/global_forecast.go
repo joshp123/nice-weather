@@ -17,7 +17,6 @@ import (
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastassembly"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/forecasttiles"
@@ -189,7 +188,7 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	if err != nil {
 		return summary, fmt.Errorf("discover complete worldwide IFS run: %w", err)
 	}
-	baselineDays, ifsSteps, err := globalCanaryDaysAndSteps(now, ifsRun)
+	baselineDays, ifsSteps, err := worldwideForecastDaysAndSteps(now, ifsRun)
 	if err != nil {
 		return summary, err
 	}
@@ -241,6 +240,9 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 		return summary, err
 	} else if exists {
 		summary.ReusedProducts = summary.GlobalDays + summary.EuropeDays + 1
+		if summary.EuropeDays > 0 {
+			summary.ReusedProducts++
+		}
 		publishStarted := time.Now()
 		summary.Pointer, err = dependencies.publish(ctx, artifactRoot, summary.IndexID)
 		summary.PublishElapsed = time.Since(publishStarted)
@@ -294,7 +296,7 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	if err != nil {
 		return summary, fmt.Errorf("stage complete worldwide IFS run: %w", err)
 	}
-	if err := validateGlobalCanaryStaged(ifsRun.Time, ifsSteps, ifsStaged); err != nil {
+	if err := validateStagedIFS(ifsRun.Time, ifsSteps, ifsStaged); err != nil {
 		return summary, err
 	}
 	summary.IFSMessages = len(ifsStaged)
@@ -320,7 +322,7 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 		optionalRun(summary.ICONRun), summary.EuropeDays, summary.ICONMessages,
 		summary.StagedFiles, summary.StagedBytes, summary.StageElapsed.Round(time.Millisecond))
 
-	globalDecoder, err := dependencies.newDecoder(globalCanaryBounds)
+	globalDecoder, err := dependencies.newDecoder(worldwideForecastBounds)
 	if err != nil {
 		return summary, err
 	}
@@ -347,22 +349,22 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	for index, day := range days {
 		if err := buildForecastProductionTier(ctx, &summary, dependencies, buildingRoot, preparedRoot, day.Date,
 			stagedForDayWindow(ifsStaged, day.Date, globalOutlookDecodeWindow), globalDecoder, locate,
-			globalCanarySourceID, "worldwide IFS", forecastpoints.ProviderIFS, forecastpoints.TierGlobal, globalLand, index+1); err != nil {
+			ifsSourceID, "worldwide IFS", forecasttiles.ProviderIFS, forecasttiles.TierGlobal, globalLand, index+1); err != nil {
 			return summary, err
 		}
 		if day.Detailed {
 			if err := buildForecastProductionTier(ctx, &summary, dependencies, buildingRoot, preparedRoot, day.Date,
 				stagedForDayWindow(iconStaged, day.Date, europeDetailedDecodeWindow), europeDecoder, locate,
-				iconEUSourceID, "ICON-EU", forecastpoints.ProviderICONEU, forecastpoints.TierEurope, europeLand, index+1); err != nil {
+				iconEUSourceID, "ICON-EU", forecasttiles.ProviderICONEU, forecasttiles.TierEurope, europeLand, index+1); err != nil {
 				return summary, err
 			}
 		}
 	}
-	rangeInputs, err := forecastProductionRangeInputs(buildingRoot, days)
+	rangeInputs, err := forecastProductionRangeInputs(buildingRoot, days, forecasttiles.TierGlobal)
 	if err != nil {
 		return summary, err
 	}
-	rangeRoot := filepath.Join(buildingRoot, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal)
+	rangeRoot := filepath.Join(buildingRoot, "forecast-ranges", forecastrange.Period, forecasttiles.TierGlobal)
 	rangeReused, err := realDirectoryExists(rangeRoot)
 	if err != nil {
 		return summary, err
@@ -379,6 +381,28 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	}
 	summary.BuildElapsed += time.Since(rangeStarted)
 	fmt.Printf("forecast range %s/global: %d files/%d bytes in %s\n", forecastrange.Period, rangeProduct.Stats.OutputFiles, rangeProduct.Stats.OutputBytes, time.Since(rangeStarted).Round(time.Millisecond))
+	regionalInputs, err := forecastProductionRangeInputs(buildingRoot, days, forecasttiles.TierEurope)
+	if err != nil {
+		return summary, err
+	}
+	if len(regionalInputs) > 0 {
+		regionalReused, err := realDirectoryExists(filepath.Join(buildingRoot, "forecast-ranges", forecastrange.Period, forecasttiles.TierEurope))
+		if err != nil {
+			return summary, err
+		}
+		regionalStarted := time.Now()
+		regional, err := dependencies.buildRange(ctx, forecastrange.Config{Root: buildingRoot, ReleaseID: summary.IndexID, Inputs: rangeInputs, RegionalInputs: regionalInputs})
+		if err != nil {
+			return summary, fmt.Errorf("build European 14-day range: %w", err)
+		}
+		if regionalReused {
+			summary.ReusedProducts++
+		} else {
+			summary.BuiltProducts++
+		}
+		summary.BuildElapsed += time.Since(regionalStarted)
+		fmt.Printf("forecast range %s/europe-detail: %d files/%d bytes in %s\n", forecastrange.Period, regional.Stats.OutputFiles, regional.Stats.OutputBytes, time.Since(regionalStarted).Round(time.Millisecond))
+	}
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}
@@ -404,16 +428,19 @@ func runForecastProduction(ctx context.Context, config ForecastProductionConfig,
 	return summary, nil
 }
 
-func forecastProductionRangeInputs(root string, days []dayPlan) ([]forecastrange.InputCatalog, error) {
+func forecastProductionRangeInputs(root string, days []dayPlan, tier string) ([]forecastrange.InputCatalog, error) {
 	if len(days) != productDays {
 		return nil, errors.New("forecast range requires the exact 14-day production plan")
 	}
-	inputs := make([]forecastrange.InputCatalog, len(days))
-	for index, day := range days {
+	inputs := make([]forecastrange.InputCatalog, 0, len(days))
+	for _, day := range days {
 		date := day.Date.Format(time.DateOnly)
-		relative := filepath.ToSlash(filepath.Join("forecast-days", date, forecastpoints.TierGlobal, "catalog.json"))
+		relative := filepath.ToSlash(filepath.Join("forecast-days", date, tier, "catalog.json"))
 		path := filepath.Join(root, filepath.FromSlash(relative))
 		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) && tier == forecasttiles.TierEurope {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("inspect forecast range input %s: %w", date, err)
 		}
@@ -428,7 +455,7 @@ func forecastProductionRangeInputs(root string, days []dayPlan) ([]forecastrange
 			return nil, fmt.Errorf("forecast range input %s changed while reading", date)
 		}
 		digest := sha256.Sum256(payload)
-		inputs[index] = forecastrange.InputCatalog{Date: date, Path: relative, Bytes: uint64(len(payload)), SHA256: hex.EncodeToString(digest[:])}
+		inputs = append(inputs, forecastrange.InputCatalog{Date: date, Path: relative, Bytes: uint64(len(payload)), SHA256: hex.EncodeToString(digest[:])})
 	}
 	return inputs, nil
 }

@@ -17,7 +17,6 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
 	"nice-weather-finder/internal/weather"
@@ -49,7 +48,7 @@ func TestBuildExactWorldRangeProductPreservesStoredFingerprintsAndScalarParity(t
 	if _, err := os.Lstat(abandoned); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("abandoned range transaction remains after retry: %v", err)
 	}
-	if product.Root != filepath.Join(runRoot, productDirectory, Period, forecastpoints.TierGlobal) || len(product.Catalog.PointBlocks) != 32*32 || len(product.Catalog.ScalarCoverage) != 8*8 {
+	if product.Root != filepath.Join(runRoot, productDirectory, Period, forecasttiles.TierGlobal) || len(product.Catalog.PointBlocks) != 32*32 || len(product.Catalog.ScalarCoverage) != 8*8 {
 		t.Fatalf("range product shape = root %q blocks %d coverage %d", product.Root, len(product.Catalog.PointBlocks), len(product.Catalog.ScalarCoverage))
 	}
 	if product.Stats.MaxInputPointBytes != delivery.ForecastPointDayCount*2*tiledelivery.PointBlockBytes || product.Stats.MaxInputPointRecords != delivery.ForecastPointDayCount*tiledelivery.TileSize*tiledelivery.TileSize || product.Stats.MaxRangeBlockBytes > uint64(BlockRows)*uint64(BlockColumns)*delivery.RangePointRecordBytes || product.Stats.CatalogBytes > MaximumCatalogBytes {
@@ -131,7 +130,7 @@ func TestInputValidationRejectsMixedRunDateOrderAndDishonestProvider(t *testing.
 			mutateInputCatalog(t, root, &inputs[6], func(c *forecastcatalog.Catalog) { c.Evidence.NativeResolutionKM = 7 })
 		}, want: "grid, resolution"},
 		{name: "ICON provider", mutate: func(t *testing.T, root string, inputs []InputCatalog) {
-			mutateInputCatalog(t, root, &inputs[4], func(c *forecastcatalog.Catalog) { c.Provider = forecastpoints.ProviderICONEU })
+			mutateInputCatalog(t, root, &inputs[4], func(c *forecastcatalog.Catalog) { c.Provider = forecasttiles.ProviderICONEU })
 		}, want: "unsupported"},
 	}
 	for _, test := range tests {
@@ -255,7 +254,7 @@ func TestBuildReportsSuccessfulInstallTransactionCleanupFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "clean installed forecast range transaction") {
 		t.Fatalf("successful install cleanup error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(runRoot, productDirectory, Period, forecastpoints.TierGlobal, CatalogFilename)); err != nil {
+	if _, err := os.Stat(filepath.Join(runRoot, productDirectory, Period, forecasttiles.TierGlobal, CatalogFilename)); err != nil {
 		t.Fatalf("completed immutable range was lost after cleanup failure: %v", err)
 	}
 }
@@ -298,7 +297,7 @@ func TestRangeAntimeridianPointAndScalarOutputsStayAvailable(t *testing.T) {
 	}
 	sides := []seamSide{{longitude: -179.9, score: 64}, {longitude: 179.9, score: 73}}
 	for index := range sides {
-		id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, MaxZoom, sides[index].longitude, -0.01)
+		id, row, column, err := tiledelivery.At(forecasttiles.TierGlobal, MaxZoom, sides[index].longitude, -0.01)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -322,7 +321,7 @@ func TestRangeAntimeridianPointAndScalarOutputsStayAvailable(t *testing.T) {
 	}
 
 	for _, side := range sides {
-		id, row, column, _ := tiledelivery.At(forecastpoints.TierGlobal, MaxZoom, side.longitude, -0.01)
+		id, row, column, _ := tiledelivery.At(forecasttiles.TierGlobal, MaxZoom, side.longitude, -0.01)
 		point, ok, err := side.block.RecordAt(side.longitude, -0.01)
 		if err != nil || !ok || point.Nice.Score != side.score {
 			t.Fatalf("range seam point %.1f = %+v, %t, %v", side.longitude, point, ok, err)
@@ -391,7 +390,7 @@ func fixtureDailyPoint(t *testing.T, day int) delivery.DailyPointRecord {
 
 func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, selected delivery.DailyPointRecord, includeSelected bool) InputCatalog {
 	t.Helper()
-	dayRoot := filepath.Join(runRoot, "forecast-days", date, forecastpoints.TierGlobal)
+	dayRoot := filepath.Join(runRoot, "forecast-days", date, forecasttiles.TierGlobal)
 	if err := os.MkdirAll(dayRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -402,14 +401,14 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, _ := tiledelivery.NewPointID(forecastpoints.TierGlobal, MaxZoom, int64(blockX), int64(blockY))
+		id, _ := tiledelivery.NewPointID(forecasttiles.TierGlobal, MaxZoom, int64(blockX), int64(blockY))
 		records := make([]delivery.DailyPointRecord, tiledelivery.PointBlockSize*tiledelivery.PointBlockSize)
 		records[recordRow*tiledelivery.PointBlockSize+recordColumn] = record
 		asset, err := writer.Write(id, date, records)
 		if err != nil {
 			t.Fatal(err)
 		}
-		relative := filepath.ToSlash(filepath.Join("points", date, forecastpoints.TierGlobal, fmt.Sprint(MaxZoom), fmt.Sprint(blockX), fmt.Sprintf("%d.nwt", blockY)))
+		relative := filepath.ToSlash(filepath.Join("points", date, forecasttiles.TierGlobal, fmt.Sprint(MaxZoom), fmt.Sprint(blockX), fmt.Sprintf("%d.nwt", blockY)))
 		destination := filepath.Join(dayRoot, filepath.FromSlash(relative))
 		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 			t.Fatal(err)
@@ -431,21 +430,6 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 	grid := delivery.GridSpec{Bounds: delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}, Rows: 720, Cols: 1440}
 	runUTC := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	evidence := fixtureDigest("evidence")
-	blockRows, blockColumns, _ := forecastpoints.BlockGrid(forecastpoints.ProviderIFS, forecastpoints.TierGlobal, grid)
-	blocks := make([]forecastpoints.Asset, 0, blockRows*blockColumns)
-	for row := uint32(0); row < blockRows; row++ {
-		for column := uint32(0); column < blockColumns; column++ {
-			identity, _ := forecastpoints.NewIdentity(releaseID, forecastpoints.ProviderIFS, forecastpoints.TierGlobal, date, runUTC.Format(time.RFC3339), evidence, grid, forecastpoints.Coordinate{Row: row, Column: column})
-			recordCount := uint32(identity.Rows) * uint32(identity.Columns)
-			asset := forecastpoints.Asset{Identity: identity, MediaType: forecastpoints.MediaType, Omitted: true, NoDataRecords: recordCount}
-			if row == 0 && column == 0 {
-				path, _ := forecastpoints.RelativePath(identity)
-				whole, _ := forecastpoints.WholeRange(identity)
-				asset = forecastpoints.Asset{Identity: identity, Path: filepath.Join(dayRoot, filepath.FromSlash(path)), Bytes: uint64(whole.Length), SHA256: fixtureDigest("native-whole"), PayloadSHA256: fixtureDigest("native-payload"), MediaType: forecastpoints.MediaType, DataRecords: 1, NoDataRecords: recordCount - 1}
-			}
-			blocks = append(blocks, asset)
-		}
-	}
 	outcomes := make([]forecasttiles.MaxZoomOutcome, 0, 64)
 	for y := uint32(0); y < 8; y++ {
 		for x := uint32(0); x < 8; x++ {
@@ -475,7 +459,7 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 		}
 	}
 	scalarCatalog := forecasttiles.Catalog{
-		Version: forecastcatalog.CatalogVersion, ReleaseID: releaseID, Period: date, Tier: forecastpoints.TierGlobal, Date: date, MaxZoom: MaxZoom,
+		Version: forecasttiles.CatalogVersion, ReleaseID: releaseID, Period: date, Tier: forecasttiles.TierGlobal, Date: date, MaxZoom: MaxZoom,
 		Source: forecasttiles.SourceIdentity{SourceID: "ecmwf-ifs-control", RunUTC: runUTC.Format(time.RFC3339), Grid: grid, NativeResolutionKM: 28, EvidenceSHA256: evidence},
 		Land: forecasttiles.LandIdentity{
 			Authority: forecasttiles.LandAuthorityNaturalEarth, Dataset: forecasttiles.LandDatasetNaturalEarth10M, Version: forecasttiles.LandVersionNaturalEarth511,
@@ -483,7 +467,7 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 		},
 		MaxZoomOutcomes: outcomes, Points: points, Scalars: scalars,
 	}
-	catalog, err := forecastcatalog.New(forecastcatalog.Config{ReleaseID: releaseID, LocalDate: date, Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, RunUTC: runUTC, SourceEvidenceSHA256: evidence}, blocks, scalarCatalog)
+	catalog, err := forecastcatalog.New(forecastcatalog.Config{ReleaseID: releaseID, LocalDate: date, Provider: forecasttiles.ProviderIFS, Tier: forecasttiles.TierGlobal, RunUTC: runUTC, SourceEvidenceSHA256: evidence}, scalarCatalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,12 +480,12 @@ func writeDailyCatalogFixture(t *testing.T, runRoot, releaseID, date string, sel
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(payload)
-	return InputCatalog{Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecastpoints.TierGlobal, forecastcatalogFilename)), Bytes: uint64(len(payload)), SHA256: hex.EncodeToString(digest[:])}
+	return InputCatalog{Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecasttiles.TierGlobal, forecastcatalogFilename)), Bytes: uint64(len(payload)), SHA256: hex.EncodeToString(digest[:])}
 }
 
 func fixtureDailyScalarPath(date string, field forecasttiles.Field, zoom uint8, x, y uint32) (string, error) {
 	suffix := map[forecasttiles.Field]string{forecasttiles.FieldThermal: ".th", forecasttiles.FieldDryness: ".dr", forecasttiles.FieldSun: ".su", forecasttiles.FieldNiceScore: ".ns", forecasttiles.FieldNiceWind: ".nw", forecasttiles.FieldCyclingScore: ".cs", forecasttiles.FieldCyclingWind: ".cw"}[field]
-	return filepath.ToSlash(filepath.Join("scores", date, forecastpoints.TierGlobal+suffix, string(rune('0'+zoom)), string(rune('0'+x)), string(rune('0'+y))+".nws")), nil
+	return filepath.ToSlash(filepath.Join("scores", date, forecasttiles.TierGlobal+suffix, string(rune('0'+zoom)), string(rune('0'+x)), string(rune('0'+y))+".nws")), nil
 }
 
 func mutateInputCatalog(t *testing.T, root string, input *InputCatalog, mutate func(*forecastcatalog.Catalog)) {
@@ -530,28 +514,16 @@ func mutateInputCatalog(t *testing.T, root string, input *InputCatalog, mutate f
 
 func constantRangeRecord(t *testing.T, score uint8) delivery.RangePointRecord {
 	t.Helper()
-	display := delivery.DisplayScoreRecord{Thermal: score, Dryness: score, Sun: score, NiceScore: score, NiceWind: score, CyclingScore: score, CyclingWind: score, Valid: true}
+	display := delivery.DailyPointRecord{Thermal: score, Dryness: score, Sun: score, NiceScore: score, NiceWind: score, CyclingScore: score, CyclingWind: score, Weather: delivery.DailyRecord{Valid: true}}
 	var days [delivery.ForecastPointDayCount]delivery.DailyPointRecord
 	for index := range days {
-		days[index] = storedDailyPoint(display)
+		days[index] = display
 	}
 	record, err := rangeRecord(days)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return record
-}
-
-func storedDailyPoint(display delivery.DisplayScoreRecord) delivery.DailyPointRecord {
-	if !display.Valid {
-		return delivery.DailyPointRecord{}
-	}
-	return delivery.DailyPointRecord{
-		Weather: delivery.DailyRecord{Valid: true},
-		Thermal: display.Thermal, Dryness: display.Dryness, Sun: display.Sun,
-		NiceScore: display.NiceScore, NiceWind: display.NiceWind,
-		CyclingScore: display.CyclingScore, CyclingWind: display.CyclingWind,
-	}
 }
 
 func findScalar(t *testing.T, catalog Catalog, field forecasttiles.Field, zoom uint8, x, y uint32) ScalarTile {
@@ -573,7 +545,7 @@ func fixtureDigest(value string) string {
 func TestStoredRangeRecordUsesSummarizeRangeWithoutRescoring(t *testing.T) {
 	var displays [delivery.ForecastPointDayCount]delivery.DailyPointRecord
 	for index := range displays {
-		displays[index] = storedDailyPoint(delivery.DisplayScoreRecord{Thermal: uint8(50 + index), Dryness: 80, Sun: 70, NiceScore: uint8(20 + index*5), NiceWind: 90, CyclingScore: uint8(10 + index*4), CyclingWind: 40, Valid: true})
+		displays[index] = delivery.DailyPointRecord{Thermal: uint8(50 + index), Dryness: 80, Sun: 70, NiceScore: uint8(20 + index*5), NiceWind: 90, CyclingScore: uint8(10 + index*4), CyclingWind: 40, Weather: delivery.DailyRecord{Valid: true}}
 	}
 	record, err := rangeRecord(displays)
 	if err != nil {
@@ -600,7 +572,7 @@ func TestWorstCaseWorldCatalogueFitsStaticDeliveryLimit(t *testing.T) {
 	first := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	catalog := Catalog{
 		Version: CatalogVersion, ProductContract: ProductContract, ReleaseID: strings.Repeat("r", 64), Period: Period,
-		Source:           Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: "2026-07-22T12:00:00Z", NativeResolutionKM: 28, StaleAfterHours: StaleAfterHours},
+		Source:           Source{Provider: forecasttiles.ProviderIFS, Tier: forecasttiles.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: "2026-07-22T12:00:00Z", NativeResolutionKM: 28, StaleAfterHours: StaleAfterHours},
 		Grid:             Grid{Projection: "EPSG:3857-XYZ", Zoom: MaxZoom, TileSize: tiledelivery.TileSize, Rows: worldPixels, Columns: worldPixels},
 		Scores:           Scores{Unit: forecastcatalog.ScoreUnit, NoDataValue: forecastcatalog.ScoreNoData, MediaType: tiledelivery.ScalarMediaType, Profiles: []weather.Profile{weather.ProfileNice, weather.ProfileCycling}, Fields: append([]FieldContract(nil), fieldContracts...)},
 		PointBlockLayout: PointBlockLayout{Rows: BlockRows, Columns: BlockColumns, HeaderBytes: BlockHeaderBytes, RecordBytes: delivery.RangePointRecordBytes, MediaType: BlockMediaType},
@@ -608,7 +580,7 @@ func TestWorstCaseWorldCatalogueFitsStaticDeliveryLimit(t *testing.T) {
 	for day := 0; day < delivery.ForecastPointDayCount; day++ {
 		date := first.AddDate(0, 0, day).Format(time.DateOnly)
 		catalog.Dates = append(catalog.Dates, date)
-		catalog.Inputs = append(catalog.Inputs, InputCatalog{Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecastpoints.TierGlobal, forecastcatalogFilename)), Bytes: forecastcatalog.MaximumCatalogBytes, SHA256: fixtureDigest("input")})
+		catalog.Inputs = append(catalog.Inputs, InputCatalog{Date: date, Path: filepath.ToSlash(filepath.Join("forecast-days", date, forecasttiles.TierGlobal, forecastcatalogFilename)), Bytes: forecastcatalog.MaximumCatalogBytes, SHA256: fixtureDigest("input")})
 	}
 	for row := uint32(0); row < blockCount; row++ {
 		for column := uint32(0); column < blockCount; column++ {
@@ -640,14 +612,4 @@ func TestWorstCaseWorldCatalogueFitsStaticDeliveryLimit(t *testing.T) {
 		t.Fatalf("worst-case catalogue = %d bytes; maximum %d", len(encoded), MaximumCatalogBytes)
 	}
 	t.Logf("worst-case world catalogue: %d bytes", len(encoded))
-}
-
-func TestLegacyFreshnessCannotBeMarshalledIntoANewCatalogue(t *testing.T) {
-	catalog := Catalog{
-		Version: CatalogVersion, ProductContract: ProductContract, ReleaseID: "legacy", Period: Period,
-		Source: Source{Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal, Product: forecastcatalog.ProductIFSControl, RunUTC: "2026-07-22T12:00:00Z", NativeResolutionKM: 28, StaleAfterHours: legacyStaleAfterHours},
-	}
-	if _, err := Marshal(catalog); err == nil || !strings.Contains(err.Error(), "source must be the global IFS product") {
-		t.Fatalf("Marshal legacy freshness error = %v", err)
-	}
 }

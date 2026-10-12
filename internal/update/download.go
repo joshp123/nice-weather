@@ -36,17 +36,6 @@ type stagedFrame struct {
 	spacing    float64
 }
 
-// stagedForDay bounds decoded memory to one product day. The preceding sample
-// is retained so cumulative precipitation and interval fields can be
-// normalized at the first product-window boundary.
-func stagedForDay(staged []stagedFrame, date time.Time, detailed bool) []stagedFrame {
-	window := europeOutlookDecodeWindow
-	if detailed {
-		window = europeDetailedDecodeWindow
-	}
-	return stagedForDayWindow(staged, date, window)
-}
-
 func stagedForDayWindow(staged []stagedFrame, date time.Time, window utcDayWindow) []stagedFrame {
 	start := window.start(date)
 	end := window.end(date)
@@ -236,24 +225,6 @@ func stageIFS(ctx context.Context, client *ifs.Client, run ifs.Run, steps []int,
 		return nil, err
 	}
 	return results, nil
-}
-
-func decodeFrames(ctx context.Context, decoder *pipeline.Decoder, staged []stagedFrame) (pipeline.Series, error) {
-	series := make(pipeline.Series)
-	for index, item := range staged {
-		frame, err := decoder.Decode(ctx, pipeline.DecodeRequest{
-			Path: item.path, Field: item.field, Run: item.run,
-			NativeResolutionKM: item.resolution, CellDegrees: item.spacing,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("decode %s step %d: %w", item.field, item.step, err)
-		}
-		series[item.field] = append(series[item.field], frame)
-		if (index+1)%25 == 0 || index+1 == len(staged) {
-			fmt.Printf("decoded %d/%d forecast fields\n", index+1, len(staged))
-		}
-	}
-	return series, nil
 }
 
 func dwdPipelineField(name string) (pipeline.Field, error) {

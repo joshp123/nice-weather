@@ -6,16 +6,14 @@ const POINTER_PATH = '/forecast/current.json';
 const POINTER_BYTES = 2_048;
 const INDEX_BYTES = 64 * 1_024;
 const DAILY_CATALOG_BYTES = 1_024 * 1_024;
-const RANGE_CATALOG_BYTES = 512 * 1_024;
+const RANGE_CATALOG_BYTES = 2 * 1_024 * 1_024;
 const SCALAR_BYTES = 258 * 258;
 const DAILY_POINT_BLOCK_HEADER_BYTES = 192;
 const DAILY_POINT_BLOCK_SIDE = 64;
 const DAILY_POINT_BLOCK_BYTES = DAILY_POINT_BLOCK_HEADER_BYTES + DAILY_POINT_BLOCK_SIDE * DAILY_POINT_BLOCK_SIDE * 30;
-const DAILY_HEADER_BYTES = 320;
 const RANGE_HEADER_BYTES = 256;
 const DAILY_RECORD_BYTES = 30;
 const RANGE_RECORD_BYTES = 44;
-const DAILY_MEDIA = 'application/vnd.nice-weather.forecast-block';
 const RANGE_MEDIA = 'application/vnd.nice-weather.forecast-range-block';
 const DAILY_POINT_BLOCK_MEDIA = 'application/vnd.nice-weather.daily-point-block';
 const SCALAR_MEDIA = 'application/vnd.nice-weather.score-tile';
@@ -28,7 +26,6 @@ export type ForecastField = typeof FIELDS[number];
 export type ForecastTier = 'europe-detail' | 'global';
 export type ForecastScalarTile = Readonly<{ field: ForecastField; zoom: number; x: number; y: number; path: string; bytes: number; sha256: string; mediaType?: string }>;
 export type ForecastDailyPointBlock = Readonly<{ zoom: number; x: number; y: number; path: string; bytes: number; sha256: string; payloadSha256: string; mediaType: string; dataRecords: number; noDataRecords: number }>;
-export type ForecastPointBlock = Readonly<{ row: number; column: number; rows: number; columns: number; omitted: boolean; path?: string; bytes?: number; sha256?: string; payloadSha256?: string; mediaType: string }>;
 export type ForecastCoverage = Readonly<{ zoom: number; x: number; y: number; omitted: boolean; dataRecords: number; fallbackRecords: number; noDataRecords: number }>;
 export type ForecastLandIdentity = Readonly<{
   authority: 'Natural Earth'; dataset: 'ne_10m_land'; version: '5.1.1';
@@ -36,35 +33,35 @@ export type ForecastLandIdentity = Readonly<{
 }>;
 
 type TierReference = Readonly<{
-  date: string; provider: string; tier: ForecastTier; product: string; runUtc: string; nativeResolutionKm: number;
+  releaseId: string; date: string; provider: string; tier: ForecastTier; product: string; runUtc: string; nativeResolutionKm: number;
   sourceEvidenceSha256: string; catalogPath: string; catalogBytes: number; catalogSha256: string;
 }>;
 type RangeReference = Readonly<{
-  period: 'next-14-days'; provider: 'ecmwf-ifs'; tier: 'global'; product: string; runUtc: string; nativeResolutionKm: 28;
-  staleAfterHours: 18 | 36; catalogPath: string; catalogBytes: number; catalogSha256: string;
+  period: 'next-14-days'; provider: 'ecmwf-ifs'; tier: ForecastTier; product: string; runUtc: string; nativeResolutionKm: 28;
+  staleAfterHours: 36; catalogPath: string; catalogBytes: number; catalogSha256: string;
 }>;
 
 export type ForecastIndex = Readonly<{
-  version: 2; productContract: 'nice-weather-forecast-run-v5'; indexId: string; firstDate: string; lastDate: string;
-  days: readonly Readonly<{ date: string; tiers: readonly TierReference[] }>[]; range: RangeReference;
+  version: 3; productContract: 'nice-weather-forecast-run-v7'; indexId: string; firstDate: string; lastDate: string;
+  days: readonly Readonly<{ date: string; tiers: readonly TierReference[] }>[]; range: RangeReference; regionalRange?: RangeReference;
 }>;
 
 export type DailyForecastCatalog = Readonly<{
-  version: 3; releaseId: string; localDate: string; provider: string; tier: ForecastTier;
+  version: 4; releaseId: string; localDate: string; provider: string; tier: ForecastTier;
   grid: Readonly<{ west: number; east: number; south: number; north: number; rows: number; columns: number }>;
   evidence: Readonly<{ product: string; runUtc: string; nativeResolutionKm: number; sourceEvidenceSha256: string }>;
   land: ForecastLandIdentity;
-  scalarMaxZoom: 3 | 5; pointBlocks: readonly ForecastPointBlock[]; dailyPointBlocks: readonly ForecastDailyPointBlock[];
+  scalarMaxZoom: 3 | 5; dailyPointBlocks: readonly ForecastDailyPointBlock[];
   scalarCoverage: readonly ForecastCoverage[]; scalarTiles: readonly ForecastScalarTile[]; root: string;
 }>;
 
 export type DayForecastProduct = Readonly<{ indexId: string; date: string; tiers: readonly DailyForecastCatalog[] }>;
 
 export type RangeForecastCatalog = Readonly<{
-  version: 1; productContract: 'nice-weather-forecast-range-v2'; releaseId: string; period: 'next-14-days'; dates: readonly string[];
+  version: 1; productContract: 'nice-weather-forecast-range-v3'; releaseId: string; period: 'next-14-days'; dates: readonly string[];
   source: Readonly<{ provider: 'ecmwf-ifs'; tier: 'global'; product: string; runUtc: string; nativeResolutionKm: 28; staleAfterHours: 36 }>;
   pointBlocks: readonly Readonly<{ row: number; column: number; omitted: boolean; path?: string; bytes?: number; sha256?: string; payloadSha256?: string }>[];
-  scalarCoverage: readonly ForecastCoverage[]; scalarTiles: readonly ForecastScalarTile[]; root: string;
+  scalarCoverage: readonly ForecastCoverage[]; scalarTiles: readonly ForecastScalarTile[]; root: string; tier: ForecastTier; scalarMaxZoom: 3 | 5; regional?: RangeForecastCatalog;
 }>;
 
 export type ForecastSnapshot = Readonly<{ index: ForecastIndex; range: RangeForecastCatalog }>;
@@ -104,16 +101,10 @@ export class WorldwideForecastClient {
   readonly #fetcher: typeof fetch;
   readonly #json = new Map<string, unknown>();
   readonly #blocks = new Map<string, Uint8Array>();
-  #active?: AbortController;
-  #generation = 0;
 
   constructor(fetcher?: typeof fetch) {
     this.#fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init));
   }
-
-  async loadIndex(signal?: AbortSignal): Promise<ForecastIndex> { return (await this.#snapshot(signal)).index; }
-
-  async loadRangeCatalog(signal?: AbortSignal): Promise<RangeForecastCatalog> { return (await this.#snapshot(signal)).range; }
 
   async loadSnapshot(signal?: AbortSignal): Promise<ForecastSnapshot> { return this.#snapshot(signal); }
 
@@ -127,38 +118,81 @@ export class WorldwideForecastClient {
     return Object.freeze({ indexId: index.indexId, date: day.date, tiers: Object.freeze(tiers) });
   }
 
-  async loadRangePoint(snapshot: ForecastSnapshot, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, signal?: AbortSignal): Promise<ForecastWindowPoint> {
+  async loadRangePoint(snapshot: ForecastSnapshot, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, signal?: AbortSignal, allowNearbyLand = false): Promise<ForecastWindowPoint> {
     const { index, range } = snapshot;
-    const location = xyzLocation(longitude, latitude, 3);
-    const blockRow = Math.floor(location.globalY / 64), blockColumn = Math.floor(location.globalX / 64);
-    const block = range.pointBlocks.find((item) => item.row === blockRow && item.column === blockColumn);
-    if (!block || block.omitted) throw new ForecastDataError('unavailable', 'There is no complete weather record here.');
-    const bytes = await this.#block(`${range.root}/${requiredPath(block.path)}`, requiredInteger(block.bytes), requiredSHA(block.sha256), RANGE_MEDIA, signal);
-    validateRangeHeader(bytes, range, blockRow, blockColumn, requiredSHA(block.payloadSha256));
-    const local = (location.globalY % 64) * 64 + location.globalX % 64;
-    const record = bytes.subarray(RANGE_HEADER_BYTES + local * RANGE_RECORD_BYTES, RANGE_HEADER_BYTES + (local + 1) * RANGE_RECORD_BYTES);
-    const result = decodeRangeRecord(record, longitude, latitude, index, range, profile, presentation);
-    await this.#confirmPointerID(index.indexId, signal);
-    return result;
+    for (const catalog of [range.regional, range]) {
+      if (!catalog) continue;
+      const location = xyzLocation(longitude, latitude, catalog.scalarMaxZoom);
+      const blockRow = Math.floor(location.globalY / 64), blockColumn = Math.floor(location.globalX / 64);
+      const block = catalog.pointBlocks.find((item) => item.row === blockRow && item.column === blockColumn);
+      if (!block || block.omitted) continue;
+      const bytes = await this.#block(`${catalog.root}/${requiredPath(block.path)}`, requiredInteger(block.bytes), requiredSHA(block.sha256), RANGE_MEDIA, signal);
+      validateRangeHeader(bytes, catalog, blockRow, blockColumn, requiredSHA(block.payloadSha256));
+      const local = (location.globalY % 64) * 64 + location.globalX % 64;
+      const record = bytes.subarray(RANGE_HEADER_BYTES + local * RANGE_RECORD_BYTES, RANGE_HEADER_BYTES + (local + 1) * RANGE_RECORD_BYTES);
+      if (record.every((value) => value === 0)) continue;
+      const result = decodeRangeRecord(record, longitude, latitude, index, catalog, profile, presentation);
+      await this.#confirmPointerID(index.indexId, signal);
+      return result;
+    }
+    if (allowNearbyLand) {
+      for (const candidate of nearbyDisplayCells(longitude, latitude, Boolean(range.regional))) {
+        try {
+          const nearby = await this.loadRangePoint(snapshot, candidate.longitude, candidate.latitude, profile, presentation, signal);
+          return { ...nearby, lon: longitude, lat: latitude, sourceCell: candidate };
+        } catch (error) {
+          if (!(error instanceof ForecastDataError) || error.code !== 'unavailable') throw error;
+        }
+      }
+    }
+    throw new ForecastDataError('unavailable', 'There is no complete weather record here.');
   }
 
   async loadDailyPoint(product: DayForecastProduct, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, signal?: AbortSignal): Promise<DailyPoint> {
-    this.#active?.abort(new ForecastDataError('stale'));
-    const active = new AbortController(); this.#active = active; const generation = ++this.#generation;
-    const combined = combineSignals(active.signal, signal);
-    try {
-      const selected = forecastTierForPoint(product, longitude, latitude);
-      const record = await this.#dailyRecord(selected, longitude, latitude, combined);
-      if (!record) throw new ForecastDataError('invalid', 'Detailed forecast coverage is incomplete here.');
-      if (generation !== this.#generation) throw new ForecastDataError('stale');
-      await this.#confirmPointerID(product.indexId, combined);
-      return decodeDailyRecord(record, longitude, latitude, selected, profile, presentation);
-    } finally { if (this.#active === active) this.#active = undefined; }
+    const preferred = forecastTierForPoint(product, longitude, latitude);
+    for (const catalog of [preferred, ...product.tiers.filter((tier) => tier !== preferred && tier.tier === 'global')]) {
+      const point = await this.#dailyPoint(catalog, longitude, latitude, profile, presentation, signal);
+      if (!point) continue;
+      await this.#confirmPointerID(product.indexId, signal);
+      return { ...point, releaseId: product.indexId };
+    }
+    throw new ForecastDataError('unavailable', 'Detailed forecast coverage is incomplete here.');
+  }
+
+  async loadPeriodEvidence(snapshot: ForecastSnapshot, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, signal?: AbortSignal): Promise<readonly DailyPoint[]> {
+    const { index, range } = snapshot;
+    const location = xyzLocation(longitude, latitude, 5);
+    const withinRegionalCoverage = range.regional && declaredTile(range.regional, location.id);
+    const points: DailyPoint[] = [];
+    const loadDay = async (day: ForecastIndex['days'][number]): Promise<DailyPoint> => {
+      const detail = withinRegionalCoverage ? day.tiers.find(({ tier }) => tier === 'europe-detail') : undefined;
+      const global = day.tiers.find(({ tier }) => tier === 'global')!;
+      for (const reference of detail ? [detail, global] : [global]) {
+        const catalog = await this.#daily(index, reference, signal);
+        const point = await this.#dailyPoint(catalog, longitude, latitude, profile, presentation, signal);
+        if (point) return { ...point, releaseId: index.indexId };
+      }
+      throw new ForecastDataError('unavailable', 'Detailed forecast coverage is incomplete here.');
+    };
+    for (let offset = 0; offset < index.days.length; offset += 4) {
+      points.push(...await Promise.all(index.days.slice(offset, offset + 4).map(loadDay)));
+    }
+    await this.#confirmPointerID(index.indexId, signal);
+    return Object.freeze(points);
+  }
+
+  async #dailyPoint(catalog: DailyForecastCatalog, longitude: number, latitude: number, profile: Profile, presentation: ForecastPresentation, signal?: AbortSignal): Promise<DailyPoint | undefined> {
+    const record = await this.#dailyRecord(catalog, longitude, latitude, signal);
+    return record ? decodeDailyRecord(record, longitude, latitude, catalog, profile, presentation) : undefined;
   }
 
   scalarSourceForOutputTile(product: RangeForecastCatalog | DayForecastProduct, field: ForecastField, output: ScalarTileID): ScalarTileSource | undefined {
     if (!FIELDS.includes(field) || !tileID(output)) return undefined;
-    if ('period' in product) return scalarSource(product, product, field, output);
+    if ('period' in product) {
+      const regional = product.regional;
+      if (output.z === 5 && regional && declaredTile(regional, output)) return scalarSource(regional, regional, field, output);
+      return scalarSource(product, product, field, output);
+    }
     const global = product.tiers.find(({ tier }) => tier === 'global');
     const detail = product.tiers.find(({ tier }) => tier === 'europe-detail');
     if (!global) throw new ForecastDataError('invalid');
@@ -170,13 +204,10 @@ export class WorldwideForecastClient {
     return scalarSource(global, global, field, output);
   }
 
-  sourceZoomFor(product: RangeForecastCatalog | DayForecastProduct, mapZoom: number): number {
-    if ('period' in product || !product.tiers.some(({ tier }) => tier === 'europe-detail') || mapZoom < 4) return 3;
-    return 5;
-  }
-
   async #snapshot(signal?: AbortSignal): Promise<ForecastSnapshot> {
-    const pointer = await this.#pointer(signal); const index = await this.#index(pointer, signal); const range = await this.#range(index, signal);
+    const pointer = await this.#pointer(signal); const index = await this.#index(pointer, signal); const global = await this.#range(index, index.range, signal);
+    const regional = index.regionalRange ? await this.#range(index, index.regionalRange, signal) : undefined;
+    const range = regional ? Object.freeze({ ...global, regional }) : global;
     await this.#confirm(pointer, signal); return Object.freeze({ index, range });
   }
 
@@ -192,38 +223,38 @@ export class WorldwideForecastClient {
 
   async #index(pointer: Pointer, signal?: AbortSignal): Promise<ForecastIndex> {
     const key = `${pointer.current.path}:${pointer.current.sha256}`;
-    const cached = this.#json.get(key) as ForecastIndex | undefined; if (cached) { touch(this.#json, key, cached, 8); return cached; }
+    const cached = this.#json.get(key) as ForecastIndex | undefined; if (cached) { touch(this.#json, key, cached, 32); return cached; }
     const bytes = await this.#jsonBytes(`/forecast/${pointer.current.path}`, INDEX_BYTES, true, signal);
     if (await digest(bytes) !== pointer.current.sha256) throw new ForecastDataError('invalid');
-    const index = parseIndex(parseJSON(bytes), pointer.current.indexId); insert(this.#json, key, index, 8); return index;
+    const index = parseIndex(parseJSON(bytes), pointer.current.indexId); insert(this.#json, key, index, 32); return index;
   }
 
-  async #range(index: ForecastIndex, signal?: AbortSignal): Promise<RangeForecastCatalog> {
-    const reference = index.range, key = `${reference.catalogPath}:${reference.catalogSha256}`;
-    const cached = this.#json.get(key) as RangeForecastCatalog | undefined; if (cached) { touch(this.#json, key, cached, 8); return cached; }
+  async #range(index: ForecastIndex, reference: RangeReference, signal?: AbortSignal): Promise<RangeForecastCatalog> {
+    const key = `${reference.catalogPath}:${reference.catalogSha256}`;
+    const cached = this.#json.get(key) as RangeForecastCatalog | undefined; if (cached) { touch(this.#json, key, cached, 32); return cached; }
     const bytes = await this.#jsonBytes(`/forecast/${reference.catalogPath}`, reference.catalogBytes, true, signal);
     if (bytes.byteLength !== reference.catalogBytes || await digest(bytes) !== reference.catalogSha256) throw new ForecastDataError('invalid');
     const root = `/forecast/${reference.catalogPath.slice(0, reference.catalogPath.lastIndexOf('/'))}`;
-    const range = parseRange(parseJSON(bytes), index, root); insert(this.#json, key, range, 8); return range;
+    const range = parseRange(parseJSON(bytes), index, reference, root); insert(this.#json, key, range, 32); return range;
   }
 
   async #daily(index: ForecastIndex, reference: TierReference, signal?: AbortSignal): Promise<DailyForecastCatalog> {
     const key = `${reference.catalogPath}:${reference.catalogSha256}`;
-    const cached = this.#json.get(key) as DailyForecastCatalog | undefined; if (cached) { touch(this.#json, key, cached, 24); return cached; }
+    const cached = this.#json.get(key) as DailyForecastCatalog | undefined; if (cached) { touch(this.#json, key, cached, 32); return cached; }
     const bytes = await this.#jsonBytes(`/forecast/${reference.catalogPath}`, reference.catalogBytes, true, signal);
     if (bytes.byteLength !== reference.catalogBytes || await digest(bytes) !== reference.catalogSha256) throw new ForecastDataError('invalid');
     const root = `/forecast/${reference.catalogPath.slice(0, reference.catalogPath.lastIndexOf('/'))}`;
-    const catalog = parseDaily(parseJSON(bytes), index, reference, root); insert(this.#json, key, catalog, 24); return catalog;
+    const catalog = parseDaily(parseJSON(bytes), index, reference, root); insert(this.#json, key, catalog, 32); return catalog;
   }
 
   async #dailyRecord(catalog: DailyForecastCatalog, lon: number, lat: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
-    const native = nativePointBlock(catalog, lon, lat);
-    if (!native) return undefined;
-    const { location, block } = native;
-    const bytes = await this.#block(`${catalog.root}/${requiredPath(block.path)}`, requiredInteger(block.bytes), requiredSHA(block.sha256), DAILY_MEDIA, signal);
-    validateNativePointBlockHeader(bytes, catalog, block, requiredSHA(block.payloadSha256));
-    const localRow = location.row - block.row * 64, localColumn = location.column - block.column * 64;
-    const start = DAILY_HEADER_BYTES + (localRow * block.columns + localColumn) * DAILY_RECORD_BYTES;
+    const selected = dailyPointBlock(catalog, lon, lat);
+    if (!selected) return undefined;
+    const { location, block } = selected;
+    const bytes = await this.#block(`${catalog.root}/${block.path}`, block.bytes, block.sha256, DAILY_POINT_BLOCK_MEDIA, signal);
+    validateDailyPointBlockHeader(bytes, catalog, block, block.payloadSha256);
+    const local = (location.globalY % 64) * 64 + location.globalX % 64;
+    const start = DAILY_POINT_BLOCK_HEADER_BYTES + local * DAILY_RECORD_BYTES;
     const record = bytes.subarray(start, start + DAILY_RECORD_BYTES);
     return record.every((value) => value === 0) ? undefined : record;
   }
@@ -232,7 +263,7 @@ export class WorldwideForecastClient {
     const key = `${url}:${checksum}`, cached = this.#blocks.get(key); if (cached) return touch(this.#blocks, key, cached, 16);
     let response: Response; try { response = await this.#fetcher(url, { signal, cache: 'force-cache', headers: { Range: `bytes=0-${bytes - 1}` } }); } catch { throw new ForecastDataError('unavailable'); }
     if (response.status === 404 || response.status === 409 || response.status === 410) throw new ForecastDataError('invalid');
-    if (response.status !== 206 || response.headers.get('Content-Type')?.toLowerCase() !== media || response.headers.has('Content-Encoding') || response.headers.get('Content-Range') !== `bytes 0-${bytes - 1}/${bytes}` || response.headers.get('Content-Length') !== String(bytes)) throw new ForecastDataError('invalid');
+    if (response.status !== 206 || response.headers.get('Content-Type')?.toLowerCase() !== media || response.headers.get('Content-Range') !== `bytes 0-${bytes - 1}/${bytes}`) throw new ForecastDataError('invalid');
     const body = await readBoundedResponse(response, 'forecast point block', bytes);
     if (body.byteLength !== bytes || await digest(body) !== checksum) throw new ForecastDataError('invalid');
     insert(this.#blocks, key, body, 16); return body;
@@ -242,12 +273,9 @@ export class WorldwideForecastClient {
     let response: Response; try { response = await this.#fetcher(path, { signal, cache: immutable ? 'force-cache' : 'no-cache' }); } catch { throw new ForecastDataError('unavailable'); }
     if (response.status === 404 || response.status === 409 || response.status === 410) throw new ForecastDataError(immutable ? 'invalid' : 'unavailable');
     if (!response.ok) throw new ForecastDataError('unavailable');
-    const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase() ?? 'identity';
-    if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/json' || (encoding !== 'identity' && encoding !== 'gzip')) throw new ForecastDataError('invalid');
-    const declared = response.headers.get('Content-Length');
-    if (encoding === 'identity' && (declared === null || !/^\d+$/.test(declared) || !Number.isSafeInteger(Number(declared)) || Number(declared) < 1 || Number(declared) > maximum)) throw new ForecastDataError('invalid');
+    if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/json') throw new ForecastDataError('invalid');
     const bytes = await readBoundedResponse(response, 'forecast JSON', maximum);
-    if (bytes.byteLength < 1 || (encoding === 'identity' && bytes.byteLength !== Number(declared))) throw new ForecastDataError('invalid');
+    if (bytes.byteLength < 1) throw new ForecastDataError('invalid');
     return bytes;
   }
 
@@ -256,8 +284,8 @@ export class WorldwideForecastClient {
 }
 
 function parseIndex(value: unknown, indexId: string): ForecastIndex {
-  const row = exact(value, ['version', 'productContract', 'indexId', 'firstDate', 'lastDate', 'tierSelection', 'days', 'range']);
-  if (row.version !== 2 || row.productContract !== 'nice-weather-forecast-run-v5' || identifier(row.indexId) !== indexId) throw new ForecastDataError('invalid');
+  const row = exact(value, ['version', 'productContract', 'indexId', 'firstDate', 'lastDate', 'tierSelection', 'days', 'range', 'regionalRange'], ['regionalRange']);
+  if (row.version !== 3 || row.productContract !== 'nice-weather-forecast-run-v7' || identifier(row.indexId) !== indexId) throw new ForecastDataError('invalid');
   const selection = exact(row.tierSelection, ['method', 'priority', 'blend']);
   if (selection.method !== 'choose-one-complete-tier-before-colour' || selection.blend !== false || JSON.stringify(selection.priority) !== '["europe-detail","global"]') throw new ForecastDataError('invalid');
   const days = list(row.days).map((entry) => {
@@ -267,32 +295,34 @@ function parseIndex(value: unknown, indexId: string): ForecastIndex {
     return Object.freeze({ date: dateValue, tiers: Object.freeze(tiers) });
   });
   if (days.length !== 14 || days.some((day, i) => day.date !== addDays(days[0].date, i))) throw new ForecastDataError('invalid');
-  const range = parseRangeReference(row.range, indexId);
+  const range = parseRangeReference(row.range, indexId, 'global');
+  const regionalRange = row.regionalRange === undefined ? undefined : parseRangeReference(row.regionalRange,indexId,'europe-detail');
+  if (Boolean(regionalRange) !== days.some(({ tiers }) => tiers.some(({ tier }) => tier === 'europe-detail'))) throw new ForecastDataError('invalid');
   const firstDate = date(row.firstDate), lastDate = date(row.lastDate);
   if (firstDate !== days[0].date || lastDate !== days[13].date) throw new ForecastDataError('invalid');
-  return Object.freeze({ version: 2, productContract: 'nice-weather-forecast-run-v5', indexId, firstDate, lastDate, days: Object.freeze(days), range });
+  return Object.freeze({ version: 3, productContract: 'nice-weather-forecast-run-v7', indexId, firstDate, lastDate, days: Object.freeze(days), range, regionalRange });
 }
 
 function parseTier(value: unknown, dateValue: string, indexId: string): TierReference {
-  const row = exact(value, ['date', 'provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'sourceEvidenceSha256', 'catalogPath', 'catalogBytes', 'catalogSha256']);
+  const row = exact(value, ['releaseId', 'date', 'provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'sourceEvidenceSha256', 'catalogPath', 'catalogBytes', 'catalogSha256']);
   const tier = row.tier === 'global' ? 'global' : row.tier === 'europe-detail' ? 'europe-detail' : fail();
   const provider = text(row.provider), product = text(row.product), runUtc = timestamp(row.runUtc), resolution = positive(row.nativeResolutionKm);
   if (row.date !== dateValue || (tier === 'global' ? provider !== 'ecmwf-ifs' || resolution !== 28 : provider !== 'dwd-icon-eu' || resolution !== 7)) throw new ForecastDataError('invalid');
   const catalogPath = safePath(row.catalogPath);
   if (catalogPath !== `runs/${indexId}/forecast-days/${dateValue}/${tier}/catalog.json`) throw new ForecastDataError('invalid');
-  return Object.freeze({ date: dateValue, provider, tier, product, runUtc, nativeResolutionKm: resolution, sourceEvidenceSha256: sha(row.sourceEvidenceSha256), catalogPath, catalogBytes: boundedInteger(row.catalogBytes, 1, DAILY_CATALOG_BYTES), catalogSha256: sha(row.catalogSha256) });
+  return Object.freeze({ releaseId: identifier(row.releaseId), date: dateValue, provider, tier, product, runUtc, nativeResolutionKm: resolution, sourceEvidenceSha256: sha(row.sourceEvidenceSha256), catalogPath, catalogBytes: boundedInteger(row.catalogBytes, 1, DAILY_CATALOG_BYTES), catalogSha256: sha(row.catalogSha256) });
 }
 
-function parseRangeReference(value: unknown, indexId: string): RangeReference {
+function parseRangeReference(value: unknown, indexId: string, tier: ForecastTier): RangeReference {
   const row = exact(value, ['period', 'provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'staleAfterHours', 'catalogPath', 'catalogBytes', 'catalogSha256']);
   const catalogPath = safePath(row.catalogPath);
-  if (row.period !== 'next-14-days' || row.provider !== 'ecmwf-ifs' || row.tier !== 'global' || row.nativeResolutionKm !== 28 || !supportedStaleAfterHours(row.staleAfterHours) || catalogPath !== `runs/${indexId}/forecast-ranges/next-14-days/global/catalog.json`) throw new ForecastDataError('invalid');
-  return Object.freeze({ period: 'next-14-days', provider: 'ecmwf-ifs', tier: 'global', product: text(row.product), runUtc: timestamp(row.runUtc), nativeResolutionKm: 28, staleAfterHours: row.staleAfterHours, catalogPath, catalogBytes: boundedInteger(row.catalogBytes, 1, RANGE_CATALOG_BYTES), catalogSha256: sha(row.catalogSha256) });
+  if (row.period !== 'next-14-days' || row.provider !== 'ecmwf-ifs' || row.tier !== tier || row.nativeResolutionKm !== 28 || !supportedStaleAfterHours(row.staleAfterHours) || catalogPath !== `runs/${indexId}/forecast-ranges/next-14-days/${tier}/catalog.json`) throw new ForecastDataError('invalid');
+  return Object.freeze({ period: 'next-14-days', provider: 'ecmwf-ifs', tier, product: text(row.product), runUtc: timestamp(row.runUtc), nativeResolutionKm: 28, staleAfterHours: row.staleAfterHours, catalogPath, catalogBytes: boundedInteger(row.catalogBytes, 1, RANGE_CATALOG_BYTES), catalogSha256: sha(row.catalogSha256) });
 }
 
 function parseDaily(value: unknown, index: ForecastIndex, reference: TierReference, root: string): DailyForecastCatalog {
-  const row = exact(value, ['version', 'releaseId', 'localDate', 'provider', 'tier', 'grid', 'evidence', 'land', 'scalarMaxZoom', 'scores', 'coverage', 'pointBlocks', 'dailyPointBlocks', 'scalarCoverage', 'scalarTiles']);
-  if (row.version !== 3 || row.releaseId !== index.indexId || row.localDate !== reference.date || row.provider !== reference.provider || row.tier !== reference.tier) throw new ForecastDataError('invalid');
+  const row = exact(value, ['version', 'releaseId', 'localDate', 'provider', 'tier', 'grid', 'evidence', 'land', 'scalarMaxZoom', 'scores', 'coverage', 'dailyPointBlocks', 'scalarCoverage', 'scalarTiles']);
+  if (row.version !== 4 || row.releaseId !== reference.releaseId || row.localDate !== reference.date || row.provider !== reference.provider || row.tier !== reference.tier) throw new ForecastDataError('invalid');
   const gridRow = exact(row.grid, ['projection', 'west', 'east', 'south', 'north', 'rows', 'columns', 'cellDegrees', 'cellRegistration']);
   const grid = Object.freeze({ west: finite(gridRow.west), east: finite(gridRow.east), south: finite(gridRow.south), north: finite(gridRow.north), rows: positiveInteger(gridRow.rows), columns: positiveInteger(gridRow.columns) });
   const expected = reference.tier === 'global' ? [-180, 180, -90, 90, 720, 1440, 3] : [-24, 45, 29, 71.5, 680, 1104, 5];
@@ -304,24 +334,24 @@ function parseDaily(value: unknown, index: ForecastIndex, reference: TierReferen
   if (landRow.authority !== 'Natural Earth' || landRow.dataset !== 'ne_10m_land' || landRow.version !== '5.1.1' || landRow.derivationContract !== 'web-mercator-centre-on-land-v1') throw new ForecastDataError('invalid');
   const land = Object.freeze({ authority: 'Natural Earth' as const, dataset: 'ne_10m_land' as const, version: '5.1.1' as const, sourceArchiveSha256: sha(landRow.sourceArchiveSha256), maskSha256: sha(landRow.maskSha256), derivationContract: 'web-mercator-centre-on-land-v1' as const });
   parseScores(row.scores, false, reference.tier);
-  const pointBlocks = Object.freeze(list(row.pointBlocks).map(parsePointBlock));
   const dailyPointBlocks = Object.freeze(list(row.dailyPointBlocks).map((item) => parseDailyPointBlock(item, reference.date, reference.tier)));
   const scalarCoverage = Object.freeze(list(row.scalarCoverage).map(parseCoverage));
   const scalarTiles = Object.freeze(list(row.scalarTiles).map(parseScalar));
   validateScalarCollections(scalarCoverage, scalarTiles, row.scalarMaxZoom as 3 | 5);
   validateDailyPointBlocks(dailyPointBlocks, scalarCoverage, row.scalarMaxZoom as 3 | 5);
-  return Object.freeze({ version: 3, releaseId: index.indexId, localDate: reference.date, provider: reference.provider, tier: reference.tier, grid, evidence, land, scalarMaxZoom: row.scalarMaxZoom as 3 | 5, pointBlocks, dailyPointBlocks, scalarCoverage, scalarTiles, root });
+  return Object.freeze({ version: 4, releaseId: reference.releaseId, localDate: reference.date, provider: reference.provider, tier: reference.tier, grid, evidence, land, scalarMaxZoom: row.scalarMaxZoom as 3 | 5, dailyPointBlocks, scalarCoverage, scalarTiles, root });
 }
 
-function parseRange(value: unknown, index: ForecastIndex, root: string): RangeForecastCatalog {
-  const row = exact(value, ['version', 'productContract', 'releaseId', 'period', 'dates', 'source', 'grid', 'scores', 'pointBlockLayout', 'inputs', 'coverage', 'pointBlocks', 'scalarCoverage', 'scalarTiles']);
-  if (row.version !== 1 || row.productContract !== 'nice-weather-forecast-range-v2' || row.releaseId !== index.indexId || row.period !== 'next-14-days') throw new ForecastDataError('invalid');
+function parseRange(value: unknown, index: ForecastIndex, reference: RangeReference, root: string): RangeForecastCatalog {
+  const row = exact(value, ['version', 'productContract', 'releaseId', 'period', 'dates', 'source', 'grid', 'scores', 'pointBlockLayout', 'inputs', 'regionalInputs', 'coverage', 'pointBlocks', 'scalarCoverage', 'scalarTiles'], ['regionalInputs']);
+  if (row.version !== 1 || row.productContract !== 'nice-weather-forecast-range-v3' || row.releaseId !== index.indexId || row.period !== 'next-14-days') throw new ForecastDataError('invalid');
   const dates = list(row.dates).map(date); if (JSON.stringify(dates) !== JSON.stringify(index.days.map(({ date }) => date))) throw new ForecastDataError('invalid');
   const sourceRow = exact(row.source, ['provider', 'tier', 'product', 'runUtc', 'nativeResolutionKm', 'staleAfterHours']);
-  if (sourceRow.provider !== 'ecmwf-ifs' || sourceRow.tier !== 'global' || sourceRow.nativeResolutionKm !== 28 || !supportedStaleAfterHours(sourceRow.staleAfterHours) || sourceRow.staleAfterHours !== index.range.staleAfterHours || timestamp(sourceRow.runUtc) !== index.range.runUtc) throw new ForecastDataError('invalid');
-  const source = Object.freeze({ provider: 'ecmwf-ifs' as const, tier: 'global' as const, product: text(sourceRow.product), runUtc: index.range.runUtc, nativeResolutionKm: 28 as const, staleAfterHours: 36 as const });
-  if (source.product !== index.range.product) throw new ForecastDataError('invalid');
-  const grid = exact(row.grid, ['projection', 'zoom', 'tileSize', 'rows', 'columns']); if (grid.projection !== 'EPSG:3857-XYZ' || grid.zoom !== 3 || grid.tileSize !== 256 || grid.rows !== 2048 || grid.columns !== 2048) throw new ForecastDataError('invalid');
+  if (sourceRow.provider !== 'ecmwf-ifs' || sourceRow.tier !== 'global' || sourceRow.nativeResolutionKm !== 28 || !supportedStaleAfterHours(sourceRow.staleAfterHours) || sourceRow.staleAfterHours !== reference.staleAfterHours || timestamp(sourceRow.runUtc) !== reference.runUtc) throw new ForecastDataError('invalid');
+  const source = Object.freeze({ provider: 'ecmwf-ifs' as const, tier: 'global' as const, product: text(sourceRow.product), runUtc: reference.runUtc, nativeResolutionKm: 28 as const, staleAfterHours: 36 as const });
+  if (source.product !== reference.product) throw new ForecastDataError('invalid');
+  const maximumZoom = reference.tier === 'europe-detail' ? 5 : 3;
+  const grid = exact(row.grid, ['projection', 'zoom', 'tileSize', 'rows', 'columns']); if (grid.projection !== 'EPSG:3857-XYZ' || grid.zoom !== maximumZoom || grid.tileSize !== 256 || grid.rows !== 256 * 2 ** maximumZoom || grid.columns !== 256 * 2 ** maximumZoom) throw new ForecastDataError('invalid');
   parseScores(row.scores, true);
   const layout = exact(row.pointBlockLayout, ['rows', 'columns', 'headerBytes', 'recordBytes', 'mediaType']); if (layout.rows !== 64 || layout.columns !== 64 || layout.headerBytes !== 256 || layout.recordBytes !== 44 || layout.mediaType !== RANGE_MEDIA) throw new ForecastDataError('invalid');
   const inputs = list(row.inputs).map((entry) => {
@@ -334,13 +364,16 @@ function parseRange(value: unknown, index: ForecastIndex, root: string): RangeFo
     return { date: day.date, path: global.catalogPath.replace(`runs/${index.indexId}/`, ''), bytes: global.catalogBytes, sha256: global.catalogSha256 };
   });
   if (JSON.stringify(inputs) !== JSON.stringify(expectedInputs)) throw new ForecastDataError('invalid');
-  const pointBlocks = Object.freeze(list(row.pointBlocks).map((item) => { const block = exact(item, ['row', 'column', 'omitted', 'path', 'bytes', 'sha256', 'payloadSha256', 'dataRecords', 'noDataRecords'], ['path', 'bytes', 'sha256', 'payloadSha256']); return Object.freeze({ row: boundedInteger(block.row, 0, 31), column: boundedInteger(block.column, 0, 31), omitted: boolean(block.omitted), ...(block.omitted ? {} : { path: safePath(block.path), bytes: boundedInteger(block.bytes, RANGE_HEADER_BYTES + RANGE_RECORD_BYTES, 200_000), sha256: sha(block.sha256), payloadSha256: sha(block.payloadSha256) }) }); }));
+  const regionalInputs = row.regionalInputs === undefined ? [] : list(row.regionalInputs).map((entry) => { const input=exact(entry,['date','path','bytes','sha256']); return { date:date(input.date),path:safePath(input.path),bytes:boundedInteger(input.bytes,1,DAILY_CATALOG_BYTES),sha256:sha(input.sha256) }; });
+  const expectedRegional = reference.tier === 'europe-detail' ? index.days.flatMap((day) => day.tiers.filter(({ tier }) => tier === 'europe-detail').map((tier) => ({ date:day.date,path:tier.catalogPath.replace(`runs/${index.indexId}/`,''),bytes:tier.catalogBytes,sha256:tier.catalogSha256 }))) : [];
+  if (JSON.stringify(regionalInputs) !== JSON.stringify(expectedRegional)) throw new ForecastDataError('invalid');
+  const pointBlocks = Object.freeze(list(row.pointBlocks).map((item) => { const block = exact(item, ['row', 'column', 'omitted', 'path', 'bytes', 'sha256', 'payloadSha256', 'dataRecords', 'noDataRecords'], ['path', 'bytes', 'sha256', 'payloadSha256']); return Object.freeze({ row: boundedInteger(block.row, 0, 4 * 2 ** maximumZoom - 1), column: boundedInteger(block.column, 0, 4 * 2 ** maximumZoom - 1), omitted: boolean(block.omitted), ...(block.omitted ? {} : { path: safePath(block.path), bytes: boundedInteger(block.bytes, RANGE_HEADER_BYTES + RANGE_RECORD_BYTES, 200_000), sha256: sha(block.sha256), payloadSha256: sha(block.payloadSha256) }) }); }));
   const scalarCoverage = Object.freeze(list(row.scalarCoverage).map(parseRangeCoverage)); const scalarTiles = Object.freeze(list(row.scalarTiles).map(parseScalar));
-  validateScalarCollections(scalarCoverage, scalarTiles, 3);
-  return Object.freeze({ version: 1, productContract: 'nice-weather-forecast-range-v2', releaseId: index.indexId, period: 'next-14-days', dates: Object.freeze(dates), source, pointBlocks, scalarCoverage, scalarTiles, root });
+  validateScalarCollections(scalarCoverage, scalarTiles, maximumZoom);
+  return Object.freeze({ version: 1, productContract: 'nice-weather-forecast-range-v3', releaseId: index.indexId, period: 'next-14-days', dates: Object.freeze(dates), source, pointBlocks, scalarCoverage, scalarTiles, root, tier:reference.tier, scalarMaxZoom:maximumZoom });
 }
 
-function supportedStaleAfterHours(value: unknown): value is 18 | 36 { return value === 18 || value === 36; }
+function supportedStaleAfterHours(value: unknown): value is 36 { return value === 36; }
 
 function parseScores(value: unknown, range = false, tier?: ForecastTier) {
   const fields = exact(value, range ? ['unit', 'noDataValue', 'mediaType', 'profiles', 'fields'] : ['unit', 'noDataValue', 'fallbackValue', 'profiles', 'fields'], range || tier === 'global' ? ['fallbackValue'] : []);
@@ -348,13 +381,6 @@ function parseScores(value: unknown, range = false, tier?: ForecastTier) {
   const contracts = list(fields.fields).map((entry) => { const row = exact(entry, ['id', 'profile']); return [text(row.id), text(row.profile)]; });
   const expected = [['thermal', 'shared'], ['dryness', 'shared'], ['sun', 'shared'], ['nice_score', 'nice'], ['nice_wind', 'nice'], ['cycling_score', 'cycling'], ['cycling_wind', 'cycling']];
   if (JSON.stringify(contracts) !== JSON.stringify(expected)) throw new ForecastDataError('invalid');
-}
-
-function parsePointBlock(value: unknown): ForecastPointBlock {
-  const row = exact(value, ['row', 'column', 'rows', 'columns', 'omitted', 'path', 'bytes', 'sha256', 'payloadSha256', 'mediaType', 'dataRecords', 'noDataRecords'], ['path', 'bytes', 'sha256', 'payloadSha256']);
-  const result: ForecastPointBlock = { row: nonNegativeInteger(row.row), column: nonNegativeInteger(row.column), rows: boundedInteger(row.rows, 1, 64), columns: boundedInteger(row.columns, 1, 64), omitted: boolean(row.omitted), mediaType: text(row.mediaType) };
-  if (result.mediaType !== DAILY_MEDIA) throw new ForecastDataError('invalid');
-  return Object.freeze(result.omitted ? result : { ...result, path: safePath(row.path), bytes: boundedInteger(row.bytes, DAILY_HEADER_BYTES + DAILY_RECORD_BYTES, 128 * 1024), sha256: sha(row.sha256), payloadSha256: sha(row.payloadSha256) });
 }
 
 function parseDailyPointBlock(value: unknown, period: string, tier: ForecastTier): ForecastDailyPointBlock { const row = exact(value, ['zoom', 'x', 'y', 'path', 'bytes', 'sha256', 'payloadSha256', 'mediaType', 'dataRecords', 'noDataRecords']); const result = { zoom: boundedInteger(row.zoom, 0, 5), x: nonNegativeInteger(row.x), y: nonNegativeInteger(row.y), path: safePath(row.path), bytes: boundedInteger(row.bytes, 1, DAILY_POINT_BLOCK_BYTES), sha256: sha(row.sha256), payloadSha256: sha(row.payloadSha256), mediaType: text(row.mediaType), dataRecords: boundedInteger(row.dataRecords, 1, 4096), noDataRecords: boundedInteger(row.noDataRecords, 0, 4095) }; if (result.path !== `points/${period}/${tier}/${result.zoom}/${result.x}/${result.y}.nwt` || result.bytes !== DAILY_POINT_BLOCK_BYTES || result.mediaType !== DAILY_POINT_BLOCK_MEDIA || result.x >= 2 ** (result.zoom + 2) || result.y >= 2 ** (result.zoom + 2) || result.dataRecords + result.noDataRecords !== 4096) throw new ForecastDataError('invalid'); return Object.freeze(result); }
@@ -393,7 +419,7 @@ function validateDailyPointBlocks(blocks: readonly ForecastDailyPointBlock[], co
   if (actual.size !== expected.size || [...actual].some(([key, count]) => expected.get(key) !== count)) throw new ForecastDataError('invalid');
 }
 
-function declaredTile(catalog: DailyForecastCatalog, tile: ScalarTileID): boolean {
+function declaredTile(catalog: Readonly<{ scalarCoverage: readonly ForecastCoverage[] }>, tile: ScalarTileID): boolean {
   let available = scalarCoverageIndexes.get(catalog.scalarCoverage);
   if (!available) {
     available = new Set(catalog.scalarCoverage.filter((item) => !item.omitted).map(({ zoom, x, y }) => `${zoom}/${x}/${y}`));
@@ -402,8 +428,8 @@ function declaredTile(catalog: DailyForecastCatalog, tile: ScalarTileID): boolea
   return available.has(`${tile.z}/${tile.x}/${tile.y}`);
 }
 
-export function forecastDetailDeclared(product: DayForecastProduct, tile: ScalarTileID): boolean {
-  const detail = product.tiers.find(({ tier }) => tier === 'europe-detail');
+export function forecastDetailDeclared(product: DayForecastProduct | RangeForecastCatalog, tile: ScalarTileID): boolean {
+  const detail = 'tiers' in product ? product.tiers.find(({ tier }) => tier === 'europe-detail') : product.regional;
   return Boolean(detail && tile.z === 5 && declaredTile(detail, tile));
 }
 
@@ -429,7 +455,7 @@ function scalarSource(catalog: Readonly<{ root: string; tier?: ForecastTier; sca
 
 export function forecastTierForPoint(product: DayForecastProduct, lon: number, lat: number): DailyForecastCatalog {
   const detail = product.tiers.find(({ tier }) => tier === 'europe-detail');
-  if (detail && nativePointBlock(detail, lon, lat)) return detail;
+  if (detail && dailyPointBlock(detail, lon, lat)) return detail;
   const global = product.tiers.find(({ tier }) => tier === 'global'); if (!global) throw new ForecastDataError('invalid'); return global;
 }
 
@@ -443,28 +469,18 @@ function xyzLocation(longitude: number, latitude: number, zoom: number) {
   return { id: { z: zoom, x: Math.floor(globalX / 256), y: Math.floor(globalY / 256) }, row: globalY % 256, column: globalX % 256, globalX, globalY };
 }
 
-function nativeLocation(catalog: DailyForecastCatalog, longitude: number, latitude: number): { row: number; column: number } | undefined {
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return undefined;
-  const grid = catalog.grid; let lon = longitude;
-  if (catalog.tier === 'global') lon = ((lon + 180) % 360 + 360) % 360 - 180;
-  if (lon < grid.west || lon > grid.east || latitude < grid.south || latitude > grid.north) return undefined;
-  const column = Math.min(grid.columns - 1, Math.floor((lon - grid.west) / (grid.east - grid.west) * grid.columns));
-  const row = Math.min(grid.rows - 1, Math.floor((grid.north - latitude) / (grid.north - grid.south) * grid.rows));
-  return row < 0 || row >= grid.rows || column < 0 || column >= grid.columns ? undefined : { row, column };
-}
-
-function nativePointBlock(catalog: DailyForecastCatalog, longitude: number, latitude: number): { location: { row: number; column: number }; block: ForecastPointBlock } | undefined {
-  const location = nativeLocation(catalog, longitude, latitude); if (!location) return undefined;
-  const blockRow = Math.floor(location.row / 64), blockColumn = Math.floor(location.column / 64);
-  const block = catalog.pointBlocks.find((item) => item.row === blockRow && item.column === blockColumn);
-  return !block || block.omitted ? undefined : { location, block };
+function dailyPointBlock(catalog: DailyForecastCatalog, longitude: number, latitude: number) {
+  const location = xyzLocation(longitude, latitude, catalog.scalarMaxZoom);
+  const x = Math.floor(location.globalX / 64), y = Math.floor(location.globalY / 64);
+  const block = catalog.dailyPointBlocks.find((item) => item.zoom === catalog.scalarMaxZoom && item.x === x && item.y === y);
+  return block ? { location, block } : undefined;
 }
 
 function validateRangeHeader(bytes: Uint8Array, catalog: RangeForecastCatalog, row: number, column: number, payloadSHA: string) {
   if (bytes.byteLength < RANGE_HEADER_BYTES || ascii(bytes, 0, 8) !== 'NWFRANGE') throw new ForecastDataError('invalid');
-  const view = dataView(bytes); if (view.getUint16(8, true) !== 1 || view.getUint16(10, true) !== 256 || view.getUint16(12, true) !== 44 || view.getUint16(14, true) !== 64 || view.getUint16(16, true) !== 64 || bytes[18] !== 3 || bytes[19] !== 1 || view.getUint32(20, true) !== row || view.getUint32(24, true) !== column || view.getUint32(28, true) !== 2048 || view.getUint32(32, true) !== 2048 || !allZero(bytes.subarray(39, 64)) || hex(bytes.subarray(192, 224)) !== payloadSHA || !allZero(bytes.subarray(224, 256))) throw new ForecastDataError('invalid');
+  const view = dataView(bytes); if (view.getUint16(8, true) !== 1 || view.getUint16(10, true) !== 256 || view.getUint16(12, true) !== 44 || view.getUint16(14, true) !== 64 || view.getUint16(16, true) !== 64 || bytes[18] !== catalog.scalarMaxZoom || bytes[19] !== 1 || view.getUint32(20, true) !== row || view.getUint32(24, true) !== column || view.getUint32(28, true) !== 256 * 2 ** catalog.scalarMaxZoom || view.getUint32(32, true) !== 256 * 2 ** catalog.scalarMaxZoom || !allZero(bytes.subarray(39, 64)) || hex(bytes.subarray(192, 224)) !== payloadSHA || !allZero(bytes.subarray(224, 256))) throw new ForecastDataError('invalid');
   const releaseLength = bytes[36], periodLength = bytes[37], tierLength = bytes[38];
-  if (releaseLength > 64 || periodLength > 32 || tierLength > 32 || ascii(bytes, 64, 64 + releaseLength) !== catalog.releaseId || ascii(bytes, 128, 128 + periodLength) !== 'next-14-days' || ascii(bytes, 160, 160 + tierLength) !== 'global' || !allZero(bytes.subarray(64 + releaseLength, 128)) || !allZero(bytes.subarray(128 + periodLength, 160)) || !allZero(bytes.subarray(160 + tierLength, 192))) throw new ForecastDataError('invalid');
+  if (releaseLength > 64 || periodLength > 32 || tierLength > 32 || ascii(bytes, 64, 64 + releaseLength) !== catalog.releaseId || ascii(bytes, 128, 128 + periodLength) !== 'next-14-days' || ascii(bytes, 160, 160 + tierLength) !== catalog.tier || !allZero(bytes.subarray(64 + releaseLength, 128)) || !allZero(bytes.subarray(128 + periodLength, 160)) || !allZero(bytes.subarray(160 + tierLength, 192))) throw new ForecastDataError('invalid');
 }
 
 function validateDailyPointBlockHeader(bytes: Uint8Array, catalog: DailyForecastCatalog, block: ForecastDailyPointBlock, payloadSHA: string) {
@@ -473,26 +489,12 @@ function validateDailyPointBlockHeader(bytes: Uint8Array, catalog: DailyForecast
   if (view.getUint16(8, true) !== 2 || view.getUint16(10, true) !== DAILY_POINT_BLOCK_HEADER_BYTES || view.getUint16(12, true) !== DAILY_RECORD_BYTES || view.getUint16(14, true) !== DAILY_POINT_BLOCK_SIDE || bytes[16] !== block.zoom || bytes[17] !== 1 || view.getUint32(18, true) !== block.x || view.getUint32(22, true) !== block.y || releaseLength > 64 || periodLength > 32 || tierLength > 32 || !allZero(bytes.subarray(29, 32)) || ascii(bytes, 32, 32 + releaseLength) !== catalog.releaseId || ascii(bytes, 96, 96 + periodLength) !== catalog.localDate || ascii(bytes, 128, 128 + tierLength) !== catalog.tier || !allZero(bytes.subarray(32 + releaseLength, 96)) || !allZero(bytes.subarray(96 + periodLength, 128)) || !allZero(bytes.subarray(128 + tierLength, 160)) || hex(bytes.subarray(160, 192)) !== payloadSHA) throw new ForecastDataError('invalid');
 }
 
-function validateNativePointBlockHeader(bytes: Uint8Array, catalog: DailyForecastCatalog, block: ForecastPointBlock, payloadSHA: string) {
-  if (bytes.byteLength !== DAILY_HEADER_BYTES + block.rows * block.columns * DAILY_RECORD_BYTES || ascii(bytes, 0, 8) !== 'NWFCSTPT') throw new ForecastDataError('invalid');
-  const view = dataView(bytes), gridKind = catalog.tier === 'global' ? 1 : 2;
-  const releaseLength = bytes[36], providerLength = bytes[37], tierLength = bytes[38], dateLength = bytes[39], runLength = bytes[76];
-  const bounds = catalog.grid;
-  if (view.getUint16(8, true) !== 2 || view.getUint16(10, true) !== DAILY_HEADER_BYTES || view.getUint16(12, true) !== DAILY_RECORD_BYTES || bytes[14] !== 1 || bytes[15] !== gridKind ||
-      view.getUint16(16, true) !== block.rows || view.getUint16(18, true) !== block.columns || view.getUint32(20, true) !== block.row || view.getUint32(24, true) !== block.column ||
-      view.getUint32(28, true) !== bounds.rows || view.getUint32(32, true) !== bounds.columns || view.getFloat64(40, true) !== bounds.west || view.getFloat64(48, true) !== bounds.east || view.getFloat64(56, true) !== bounds.south || view.getFloat64(64, true) !== bounds.north ||
-      view.getUint32(72, true) !== block.rows * block.columns * DAILY_RECORD_BYTES || releaseLength > 64 || providerLength > 24 || tierLength > 24 || dateLength > 16 || runLength > 24 || !allZero(bytes.subarray(77, 80))) throw new ForecastDataError('invalid');
-  if (ascii(bytes, 80, 80 + releaseLength) !== catalog.releaseId || ascii(bytes, 144, 144 + providerLength) !== catalog.provider || ascii(bytes, 168, 168 + tierLength) !== catalog.tier || ascii(bytes, 192, 192 + dateLength) !== catalog.localDate || ascii(bytes, 208, 208 + runLength) !== catalog.evidence.runUtc ||
-      !allZero(bytes.subarray(80 + releaseLength, 144)) || !allZero(bytes.subarray(144 + providerLength, 168)) || !allZero(bytes.subarray(168 + tierLength, 192)) || !allZero(bytes.subarray(192 + dateLength, 208)) || !allZero(bytes.subarray(208 + runLength, 232)) ||
-      hex(bytes.subarray(232, 264)) !== catalog.evidence.sourceEvidenceSha256 || hex(bytes.subarray(264, 296)) !== payloadSHA || !allZero(bytes.subarray(296, 320))) throw new ForecastDataError('invalid');
-}
-
 function decodeRangeRecord(bytes: Uint8Array, lon: number, lat: number, index: ForecastIndex, catalog: RangeForecastCatalog, profile: Profile, presentation: ForecastPresentation): ForecastWindowPoint {
   if (bytes.byteLength !== 44 || bytes.every((value) => value === 0)) throw new ForecastDataError('unavailable', 'There is no complete weather record here.');
   if (bytes[43] !== 1 || bytes.subarray(0, 43).some((value) => value > 100)) throw new ForecastDataError('invalid');
   const offset = profile === 'nice' ? 3 : 9, dayOffset = profile === 'nice' ? 15 : 29, score = bytes[offset];
   const scores = Array.from(bytes.subarray(dayOffset, dayOffset + 14)); const legend = presentation.legend;
-  return { kind: 'range', releaseId: index.indexId, lat, lon, periodLabel: 'Next 14 days', score, category: rating(score, legend), components: components(bytes[0], bytes[1], bytes[2], bytes[offset + 2], legend), window: { startDate: index.firstDate, endDate: index.lastDate, dayCount: 14, niceDays: bytes[offset + 3], awfulDays: bytes[offset + 4], medianScore: bytes[offset + 1], longestPoorRun: bytes[offset + 5] }, days: scores.map((value, i) => ({ date: catalog.dates[i], score: value, category: rating(value, legend) })), source: { basis: 'forecast-window', detailLabel: 'Worldwide forecast', resolutionKm: 28, artifactGeneratedAt: presentation.generatedAt } };
+  return { kind: 'range', releaseId: index.indexId, lat, lon, periodLabel: 'Next 14 days', score, category: rating(score, legend), components: components(bytes[0], bytes[1], bytes[2], bytes[offset + 2], legend), window: { startDate: index.firstDate, endDate: index.lastDate, dayCount: 14, niceDays: bytes[offset + 3], awfulDays: bytes[offset + 4], medianScore: bytes[offset + 1], longestPoorRun: bytes[offset + 5] }, days: scores.map((value, i) => ({ date: catalog.dates[i], score: value, category: rating(value, legend) })), source: { basis: 'forecast-window', detailLabel: catalog.tier === 'europe-detail' ? 'European detail, then worldwide forecast' : 'Worldwide forecast', resolutionKm: 28, artifactGeneratedAt: presentation.generatedAt } };
 }
 
 function decodeDailyRecord(bytes: Uint8Array, lon: number, lat: number, catalog: DailyForecastCatalog, profile: Profile, presentation: ForecastPresentation): DailyPoint {
@@ -502,7 +504,8 @@ function decodeDailyRecord(bytes: Uint8Array, lon: number, lat: number, catalog:
   const dew = view.getInt16(6, true), gust = view.getUint16(12, true), solar = view.getUint16(14, true), wet = view.getUint16(16, true), cloud = bytes[18], humidity = bytes[19];
   const offset = profile === 'nice' ? 25 : 27, score = bytes[offset], temperature = view.getInt16(0, true) / 10;
   const pointComponents = components(bytes[22], bytes[23], bytes[24], bytes[offset + 1], presentation.legend);
-  return { kind: 'daily', releaseId: catalog.releaseId, lat, lon, periodLabel: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${catalog.localDate}T12:00:00Z`)), score, category: rating(score, presentation.legend), components: pointComponents, summary: dailySummary(temperature, bytes[29]), metrics: { temperatureC: temperature, minTempC: view.getInt16(2, true) / 10, maxTempC: view.getInt16(4, true) / 10, rainMm: view.getUint16(8, true) / 10, windKmh: view.getUint16(10, true) / 10, dewPointC: flags & 2 ? dew / 10 : undefined, gustKmh: flags & 4 ? gust / 10 : undefined, solarEnergyMJm2: flags & 8 ? solar / 100 : undefined, cloudPct: flags & 16 ? cloud : undefined, humidityPct: flags & 32 ? humidity : undefined, wetTimeFraction: flags & 64 ? wet / 1000 : undefined }, source: { basis: 'forecast', detailLabel: catalog.tier === 'europe-detail' ? 'Detailed forecast' : 'Worldwide forecast', providerLabel: catalog.tier === 'europe-detail' ? 'European detail' : 'Worldwide forecast', resolutionKm: catalog.evidence.nativeResolutionKm, temporalResolutionHours: catalog.tier === 'europe-detail' ? 1 : 6, artifactGeneratedAt: presentation.generatedAt, runAt: catalog.evidence.runUtc, validFrom: `${catalog.localDate}T00:00:00Z`, validTo: `${addDays(catalog.localDate, 1)}T00:00:00Z` } };
+  const temperatureNotice = bytes[29] >= 160 ? 'cold' as const : bytes[29] >= 80 ? 'hot' as const : undefined;
+  return { kind: 'daily', releaseId: catalog.releaseId, lat, lon, periodLabel: new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${catalog.localDate}T12:00:00Z`)), score, category: rating(score, presentation.legend), components: pointComponents, summary: dailySummary(temperature, bytes[29]), temperatureNotice, metrics: { temperatureC: temperature, minTempC: view.getInt16(2, true) / 10, maxTempC: view.getInt16(4, true) / 10, rainMm: view.getUint16(8, true) / 10, windKmh: view.getUint16(10, true) / 10, dewPointC: flags & 2 ? dew / 10 : undefined, gustKmh: flags & 4 ? gust / 10 : undefined, solarEnergyMJm2: flags & 8 ? solar / 100 : undefined, cloudPct: flags & 16 ? cloud : undefined, humidityPct: flags & 32 ? humidity : undefined, wetTimeFraction: flags & 64 ? wet / 1000 : undefined }, source: { basis: 'forecast', detailLabel: catalog.tier === 'europe-detail' ? 'Detailed forecast' : 'Worldwide forecast', providerLabel: catalog.tier === 'europe-detail' ? 'European detail' : 'Worldwide forecast', resolutionKm: catalog.evidence.nativeResolutionKm, temporalResolutionHours: catalog.tier === 'europe-detail' ? 1 : 6, artifactGeneratedAt: presentation.generatedAt, runAt: catalog.evidence.runUtc, validFrom: `${catalog.localDate}T00:00:00Z`, validTo: `${addDays(catalog.localDate, 1)}T00:00:00Z` } };
 }
 
 function components(comfort: number, dryness: number, sun: number, wind: number, legend: readonly LegendCategory[]) { const value = (score: number) => ({ value: score, category: rating(score, legend) }); return { comfort: value(comfort), dryness: value(dryness), sun: value(sun), wind: value(wind) }; }
@@ -543,4 +546,21 @@ async function digest(bytes: Uint8Array) { return hex(new Uint8Array(await crypt
 function fail(): never { throw new ForecastDataError('invalid'); }
 function insert<K, V>(map: Map<K, V>, key: K, value: V, limit: number) { map.delete(key); map.set(key, value); while (map.size > limit) map.delete(map.keys().next().value!); }
 function touch<K, V>(map: Map<K, V>, key: K, value: V, limit: number): V { insert(map, key, value, limit); return value; }
-function combineSignals(left: AbortSignal, right?: AbortSignal) { if (!right) return left; return AbortSignal.any([left, right]); }
+
+function nearbyDisplayCells(longitude: number, latitude: number, regional: boolean) {
+  const candidates: { longitude:number;latitude:number;distanceKm:number }[]=[];
+  for (const zoom of regional ? [5,3] : [3]) {
+    const location=xyzLocation(longitude,latitude,zoom), size=256*2**zoom;
+    for (let y=-1;y<=1;y++) for(let x=-1;x<=1;x++) {
+      if (x===0 && y===0) continue;
+      const gx=(location.globalX+x+size)%size,gy=location.globalY+y;
+      if(gy<0 || gy>=size) continue;
+      const lon=(gx+0.5)/size*360-180,lat=Math.atan(Math.sinh(Math.PI*(1-2*(gy+0.5)/size)))*180/Math.PI;
+      const radians=Math.PI/180,deltaLat=(lat-latitude)*radians,deltaLon=(lon-longitude)*radians;
+      const a=Math.sin(deltaLat/2)**2+Math.cos(latitude*radians)*Math.cos(lat*radians)*Math.sin(deltaLon/2)**2;
+      const distanceKm=6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+      if(distanceKm<=30) candidates.push({longitude:lon,latitude:lat,distanceKm});
+    }
+  }
+  return candidates.sort((a,b)=>a.distanceKm-b.distanceKm);
+}

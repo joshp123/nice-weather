@@ -1,6 +1,4 @@
-// Package tiledelivery owns exact XYZ viewport geometry and fixed-record point
-// tiles. It is independent of the legacy ImageSource point geometry, whose
-// rows originate in a regular latitude-longitude grid.
+// Package tiledelivery owns exact XYZ viewport geometry and fixed-record point tiles.
 package tiledelivery
 
 import (

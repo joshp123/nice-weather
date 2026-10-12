@@ -1,68 +1,6 @@
 export type View = 'range' | 'daily' | 'climate';
 export type Profile = 'nice' | 'cycling';
 export type Lens = 'overall' | 'comfort' | 'dry' | 'bright' | 'wind';
-export type ForecastKind = 'detailed' | 'outlook';
-export type DataStatus = 'live' | 'sample';
-
-export type WeatherImage = {
-  url: string;
-  sha256: string;
-  width: number;
-  height: number;
-  projection: 'web-mercator';
-};
-
-export type PointGeometry = {
-  bounds: { west: number; east: number; south: number; north: number };
-  quad: { west: number; east: number; north: number; south: number };
-  rows: number;
-  cols: number;
-};
-
-export type PointAsset = {
-  url: string;
-  sha256: string;
-  payloadSha256: string;
-  bytes: number;
-  kind: 'forecast-day' | 'forecast-window' | 'legacy-climate-month' | 'display-score';
-  headerBytes: 128;
-  recordBytes: 8 | 30 | 44;
-  projection: 'web-mercator-image';
-  geometry: PointGeometry;
-};
-
-export type Period = {
-  id: string;
-  label: string;
-  shortLabel: string;
-  date?: string;
-  month?: number;
-  kind?: ForecastKind;
-  resolutionKm: number;
-  images: Record<Profile, WeatherImage>;
-  lenses: Record<'comfort' | 'dry' | 'bright' | 'wind-nice' | 'wind-cycling', WeatherImage>;
-  providerLabel: string;
-  sourceRunAt: string;
-  sourceValidFrom: string;
-  sourceValidTo: string;
-  temporalResolutionHours: number;
-  point: PointAsset;
-  displayPoint?: PointAsset;
-};
-
-export type ForecastWindow = {
-  id: 'next-14-days';
-  label: string;
-  shortLabel: string;
-  startDate: string;
-  endDate: string;
-  dayCount: 14;
-  resolutionKm: number;
-  point: PointAsset;
-  profiles: Record<Profile, { image: WeatherImage }>;
-  lenses: Record<'comfort' | 'dry' | 'bright' | 'wind-nice' | 'wind-cycling', WeatherImage>;
-};
-
 export type LegendCategory = {
   label: string;
   color: string;
@@ -71,28 +9,6 @@ export type LegendCategory = {
 };
 
 export type PaletteStop = { score: number; color: string };
-
-export type WeatherManifest = {
-  version: 8;
-  releaseId: string;
-  productContract: 'nice-weather-v19';
-  dataStatus: DataStatus;
-  generatedAt: string;
-  bounds: [number, number, number, number];
-  forecast: {
-    updatedAt: string;
-    staleAfterHours: number;
-    window: ForecastWindow;
-    days: Period[];
-  };
-  climate?: {
-    label: string;
-    period: string;
-    months: Period[];
-  };
-  legend: LegendCategory[];
-  palette: PaletteStop[];
-};
 
 export type PointMetrics = {
   temperatureC: number;
@@ -118,6 +34,7 @@ export type ScoreComponents = {
 export type ComponentScore = { value: number; category: string };
 
 type PointBase = {
+  sourceCell?: { latitude: number; longitude: number; distanceKm: number };
   releaseId: string;
   lat: number;
   lon: number;
@@ -156,6 +73,7 @@ export type ForecastDayScore = {
 export type DailyPoint = PointBase & {
   kind: 'daily';
   summary: string;
+  temperatureNotice?: 'hot' | 'cold';
   metrics: PointMetrics;
   source: PointSource;
 };
@@ -163,7 +81,7 @@ export type DailyPoint = PointBase & {
 export type PointWeather = ForecastWindowPoint | DailyPoint;
 
 export type PointSource = {
-  basis: 'forecast' | 'climate';
+  basis: 'forecast';
   detailLabel: string;
   providerLabel: string;
   resolutionKm: number;
@@ -172,13 +90,4 @@ export type PointSource = {
   runAt?: string;
   validFrom?: string;
   validTo?: string;
-  referencePeriod?: string;
-};
-
-export type PointRequest = {
-  releaseId: string;
-  lat: number;
-  lon: number;
-  period: string;
-  profile: Profile;
 };

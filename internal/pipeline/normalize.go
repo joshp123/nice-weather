@@ -271,13 +271,7 @@ func NormalizeSeries(frames []Frame) ([]Frame, error) {
 func cumulativePackingTolerance(field Field, currentError, highWaterError, currentQuantum, highWaterQuantum float64) float64 {
 	tolerance := currentError + highWaterError
 	if field == Rain || field == Solar {
-		// ECMWF IFS rain and solar provide exact scale metadata. The
-		// fallback keeps hand-built unit fixtures useful without weakening live
-		// decoding, which fails closed when either scale key is absent.
 		quantum := math.Max(currentQuantum, highWaterQuantum)
-		if quantum == 0 {
-			quantum = 2 * math.Max(currentError, highWaterError)
-		}
 		if field == Solar {
 			// Aggregate solar's audited exception is one exact encoded
 			// quantum, never a larger inconsistent error declaration.

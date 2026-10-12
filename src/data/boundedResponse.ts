@@ -1,16 +1,4 @@
-export async function readBoundedResponse(response: Response, label: string, maximumBytes: number, options: { contentLength?: 'decoded' | 'encoded' } = {}): Promise<Uint8Array<ArrayBuffer>> {
-  const contentLength = response.headers.get('Content-Length');
-  if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength) || !Number.isSafeInteger(Number(contentLength))) {
-      await cancelBody(response.body);
-      throw new Error(`Invalid Content-Length for ${label}.`);
-    }
-    if (options.contentLength !== 'encoded' && Number(contentLength) > maximumBytes) {
-      await cancelBody(response.body);
-      throw new Error(`${label} is unexpectedly large.`);
-    }
-  }
-
+export async function readBoundedResponse(response: Response, label: string, maximumBytes: number): Promise<Uint8Array<ArrayBuffer>> {
   if (response.body === null) {
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > maximumBytes) throw new Error(`${label} is unexpectedly large.`);
@@ -46,13 +34,4 @@ export async function readBoundedResponse(response: Response, label: string, max
     offset += chunk.byteLength;
   }
   return bytes;
-}
-
-async function cancelBody(body: ReadableStream<Uint8Array> | null): Promise<void> {
-  if (body === null) return;
-  try {
-    await body.cancel('response exceeded its declared byte limit');
-  } catch {
-    // The bounded read fails regardless; cancellation is best-effort cleanup.
-  }
 }

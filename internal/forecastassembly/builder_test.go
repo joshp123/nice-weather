@@ -18,7 +18,6 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/tiledelivery"
@@ -77,19 +76,19 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 	if _, err := os.Lstat(abandoned); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("abandoned forecast product transaction remains after retry: %v", err)
 	}
-	if product.Root != filepath.Join(config.Root, "forecast-days", "2026-07-20", forecastpoints.TierGlobal) {
+	if product.Root != filepath.Join(config.Root, "forecast-days", "2026-07-20", forecasttiles.TierGlobal) {
 		t.Fatalf("product root = %q", product.Root)
 	}
-	if product.Catalog.Grid.Rows != 720 || product.Catalog.Grid.Columns != 1440 || product.Catalog.Coverage.ExpectedPointBlocks != 276 {
+	if product.Catalog.Grid.Rows != 720 || product.Catalog.Grid.Columns != 1440 {
 		t.Fatalf("worldwide catalogue geometry = %+v coverage=%+v", product.Catalog.Grid, product.Catalog.Coverage)
 	}
-	if product.Stats.AvailablePointBlocks == 0 || product.Stats.OmittedPointBlocks == 0 || product.Stats.PointFiles != product.Stats.AvailablePointBlocks || product.Stats.ScalarFiles == 0 {
+	if product.Stats.ScalarFiles == 0 {
 		t.Fatalf("build did not prove data and all-no-data outcomes: %+v", product.Stats)
 	}
-	if product.Stats.MaxPointRecords != 64*64 || product.Stats.MaxMetricCells > 40_000 || product.Stats.EstimatedBulkWorkingBytes == 0 || product.Stats.EstimatedBulkWorkingBytes > 512<<20 || peak.Load() > 512<<20 {
+	if product.Stats.MaxMetricCells > 40_000 || product.Stats.EstimatedBulkWorkingBytes == 0 || product.Stats.EstimatedBulkWorkingBytes > 512<<20 || peak.Load() > 512<<20 {
 		t.Fatalf("working set is not block/tile bounded: %+v", product.Stats)
 	}
-	if product.Stats.ParityRecords == 0 || product.Stats.DisplayPointFiles == 0 || product.Stats.OutputFiles != product.Stats.PointFiles+product.Stats.DisplayPointFiles+product.Stats.ScalarFiles+1 {
+	if product.Stats.ParityRecords == 0 || product.Stats.DisplayPointFiles == 0 || product.Stats.OutputFiles != product.Stats.DisplayPointFiles+product.Stats.ScalarFiles+1 {
 		t.Fatalf("parity/output evidence = %+v", product.Stats)
 	}
 	encoded, err := os.ReadFile(filepath.Join(product.Root, CatalogName))
@@ -104,7 +103,7 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 		t.Fatal(err)
 	}
 	const islandLongitude, islandLatitude = .02, .02
-	displayID, _, _, err := tiledelivery.PointAt(forecastpoints.TierGlobal, 3, islandLongitude, islandLatitude)
+	displayID, _, _, err := tiledelivery.PointAt(forecasttiles.TierGlobal, 3, islandLongitude, islandLatitude)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,33 +125,6 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 			t.Fatalf("water-centred coastal display value: valid=%t err=%v close=%v", displayValid, displayErr, closeDisplayErr)
 		}
 	}
-	nativeIdentity, ok, err := forecastpoints.CoordinateIdentity(
-		parsed.ReleaseID, parsed.Provider, parsed.Tier, parsed.LocalDate, parsed.Evidence.RunUTC,
-		parsed.Evidence.SourceEvidenceSHA256,
-		delivery.GridSpec{Bounds: delivery.GridBounds{West: parsed.Grid.West, East: parsed.Grid.East, South: parsed.Grid.South, North: parsed.Grid.North}, Rows: parsed.Grid.Rows, Cols: parsed.Grid.Columns},
-		islandLongitude, islandLatitude,
-	)
-	if err != nil || !ok {
-		t.Fatalf("tiny-island native identity: ok=%t err=%v", ok, err)
-	}
-	var nativeBlock forecastcatalog.PointBlock
-	for _, block := range parsed.PointBlocks {
-		if block.Row == nativeIdentity.Block.Row && block.Column == nativeIdentity.Block.Column {
-			nativeBlock = block
-			break
-		}
-	}
-	if nativeBlock.Omitted || nativeBlock.Path == "" {
-		t.Fatalf("tiny-island native weather block unavailable: %+v", nativeBlock)
-	}
-	opened, err := forecastpoints.OpenBlock(filepath.Join(product.Root, filepath.FromSlash(nativeBlock.Path)), nativeIdentity, nativeBlock.SHA256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	native, nativeValid, err := opened.RecordAt(islandLongitude, islandLatitude)
-	if err != nil || !nativeValid || !native.Weather.Valid {
-		t.Fatalf("coastal native evidence: native=%+v valid=%t err=%v", native, nativeValid, err)
-	}
 	for _, removed := range []string{"forecast-tiles.json"} {
 		if _, err := os.Lstat(filepath.Join(product.Root, removed)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("build-only proof output %q remains: %v", removed, err)
@@ -168,7 +140,7 @@ func TestBuildExactWorldwideIFSProductIsCompleteBoundedAndCatalogueLast(t *testi
 	if peak.Load() < baseline.HeapAlloc {
 		t.Fatalf("observed peak heap %d is below baseline %d", peak.Load(), baseline.HeapAlloc)
 	}
-	t.Logf("exact 720x1440 IFS day: %d files, %d bytes, %d omitted point blocks, %d exhaustive parity records, estimated bulk planes <=%d bytes, observed process peak heap=%d bytes (baseline=%d)", files, bytes, product.Stats.OmittedPointBlocks, product.Stats.ParityRecords, product.Stats.EstimatedBulkWorkingBytes, peak.Load(), baseline.HeapAlloc)
+	t.Logf("exact 720x1440 IFS day: %d files, %d bytes, %d exhaustive parity records, estimated bulk planes <=%d bytes, observed process peak heap=%d bytes (baseline=%d)", files, bytes, product.Stats.ParityRecords, product.Stats.EstimatedBulkWorkingBytes, peak.Load(), baseline.HeapAlloc)
 }
 
 func TestBuildCancellationAndExistingProductLeaveNoTransaction(t *testing.T) {
@@ -328,7 +300,7 @@ func exactIFSConfig(t *testing.T) (Config, func()) {
 		}
 	}
 	return Config{
-		Root: root, ReleaseID: "ifs-2026072000-20260720", Provider: forecastpoints.ProviderIFS, Tier: forecastpoints.TierGlobal,
+		Root: root, ReleaseID: "ifs-2026072000-20260720", Provider: forecasttiles.ProviderIFS, Tier: forecasttiles.TierGlobal,
 		Date: date, Series: series,
 		Locate: func(float64, float64) (*time.Location, error) { return time.UTC, nil },
 		Land: assemblyLandMask(t, func(bounds delivery.GridBounds) (bool, error) {

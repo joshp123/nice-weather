@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { ForecastFingerprint, forecastScoreEvidence } from './App';
-import type { ForecastDayScore, WeatherManifest } from './data/types';
+import { ForecastFingerprint } from './App';
+import type { ForecastDayScore } from './data/types';
+import { WEATHER_PRESENTATION } from './weatherPresentation';
 
 describe('forecast fingerprint', () => {
   it('renders all 14 ordered dates with their canonical score and rating', () => {
@@ -17,20 +18,12 @@ describe('forecast fingerprint', () => {
     expect(markup.indexOf('dateTime="2026-07-18"')).toBeLessThan(markup.indexOf('dateTime="2026-07-31"'));
     expect(markup).toContain('aria-label="Sat 18, 91, Excellent"');
     expect(markup).toContain('aria-label="Fri 31, 26, Poor"');
-    expect(markup).toContain('--day-colour:#f06031');
-    expect(markup).toContain('--day-colour:#5e6382');
-    expect(forecastScoreEvidence(days, legend)).toBe('Good or better on 8 of 14 days · Poor or Awful on 3 · median score 59');
+    expect(markup).toContain('--day-colour:#F2D55E');
+    expect(markup).toContain('--day-colour:#426580');
   });
 });
 
-const legend: WeatherManifest['legend'] = [
-  { label: 'Awful', color: '#343b53', min: 0, max: 24 },
-  { label: 'Poor', color: '#5e6382', min: 25, max: 39 },
-  { label: 'Mixed', color: '#97949c', min: 40, max: 54 },
-  { label: 'Good', color: '#c9a47f', min: 55, max: 69 },
-  { label: 'Very good', color: '#e18952', min: 70, max: 84 },
-  { label: 'Excellent', color: '#f06031', min: 85, max: 100 },
-];
+const legend = WEATHER_PRESENTATION.legend;
 
 function rating(score: number): string {
   if (score >= 85) return 'Excellent';

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/tiledelivery"
 	"nice-weather-finder/internal/weather"
@@ -327,7 +326,7 @@ func TestBuildWorldwideDayHasDatelineWaterAndExactPointScalarParity(t *testing.T
 
 func TestDisplayMaskDoesNotColourCoastalSupportOutsideLandCentre(t *testing.T) {
 	const longitude, latitude = 18.9553, 69.6492
-	id, row, column, err := tiledelivery.At(forecastpoints.TierEurope, 5, longitude, latitude)
+	id, row, column, err := tiledelivery.At(TierEurope, 5, longitude, latitude)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +373,7 @@ func TestDisplayMaskDoesNotColourCoastalSupportOutsideLandCentre(t *testing.T) {
 }
 
 func TestDisplayLandWithoutDetailUsesFallbackWithoutChangingPointNoData(t *testing.T) {
-	id, row, column, err := tiledelivery.At(forecastpoints.TierEurope, 5, 18.9553, 69.6492)
+	id, row, column, err := tiledelivery.At(TierEurope, 5, 18.9553, 69.6492)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +411,7 @@ func TestDetailFallbackStopsAtExactICONEUSourceBoundary(t *testing.T) {
 	land := func(delivery.GridBounds) (bool, error) { return true, nil }
 
 	for y := int64(6); y <= 13; y++ {
-		outside, err := tiledelivery.NewID(forecastpoints.TierEurope, 5, 20, y)
+		outside, err := tiledelivery.NewID(TierEurope, 5, 20, y)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -429,7 +428,7 @@ func TestDetailFallbackStopsAtExactICONEUSourceBoundary(t *testing.T) {
 		}
 	}
 
-	inside, err := tiledelivery.NewID(forecastpoints.TierEurope, 5, 19, 9)
+	inside, err := tiledelivery.NewID(TierEurope, 5, 19, 9)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +444,7 @@ func TestDetailFallbackStopsAtExactICONEUSourceBoundary(t *testing.T) {
 	coverage := make(map[[3]uint32]struct{})
 	for y := int64(0); y < 32; y++ {
 		for x := int64(0); x < 32; x++ {
-			id, err := tiledelivery.NewID(forecastpoints.TierEurope, 5, x, y)
+			id, err := tiledelivery.NewID(TierEurope, 5, x, y)
 			if err != nil {
 				t.Fatal(err)
 			}

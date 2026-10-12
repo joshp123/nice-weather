@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/providers/dwd"
-	"nice-weather-finder/internal/providers/ifs"
 )
 
 const productDays = 14
@@ -20,9 +19,7 @@ type utcDayWindow struct {
 }
 
 var (
-	// Europe currently spans UTC-1 through UTC+4 for the product's land cells.
-	// Keep this explicit contract so the current release remains byte-for-byte
-	// equivalent while worldwide planning is introduced alongside it.
+	// ICON-EU refinement spans UTC-1 through UTC+4 for supported land cells.
 	europeProductWindow = utcDayWindow{startOffset: 6 * time.Hour, endOffset: 21 * time.Hour}
 	// Worldwide civil time spans UTC-12 through UTC+14. Therefore a labelled
 	// local day begins in UTC on the previous date and ends on the next date.
@@ -31,7 +28,6 @@ var (
 	// Existing decode windows intentionally retain provider-specific padding.
 	// The staging layer also retains one preceding frame per field.
 	europeDetailedDecodeWindow = utcDayWindow{startOffset: 3 * time.Hour, endOffset: 21 * time.Hour}
-	europeOutlookDecodeWindow  = utcDayWindow{startOffset: -6 * time.Hour, endOffset: 24 * time.Hour}
 	// Baseline instant fields describe the interval ending at each sample.
 	// Keep up to six hours after the latest worldwide local-day boundary so the
 	// final partial interval is available to the aggregator.
@@ -76,16 +72,6 @@ const (
 	firstDayUsesBaseline
 )
 
-var europeCurrentDateCutoffUTC = 20 * time.Hour
-
-var europeForecastPolicy = forecastPlanPolicy{
-	name:                 "Europe",
-	productWindow:        europeProductWindow,
-	detailedWindow:       europeProductWindow,
-	currentDateCutoffUTC: &europeCurrentDateCutoffUTC,
-	firstDaySource:       firstDayUsesDetail,
-}
-
 // A worldwide date has no single useful wall-clock expiry: it begins in
 // UTC+14 before it begins in UTC-12. The selected baseline run therefore owns
 // the first date. This keeps a completely covered date available after its
@@ -127,22 +113,6 @@ func (coverage forecastCoverage) availableUntil() time.Time {
 type dayPlan struct {
 	Date     time.Time
 	Detailed bool
-}
-
-func planDays(now, dwdRun, ifsRun time.Time) ([]dayPlan, error) {
-	steps, err := ifs.ForecastSteps(ifs.Run{Time: ifsRun})
-	if err != nil {
-		return nil, fmt.Errorf("IFS baseline run: %w", err)
-	}
-	if len(steps) == 0 || steps[len(steps)-1] != 360 {
-		return nil, fmt.Errorf("IFS baseline run ends before 360 hours")
-	}
-	return planDaysForCoverage(
-		now,
-		forecastCoverage{provider: "ICON-EU", run: dwdRun, maxForecastHours: dwd.MaxForecastHour},
-		forecastCoverage{provider: "IFS", run: ifsRun, maxForecastHours: 360},
-		europeForecastPolicy,
-	)
 }
 
 func planDaysForCoverage(now time.Time, detailed, baseline forecastCoverage, policy forecastPlanPolicy) ([]dayPlan, error) {
@@ -247,23 +217,6 @@ func stepsForDays(run time.Time, days []dayPlan, window utcDayWindow, available 
 		last = window.end(day.Date)
 	}
 	return selectSteps(run, first, last, available)
-}
-
-func stepsForIFS(run time.Time, days []dayPlan) []int {
-	available, err := ifs.ForecastSteps(ifs.Run{Time: run})
-	if err != nil {
-		return nil
-	}
-	// Keep the established six-hour outlook cadence. IFS also publishes
-	// three-hourly frames through hour 144, but mixing cadences would change the
-	// Europe product and its temporal label during this provider migration.
-	sixHourly := available[:0]
-	for _, step := range available {
-		if step%6 == 0 {
-			sixHourly = append(sixHourly, step)
-		}
-	}
-	return stepsForProviderWindow(run, days, false, europeOutlookDecodeWindow, sixHourly)
 }
 
 func selectSteps(run, first, last time.Time, available []int) []int {

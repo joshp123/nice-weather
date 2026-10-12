@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -14,34 +12,28 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
 	"nice-weather-finder/internal/weather"
 )
 
 func TestCatalogBindsCompleteIFSBlockSetAndCanonicalScalars(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderIFS, forecastpoints.TierGlobal)
+	config := testConfig(forecasttiles.ProviderIFS, forecasttiles.TierGlobal)
 	spec, _ := specFor(config.Provider, config.Tier)
-	points := pointOutcomes(t, config, spec, false)
-	slices.Reverse(points)
 	scalars := scalarCatalog(t, config, spec, oneTilePerZoom(t, spec))
 
-	catalog, err := New(config, points, scalars)
+	catalog, err := New(config, scalars)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if catalog.Grid != catalogGrid(spec.grid) || catalog.Evidence.Product != ProductIFSControl || catalog.Evidence.NativeResolutionKM != 28 || catalog.ScalarMaxZoom != 3 {
 		t.Fatalf("IFS identity = %+v %+v z%d", catalog.Grid, catalog.Evidence, catalog.ScalarMaxZoom)
 	}
-	if catalog.Coverage != (Coverage{ExpectedPointBlocks: 276, AvailablePointBlocks: 1, OmittedPointBlocks: 275, ExpectedMaxZoomTiles: 64, AvailableMaxZoomTiles: 1, OmittedMaxZoomTiles: 63, ScalarTiles: 28, DailyPointBlocks: 1}) {
+	if catalog.Coverage != (Coverage{ExpectedMaxZoomTiles: 64, AvailableMaxZoomTiles: 1, OmittedMaxZoomTiles: 63, ScalarTiles: 28, DailyPointBlocks: 1}) {
 		t.Fatalf("coverage = %+v", catalog.Coverage)
 	}
 	if len(catalog.Scores.Fields) != 7 || len(catalog.Scores.Profiles) != 2 || catalog.Scores.Fields[3].Profile != "nice" || catalog.Scores.Fields[5].Profile != "cycling" {
 		t.Fatalf("score contract = %+v", catalog.Scores)
-	}
-	if first, last := catalog.PointBlocks[0], catalog.PointBlocks[len(catalog.PointBlocks)-1]; first.Row != 0 || first.Column != 0 || last.Row != 11 || last.Column != 22 || last.Rows != 16 || last.Columns != 32 {
-		t.Fatalf("point ordering first=%+v last=%+v", first, last)
 	}
 	encoded, err := Marshal(catalog)
 	if err != nil {
@@ -58,13 +50,13 @@ func TestCatalogBindsCompleteIFSBlockSetAndCanonicalScalars(t *testing.T) {
 }
 
 func TestCatalogRequiresExactLandProvenance(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderIFS, forecastpoints.TierGlobal)
+	config := testConfig(forecasttiles.ProviderIFS, forecasttiles.TierGlobal)
 	spec, _ := specFor(config.Provider, config.Tier)
-	catalog, err := New(config, pointOutcomes(t, config, spec, false), scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
+	catalog, err := New(config, scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version != 3 || catalog.Land.SourceArchiveSHA256 != strings.Repeat("b", 64) || catalog.Land.MaskSHA256 != strings.Repeat("c", 64) {
+	if catalog.Version != 4 || catalog.Land.SourceArchiveSHA256 != strings.Repeat("b", 64) || catalog.Land.MaskSHA256 != strings.Repeat("c", 64) {
 		t.Fatalf("catalog land identity = v%d %+v", catalog.Version, catalog.Land)
 	}
 	mutations := []func(*forecasttiles.LandIdentity){
@@ -85,17 +77,14 @@ func TestCatalogRequiresExactLandProvenance(t *testing.T) {
 }
 
 func TestCatalogBindsExactICONEuropeDetailContract(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderICONEU, forecastpoints.TierEurope)
+	config := testConfig(forecasttiles.ProviderICONEU, forecasttiles.TierEurope)
 	spec, _ := specFor(config.Provider, config.Tier)
-	catalog, err := New(config, pointOutcomes(t, config, spec, false), scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
+	catalog, err := New(config, scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if catalog.Grid != catalogGrid(spec.grid) || catalog.Evidence.Product != ProductICONEU || catalog.Evidence.NativeResolutionKM != 7 || catalog.ScalarMaxZoom != 5 {
 		t.Fatalf("ICON identity = %+v %+v z%d", catalog.Grid, catalog.Evidence, catalog.ScalarMaxZoom)
-	}
-	if catalog.Coverage.ExpectedPointBlocks != 198 || catalog.PointBlocks[197].Row != 10 || catalog.PointBlocks[197].Column != 17 || catalog.PointBlocks[197].Rows != 40 || catalog.PointBlocks[197].Columns != 16 {
-		t.Fatalf("ICON point coverage = %+v last=%+v", catalog.Coverage, catalog.PointBlocks[197])
 	}
 	candidate := catalog
 	extra := candidate.DailyPointBlocks[0]
@@ -108,58 +97,9 @@ func TestCatalogBindsExactICONEuropeDetailContract(t *testing.T) {
 	}
 }
 
-func TestCatalogRejectsProviderMixingMissingBlocksAndUnprovenOmissions(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderIFS, forecastpoints.TierGlobal)
-	spec, _ := specFor(config.Provider, config.Tier)
-	validPoints := pointOutcomes(t, config, spec, false)
-	validScalars := scalarCatalog(t, config, spec, oneTilePerZoom(t, spec))
-
-	tests := []struct {
-		name   string
-		mutate func(*Config, *[]forecastpoints.Asset, *forecasttiles.Catalog)
-		want   string
-	}{
-		{name: "unsupported pair", mutate: func(c *Config, _ *[]forecastpoints.Asset, _ *forecasttiles.Catalog) {
-			c.Tier = forecastpoints.TierEurope
-		}, want: "unsupported"},
-		{name: "missing block", mutate: func(_ *Config, p *[]forecastpoints.Asset, _ *forecasttiles.Catalog) { *p = (*p)[:len(*p)-1] }, want: "point blocks"},
-		{name: "duplicate block", mutate: func(_ *Config, p *[]forecastpoints.Asset, _ *forecasttiles.Catalog) { (*p)[len(*p)-1] = (*p)[0] }, want: "expected coordinate"},
-		{name: "unproven omission", mutate: func(_ *Config, p *[]forecastpoints.Asset, _ *forecasttiles.Catalog) { (*p)[1].NoDataRecords-- }, want: "not all no-data"},
-		{name: "scalar tier", mutate: func(_ *Config, _ *[]forecastpoints.Asset, s *forecasttiles.Catalog) {
-			s.Tier = forecastpoints.TierEurope
-		}, want: "does not match"},
-		{name: "scalar zoom", mutate: func(_ *Config, _ *[]forecastpoints.Asset, s *forecasttiles.Catalog) { s.MaxZoom = 4 }, want: "does not match"},
-		{name: "scalar source", mutate: func(_ *Config, _ *[]forecastpoints.Asset, s *forecasttiles.Catalog) {
-			s.Source.SourceID = "other-model"
-		}, want: "scalar source"},
-		{name: "source evidence", mutate: func(c *Config, _ *[]forecastpoints.Asset, _ *forecasttiles.Catalog) {
-			c.SourceEvidenceSHA256 = strings.Repeat("A", 64)
-		}, want: "evidence"},
-		{name: "point run", mutate: func(_ *Config, p *[]forecastpoints.Asset, _ *forecasttiles.Catalog) {
-			(*p)[0].Identity.RunUTC = "2026-07-22T18:00:00Z"
-		}, want: "point block"},
-		{name: "point evidence", mutate: func(_ *Config, p *[]forecastpoints.Asset, _ *forecasttiles.Catalog) {
-			(*p)[0].Identity.SourceEvidenceSHA256 = strings.Repeat("b", 64)
-		}, want: "point block"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			candidateConfig := config
-			points := append([]forecastpoints.Asset(nil), validPoints...)
-			scalars := cloneScalarCatalog(validScalars)
-			test.mutate(&candidateConfig, &points, &scalars)
-			_, err := New(candidateConfig, points, scalars)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v; want %q", err, test.want)
-			}
-		})
-	}
-}
-
 func TestCatalogRejectsScalarCoverageDriftDuplicatesAndRegionalExtras(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderICONEU, forecastpoints.TierEurope)
+	config := testConfig(forecasttiles.ProviderICONEU, forecasttiles.TierEurope)
 	spec, _ := specFor(config.Provider, config.Tier)
-	points := pointOutcomes(t, config, spec, false)
 	valid := scalarCatalog(t, config, spec, oneTilePerZoom(t, spec))
 
 	tests := []struct {
@@ -186,7 +126,7 @@ func TestCatalogRejectsScalarCoverageDriftDuplicatesAndRegionalExtras(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			candidate := cloneScalarCatalog(valid)
 			test.mutate(&candidate)
-			_, err := New(config, points, candidate)
+			_, err := New(config, candidate)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v; want %q", err, test.want)
 			}
@@ -196,13 +136,13 @@ func TestCatalogRejectsScalarCoverageDriftDuplicatesAndRegionalExtras(t *testing
 
 func TestCatalogWorstCaseJSONFitsHardBound(t *testing.T) {
 	for _, pair := range [][2]string{
-		{forecastpoints.ProviderIFS, forecastpoints.TierGlobal},
-		{forecastpoints.ProviderICONEU, forecastpoints.TierEurope},
+		{forecasttiles.ProviderIFS, forecasttiles.TierGlobal},
+		{forecasttiles.ProviderICONEU, forecasttiles.TierEurope},
 	} {
 		config := testConfig(pair[0], pair[1])
 		spec, _ := specFor(config.Provider, config.Tier)
 		coordinates := allSupportedTiles(spec)
-		catalog, err := New(config, pointOutcomes(t, config, spec, true), fullyPopulatedScalarCatalog(t, config, spec, coordinates))
+		catalog, err := New(config, fullyPopulatedScalarCatalog(t, config, spec, coordinates))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -210,112 +150,25 @@ func TestCatalogWorstCaseJSONFitsHardBound(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantBlocks := 276
-		if spec.provider == forecastpoints.ProviderICONEU {
-			wantBlocks = 198
+		if len(catalog.ScalarTiles) != maximumScalarTiles(spec) || len(encoded) >= MaximumCatalogBytes {
+			t.Fatalf("%s/%s blocks=%d scalar=%d bytes=%d max=%d", spec.provider, spec.tier, len(catalog.DailyPointBlocks), len(catalog.ScalarTiles), len(encoded), MaximumCatalogBytes)
 		}
-		if len(catalog.PointBlocks) != wantBlocks || len(catalog.ScalarTiles) != maximumScalarTiles(spec) || len(encoded) >= MaximumCatalogBytes {
-			t.Fatalf("%s/%s blocks=%d scalar=%d bytes=%d max=%d", spec.provider, spec.tier, len(catalog.PointBlocks), len(catalog.ScalarTiles), len(encoded), MaximumCatalogBytes)
-		}
-		t.Logf("%s/%s worst valid catalogue: %d point outcomes, %d scalar tiles, %d bytes (%.1f%% of hard bound)", spec.provider, spec.tier, len(catalog.PointBlocks), len(catalog.ScalarTiles), len(encoded), 100*float64(len(encoded))/MaximumCatalogBytes)
+		t.Logf("%s/%s worst valid catalogue: %d point outcomes, %d scalar tiles, %d bytes (%.1f%% of hard bound)", spec.provider, spec.tier, len(catalog.DailyPointBlocks), len(catalog.ScalarTiles), len(encoded), 100*float64(len(encoded))/MaximumCatalogBytes)
 	}
 	if _, err := Parse(make([]byte, MaximumCatalogBytes+1)); err == nil || !strings.Contains(err.Error(), "size") {
 		t.Fatalf("oversize parse error = %v", err)
 	}
 }
 
-func TestValidateFilesChecksPointAndScalarBytes(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderIFS, forecastpoints.TierGlobal)
-	spec, _ := specFor(config.Provider, config.Tier)
-	staging := t.TempDir()
-	releaseRoot := filepath.Join(staging, "releases", config.ReleaseID)
-	if err := os.MkdirAll(releaseRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	points := pointOutcomes(t, config, spec, false)
-	identity := points[0].Identity
-	records := make([]delivery.DailyPointRecord, int(identity.Rows)*int(identity.Columns))
-	records[0] = validForecastRecord(t)
-	asset, err := forecastpoints.WriteBlock(releaseRoot, identity, records)
-	if err != nil {
-		t.Fatal(err)
-	}
-	points[0] = asset
-
-	writer, err := tiledelivery.NewWriter(staging, config.ReleaseID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scalars := scalarCatalog(t, config, spec, oneTilePerZoom(t, spec))
-	scalars.Scalars = nil
-	scalars.Points = nil
-	for _, coordinate := range oneTilePerZoom(t, spec) {
-		for _, field := range fieldContracts {
-			id, err := tiledelivery.NewID(scalarTier(config.Tier, field.ID), coordinate.Zoom, int64(coordinate.X), int64(coordinate.Y))
-			if err != nil {
-				t.Fatal(err)
-			}
-			written, err := writer.WriteScalar(id, config.LocalDate, func(tiledelivery.ScalarSample) (uint8, bool, error) { return 60, true, nil })
-			if err != nil {
-				t.Fatal(err)
-			}
-			path, _ := scalarPath(config.LocalDate, config.Tier, field.ID, coordinate.Zoom, coordinate.X, coordinate.Y)
-			if written.Path != filepath.Join(releaseRoot, filepath.FromSlash(path)) {
-				t.Fatalf("written scalar path = %q; want %q", written.Path, path)
-			}
-			scalars.Scalars = append(scalars.Scalars, forecasttiles.ScalarTile{
-				Field: field.ID, Zoom: coordinate.Zoom, X: coordinate.X, Y: coordinate.Y, Path: path,
-				Bytes: written.Bytes, SHA256: written.SHA256, DataTexels: written.DataTexels, NoDataTexels: written.NoDataTexels,
-			})
-		}
-		if coordinate.Zoom == spec.maxZoom {
-			id, err := tiledelivery.NewPointID(config.Tier, coordinate.Zoom, int64(coordinate.X)*4, int64(coordinate.Y)*4)
-			if err != nil {
-				t.Fatal(err)
-			}
-			records := make([]delivery.DailyPointRecord, tiledelivery.PointBlockSize*tiledelivery.PointBlockSize)
-			records[0] = catalogDailyRecord(t)
-			written, err := writer.Write(id, config.LocalDate, records)
-			if err != nil {
-				t.Fatal(err)
-			}
-			path := fmt.Sprintf("points/%s/%s/%d/%d/%d.nwt", config.LocalDate, config.Tier, coordinate.Zoom, coordinate.X*4, coordinate.Y*4)
-			scalars.Points = append(scalars.Points, forecasttiles.PointTile{
-				Zoom: coordinate.Zoom, X: coordinate.X * 4, Y: coordinate.Y * 4, Path: path, Bytes: written.Bytes,
-				SHA256: written.SHA256, PayloadSHA256: written.PayloadSHA256, DataRecords: 1, NoDataRecords: tiledelivery.PointBlockSize*tiledelivery.PointBlockSize - 1,
-			})
-		}
-	}
-	catalog, err := New(config, points, scalars)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateFiles(releaseRoot, catalog); err != nil {
-		t.Fatal(err)
-	}
-	corrupt := filepath.Join(releaseRoot, filepath.FromSlash(catalog.ScalarTiles[0].Path))
-	data, err := os.ReadFile(corrupt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data[100] ^= 1
-	if err := os.WriteFile(corrupt, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateFiles(releaseRoot, catalog); err == nil || !strings.Contains(err.Error(), "checksum") {
-		t.Fatalf("corrupt scalar error = %v", err)
-	}
-}
-
 func TestParseRejectsUnknownAndTrailingJSON(t *testing.T) {
-	config := testConfig(forecastpoints.ProviderIFS, forecastpoints.TierGlobal)
+	config := testConfig(forecasttiles.ProviderIFS, forecasttiles.TierGlobal)
 	spec, _ := specFor(config.Provider, config.Tier)
-	catalog, err := New(config, pointOutcomes(t, config, spec, false), scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
+	catalog, err := New(config, scalarCatalog(t, config, spec, oneTilePerZoom(t, spec)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded, _ := Marshal(catalog)
-	unknown := bytes.Replace(encoded, []byte(`"version":3`), []byte(`"unknown":true,"version":3`), 1)
+	unknown := bytes.Replace(encoded, []byte(`"version":4`), []byte(`"unknown":true,"version":4`), 1)
 	if _, err := Parse(unknown); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("unknown field error = %v", err)
 	}
@@ -331,40 +184,10 @@ func testConfig(provider, tier string) Config {
 	}
 }
 
-func pointOutcomes(t *testing.T, config Config, spec tierSpec, allAvailable bool) []forecastpoints.Asset {
-	t.Helper()
-	blockRows, blockColumns, err := forecastpoints.BlockGrid(config.Provider, config.Tier, spec.grid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assets := make([]forecastpoints.Asset, 0, blockRows*blockColumns)
-	for row := uint32(0); row < blockRows; row++ {
-		for column := uint32(0); column < blockColumns; column++ {
-			identity, err := forecastpoints.NewIdentity(config.ReleaseID, config.Provider, config.Tier, config.LocalDate, config.RunUTC.Format(time.RFC3339), config.SourceEvidenceSHA256, spec.grid, forecastpoints.Coordinate{Row: row, Column: column})
-			if err != nil {
-				t.Fatal(err)
-			}
-			records := uint32(identity.Rows) * uint32(identity.Columns)
-			asset := forecastpoints.Asset{Identity: identity, MediaType: forecastpoints.MediaType}
-			if allAvailable || (row == 0 && column == 0) {
-				relative, _ := forecastpoints.RelativePath(identity)
-				whole, _ := forecastpoints.WholeRange(identity)
-				asset.Path, asset.Bytes = relative, uint64(whole.Length)
-				asset.SHA256, asset.PayloadSHA256 = fixtureSHA(row*blockColumns+column+1), fixtureSHA(row*blockColumns+column+10_000)
-				asset.DataRecords, asset.NoDataRecords = 1, records-1
-			} else {
-				asset.Omitted, asset.NoDataRecords = true, records
-			}
-			assets = append(assets, asset)
-		}
-	}
-	return assets
-}
-
 func scalarCatalog(t *testing.T, config Config, spec tierSpec, coordinates []tileCoordinate) forecasttiles.Catalog {
 	t.Helper()
 	catalog := forecasttiles.Catalog{
-		Version: CatalogVersion, ReleaseID: config.ReleaseID, Period: config.LocalDate,
+		Version: forecasttiles.CatalogVersion, ReleaseID: config.ReleaseID, Period: config.LocalDate,
 		Tier: config.Tier, Date: config.LocalDate, MaxZoom: spec.maxZoom,
 		Source: forecasttiles.SourceIdentity{
 			SourceID: spec.sourceID, RunUTC: config.RunUTC.Format(time.RFC3339), Grid: spec.grid,
@@ -521,7 +344,7 @@ func catalogEqual(left, right Catalog) bool {
 		left.Provider == right.Provider && left.Tier == right.Tier && left.Grid == right.Grid && left.Evidence == right.Evidence && left.Land == right.Land &&
 		left.ScalarMaxZoom == right.ScalarMaxZoom && left.Scores.Unit == right.Scores.Unit && left.Scores.NoDataValue == right.Scores.NoDataValue &&
 		slices.Equal(left.Scores.Profiles, right.Scores.Profiles) && slices.Equal(left.Scores.Fields, right.Scores.Fields) &&
-		left.Coverage == right.Coverage && slices.Equal(left.PointBlocks, right.PointBlocks) && slices.Equal(left.DailyPointBlocks, right.DailyPointBlocks) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)
+		left.Coverage == right.Coverage && slices.Equal(left.DailyPointBlocks, right.DailyPointBlocks) && slices.Equal(left.ScalarCoverage, right.ScalarCoverage) && slices.Equal(left.ScalarTiles, right.ScalarTiles)
 }
 
 func catalogDailyRecord(t *testing.T) delivery.DailyPointRecord {

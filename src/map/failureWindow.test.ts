@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { activateRendererAttempt, decideRendererFailure, detachRenderer, recordFailure, withCurrentRenderer } from './failureWindow';
 
 describe('sustained map failure window', () => {
@@ -37,14 +36,7 @@ describe('sustained map failure window', () => {
     expect(decideRendererFailure(state, 0, 'context').action).toBe('ignore');
   });
 
-  it('keeps the active MapLibre failure callback stable across equivalent parent renders', () => {
-    const source = readFileSync(new URL('./WeatherMap.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('const handleActiveFailure = useCallback((reason: MapFailureReason) => {\n    handleFailure(reason, rendererAttempt);\n  }, [handleFailure, rendererAttempt]);');
-    expect(source).toContain('onFailure={handleActiveFailure}');
-    expect(source).not.toContain('onFailure={(reason) => handleFailure(reason, rendererAttempt)}');
-    expect(source).toContain('withCurrentRenderer(mapRef.current, activeMap, removeOverlay);');
-    expect(source).toContain('renderWorldCopies: false,');
-  });
+
 
   it('does not touch a renderer after retry teardown has made it stale', () => {
     const destroyed = { getLayer: () => { throw new TypeError("Cannot read properties of null (reading 'getLayer')"); } };

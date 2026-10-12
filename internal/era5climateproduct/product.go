@@ -81,7 +81,7 @@ type expectedCell struct {
 	days      int
 }
 
-// Builder implements era5climate.Sink. Add only changes memory. Commit writes
+// Builder stages complete monthly evidence. Add only changes memory. Commit writes
 // a complete release into StagingRoot and installs its directory atomically.
 type Builder struct {
 	config          Config

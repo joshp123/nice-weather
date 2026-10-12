@@ -1,5 +1,5 @@
 // Package forecastassembly commits one prepared provider tier and local day
-// as native point blocks, evaluated scalar tiles and one catalogue. It owns no
+// as daily point blocks, evaluated scalar tiles and one catalogue. It owns no
 // provider download, run selection, scoring policy or multi-tier composition.
 package forecastassembly
 
@@ -16,7 +16,6 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/tiledelivery"
@@ -56,11 +55,6 @@ type Config struct {
 // planes. It is not a process-memory claim; integration tests separately
 // report observed process peak heap while traversing the exact worldwide grid.
 type Stats struct {
-	ExpectedPointBlocks       uint32
-	AvailablePointBlocks      uint32
-	OmittedPointBlocks        uint32
-	PointFiles                uint32
-	PointBytes                uint64
 	DisplayPointFiles         uint32
 	DisplayPointBytes         uint64
 	ScalarFiles               uint32
@@ -70,7 +64,6 @@ type Stats struct {
 	OutputBytes               uint64
 	ParityRecords             uint64
 	MaxMetricCells            uint64
-	MaxPointRecords           uint64
 	MaxDisplayRecords         uint64
 	MaxScalarBytes            uint64
 	EstimatedBulkWorkingBytes uint64
@@ -133,10 +126,6 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 		return Product{}, err
 	}
 	dayRoot := filepath.Join(transaction, "forecast-days", period, config.Tier)
-	points, pointStats, err := writeNativeBlocks(ctx, dayRoot, config, scalarCatalog.Source)
-	if err != nil {
-		return Product{}, err
-	}
 	runUTC, err := time.Parse(time.RFC3339, scalarCatalog.Source.RunUTC)
 	if err != nil {
 		return Product{}, fmt.Errorf("parse prepared source run: %w", err)
@@ -144,7 +133,7 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 	catalog, err := forecastcatalog.New(forecastcatalog.Config{
 		ReleaseID: config.ReleaseID, LocalDate: period, Provider: config.Provider, Tier: config.Tier,
 		RunUTC: runUTC, SourceEvidenceSHA256: scalarCatalog.Source.EvidenceSHA256,
-	}, points, scalarCatalog)
+	}, scalarCatalog)
 	if err != nil {
 		return Product{}, err
 	}
@@ -198,7 +187,7 @@ func BuildDay(ctx context.Context, config Config) (product Product, resultErr er
 		return Product{}, fmt.Errorf("clean installed forecast product transaction: %w", err)
 	}
 
-	stats := assembleStats(config.Series, catalog, scalarCatalog, pointStats, uint64(len(encoded)), parityRecords)
+	stats := assembleStats(config.Series, catalog, scalarCatalog, uint64(len(encoded)), parityRecords)
 	return Product{Root: final, Catalog: catalog, Stats: stats}, nil
 }
 
@@ -311,90 +300,6 @@ func rejectSealedRun(root string) error {
 		return err
 	}
 	return nil
-}
-
-type nativeStats struct {
-	maxMetricCells  uint64
-	maxPointRecords uint64
-}
-
-func writeNativeBlocks(ctx context.Context, root string, config Config, source forecasttiles.SourceIdentity) ([]forecastpoints.Asset, nativeStats, error) {
-	rows, columns, err := forecastpoints.BlockGrid(config.Provider, config.Tier, source.Grid)
-	if err != nil {
-		return nil, nativeStats{}, err
-	}
-	assets := make([]forecastpoints.Asset, 0, rows*columns)
-	stats := nativeStats{}
-	for blockRow := uint32(0); blockRow < rows; blockRow++ {
-		for blockColumn := uint32(0); blockColumn < columns; blockColumn++ {
-			if err := ctx.Err(); err != nil {
-				return nil, nativeStats{}, err
-			}
-			identity, err := forecastpoints.NewIdentity(
-				config.ReleaseID, config.Provider, config.Tier, config.Date.Format("2006-01-02"),
-				source.RunUTC, source.EvidenceSHA256, source.Grid,
-				forecastpoints.Coordinate{Row: blockRow, Column: blockColumn},
-			)
-			if err != nil {
-				return nil, nativeStats{}, err
-			}
-			row, column, height, width, err := forecastpoints.CellWindow(identity)
-			if err != nil {
-				return nil, nativeStats{}, err
-			}
-			window := pipeline.GridWindow{Row: row, Column: column, Rows: height, Cols: width}
-			aggregated, err := pipeline.AggregatePreparedDayWindow(ctx, config.Date, window, config.Locate, config.Series)
-			if err != nil {
-				return nil, nativeStats{}, fmt.Errorf("aggregate native forecast block %d/%d: %w", blockRow, blockColumn, err)
-			}
-			stats.maxMetricCells = max(stats.maxMetricCells, uint64(len(aggregated.Metrics)))
-			records, err := nativePointRecords(ctx, aggregated)
-			if err != nil {
-				return nil, nativeStats{}, fmt.Errorf("evaluate native forecast block %d/%d: %w", blockRow, blockColumn, err)
-			}
-			stats.maxPointRecords = max(stats.maxPointRecords, uint64(len(records)))
-			asset, err := forecastpoints.WriteBlock(root, identity, records)
-			if err != nil {
-				return nil, nativeStats{}, fmt.Errorf("write native forecast block %d/%d: %w", blockRow, blockColumn, err)
-			}
-			assets = append(assets, asset)
-		}
-	}
-	return assets, stats, nil
-}
-
-func nativePointRecords(ctx context.Context, window pipeline.DailyMetricsWindow) ([]delivery.DailyPointRecord, error) {
-	if window.Core.Rows == 0 || window.Core.Cols == 0 || window.Spec.Rows == 0 || window.Spec.Cols == 0 || len(window.Metrics) != int(window.Spec.Rows)*int(window.Spec.Cols) {
-		return nil, errors.New("native forecast block has invalid aggregated geometry")
-	}
-	coreRow := int64(window.Core.Row) - window.OriginRow
-	coreColumn := int64(window.Core.Column) - window.OriginColumn
-	if coreRow < 0 || coreColumn < 0 || coreRow+int64(window.Core.Rows) > int64(window.Spec.Rows) || coreColumn+int64(window.Core.Cols) > int64(window.Spec.Cols) {
-		return nil, errors.New("native forecast block core is outside its prepared window")
-	}
-	records := make([]delivery.DailyPointRecord, int(window.Core.Rows)*int(window.Core.Cols))
-	for row := uint32(0); row < window.Core.Rows; row++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		for column := uint32(0); column < window.Core.Cols; column++ {
-			metricIndex := int(coreRow+int64(row))*int(window.Spec.Cols) + int(coreColumn+int64(column))
-			metric := window.Metrics[metricIndex]
-			if !metric.Valid {
-				continue
-			}
-			weatherRecord, err := delivery.RecordFromWeather(metric)
-			if err != nil {
-				return nil, err
-			}
-			point, err := delivery.DailyPointRecordFromWeather(weatherRecord)
-			if err != nil {
-				return nil, err
-			}
-			records[int(row)*int(window.Core.Cols)+int(column)] = point
-		}
-	}
-	return records, nil
 }
 
 func verifyMaxZoomParity(ctx context.Context, root string, catalog forecasttiles.Catalog) (uint64, error) {
@@ -516,25 +421,20 @@ func validateConfig(ctx context.Context, config Config) (uint8, error) {
 		return 0, errors.New("forecast assembly date must be one UTC calendar day")
 	}
 	switch {
-	case config.Provider == forecastpoints.ProviderIFS && config.Tier == forecastpoints.TierGlobal:
+	case config.Provider == forecasttiles.ProviderIFS && config.Tier == forecasttiles.TierGlobal:
 		return 3, nil
-	case config.Provider == forecastpoints.ProviderICONEU && config.Tier == forecastpoints.TierEurope:
+	case config.Provider == forecasttiles.ProviderICONEU && config.Tier == forecasttiles.TierEurope:
 		return 5, nil
 	default:
 		return 0, errors.New("forecast assembly provider and tier are unsupported")
 	}
 }
 
-func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catalog, scalars forecasttiles.Catalog, native nativeStats, catalogBytes, parityRecords uint64) Stats {
+func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catalog, scalars forecasttiles.Catalog, catalogBytes, parityRecords uint64) Stats {
 	stats := Stats{
-		ExpectedPointBlocks: catalog.Coverage.ExpectedPointBlocks, AvailablePointBlocks: catalog.Coverage.AvailablePointBlocks,
-		OmittedPointBlocks: catalog.Coverage.OmittedPointBlocks, PointFiles: catalog.Coverage.AvailablePointBlocks,
 		DisplayPointFiles: uint32(len(catalog.DailyPointBlocks)), ScalarFiles: uint32(len(catalog.ScalarTiles)), CatalogBytes: catalogBytes, ParityRecords: parityRecords,
-		MaxMetricCells: max(native.maxMetricCells, scalars.Stats.MaxMetricCells), MaxPointRecords: native.maxPointRecords,
+		MaxMetricCells:    scalars.Stats.MaxMetricCells,
 		MaxDisplayRecords: scalars.Stats.MaxDisplayRecords, MaxScalarBytes: scalars.Stats.MaxScalarBytes,
-	}
-	for _, block := range catalog.PointBlocks {
-		stats.PointBytes += block.Bytes
 	}
 	for _, scalar := range catalog.ScalarTiles {
 		stats.ScalarBytes += scalar.Bytes
@@ -542,15 +442,14 @@ func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catal
 	for _, point := range catalog.DailyPointBlocks {
 		stats.DisplayPointBytes += point.Bytes
 	}
-	stats.OutputFiles = stats.PointFiles + stats.DisplayPointFiles + stats.ScalarFiles + 1
-	stats.OutputBytes = stats.PointBytes + stats.DisplayPointBytes + stats.ScalarBytes + stats.CatalogBytes
+	stats.OutputFiles = stats.DisplayPointFiles + stats.ScalarFiles + 1
+	stats.OutputBytes = stats.DisplayPointBytes + stats.ScalarBytes + stats.CatalogBytes
 	frameCount := uint64(0)
 	for _, frames := range series {
 		frameCount += uint64(len(frames))
 	}
 	metricBytes := uint64(unsafe.Sizeof(weather.DailyMetrics{}))
 	displayBytes := uint64(unsafe.Sizeof(delivery.DailyPointRecord{}))
-	pointBytes := uint64(unsafe.Sizeof(delivery.DailyPointRecord{}))
 	// Each aggregation can retain the source Float32 windows, cumulative
 	// normalization scratch, local-time windows, accumulators and output
 	// metrics. 256 bytes per cell covers those fixed structures; doubling all
@@ -559,9 +458,8 @@ func assembleStats(series pipeline.PreparedSeries, catalog forecastcatalog.Catal
 		return cells * (256 + metricBytes + 2*frameCount*4)
 	}
 	tilePeak := aggregationBound(scalars.Stats.MaxMetricCells) + scalars.Stats.MaxDisplayRecords*displayBytes + scalars.Stats.MaxScalarBytes
-	pointPeak := aggregationBound(native.maxMetricCells) + native.maxPointRecords*pointBytes
-	catalogPeak := uint64(len(catalog.PointBlocks))*uint64(unsafe.Sizeof(forecastcatalog.PointBlock{})) + uint64(len(catalog.ScalarTiles))*uint64(unsafe.Sizeof(forecastcatalog.ScalarTile{})) + catalogBytes
-	stats.EstimatedBulkWorkingBytes = max(tilePeak, pointPeak) + catalogPeak
+	catalogPeak := uint64(len(catalog.ScalarTiles))*uint64(unsafe.Sizeof(forecastcatalog.ScalarTile{})) + catalogBytes
+	stats.EstimatedBulkWorkingBytes = tilePeak + catalogPeak
 	return stats
 }
 

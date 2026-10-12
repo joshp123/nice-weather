@@ -151,35 +151,6 @@ func physicalCropBounds(bounds delivery.GridBounds, cols int) delivery.GridBound
 	return bounds
 }
 
-// DecodeRaster crops a regular raster onto the product grid without assigning
-// weather meaning. It is the non-GRIB boundary used for static climatology
-// COGs; callers remain responsible for units and metric construction.
-func (decoder *Decoder) DecodeRaster(ctx context.Context, path string, cellDegrees float64) (FloatGrid, error) {
-	if decoder == nil || decoder.Runner == nil {
-		return FloatGrid{}, errors.New("decoder command runner is required")
-	}
-	if strings.TrimSpace(path) == "" || cellDegrees <= 0 || math.IsNaN(cellDegrees) || math.IsInf(cellDegrees, 0) {
-		return FloatGrid{}, errors.New("raster path and positive cell spacing are required")
-	}
-	temporary, err := os.MkdirTemp("", "nice-weather-raster-")
-	if err != nil {
-		return FloatGrid{}, err
-	}
-	defer os.RemoveAll(temporary)
-	output := filepath.Join(temporary, "field.bil")
-	bounds := decoder.bounds
-	_, err = decoder.Runner.Run(ctx, "gdalwarp",
-		"-q", "-overwrite", "-of", "EHdr", "-ot", "Float32", "-r", "bilinear", "-dstnodata", "nan",
-		"-te", formatCoordinate(bounds.West), formatCoordinate(bounds.South), formatCoordinate(bounds.East), formatCoordinate(bounds.North),
-		"-tr", formatCoordinate(cellDegrees), formatCoordinate(cellDegrees), "-tap",
-		path, output,
-	)
-	if err != nil {
-		return FloatGrid{}, fmt.Errorf("crop raster: %w", err)
-	}
-	return readEHdr(output, bounds)
-}
-
 func shortNameMatches(field Field, shortName string) bool {
 	shortName = strings.ToLower(strings.TrimSpace(shortName))
 	allowed := map[Field]map[string]bool{

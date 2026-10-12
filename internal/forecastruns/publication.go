@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"nice-weather-finder/internal/forecasttiles"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,15 +25,14 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 )
 
 const (
 	PointerVersion = 1
-	IndexVersion   = 2
+	IndexVersion   = 3
 
-	ProductContract = "nice-weather-forecast-run-v5"
+	ProductContract = "nice-weather-forecast-run-v7"
 	SelectionMethod = "choose-one-complete-tier-before-colour"
 
 	IndexFilename = "index.json"
@@ -70,6 +70,7 @@ type Pointer struct {
 // catalogue. Provider choice happens at this boundary, before a scalar field
 // or colour is selected.
 type TierReference struct {
+	ReleaseID            string  `json:"releaseId"`
 	Date                 string  `json:"date"`
 	Provider             string  `json:"provider"`
 	Tier                 string  `json:"tier"`
@@ -114,14 +115,15 @@ type RangeReference struct {
 // exact selection priority, so consumers choose one complete tier and then a
 // scalar field. There is no representation for blended fields.
 type Index struct {
-	Version         int            `json:"version"`
-	ProductContract string         `json:"productContract"`
-	IndexID         string         `json:"indexId"`
-	FirstDate       string         `json:"firstDate"`
-	LastDate        string         `json:"lastDate"`
-	TierSelection   TierSelection  `json:"tierSelection"`
-	Days            []Day          `json:"days"`
-	Range           RangeReference `json:"range"`
+	Version         int             `json:"version"`
+	ProductContract string          `json:"productContract"`
+	IndexID         string          `json:"indexId"`
+	FirstDate       string          `json:"firstDate"`
+	LastDate        string          `json:"lastDate"`
+	TierSelection   TierSelection   `json:"tierSelection"`
+	Days            []Day           `json:"days"`
+	Range           RangeReference  `json:"range"`
+	RegionalRange   *RangeReference `json:"regionalRange,omitempty"`
 }
 
 // Publish validates one already installed run, installs its immutable index,
@@ -129,7 +131,18 @@ type Index struct {
 // candidate is newer when its IFS baseline advances, or when the same IFS
 // baseline gains a newer ICON-EU refinement. An intentional older move uses
 // Rollback.
-func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer, resultErr error) {
+func Publish(ctx context.Context, artifactRoot, indexID string) (Pointer, error) {
+	return publish(ctx, artifactRoot, indexID, "")
+}
+
+// PublishRebuilt replaces one explicitly named snapshot after rebuilding its derived ranges.
+func PublishRebuilt(ctx context.Context, artifactRoot, indexID, sourceID string) (Pointer, error) {
+	if !validIdentifier(sourceID) || sourceID == indexID {
+		return Pointer{}, errors.New("forecast rebuild requires distinct source and publication identities")
+	}
+	return publish(ctx, artifactRoot, indexID, sourceID)
+}
+func publish(ctx context.Context, artifactRoot, indexID, replacementOf string) (result Pointer, resultErr error) {
 	if ctx == nil || !validIdentifier(indexID) {
 		return Pointer{}, errors.New("forecast publication requires a context and safe index ID")
 	}
@@ -152,17 +165,31 @@ func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer,
 	}
 	defer releaseLock(runLock)
 
-	current, currentIndex, currentPayload, hasCurrent, err := readExistingPointer(forecastRoot)
+	var current Pointer
+	var currentIndex Index
+	var currentPayload []byte
+	var hasCurrent bool
+	if replacementOf == "" {
+		current, currentIndex, currentPayload, hasCurrent, err = readExistingPointer(forecastRoot)
+	} else {
+		currentPayload, err = readRegularBounded(filepath.Join(forecastRoot, "current.json"), maximumPointerBytes)
+		if err == nil {
+			current, err = parsePointer(currentPayload)
+			hasCurrent = true
+			if err == nil && current.Current.IndexID != replacementOf {
+				err = errors.New("forecast changed before its derived products were published")
+			}
+		}
+	}
 	if err != nil {
 		return Pointer{}, err
 	}
 	// Re-publishing the exact visible immutable run is a read-only idempotent
-	// operation. This also lets the one previous freshness contract age out;
-	// every genuinely new candidate still passes the strict current contract.
+	// operation. New candidates pass the current contract.
 	if hasCurrent && current.Current.IndexID == indexID {
 		return current, nil
 	}
-	candidate, err := buildIndex(forecastRoot, indexID, true, false)
+	candidate, err := buildIndex(forecastRoot, indexID, true)
 	if err != nil {
 		return Pointer{}, err
 	}
@@ -172,7 +199,7 @@ func Publish(ctx context.Context, artifactRoot, indexID string) (result Pointer,
 	}
 	sum := sha256.Sum256(payload)
 	candidateReference := IndexReference{IndexID: indexID, Path: indexPath(indexID), SHA256: hex.EncodeToString(sum[:])}
-	if hasCurrent {
+	if hasCurrent && replacementOf == "" {
 		candidateRun, _ := baselineRun(candidate)
 		currentRun, _ := baselineRun(currentIndex)
 		advances, err := forecastEvidenceAdvances(candidate, currentIndex)
@@ -370,7 +397,7 @@ func loadIndexMetadataReference(forecastRoot string, reference IndexReference) (
 	return index, nil
 }
 
-func buildIndex(forecastRoot, indexID string, allowIndex, allowLegacyStaleAfter bool) (Index, error) {
+func buildIndex(forecastRoot, indexID string, allowIndex bool) (Index, error) {
 	runRoot := filepath.Join(forecastRoot, "runs", indexID)
 	entries, err := readRealDirectory(runRoot)
 	if err != nil {
@@ -433,7 +460,7 @@ func buildIndex(forecastRoot, indexID string, allowIndex, allowLegacyStaleAfter 
 	index := Index{
 		Version: IndexVersion, ProductContract: ProductContract, IndexID: indexID,
 		FirstDate: dates[0], LastDate: dates[len(dates)-1],
-		TierSelection: TierSelection{Method: SelectionMethod, Priority: []string{forecastpoints.TierEurope, forecastpoints.TierGlobal}, Blend: false},
+		TierSelection: TierSelection{Method: SelectionMethod, Priority: []string{forecasttiles.TierEurope, forecasttiles.TierGlobal}, Blend: false},
 		Days:          make([]Day, 0, len(dates)),
 	}
 	for dayIndex, date := range dates {
@@ -442,66 +469,74 @@ func buildIndex(forecastRoot, indexID string, allowIndex, allowLegacyStaleAfter 
 		if err != nil {
 			return Index{}, err
 		}
-		wantTiers := map[string]bool{forecastpoints.TierGlobal: true}
+		wantTiers := map[string]bool{forecasttiles.TierGlobal: true}
 		for _, entry := range tierEntries {
-			if entry.Name() == forecastpoints.TierEurope && dayIndex < 5 {
-				wantTiers[forecastpoints.TierEurope] = true
+			if entry.Name() == forecasttiles.TierEurope && dayIndex < 5 {
+				wantTiers[forecasttiles.TierEurope] = true
 			}
 		}
 		if err := exactEntries(tierEntries, wantTiers, "forecast date "+date); err != nil {
 			return Index{}, err
 		}
 		day := Day{Date: date}
-		if _, ok := wantTiers[forecastpoints.TierEurope]; ok {
-			reference, err := tierReference(forecastRoot, indexID, date, forecastpoints.TierEurope)
+		if _, ok := wantTiers[forecasttiles.TierEurope]; ok {
+			reference, err := tierReference(forecastRoot, indexID, date, forecasttiles.TierEurope)
 			if err != nil {
 				return Index{}, err
 			}
 			day.Tiers = append(day.Tiers, reference)
 		}
-		baseline, err := tierReference(forecastRoot, indexID, date, forecastpoints.TierGlobal)
+		baseline, err := tierReference(forecastRoot, indexID, date, forecasttiles.TierGlobal)
 		if err != nil {
 			return Index{}, err
 		}
 		day.Tiers = append(day.Tiers, baseline)
 		index.Days = append(index.Days, day)
 	}
-	rangeReference, err := buildRangeReference(forecastRoot, index)
+	rangeReference, err := buildRangeReference(forecastRoot, index, forecasttiles.TierGlobal)
 	if err != nil {
 		return Index{}, err
 	}
 	index.Range = rangeReference
-	if err := validateIndexShapeForRead(index, allowLegacyStaleAfter); err != nil {
+	regional := regionalRangeInputs(index)
+	if len(regional) > 0 {
+		reference, err := buildRangeReference(forecastRoot, index, forecasttiles.TierEurope)
+		if err != nil {
+			return Index{}, err
+		}
+		index.RegionalRange = &reference
+	}
+	if err := validateIndexShape(index); err != nil {
 		return Index{}, err
 	}
 	return index, nil
 }
 
-func buildRangeReference(forecastRoot string, index Index) (RangeReference, error) {
-	if err := validateRangeParents(forecastRoot, index.IndexID); err != nil {
+func buildRangeReference(forecastRoot string, index Index, tier string) (RangeReference, error) {
+	if err := validateRangeParents(forecastRoot, index); err != nil {
 		return RangeReference{}, err
 	}
-	root := filepath.Join(forecastRoot, "runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal)
+	root := filepath.Join(forecastRoot, "runs", index.IndexID, "forecast-ranges", forecastrange.Period, tier)
 	catalog, payload, err := loadInstalledRange(root)
 	if err != nil {
 		return RangeReference{}, fmt.Errorf("validate forecast range: %w", err)
 	}
 	if catalog.ReleaseID != index.IndexID || catalog.Period != forecastrange.Period ||
-		!slices.Equal(catalog.Dates, indexDates(index)) || !slices.Equal(catalog.Inputs, rangeInputs(index)) {
+		!slices.Equal(catalog.Dates, indexDates(index)) || !slices.Equal(catalog.Inputs, rangeInputs(index)) || (tier == forecasttiles.TierEurope && !slices.Equal(catalog.RegionalInputs, regionalRangeInputs(index))) {
 		return RangeReference{}, errors.New("forecast range does not match the indexed global daily catalogues")
 	}
 	digest := sha256.Sum256(payload)
 	return RangeReference{
-		Period: forecastrange.Period, Provider: catalog.Source.Provider, Tier: catalog.Source.Tier,
+		Period: forecastrange.Period, Provider: catalog.Source.Provider, Tier: catalog.Tier(),
 		Product: catalog.Source.Product, RunUTC: catalog.Source.RunUTC,
 		NativeResolutionKM: catalog.Source.NativeResolutionKM, StaleAfterHours: catalog.Source.StaleAfterHours,
-		CatalogPath:  filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename)),
+		CatalogPath:  filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, tier, forecastrange.CatalogFilename)),
 		CatalogBytes: uint64(len(payload)), CatalogSHA256: hex.EncodeToString(digest[:]),
 	}, nil
 }
 
-func validateRangeParents(forecastRoot, indexID string) error {
-	rangeRoot := filepath.Join(forecastRoot, "runs", indexID, "forecast-ranges")
+func validateRangeParents(forecastRoot string, index Index) error {
+	rangeRoot := filepath.Join(forecastRoot, "runs", index.IndexID, "forecast-ranges")
 	entries, err := readRealDirectory(rangeRoot)
 	if err != nil {
 		return err
@@ -514,7 +549,11 @@ func validateRangeParents(forecastRoot, indexID string) error {
 	if err != nil {
 		return err
 	}
-	return exactEntries(entries, map[string]bool{forecastpoints.TierGlobal: true}, "forecast range period")
+	wanted := map[string]bool{forecasttiles.TierGlobal: true}
+	if len(regionalRangeInputs(index)) > 0 {
+		wanted[forecasttiles.TierEurope] = true
+	}
+	return exactEntries(entries, wanted, "forecast range period")
 }
 
 func indexDates(index Index) []string {
@@ -544,11 +583,11 @@ func tierReference(forecastRoot, indexID, date, tier string) (TierReference, err
 	if err != nil {
 		return TierReference{}, fmt.Errorf("validate forecast %s %s: %w", date, tier, err)
 	}
-	if catalog.ReleaseID != indexID || catalog.LocalDate != date || catalog.Tier != tier {
+	if !validIdentifier(catalog.ReleaseID) || catalog.LocalDate != date || catalog.Tier != tier {
 		return TierReference{}, errors.New("forecast catalogue does not match its run, date and tier path")
 	}
 	return TierReference{
-		Date: date, Provider: catalog.Provider, Tier: tier, Product: catalog.Evidence.Product,
+		ReleaseID: catalog.ReleaseID, Date: date, Provider: catalog.Provider, Tier: tier, Product: catalog.Evidence.Product,
 		RunUTC: catalog.Evidence.RunUTC, NativeResolutionKM: catalog.Evidence.NativeResolutionKM,
 		SourceEvidenceSHA256: catalog.Evidence.SourceEvidenceSHA256,
 		CatalogPath:          filepath.ToSlash(filepath.Join("runs", indexID, "forecast-days", date, tier, "catalog.json")),
@@ -602,13 +641,6 @@ func validateTierTree(root string, catalog forecastcatalog.Catalog) error {
 		}
 		return nil
 	}
-	for _, block := range catalog.PointBlocks {
-		if !block.Omitted {
-			if err := add(block.Path); err != nil {
-				return err
-			}
-		}
-	}
 	for _, point := range catalog.DailyPointBlocks {
 		if err := add(point.Path); err != nil {
 			return err
@@ -652,14 +684,10 @@ func validateTierTree(root string, catalog forecastcatalog.Catalog) error {
 }
 
 func validateIndexShape(index Index) error {
-	return validateIndexShapeForRead(index, false)
-}
-
-func validateIndexShapeForRead(index Index, allowLegacyStaleAfter bool) error {
 	if index.Version != IndexVersion || index.ProductContract != ProductContract || !validIdentifier(index.IndexID) || len(index.Days) != 14 ||
 		index.FirstDate != index.Days[0].Date || index.LastDate != index.Days[13].Date ||
 		index.TierSelection.Method != SelectionMethod || index.TierSelection.Blend ||
-		!slices.Equal(index.TierSelection.Priority, []string{forecastpoints.TierEurope, forecastpoints.TierGlobal}) {
+		!slices.Equal(index.TierSelection.Priority, []string{forecasttiles.TierEurope, forecasttiles.TierGlobal}) {
 		return errors.New("forecast run index identity, window or tier selection policy is invalid")
 	}
 	first, err := time.Parse("2006-01-02", index.FirstDate)
@@ -673,7 +701,7 @@ func validateIndexShapeForRead(index Index, allowLegacyStaleAfter bool) error {
 			return errors.New("forecast run days or tier counts are invalid")
 		}
 		baseline := day.Tiers[len(day.Tiers)-1]
-		if err := validateTierReference(index.IndexID, date, baseline, forecastpoints.ProviderIFS, forecastpoints.TierGlobal, forecastcatalog.ProductIFSControl, 28); err != nil {
+		if err := validateTierReference(index.IndexID, date, baseline, forecasttiles.ProviderIFS, forecasttiles.TierGlobal, forecastcatalog.ProductIFSControl, 28); err != nil {
 			return err
 		}
 		if dayIndex == 0 {
@@ -686,7 +714,7 @@ func validateIndexShapeForRead(index Index, allowLegacyStaleAfter bool) error {
 				return errors.New("forecast Europe tier is allowed only for the first five dates")
 			}
 			europe := day.Tiers[0]
-			if err := validateTierReference(index.IndexID, date, europe, forecastpoints.ProviderICONEU, forecastpoints.TierEurope, forecastcatalog.ProductICONEU, 7); err != nil {
+			if err := validateTierReference(index.IndexID, date, europe, forecasttiles.ProviderICONEU, forecasttiles.TierEurope, forecastcatalog.ProductICONEU, 7); err != nil {
 				return err
 			}
 			if europeRunUTC == "" {
@@ -696,23 +724,29 @@ func validateIndexShapeForRead(index Index, allowLegacyStaleAfter bool) error {
 			}
 		}
 	}
-	if err := validateRangeReference(index, allowLegacyStaleAfter); err != nil {
+	if err := validateRangeReference(index, index.Range, forecasttiles.TierGlobal); err != nil {
 		return err
+	}
+	if (index.RegionalRange != nil) != (len(regionalRangeInputs(index)) > 0) {
+		return errors.New("forecast regional range is absent or unsupported")
+	}
+	if index.RegionalRange != nil {
+		return validateRangeReference(index, *index.RegionalRange, forecasttiles.TierEurope)
 	}
 	return nil
 }
 
-func validateRangeReference(index Index, allowLegacyStaleAfter bool) error {
-	wantPath := filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, forecastpoints.TierGlobal, forecastrange.CatalogFilename))
-	run, err := time.Parse(time.RFC3339, index.Range.RunUTC)
+func validateRangeReference(index Index, reference RangeReference, tier string) error {
+	wantPath := filepath.ToSlash(filepath.Join("runs", index.IndexID, "forecast-ranges", forecastrange.Period, tier, forecastrange.CatalogFilename))
+	run, err := time.Parse(time.RFC3339, reference.RunUTC)
 	baseline := index.Days[0].Tiers[len(index.Days[0].Tiers)-1]
-	staleAfterValid := index.Range.StaleAfterHours == forecastrange.StaleAfterHours || allowLegacyStaleAfter && forecastrange.SupportsStaleAfterHours(index.Range.StaleAfterHours)
-	if index.Range.Period != forecastrange.Period || index.Range.Provider != forecastpoints.ProviderIFS ||
-		index.Range.Tier != forecastpoints.TierGlobal || index.Range.Product != forecastcatalog.ProductIFSControl ||
-		index.Range.RunUTC != baseline.RunUTC || err != nil || run.Location() != time.UTC || run.Nanosecond() != 0 ||
-		index.Range.NativeResolutionKM != 28 || !staleAfterValid ||
-		index.Range.CatalogPath != wantPath || index.Range.CatalogBytes == 0 || index.Range.CatalogBytes > forecastrange.MaximumCatalogBytes ||
-		!validSHA256(index.Range.CatalogSHA256) {
+	staleAfterValid := reference.StaleAfterHours == forecastrange.StaleAfterHours
+	if reference.Period != forecastrange.Period || reference.Provider != forecasttiles.ProviderIFS ||
+		reference.Tier != tier || reference.Product != forecastcatalog.ProductIFSControl ||
+		reference.RunUTC != baseline.RunUTC || err != nil || run.Location() != time.UTC || run.Nanosecond() != 0 ||
+		reference.NativeResolutionKM != 28 || !staleAfterValid ||
+		reference.CatalogPath != wantPath || reference.CatalogBytes == 0 || reference.CatalogBytes > forecastrange.MaximumCatalogBytes ||
+		!validSHA256(reference.CatalogSHA256) {
 		return errors.New("forecast run range reference is invalid")
 	}
 	return nil
@@ -721,7 +755,7 @@ func validateRangeReference(index Index, allowLegacyStaleAfter bool) error {
 func validateTierReference(indexID, date string, reference TierReference, provider, tier, product string, resolution float64) error {
 	wantPath := filepath.ToSlash(filepath.Join("runs", indexID, "forecast-days", date, tier, "catalog.json"))
 	run, runErr := time.Parse(time.RFC3339, reference.RunUTC)
-	if reference.Date != date || reference.Provider != provider || reference.Tier != tier || reference.Product != product ||
+	if !validIdentifier(reference.ReleaseID) || reference.Date != date || reference.Provider != provider || reference.Tier != tier || reference.Product != product ||
 		reference.NativeResolutionKM != resolution || runErr != nil || run.Location() != time.UTC || run.Nanosecond() != 0 ||
 		!validSHA256(reference.SourceEvidenceSHA256) || reference.CatalogPath != wantPath || reference.CatalogBytes == 0 ||
 		reference.CatalogBytes > forecastcatalog.MaximumCatalogBytes || !validSHA256(reference.CatalogSHA256) {
@@ -750,7 +784,7 @@ func validateIndexReference(forecastRoot string, reference IndexReference) (Inde
 	if index.IndexID != reference.IndexID {
 		return Index{}, errors.New("forecast index path and identity differ")
 	}
-	rebuilt, err := buildIndex(forecastRoot, index.IndexID, true, true)
+	rebuilt, err := buildIndex(forecastRoot, index.IndexID, true)
 	if err != nil {
 		return Index{}, err
 	}
@@ -808,7 +842,7 @@ func readExistingPointer(forecastRoot string) (Pointer, Index, []byte, bool, err
 	if err != nil {
 		return Pointer{}, Index{}, nil, false, fmt.Errorf("refuse publication with invalid current forecast pointer: %w", err)
 	}
-	current, err := validatePublicationCurrentReference(forecastRoot, pointer.Current)
+	current, err := validateIndexReference(forecastRoot, pointer.Current)
 	if err != nil {
 		return Pointer{}, Index{}, nil, false, fmt.Errorf("validate current forecast index: %w", err)
 	}
@@ -816,49 +850,11 @@ func readExistingPointer(forecastRoot string) (Pointer, Index, []byte, bool, err
 		if pointer.Current == *pointer.Previous {
 			return Pointer{}, Index{}, nil, false, errors.New("forecast current and previous indexes must differ")
 		}
-		if _, err := validatePublicationCurrentReference(forecastRoot, *pointer.Previous); err != nil {
+		if _, err := validateIndexReference(forecastRoot, *pointer.Previous); err != nil {
 			return Pointer{}, Index{}, nil, false, fmt.Errorf("validate previous forecast index: %w", err)
 		}
 	}
 	return pointer, current, payload, true, nil
-}
-
-// validatePublicationCurrentReference permits one authenticated transition
-// from the two prior run contracts. Legacy indexes are used only to compare
-// source freshness. New run IDs include the v5 contract, so their stale
-// product directories cannot be reused as v5 candidates.
-func validatePublicationCurrentReference(forecastRoot string, reference IndexReference) (Index, error) {
-	if err := validateIndexReferenceShape(reference); err != nil {
-		return Index{}, err
-	}
-	payload, err := readRegularBounded(filepath.Join(forecastRoot, filepath.FromSlash(reference.Path)), maximumIndexBytes)
-	if err != nil {
-		return Index{}, err
-	}
-	digest := sha256.Sum256(payload)
-	if hex.EncodeToString(digest[:]) != reference.SHA256 {
-		return Index{}, errors.New("forecast index checksum does not match its pointer")
-	}
-	var index Index
-	if err := decodeExactJSON(payload, &index); err != nil {
-		return Index{}, err
-	}
-	if index.IndexID != reference.IndexID {
-		return Index{}, errors.New("forecast index path and identity differ")
-	}
-	if index.ProductContract == ProductContract {
-		return validateIndexReference(forecastRoot, reference)
-	}
-	if index.ProductContract != "nice-weather-forecast-run-v3" && index.ProductContract != "nice-weather-forecast-run-v4" {
-		return Index{}, errors.New("forecast run index contract is not eligible for publication transition")
-	}
-	legacyContract := index.ProductContract
-	index.ProductContract = ProductContract
-	if err := validateIndexShapeForRead(index, true); err != nil {
-		return Index{}, err
-	}
-	index.ProductContract = legacyContract
-	return index, nil
 }
 
 func parsePointer(payload []byte) (Pointer, error) {
@@ -880,7 +876,7 @@ func validateIndexReferenceShape(reference IndexReference) error {
 }
 
 func baselineRun(index Index) (time.Time, error) {
-	if err := validatePublicationIndexShape(index); err != nil {
+	if err := validateIndexShape(index); err != nil {
 		return time.Time{}, err
 	}
 	return time.Parse(time.RFC3339, index.Days[0].Tiers[len(index.Days[0].Tiers)-1].RunUTC)
@@ -923,7 +919,7 @@ func forecastEvidenceAdvances(candidate, current Index) (bool, error) {
 }
 
 func refinementRun(index Index) (time.Time, bool, error) {
-	if err := validatePublicationIndexShape(index); err != nil {
+	if err := validateIndexShape(index); err != nil {
 		return time.Time{}, false, err
 	}
 	for _, day := range index.Days {
@@ -937,13 +933,6 @@ func refinementRun(index Index) (time.Time, bool, error) {
 		return run, true, nil
 	}
 	return time.Time{}, false, nil
-}
-
-func validatePublicationIndexShape(index Index) error {
-	if index.ProductContract == "nice-weather-forecast-run-v3" || index.ProductContract == "nice-weather-forecast-run-v4" {
-		index.ProductContract = ProductContract
-	}
-	return validateIndexShapeForRead(index, true)
 }
 
 func marshalIndex(index Index) ([]byte, error) {
@@ -969,7 +958,7 @@ func parseIndex(payload []byte) (Index, error) {
 	if err := decodeExactJSON(payload, &index); err != nil {
 		return Index{}, err
 	}
-	if err := validateIndexShapeForRead(index, true); err != nil {
+	if err := validateIndexShape(index); err != nil {
 		return Index{}, err
 	}
 	return index, nil
@@ -1202,7 +1191,7 @@ func syncDirectory(path string) error {
 func sameIndex(left, right Index) bool {
 	return left.Version == right.Version && left.ProductContract == right.ProductContract && left.IndexID == right.IndexID &&
 		left.FirstDate == right.FirstDate && left.LastDate == right.LastDate && left.TierSelection.Method == right.TierSelection.Method &&
-		left.TierSelection.Blend == right.TierSelection.Blend && slices.Equal(left.TierSelection.Priority, right.TierSelection.Priority) && left.Range == right.Range && slices.EqualFunc(left.Days, right.Days, func(a, b Day) bool {
+		left.TierSelection.Blend == right.TierSelection.Blend && slices.Equal(left.TierSelection.Priority, right.TierSelection.Priority) && left.Range == right.Range && equalRegionalRange(left.RegionalRange, right.RegionalRange) && slices.EqualFunc(left.Days, right.Days, func(a, b Day) bool {
 		return a.Date == b.Date && slices.Equal(a.Tiers, b.Tiers)
 	})
 }
@@ -1234,4 +1223,23 @@ func validSHA256(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == sha256.Size
+}
+
+func regionalRangeInputs(index Index) []forecastrange.InputCatalog {
+	var inputs []forecastrange.InputCatalog
+	prefix := filepath.ToSlash(filepath.Join("runs", index.IndexID)) + "/"
+	for _, day := range index.Days {
+		for _, tier := range day.Tiers {
+			if tier.Tier == forecasttiles.TierEurope {
+				inputs = append(inputs, forecastrange.InputCatalog{Date: day.Date, Path: strings.TrimPrefix(tier.CatalogPath, prefix), Bytes: tier.CatalogBytes, SHA256: tier.CatalogSHA256})
+			}
+		}
+	}
+	return inputs
+}
+func equalRegionalRange(a, b *RangeReference) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }

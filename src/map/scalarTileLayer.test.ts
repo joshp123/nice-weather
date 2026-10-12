@@ -68,41 +68,33 @@ describe('scalar tile layer', () => {
     expect(() => validateScores(new Uint8Array(256 * 256))).toThrow(/want 66564/);
   });
 
-  it('accepts the server-faithful browser shape for gzip scalar tiles', async () => {
+  it.each(['gzip', 'br', 'identity'])('accepts decoded scalar tiles over %s without requiring a length header', async (encoding) => {
     const scores = new Uint8Array(scalarTextureBytes()).fill(SCALAR_NO_DATA);
     scores[0] = 72;
     const response = new Response(scores, { headers: {
       'Content-Type': SCALAR_MEDIA_TYPE,
-      'Content-Encoding': 'gzip',
-      'Content-Length': '391',
+      'Content-Encoding': encoding,
     } });
 
     await expect(readScalarResponse(response)).resolves.toEqual(scores);
   });
 
-  it('rejects unsupported scalar encodings and oversized decoded gzip bodies', async () => {
-    const valid = new Uint8Array(scalarTextureBytes()).fill(SCALAR_NO_DATA);
-    const brotli = new Response(valid, { headers: {
+  it('accepts an entirely transparent ocean tile as valid weather coverage', async () => {
+    const scores = new Uint8Array(scalarTextureBytes()).fill(SCALAR_NO_DATA);
+    const response = new Response(scores, { headers: {
       'Content-Type': SCALAR_MEDIA_TYPE,
-      'Content-Encoding': 'br',
-      'Content-Length': '100',
+      'Content-Length': String(scores.byteLength),
     } });
-    await expect(readScalarResponse(brotli)).rejects.toThrow(/unsupported content encoding/);
-
-    const oversized = new Response(new Uint8Array(scalarTextureBytes() + 1), { headers: {
-      'Content-Type': SCALAR_MEDIA_TYPE,
-      'Content-Encoding': 'gzip',
-      'Content-Length': '100',
-    } });
-    await expect(readScalarResponse(oversized)).rejects.toThrow(/unexpectedly large/);
+    await expect(readScalarResponse(response)).resolves.toEqual(scores);
   });
 
-  it('requires an exact identity scalar length before reading', async () => {
-    const response = new Response(new Uint8Array(scalarTextureBytes()), { headers: {
-      'Content-Type': SCALAR_MEDIA_TYPE,
-      'Content-Length': String(scalarTextureBytes() - 1),
+  it('rejects oversized decoded bodies and truncated tiles', async () => {
+    const oversized = new Response(new Uint8Array(scalarTextureBytes() + 1), { headers: {
+      'Content-Type': SCALAR_MEDIA_TYPE, 'Content-Encoding': 'br', 'Content-Length': '100',
     } });
-    await expect(readScalarResponse(response)).rejects.toThrow(/invalid content length/);
+    await expect(readScalarResponse(oversized)).rejects.toThrow(/unexpectedly large/);
+    const truncated = new Response(new Uint8Array(scalarTextureBytes() - 1), { headers: { 'Content-Type': SCALAR_MEDIA_TYPE } });
+    await expect(readScalarResponse(truncated)).rejects.toThrow(/want 66564/);
   });
 
   it('verifies the indexed scalar body digest', async () => {

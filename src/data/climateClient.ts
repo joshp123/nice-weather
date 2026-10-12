@@ -36,7 +36,7 @@ const FIELDS = [
 const scalarTileIndexes = new WeakMap<readonly ClimateScalarTile[], ReadonlyMap<string, ClimateScalarTile>>();
 
 export type ClimateField = typeof FIELDS[number];
-export type ClimateIndexState = 'preview' | 'complete';
+export type ClimateIndexState = 'complete';
 export type ClimateGeometry = Readonly<{
   projection: 'EPSG:4326'; west: -180; east: 180; south: -90; north: 90;
   rows: 721; columns: 1440; cellResolutionDegrees: 0.25;
@@ -335,13 +335,11 @@ export class WorldwideClimateClient {
     catch { if (signal?.aborted) throw abortReason(signal); throw new ClimateDataError('unavailable'); }
     if (response.status === 404 || response.status === 409 || response.status === 410) throw new ClimateDataError(immutable ? 'stale' : 'unavailable');
     if (!response.ok) throw new ClimateDataError('unavailable');
-    const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase() || 'identity';
-    if (!jsonMediaType(response) || (encoding !== 'identity' && encoding !== 'gzip')) throw new ClimateDataError('invalid');
-    const declared = encoding === 'identity' ? exactContentLength(response, maximumBytes) : undefined;
+    if (!jsonMediaType(response)) throw new ClimateDataError('invalid');
     try {
-      const bytes = await readBoundedResponse(response, 'climate JSON', maximumBytes, encoding === 'gzip' ? { contentLength: 'encoded' } : undefined);
+      const bytes = await readBoundedResponse(response, 'climate JSON', maximumBytes);
       assertNotAborted(signal);
-      if (bytes.byteLength < 1 || (declared !== undefined && bytes.byteLength !== declared)) throw new ClimateDataError('invalid');
+      if (bytes.byteLength < 1) throw new ClimateDataError('invalid');
       return bytes;
     } catch (error) { throw clientError(error, signal); }
   }
@@ -351,8 +349,8 @@ export class WorldwideClimateClient {
     try { response = await this.#fetcher(url, { signal, headers: { Range: `bytes=0-${asset.bytes - 1}` } }); }
     catch { if (signal.aborted) throw abortReason(signal); throw new ClimateDataError('unavailable'); }
     if (response.status === 404 || response.status === 409 || response.status === 410) throw new ClimateDataError('stale');
-    if (response.status !== 206 || response.headers.get('Content-Type')?.trim().toLowerCase() !== asset.mediaType || response.headers.has('Content-Encoding')) throw new ClimateDataError('invalid');
-    if (response.headers.get('Content-Range') !== `bytes 0-${asset.bytes - 1}/${asset.bytes}` || response.headers.get('Content-Length') !== String(asset.bytes)) throw new ClimateDataError('invalid');
+    if (response.status !== 206 || response.headers.get('Content-Type')?.trim().toLowerCase() !== asset.mediaType) throw new ClimateDataError('invalid');
+    if (response.headers.get('Content-Range') !== `bytes 0-${asset.bytes - 1}/${asset.bytes}`) throw new ClimateDataError('invalid');
     let bytes: Uint8Array;
     try { bytes = await readBoundedResponse(response, 'ERA5 climate point block', asset.bytes); }
     catch { throw new ClimateDataError('invalid'); }
@@ -401,18 +399,18 @@ export class WorldwideClimateClient {
 
 function parseIndex(value: unknown): ClimateIndex {
   const data = exactObject(value, ['version', 'indexId', 'state', 'referencePeriod', 'geometry', 'source', 'positiveDateline', 'probability', 'scalarSemantics', 'maximumZoom', 'pointRecordBytes', 'months']);
-  if (data.version !== 2 || !releaseID(data.indexId) || (data.state !== 'preview' && data.state !== 'complete') || !integer(data.maximumZoom, 0, 4) || data.pointRecordBytes !== RECORD_BYTES) throw new ClimateDataError('invalid');
+  if (data.version !== 2 || !releaseID(data.indexId) || data.state !== 'complete' || !integer(data.maximumZoom, 0, 4) || data.pointRecordBytes !== RECORD_BYTES) throw new ClimateDataError('invalid');
   const referencePeriod = parseReferencePeriod(data.referencePeriod);
   const geometry = parseGeometry(data.geometry);
   const source = parseIndexSource(data.source);
   const positiveDateline = parseDateline(data.positiveDateline);
   const probability = parseProbability(data.probability);
   const scalarSemantics = parseScalarSemantics(data.scalarSemantics);
-  if (!Array.isArray(data.months) || (data.state === 'preview' ? data.months.length < 1 || data.months.length > 11 : data.months.length !== 12)) throw new ClimateDataError('invalid');
+  if (!Array.isArray(data.months) || data.months.length !== 12) throw new ClimateDataError('invalid');
   const months = data.months.map(parseMonthReference);
   for (let index = 0; index < months.length; index++) {
     if (index > 0 && months[index - 1].period >= months[index].period) throw new ClimateDataError('invalid');
-    if (data.state === 'complete' && months[index].period !== `month-${String(index + 1).padStart(2, '0')}`) throw new ClimateDataError('invalid');
+    if (months[index].period !== `month-${String(index + 1).padStart(2, '0')}`) throw new ClimateDataError('invalid');
   }
   return deepFreeze({ version: 2 as const, indexId: data.indexId, state: data.state, referencePeriod, geometry, source, positiveDateline, probability, scalarSemantics, maximumZoom: data.maximumZoom, pointRecordBytes: 64 as const, months });
 }
@@ -637,7 +635,6 @@ function geographicDistanceKm(latitudeA: number, longitudeA: number, latitudeB: 
 function samePointer(left: Pointer, right: Pointer): boolean { return left.version === right.version && left.indexId === right.indexId && left.indexSha256 === right.indexSha256; }
 function sameArray(left: unknown, right: readonly unknown[]): boolean { return Array.isArray(left) && left.length === right.length && left.every((item, index) => item === right[index]); }
 function sameSet(left: Set<string>, right: Set<string>): boolean { return left.size === right.size && [...left].every((item) => right.has(item)); }
-function exactContentLength(response: Response, maximum: number): number { const value = response.headers.get('Content-Length'); if (value === null || !/^[1-9]\d*$/.test(value)) throw new ClimateDataError('invalid'); const length = Number(value); if (!Number.isSafeInteger(length) || length > maximum) throw new ClimateDataError('invalid'); return length; }
 function rememberIdentity(map: Map<string, string>, identity: string, digest: string): void { const known = map.get(identity); if (known !== undefined && known !== digest) throw new ClimateDataError('stale'); if (known === undefined && map.size >= MAX_SESSION_IDENTITIES) throw new ClimateDataError('invalid'); map.set(identity, digest); }
 async function digestHex(bytes: Uint8Array): Promise<string> { const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource); return hex(new Uint8Array(digest)); }
 function combineSignals(internal: AbortSignal, external?: AbortSignal): AbortSignal { return external ? AbortSignal.any([internal, external]) : internal; }

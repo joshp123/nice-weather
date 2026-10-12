@@ -1,6 +1,9 @@
 package delivery
 
-import "testing"
+import (
+	"nice-weather-finder/internal/weather"
+	"testing"
+)
 
 func TestRangePointCodecExportsEstablishedCheckedLayout(t *testing.T) {
 	record := testRangePointRecord(70)
@@ -22,4 +25,16 @@ func TestRangePointCodecExportsEstablishedCheckedLayout(t *testing.T) {
 	if _, err := DecodeRangePointRecord(encoded); err == nil {
 		t.Fatal("unknown range record flags were accepted")
 	}
+}
+
+func testRangePointRecord(score int) RangePointRecord {
+	results := make([]weather.Result, ForecastPointDayCount)
+	var days [ForecastPointDayCount]uint8
+	for index := range results {
+		results[index] = weather.Result{Available: true, Score: score, Rating: weather.Rating(score), Components: weather.Components{Thermal: score, Dryness: score, Sun: score, Wind: score}}
+		days[index] = uint8(score)
+	}
+	summary, _ := weather.SummarizeRange(results)
+	record, _ := RangeRecordFromSummary(summary)
+	return RangePointRecord{Nice: record, Cycling: record, NiceDays: days, CyclingDays: days}
 }

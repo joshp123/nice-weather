@@ -12,7 +12,7 @@ const (
 )
 
 // RangeRecord is the compact representation of weather.RangeSummary embedded
-// in the shared two-profile NWFPOINT forecast-window record.
+// in the shared two-profile forecast-window point record.
 type RangeRecord struct {
 	Score          uint8
 	MedianScore    uint8

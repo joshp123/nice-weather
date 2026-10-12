@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"nice-weather-finder/internal/forecasttiles"
 	"path/filepath"
 	"slices"
 	"time"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/places"
@@ -42,8 +42,6 @@ type WorldwidePointer struct {
 	URL             string `json:"url"`
 	SHA256          string `json:"sha256"`
 }
-
-func (WorldwidePointer) publicationPointer() {}
 
 type WorldwideBuildSummary struct {
 	ScannedPlaces int
@@ -85,6 +83,19 @@ func BuildWorldwideCurrent(ctx context.Context, artifactRoot string) (WorldwideB
 	}
 
 	lookup := newWorldwideLookup(ctx, rangeRoot, catalog)
+	if index.RegionalRange != nil {
+		reference := *index.RegionalRange
+		regionalRoot := filepath.Join(absoluteRoot, "forecast", filepath.FromSlash(filepath.Dir(reference.CatalogPath)))
+		regional, payload, err := forecastrange.ValidateInstalled(regionalRoot)
+		if err != nil {
+			return WorldwideBuildSummary{}, err
+		}
+		digest := sha256.Sum256(payload)
+		if uint64(len(payload)) != reference.CatalogBytes || hex.EncodeToString(digest[:]) != reference.CatalogSHA256 || regional.ReleaseID != index.IndexID || !slices.Equal(regional.Dates, dates) {
+			return WorldwideBuildSummary{}, errors.New("regional range does not match the shortlist snapshot")
+		}
+		lookup.regional = newWorldwideLookup(ctx, regionalRoot, regional)
+	}
 	var placePointer places.Pointer
 	scanned := 0
 	profiles, err := EvaluateWorldwide(func(visit func(places.Candidate) error) error {
@@ -157,6 +168,7 @@ type worldwideLookup struct {
 	ctx       context.Context
 	root      string
 	catalog   forecastrange.Catalog
+	regional  *worldwideLookup
 	blocks    map[[2]uint32]*forecastrange.Block
 	blockMeta map[[2]uint32]forecastrange.PointBlock
 }
@@ -173,7 +185,17 @@ func (reader *worldwideLookup) lookup(profile string, longitude, latitude float6
 	if err := reader.ctx.Err(); err != nil {
 		return delivery.RangeRecord{}, false, err
 	}
-	id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, forecastrange.MaxZoom, longitude, latitude)
+	if reader.regional != nil {
+		record, valid, err := reader.regional.lookup(profile, longitude, latitude)
+		if err != nil || valid {
+			return record, valid, err
+		}
+	}
+	zoom := reader.catalog.Grid.Zoom
+	if zoom == 0 {
+		zoom = forecastrange.MaxZoom
+	}
+	id, row, column, err := tiledelivery.At(reader.catalog.Tier(), zoom, longitude, latitude)
 	if err != nil {
 		return delivery.RangeRecord{}, false, nil
 	}
@@ -182,6 +204,9 @@ func (reader *worldwideLookup) lookup(profile string, longitude, latitude float6
 	key := [2]uint32{globalRow / uint32(forecastrange.BlockRows), globalColumn / uint32(forecastrange.BlockColumns)}
 	meta, exists := reader.blockMeta[key]
 	if !exists {
+		if reader.catalog.Tier() == forecasttiles.TierEurope {
+			return delivery.RangeRecord{}, false, nil
+		}
 		return delivery.RangeRecord{}, false, errors.New("worldwide range catalogue is missing a point block")
 	}
 	if meta.Omitted {
@@ -189,7 +214,7 @@ func (reader *worldwideLookup) lookup(profile string, longitude, latitude float6
 	}
 	block := reader.blocks[key]
 	if block == nil {
-		identity, err := forecastrange.NewBlockIdentity(reader.catalog.ReleaseID, key[0], key[1])
+		identity, err := forecastrange.NewTierBlockIdentity(reader.catalog.ReleaseID, reader.catalog.Tier(), key[0], key[1])
 		if err != nil {
 			return delivery.RangeRecord{}, false, err
 		}

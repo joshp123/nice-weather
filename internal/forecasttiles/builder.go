@@ -23,9 +23,13 @@ import (
 	"nice-weather-finder/internal/tiledelivery"
 )
 
-const catalogVersion = 3
+const CatalogVersion = 3
 
 const (
+	ProviderIFS                       = "ecmwf-ifs"
+	ProviderICONEU                    = "dwd-icon-eu"
+	TierGlobal                        = "global"
+	TierEurope                        = "europe-detail"
 	LandAuthorityNaturalEarth         = "Natural Earth"
 	LandDatasetNaturalEarth10M        = "ne_10m_land"
 	LandVersionNaturalEarth511        = "5.1.1"
@@ -241,7 +245,7 @@ func BuildDay(ctx context.Context, config Config) (Catalog, error) {
 		return Catalog{}, err
 	}
 	catalog := Catalog{
-		Version: catalogVersion, ReleaseID: config.ReleaseID, Period: config.Period,
+		Version: CatalogVersion, ReleaseID: config.ReleaseID, Period: config.Period,
 		Tier: config.Tier, Date: config.Date.Format("2006-01-02"), MaxZoom: config.MaxZoom,
 		Source: sourceIdentity, Land: config.Land.Identity(), MaxZoomOutcomes: []MaxZoomOutcome{}, Points: []PointTile{}, Scalars: []ScalarTile{},
 	}

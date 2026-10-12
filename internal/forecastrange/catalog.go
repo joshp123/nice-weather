@@ -19,7 +19,6 @@ import (
 
 	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/forecastcatalog"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
 	"nice-weather-finder/internal/weather"
@@ -27,26 +26,19 @@ import (
 
 const (
 	CatalogVersion  = 1
-	ProductContract = "nice-weather-forecast-range-v2"
+	ProductContract = "nice-weather-forecast-range-v3"
 	Period          = "next-14-days"
 	// The only complete worldwide fourteen-day source is the daily IFS 12 UTC
 	// run. Its final long-range tranche is normally not available until about
 	// 19:34 UTC on the following day, so the newest usable run can be more than
 	// 31 hours old. Thirty-six hours allows normal dissemination and build time
 	// while still failing closed when a daily run is missed.
-	StaleAfterHours       = 36
-	legacyStaleAfterHours = 18
-	MaximumCatalogBytes   = 512 * 1024
-	CatalogFilename       = "catalog.json"
-	MaxZoom               = uint8(3)
+	StaleAfterHours     = 36
+	MaximumCatalogBytes = 2 * 1024 * 1024
+	CatalogFilename     = "catalog.json"
+	MaxZoom             = uint8(3)
+	RegionalMaxZoom     = uint8(5)
 )
-
-// SupportsStaleAfterHours accepts the immediately previous publication long
-// enough for its immutable run to age out. New catalogues always write
-// StaleAfterHours; readers apply the current policy to either representation.
-func SupportsStaleAfterHours(hours int) bool {
-	return hours == StaleAfterHours || hours == legacyStaleAfterHours
-}
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
@@ -149,6 +141,7 @@ type Catalog struct {
 	Scores           Scores           `json:"scores"`
 	PointBlockLayout PointBlockLayout `json:"pointBlockLayout"`
 	Inputs           []InputCatalog   `json:"inputs"`
+	RegionalInputs   []InputCatalog   `json:"regionalInputs,omitempty"`
 	Coverage         Coverage         `json:"coverage"`
 	PointBlocks      []PointBlock     `json:"pointBlocks"`
 	ScalarCoverage   []MaxZoomOutcome `json:"scalarCoverage"`
@@ -202,30 +195,26 @@ func Parse(encoded []byte) (Catalog, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Catalog{}, errors.New("forecast range catalogue has trailing JSON")
 	}
-	if err := validateCatalog(catalog, true); err != nil {
+	if err := Validate(catalog); err != nil {
 		return Catalog{}, err
 	}
 	return catalog, nil
 }
 
 func Validate(catalog Catalog) error {
-	return validateCatalog(catalog, false)
-}
-
-func validateCatalog(catalog Catalog, allowLegacyStaleAfter bool) error {
 	if catalog.Version != CatalogVersion || catalog.ProductContract != ProductContract || !validIdentifier(catalog.ReleaseID) || catalog.Period != Period {
 		return errors.New("forecast range catalogue identity is invalid")
 	}
-	staleAfterValid := catalog.Source.StaleAfterHours == StaleAfterHours || allowLegacyStaleAfter && catalog.Source.StaleAfterHours == legacyStaleAfterHours
-	if catalog.Source.Provider != forecastpoints.ProviderIFS || catalog.Source.Tier != forecastpoints.TierGlobal || catalog.Source.Product != forecastcatalog.ProductIFSControl || catalog.Source.NativeResolutionKM != 28 || !staleAfterValid {
+	staleAfterValid := catalog.Source.StaleAfterHours == StaleAfterHours
+	if catalog.Source.Provider != forecasttiles.ProviderIFS || catalog.Source.Tier != forecasttiles.TierGlobal || catalog.Source.Product != forecastcatalog.ProductIFSControl || catalog.Source.NativeResolutionKM != 28 || !staleAfterValid {
 		return errors.New("forecast range source must be the global IFS product")
 	}
 	run, err := time.Parse(time.RFC3339, catalog.Source.RunUTC)
 	if err != nil || run.Location() != time.UTC || run.Nanosecond() != 0 || run.Format(time.RFC3339) != catalog.Source.RunUTC {
 		return errors.New("forecast range source run is invalid")
 	}
-	wantGrid := Grid{Projection: "EPSG:3857-XYZ", Zoom: MaxZoom, TileSize: tiledelivery.TileSize, Rows: worldPixels, Columns: worldPixels}
-	if catalog.Grid != wantGrid {
+	wantGrid := Grid{Projection: "EPSG:3857-XYZ", Zoom: catalog.Grid.Zoom, TileSize: tiledelivery.TileSize, Rows: uint32(tiledelivery.TileSize) << catalog.Grid.Zoom, Columns: uint32(tiledelivery.TileSize) << catalog.Grid.Zoom}
+	if (catalog.Grid.Zoom != MaxZoom && catalog.Grid.Zoom != RegionalMaxZoom) || catalog.Grid != wantGrid || (catalog.Grid.Zoom == RegionalMaxZoom) != (len(catalog.RegionalInputs) > 0) {
 		return errors.New("forecast range grid is invalid")
 	}
 	if catalog.Scores.Unit != forecastcatalog.ScoreUnit || catalog.Scores.NoDataValue != forecastcatalog.ScoreNoData || catalog.Scores.MediaType != tiledelivery.ScalarMediaType || !slices.Equal(catalog.Scores.Profiles, []weather.Profile{weather.ProfileNice, weather.ProfileCycling}) || !slices.Equal(catalog.Scores.Fields, fieldContracts) {
@@ -263,7 +252,7 @@ func validateDatesAndInputs(catalog Catalog) error {
 	for index, date := range catalog.Dates {
 		want := first.AddDate(0, 0, index).Format(time.DateOnly)
 		input := catalog.Inputs[index]
-		wantPath := filepath.ToSlash(filepath.Join("forecast-days", want, forecastpoints.TierGlobal, forecastcatalogFilename))
+		wantPath := filepath.ToSlash(filepath.Join("forecast-days", want, forecasttiles.TierGlobal, forecastcatalogFilename))
 		if date != want || input.Date != want || input.Path != wantPath || !safeRelative(input.Path) || input.Bytes == 0 || input.Bytes > forecastcatalog.MaximumCatalogBytes || !validSHA256(input.SHA256) {
 			return fmt.Errorf("forecast range input catalogue at index %d is invalid or out of order", index)
 		}
@@ -272,45 +261,52 @@ func validateDatesAndInputs(catalog Catalog) error {
 }
 
 func validateBlocks(catalog Catalog) error {
-	if len(catalog.PointBlocks) != int(blockCount*blockCount) {
-		return fmt.Errorf("forecast range has %d point blocks; want %d", len(catalog.PointBlocks), blockCount*blockCount)
+	count := catalog.Grid.Rows / uint32(BlockRows)
+	if catalog.Grid.Zoom == MaxZoom && len(catalog.PointBlocks) != int(count*count) {
+		return errors.New("worldwide range point coverage is incomplete")
 	}
-	for row := uint32(0); row < blockCount; row++ {
-		for column := uint32(0); column < blockCount; column++ {
-			index := int(row*blockCount + column)
-			block := catalog.PointBlocks[index]
-			if block.Row != row || block.Column != column || block.DataRecords+block.NoDataRecords != uint32(BlockRows)*uint32(BlockColumns) {
-				return fmt.Errorf("forecast range point block at index %d is invalid", index)
+	if len(catalog.PointBlocks) != len(catalog.ScalarCoverage)*16 {
+		return errors.New("range point coverage does not match its tiles")
+	}
+	seen := make(map[[2]uint32]bool)
+	for index, block := range catalog.PointBlocks {
+		key := [2]uint32{block.Row, block.Column}
+		if seen[key] || block.Row >= count || block.Column >= count || block.DataRecords+block.NoDataRecords != uint32(BlockRows)*uint32(BlockColumns) {
+			return fmt.Errorf("range point block %d is invalid", index)
+		}
+		seen[key] = true
+		if block.Omitted {
+			if block.Path != "" || block.Bytes != 0 || block.SHA256 != "" || block.PayloadSHA256 != "" || block.DataRecords != 0 {
+				return errors.New("omitted range block has data")
 			}
-			if block.Omitted {
-				if block.Path != "" || block.Bytes != 0 || block.SHA256 != "" || block.PayloadSHA256 != "" || block.DataRecords != 0 || block.NoDataRecords != uint32(BlockRows)*uint32(BlockColumns) {
-					return fmt.Errorf("omitted forecast range block %d/%d is not all no-data", row, column)
-				}
-				continue
-			}
-			wantPath := BlockPath(row, column)
-			if block.Path != wantPath || block.Bytes != BlockBytes || !validSHA256(block.SHA256) || !validSHA256(block.PayloadSHA256) || block.DataRecords == 0 {
-				return fmt.Errorf("forecast range block %d/%d identity is invalid", row, column)
-			}
+			continue
+		}
+		if block.Path != TierBlockPath(catalog.Tier(), block.Row, block.Column) || block.Bytes != BlockBytes || !validSHA256(block.SHA256) || !validSHA256(block.PayloadSHA256) || block.DataRecords == 0 {
+			return errors.New("range point block identity is invalid")
 		}
 	}
 	return nil
 }
-
 func validateScalarCoverage(catalog Catalog) error {
-	count := uint32(1) << MaxZoom
-	if len(catalog.ScalarCoverage) != int(count*count) {
-		return errors.New("forecast range max-zoom coverage is incomplete")
+	count := uint32(1) << catalog.Grid.Zoom
+	if catalog.Grid.Zoom == MaxZoom && len(catalog.ScalarCoverage) != int(count*count) {
+		return errors.New("worldwide range tile coverage is incomplete")
 	}
-	for y := uint32(0); y < count; y++ {
-		for x := uint32(0); x < count; x++ {
-			outcome := catalog.ScalarCoverage[int(y*count+x)]
-			if outcome.Zoom != MaxZoom || outcome.X != x || outcome.Y != y || outcome.DataRecords+outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize || outcome.Omitted != (outcome.DataRecords == 0) {
-				return fmt.Errorf("forecast range max-zoom outcome %d/%d is invalid", x, y)
-			}
+	seen := make(map[[2]uint32]bool)
+	for _, outcome := range catalog.ScalarCoverage {
+		key := [2]uint32{outcome.X, outcome.Y}
+		if seen[key] || outcome.Zoom != catalog.Grid.Zoom || outcome.X >= count || outcome.Y >= count || outcome.DataRecords+outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize || outcome.Omitted != (outcome.DataRecords == 0) {
+			return errors.New("range tile coverage is invalid")
 		}
+		seen[key] = true
 	}
 	return nil
+}
+func (catalog Catalog) Tier() string {
+	if catalog.Grid.Zoom == RegionalMaxZoom {
+		return forecasttiles.TierEurope
+	}
+	return forecasttiles.TierGlobal
 }
 
 type tileKey struct {
@@ -343,8 +339,8 @@ func validateScalars(catalog Catalog) error {
 	for _, tile := range catalog.ScalarTiles {
 		fieldSet, ok := byField[tile.Field]
 		count := uint64(1) << tile.Zoom
-		wantPath, pathErr := scalarPath(tile.Field, tile.Zoom, tile.X, tile.Y)
-		if !ok || tile.Zoom > MaxZoom || uint64(tile.X) >= count || uint64(tile.Y) >= count || pathErr != nil || tile.Path != wantPath || tile.Bytes != tiledelivery.ScalarTileBytes || !validSHA256(tile.SHA256) || tile.DataTexels == 0 || uint64(tile.DataTexels)+uint64(tile.NoDataTexels) != tiledelivery.ScalarTileBytes {
+		wantPath, pathErr := tierScalarPath(catalog.Tier(), tile.Field, tile.Zoom, tile.X, tile.Y)
+		if !ok || tile.Zoom > catalog.Grid.Zoom || uint64(tile.X) >= count || uint64(tile.Y) >= count || pathErr != nil || tile.Path != wantPath || tile.Bytes != tiledelivery.ScalarTileBytes || !validSHA256(tile.SHA256) || tile.DataTexels == 0 || uint64(tile.DataTexels)+uint64(tile.NoDataTexels) != tiledelivery.ScalarTileBytes {
 			return fmt.Errorf("forecast range scalar %s %d/%d/%d is invalid", tile.Field, tile.Zoom, tile.X, tile.Y)
 		}
 		key := tileKey{tile.Zoom, tile.X, tile.Y}
@@ -381,6 +377,9 @@ func calculateCoverage(catalog Catalog) Coverage {
 }
 
 func scalarPath(field forecasttiles.Field, zoom uint8, x, y uint32) (string, error) {
+	return tierScalarPath(forecasttiles.TierGlobal, field, zoom, x, y)
+}
+func tierScalarPath(tier string, field forecasttiles.Field, zoom uint8, x, y uint32) (string, error) {
 	suffix := map[forecasttiles.Field]string{
 		forecasttiles.FieldThermal: ".th", forecasttiles.FieldDryness: ".dr", forecasttiles.FieldSun: ".su",
 		forecasttiles.FieldNiceScore: ".ns", forecasttiles.FieldNiceWind: ".nw", forecasttiles.FieldCyclingScore: ".cs", forecasttiles.FieldCyclingWind: ".cw",
@@ -388,7 +387,7 @@ func scalarPath(field forecasttiles.Field, zoom uint8, x, y uint32) (string, err
 	if suffix == "" {
 		return "", fmt.Errorf("unknown forecast range scalar field %q", field)
 	}
-	return fmt.Sprintf("scores/%s/%s%s/%d/%d/%d.nws", Period, forecastpoints.TierGlobal, suffix, zoom, x, y), nil
+	return fmt.Sprintf("scores/%s/%s%s/%d/%d/%d.nws", Period, tier, suffix, zoom, x, y), nil
 }
 
 func scalarLess(a, b ScalarTile) bool {

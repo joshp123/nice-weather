@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,37 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"nice-weather-finder/internal/delivery"
 	"nice-weather-finder/internal/pipeline"
 	"nice-weather-finder/internal/providers/dwd"
 	"nice-weather-finder/internal/providers/ifs"
 )
-
-func TestStagedForDayBoundsDecodedWorkingSet(t *testing.T) {
-	run := time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC)
-	date := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
-	var dwdFrames []stagedFrame
-	for step := 0; step <= 120; step++ {
-		for field := 0; field < 9; field++ {
-			dwdFrames = append(dwdFrames, stagedFrame{path: fmt.Sprintf("%d-%d", step, field), run: run, step: step})
-		}
-	}
-	selected := stagedForDay(dwdFrames, date, true)
-	if len(selected) != 172 {
-		t.Fatalf("detailed day retained %d frames; want 171 in-window frames plus one predecessor for the synthetic field", len(selected))
-	}
-
-	var ifsFrames []stagedFrame
-	for step := 0; step <= 360; step += 6 {
-		for field := 0; field < 7; field++ {
-			ifsFrames = append(ifsFrames, stagedFrame{path: fmt.Sprintf("%d-%d", step, field), run: run, step: step})
-		}
-	}
-	selected = stagedForDay(ifsFrames, date, false)
-	if len(selected) != 43 {
-		t.Fatalf("outlook day retained %d frames; want 42 in-window frames plus one predecessor for the synthetic field", len(selected))
-	}
-}
 
 func TestStagedForDayRetainsOnePrecedingFramePerField(t *testing.T) {
 	date := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
@@ -60,7 +32,7 @@ func TestStagedForDayRetainsOnePrecedingFramePerField(t *testing.T) {
 		{path: "temp-3", field: pipeline.Temperature, run: run, step: 3},
 		{path: "solar-3", field: pipeline.SolarDirect, run: run, step: 3},
 	}
-	selected := stagedForDay(staged, date, true)
+	selected := stagedForDayWindow(staged, date, europeDetailedDecodeWindow)
 	paths := map[string]bool{}
 	for _, frame := range selected {
 		paths[frame.path] = true
@@ -89,53 +61,6 @@ func TestStagedForWorldwideDayCrossesBothUTCDates(t *testing.T) {
 	}
 	if fmt.Sprint(steps) != "[6 12 18 24 30 36 42 48]" {
 		t.Fatalf("worldwide day staged steps %v", steps)
-	}
-}
-
-func TestIFSStepsRetainTheEstablishedSixHourlyOutlookCadence(t *testing.T) {
-	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	days := []dayPlan{{Date: time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)}}
-	steps := stepsForIFS(run, days)
-	if len(steps) == 0 {
-		t.Fatal("IFS outlook selected no steps")
-	}
-	for _, step := range steps {
-		if step%6 != 0 {
-			t.Fatalf("IFS outlook selected three-hour-only step %d", step)
-		}
-	}
-}
-
-func TestValidateIFSCumulativeSmokeRequiresRunTotalsAndProducesIntervals(t *testing.T) {
-	run := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	spec := delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 1, South: 0, North: 1}, Rows: 1, Cols: 1}
-	series := make(pipeline.Series)
-	for _, field := range []pipeline.Field{pipeline.Rain, pipeline.Solar} {
-		units := "m"
-		values := []float32{0, .001}
-		if field == pipeline.Solar {
-			units = "J m-2"
-			values = []float32{0, 2_000_000}
-		}
-		for index, value := range values {
-			series[field] = append(series[field], pipeline.Frame{
-				Field: field, Start: run, End: run.Add(time.Duration(index*6) * time.Hour),
-				Semantics: pipeline.CumulativeAccumulation, Units: units, NativeResolutionKM: 28,
-				Grid: pipeline.FloatGrid{Spec: spec, Values: []float32{value}},
-			})
-		}
-	}
-	if err := validateIFSCumulativeSmoke(series); err != nil {
-		t.Fatal(err)
-	}
-	series[pipeline.Rain][1].Semantics = pipeline.IntervalAccumulation
-	if err := validateIFSCumulativeSmoke(series); err == nil || !strings.Contains(err.Error(), "not a run-total") {
-		t.Fatalf("non-cumulative IFS rain error = %v", err)
-	}
-	series[pipeline.Rain][1].Semantics = pipeline.CumulativeAccumulation
-	series[pipeline.Rain][1].Grid.Values[0] = float32(math.NaN())
-	if err := validateIFSCumulativeSmoke(series); err == nil || !strings.Contains(err.Error(), "finite values") {
-		t.Fatalf("missing IFS rain support error = %v", err)
 	}
 }
 
@@ -237,42 +162,6 @@ func TestStageIFSFailureRemovesSuccessfulSiblings(t *testing.T) {
 	}
 	if matches, err := filepath.Glob(filepath.Join(stage, "ifs", "*.grib2")); err != nil || len(matches) != 0 {
 		t.Fatalf("failed IFS group left partial files %v: %v", matches, err)
-	}
-}
-
-func TestDWDSolarSmokeNormalizesAdjacentRunAverages(t *testing.T) {
-	run := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	series := pipeline.Series{}
-	for _, field := range []pipeline.Field{pipeline.SolarDirect, pipeline.SolarDiffuse} {
-		series[field] = []pipeline.Frame{
-			smokeSolarFrame(field, run, run.Add(time.Hour), 100),
-			smokeSolarFrame(field, run, run.Add(2*time.Hour), 150),
-		}
-	}
-	if err := validateDWDSolarSmoke(series); err != nil {
-		t.Fatal(err)
-	}
-	broken := pipeline.Series{
-		pipeline.SolarDirect:  append([]pipeline.Frame(nil), series[pipeline.SolarDirect]...),
-		pipeline.SolarDiffuse: append([]pipeline.Frame(nil), series[pipeline.SolarDiffuse]...),
-	}
-	broken[pipeline.SolarDiffuse][1].Grid.Values = []float32{float32(math.NaN())}
-	if err := validateDWDSolarSmoke(broken); err == nil {
-		t.Fatal("smoke accepted an interval without finite solar support")
-	}
-	delete(series, pipeline.SolarDiffuse)
-	if err := validateDWDSolarSmoke(series); err == nil {
-		t.Fatal("smoke accepted a lone solar component")
-	}
-	if err := validateDWDSolarSmoke(pipeline.Series{}); err == nil {
-		t.Fatal("smoke passed without exercising solar normalization")
-	}
-}
-
-func smokeSolarFrame(field pipeline.Field, start, end time.Time, value float32) pipeline.Frame {
-	return pipeline.Frame{
-		Field: field, Start: start, End: end, Semantics: pipeline.CumulativeMean, Units: "W m-2", NativeResolutionKM: 7,
-		Grid: pipeline.FloatGrid{Spec: delivery.GridSpec{Bounds: delivery.GridBounds{West: 0, East: 1, South: 0, North: 1}, Rows: 1, Cols: 1}, Values: []float32{value}},
 	}
 }
 

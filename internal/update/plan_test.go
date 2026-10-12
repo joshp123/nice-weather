@@ -1,7 +1,6 @@
 package update
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,39 +9,6 @@ import (
 	"nice-weather-finder/internal/providers/dwd"
 	"nice-weather-finder/internal/providers/ifs"
 )
-
-func TestPlanDaysUsesOnlyCompleteWindowsAndSwitchesProviderHonestly(t *testing.T) {
-	now := time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC)
-	dwdRun := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	ifsRun := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	days, err := planDays(now, dwdRun, ifsRun)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := days[0].Date.Format("2006-01-02"); got != "2026-07-19" {
-		t.Fatalf("first date = %s", got)
-	}
-	detailed := 0
-	for _, day := range days {
-		if day.Detailed {
-			detailed++
-		}
-	}
-	if detailed != 4 {
-		t.Fatalf("detailed days = %d, want 4", detailed)
-	}
-}
-
-func TestPlanDaysRejectsShortIFSRun(t *testing.T) {
-	_, err := planDays(
-		time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 6, 0, 0, 0, time.UTC),
-	)
-	if err == nil || !strings.Contains(err.Error(), "00 or 12") {
-		t.Fatalf("short IFS run error = %v", err)
-	}
-}
 
 func TestWorldwidePlanRequiresTheCompleteDateLineEnvelope(t *testing.T) {
 	now := time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC)
@@ -151,49 +117,6 @@ func TestWorldwideIFSStepsCoverBothDateLineExtremes(t *testing.T) {
 	if steps[0] != 6 || steps[len(steps)-1] != 360 {
 		t.Fatalf("worldwide IFS steps = %d..%d; want predecessor 6 through endpoint 360", steps[0], steps[len(steps)-1])
 	}
-}
-
-func TestEuropePlanningRemainsEquivalentToThePreviousPolicy(t *testing.T) {
-	date := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	for nowHour := 0; nowHour < 24; nowHour++ {
-		for _, dwdHour := range []int{0, 6, 12, 18} {
-			for _, ifsHour := range []int{0, 12} {
-				now := date.Add(time.Duration(nowHour) * time.Hour)
-				dwdRun := date.Add(time.Duration(dwdHour) * time.Hour)
-				ifsRun := date.Add(time.Duration(ifsHour) * time.Hour)
-				got, gotErr := planDays(now, dwdRun, ifsRun)
-				want, wantErr := legacyEuropePlan(now, dwdRun, ifsRun)
-				if (gotErr != nil) != (wantErr != nil) || !reflect.DeepEqual(got, want) {
-					t.Fatalf("now=%s ICON=%s IFS=%s: got %+v, %v; want %+v, %v", now, dwdRun, ifsRun, got, gotErr, want, wantErr)
-				}
-			}
-		}
-	}
-}
-
-func legacyEuropePlan(now, dwdRun, ifsRun time.Time) ([]dayPlan, error) {
-	now, dwdRun, ifsRun = now.UTC(), dwdRun.UTC(), ifsRun.UTC()
-	first := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	if first.Add(6*time.Hour).Before(dwdRun) || now.After(first.Add(20*time.Hour)) {
-		first = first.AddDate(0, 0, 1)
-	}
-	last := first.AddDate(0, 0, productDays-1).Add(21 * time.Hour)
-	if last.After(ifsRun.Add(360 * time.Hour)) {
-		return nil, fmt.Errorf("legacy IFS horizon")
-	}
-	days := make([]dayPlan, productDays)
-	for index := range days {
-		date := first.AddDate(0, 0, index)
-		days[index] = dayPlan{
-			Date: date,
-			Detailed: !date.Add(6*time.Hour).Before(dwdRun) &&
-				!date.Add(21*time.Hour).After(dwdRun.Add(dwd.MaxForecastHour*time.Hour)),
-		}
-	}
-	if !days[0].Detailed {
-		return nil, fmt.Errorf("legacy ICON horizon")
-	}
-	return days, nil
 }
 
 func TestSelectStepsIncludesOnePrecedingSample(t *testing.T) {

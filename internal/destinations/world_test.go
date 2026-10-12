@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"nice-weather-finder/internal/forecasttiles"
 	"path/filepath"
 	"testing"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecastrange"
 	"nice-weather-finder/internal/forecastruns"
 	"nice-weather-finder/internal/tiledelivery"
@@ -39,7 +39,7 @@ func TestWorldwideRangeMustMatchTheExactCurrentIndexBytes(t *testing.T) {
 
 func TestWorldwideLookupReadsTheExactCanonicalRangeRecord(t *testing.T) {
 	const longitude, latitude = -4.42034, 36.72016
-	id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, forecastrange.MaxZoom, longitude, latitude)
+	id, row, column, err := tiledelivery.At(forecasttiles.TierGlobal, forecastrange.MaxZoom, longitude, latitude)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestWorldwideLookupReadsTheExactCanonicalRangeRecord(t *testing.T) {
 
 func TestWorldwideLookupTreatsOmittedBlocksAsUnavailable(t *testing.T) {
 	catalog := forecastrange.Catalog{ReleaseID: "forecast-test", PointBlocks: make([]forecastrange.PointBlock, 0)}
-	id, row, column, err := tiledelivery.At(forecastpoints.TierGlobal, forecastrange.MaxZoom, 0, 0)
+	id, row, column, err := tiledelivery.At(forecasttiles.TierGlobal, forecastrange.MaxZoom, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

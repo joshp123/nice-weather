@@ -148,8 +148,8 @@ func metadataFloat(raw json.RawMessage) (float64, error) {
 
 // ecCodes normally emits forecast steps as bare hours, but uses an explicit
 // unit when the GRIB step cannot be represented honestly in hours. Current
-// ICON-EU zero-step messages, for example, are reported as "0m". Keep bare
-// values backwards compatible and convert only the documented scalar duration
+// ICON-EU zero-step messages, for example, are reported as "0m". Accept bare
+// hours and convert the documented scalar duration
 // suffixes; unknown or compound forms still fail closed.
 func metadataStepHours(raw json.RawMessage) (float64, error) {
 	text, err := metadataString(raw)

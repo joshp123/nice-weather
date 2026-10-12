@@ -1,6 +1,5 @@
 // Package forecastcatalog describes one immutable provider tier for one local
-// forecast day. It joins native forecast point blocks to evaluated scalar
-// tiles without selecting providers, blending tiers or scoring in a client.
+// forecast day. Stored XYZ records and scalar tiles share one spatial lookup.
 package forecastcatalog
 
 import (
@@ -21,14 +20,13 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/delivery"
-	"nice-weather-finder/internal/forecastpoints"
 	"nice-weather-finder/internal/forecasttiles"
 	"nice-weather-finder/internal/tiledelivery"
 	"nice-weather-finder/internal/weather"
 )
 
 const (
-	CatalogVersion      = 3
+	CatalogVersion      = 4
 	MaximumCatalogBytes = 1024 * 1024
 
 	ProductIFSControl = "ecmwf-ifs-control-open-data-0.25-degree"
@@ -92,23 +90,6 @@ type Scores struct {
 	Fields        []FieldContract   `json:"fields"`
 }
 
-// PointBlock covers one required native block coordinate. Omitted is valid
-// only when every record is no-data; in that case no file identity is present.
-type PointBlock struct {
-	Row           uint32 `json:"row"`
-	Column        uint32 `json:"column"`
-	Rows          uint16 `json:"rows"`
-	Columns       uint16 `json:"columns"`
-	Omitted       bool   `json:"omitted"`
-	Path          string `json:"path,omitempty"`
-	Bytes         uint64 `json:"bytes,omitempty"`
-	SHA256        string `json:"sha256,omitempty"`
-	PayloadSHA256 string `json:"payloadSha256,omitempty"`
-	MediaType     string `json:"mediaType"`
-	DataRecords   uint32 `json:"dataRecords"`
-	NoDataRecords uint32 `json:"noDataRecords"`
-}
-
 type ScalarTile struct {
 	Field        forecasttiles.Field `json:"field"`
 	Zoom         uint8               `json:"zoom"`
@@ -138,9 +119,6 @@ type DailyPointBlock struct {
 }
 
 type Coverage struct {
-	ExpectedPointBlocks   uint32 `json:"expectedPointBlocks"`
-	AvailablePointBlocks  uint32 `json:"availablePointBlocks"`
-	OmittedPointBlocks    uint32 `json:"omittedPointBlocks"`
 	ExpectedMaxZoomTiles  uint32 `json:"expectedMaxZoomTiles"`
 	AvailableMaxZoomTiles uint32 `json:"availableMaxZoomTiles"`
 	OmittedMaxZoomTiles   uint32 `json:"omittedMaxZoomTiles"`
@@ -160,7 +138,6 @@ type Catalog struct {
 	ScalarMaxZoom    uint8                          `json:"scalarMaxZoom"`
 	Scores           Scores                         `json:"scores"`
 	Coverage         Coverage                       `json:"coverage"`
-	PointBlocks      []PointBlock                   `json:"pointBlocks"`
 	DailyPointBlocks []DailyPointBlock              `json:"dailyPointBlocks"`
 	ScalarCoverage   []forecasttiles.MaxZoomOutcome `json:"scalarCoverage"`
 	ScalarTiles      []ScalarTile                   `json:"scalarTiles"`
@@ -175,12 +152,12 @@ type tierSpec struct {
 
 var tierSpecs = []tierSpec{
 	{
-		provider: forecastpoints.ProviderIFS, tier: forecastpoints.TierGlobal, product: ProductIFSControl, sourceID: "ecmwf-ifs-control",
+		provider: forecasttiles.ProviderIFS, tier: forecasttiles.TierGlobal, product: ProductIFSControl, sourceID: "ecmwf-ifs-control",
 		grid:               delivery.GridSpec{Bounds: delivery.GridBounds{West: -180, East: 180, South: -90, North: 90}, Rows: 720, Cols: 1440},
 		nativeResolutionKM: 28, maxZoom: 3,
 	},
 	{
-		provider: forecastpoints.ProviderICONEU, tier: forecastpoints.TierEurope, product: ProductICONEU, sourceID: "dwd-icon-eu",
+		provider: forecasttiles.ProviderICONEU, tier: forecasttiles.TierEurope, product: ProductICONEU, sourceID: "dwd-icon-eu",
 		grid:               delivery.GridSpec{Bounds: delivery.GridBounds{West: -24, East: 45, South: 29, North: 71.5}, Rows: 680, Cols: 1104},
 		nativeResolutionKM: 7, maxZoom: 5,
 	},
@@ -198,7 +175,7 @@ var fieldContracts = []FieldContract{
 
 // New assembles one catalogue from the complete native block outcome set and
 // the scalar assets produced by forecasttiles.BuildDay.
-func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttiles.Catalog) (Catalog, error) {
+func New(config Config, scalarCatalog forecasttiles.Catalog) (Catalog, error) {
 	spec, err := specFor(config.Provider, config.Tier)
 	if err != nil {
 		return Catalog{}, err
@@ -206,27 +183,12 @@ func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttil
 	if err := validateConfig(config); err != nil {
 		return Catalog{}, err
 	}
-	if scalarCatalog.Version != CatalogVersion || scalarCatalog.ReleaseID != config.ReleaseID || scalarCatalog.Period != config.LocalDate || scalarCatalog.Date != config.LocalDate || scalarCatalog.Tier != config.Tier || scalarCatalog.MaxZoom != spec.maxZoom {
+	if scalarCatalog.Version != forecasttiles.CatalogVersion || scalarCatalog.ReleaseID != config.ReleaseID || scalarCatalog.Period != config.LocalDate || scalarCatalog.Date != config.LocalDate || scalarCatalog.Tier != config.Tier || scalarCatalog.MaxZoom != spec.maxZoom {
 		return Catalog{}, errors.New("forecast scalar catalogue does not match the requested release, day or tier")
 	}
 	if err := validateScalarSource(config, spec, scalarCatalog.Source); err != nil {
 		return Catalog{}, err
 	}
-
-	blocks := make([]PointBlock, 0, len(points))
-	for _, asset := range points {
-		block, err := pointBlockFromAsset(config, spec, asset)
-		if err != nil {
-			return Catalog{}, err
-		}
-		blocks = append(blocks, block)
-	}
-	sort.Slice(blocks, func(i, j int) bool {
-		if blocks[i].Row != blocks[j].Row {
-			return blocks[i].Row < blocks[j].Row
-		}
-		return blocks[i].Column < blocks[j].Column
-	})
 
 	tiles := make([]ScalarTile, 0, len(scalarCatalog.Scalars))
 	for _, source := range scalarCatalog.Scalars {
@@ -276,9 +238,9 @@ func New(config Config, points []forecastpoints.Asset, scalarCatalog forecasttil
 			Profiles: []weather.Profile{weather.ProfileNice, weather.ProfileCycling},
 			Fields:   append([]FieldContract(nil), fieldContracts...),
 		},
-		PointBlocks: blocks, DailyPointBlocks: dailyPointBlocks, ScalarCoverage: scalarCoverage, ScalarTiles: tiles,
+		DailyPointBlocks: dailyPointBlocks, ScalarCoverage: scalarCoverage, ScalarTiles: tiles,
 	}
-	if config.Tier == forecastpoints.TierEurope {
+	if config.Tier == forecasttiles.TierEurope {
 		fallback := tiledelivery.ForecastScalarFallback
 		catalog.Scores.FallbackValue = &fallback
 	}
@@ -347,15 +309,12 @@ func Validate(catalog Catalog) error {
 	if err := forecasttiles.ValidateLandIdentity(catalog.Land); err != nil {
 		return errors.New("forecast catalogue land provenance is invalid")
 	}
-	validFallback := catalog.Tier == forecastpoints.TierEurope && catalog.Scores.FallbackValue != nil && *catalog.Scores.FallbackValue == tiledelivery.ForecastScalarFallback ||
-		catalog.Tier == forecastpoints.TierGlobal && catalog.Scores.FallbackValue == nil
+	validFallback := catalog.Tier == forecasttiles.TierEurope && catalog.Scores.FallbackValue != nil && *catalog.Scores.FallbackValue == tiledelivery.ForecastScalarFallback ||
+		catalog.Tier == forecasttiles.TierGlobal && catalog.Scores.FallbackValue == nil
 	if catalog.Scores.Unit != ScoreUnit || catalog.Scores.NoDataValue != ScoreNoData || !validFallback ||
 		!slices.Equal(catalog.Scores.Profiles, []weather.Profile{weather.ProfileNice, weather.ProfileCycling}) ||
 		!slices.Equal(catalog.Scores.Fields, fieldContracts) {
 		return errors.New("forecast catalogue score fields or profiles are invalid")
-	}
-	if err := validatePointBlocks(catalog, spec); err != nil {
-		return err
 	}
 	if err := validateScalarCoverageOutcomes(catalog, spec); err != nil {
 		return err
@@ -381,28 +340,10 @@ func ValidateFiles(root string, catalog Catalog) error {
 	if err := Validate(catalog); err != nil {
 		return err
 	}
-	spec, _ := specFor(catalog.Provider, catalog.Tier)
-	for _, block := range catalog.PointBlocks {
-		if block.Omitted {
-			continue
-		}
-		identity, err := forecastpoints.NewIdentity(catalog.ReleaseID, catalog.Provider, catalog.Tier, catalog.LocalDate, catalog.Evidence.RunUTC, catalog.Evidence.SourceEvidenceSHA256, spec.grid, forecastpoints.Coordinate{Row: block.Row, Column: block.Column})
-		if err != nil {
-			return err
-		}
-		opened, err := forecastpoints.OpenBlock(filepath.Join(root, filepath.FromSlash(block.Path)), identity, block.SHA256)
-		if err != nil {
-			return fmt.Errorf("validate forecast point block %d/%d: %w", block.Row, block.Column, err)
-		}
-		metadata := opened.Metadata()
-		if metadata.Bytes != block.Bytes || metadata.PayloadSHA256 != block.PayloadSHA256 || metadata.MediaType != block.MediaType || metadata.DataRecords != block.DataRecords || metadata.NoDataRecords != block.NoDataRecords {
-			return fmt.Errorf("forecast point block %d/%d metadata does not match its file", block.Row, block.Column)
-		}
-	}
 	for _, tile := range catalog.ScalarTiles {
 		var stats tiledelivery.ScalarStats
 		var err error
-		if catalog.Tier == forecastpoints.TierEurope {
+		if catalog.Tier == forecasttiles.TierEurope {
 			_, stats, err = tiledelivery.ReadForecastScalar(filepath.Join(root, filepath.FromSlash(tile.Path)), tile.SHA256)
 		} else {
 			_, stats, err = tiledelivery.ReadScalar(filepath.Join(root, filepath.FromSlash(tile.Path)), tile.SHA256)
@@ -444,39 +385,6 @@ func dailyPointBlockFromAsset(config Config, spec tierSpec, source forecasttiles
 	}, nil
 }
 
-func pointBlockFromAsset(config Config, spec tierSpec, asset forecastpoints.Asset) (PointBlock, error) {
-	identity := asset.Identity
-	if identity.ReleaseID != config.ReleaseID || identity.Provider != config.Provider || identity.Tier != config.Tier || identity.Date != config.LocalDate ||
-		identity.RunUTC != config.RunUTC.Format(time.RFC3339) || identity.SourceEvidenceSHA256 != config.SourceEvidenceSHA256 || identity.Grid != spec.grid {
-		return PointBlock{}, errors.New("forecast point block does not match the requested release, day or provider tier")
-	}
-	canonical, err := forecastpoints.NewIdentity(config.ReleaseID, config.Provider, config.Tier, config.LocalDate, config.RunUTC.Format(time.RFC3339), config.SourceEvidenceSHA256, spec.grid, identity.Block)
-	if err != nil || canonical != identity {
-		return PointBlock{}, errors.New("forecast point block identity is not canonical")
-	}
-	records := uint32(identity.Rows) * uint32(identity.Columns)
-	relative, _ := forecastpoints.RelativePath(identity)
-	block := PointBlock{
-		Row: identity.Block.Row, Column: identity.Block.Column, Rows: identity.Rows, Columns: identity.Columns,
-		Omitted: asset.Omitted, MediaType: asset.MediaType, DataRecords: asset.DataRecords, NoDataRecords: asset.NoDataRecords,
-	}
-	if asset.Omitted {
-		if asset.Path != "" || asset.Bytes != 0 || asset.SHA256 != "" || asset.PayloadSHA256 != "" || asset.MediaType != forecastpoints.MediaType || asset.DataRecords != 0 || asset.NoDataRecords != records {
-			return PointBlock{}, fmt.Errorf("omitted forecast point block %d/%d is not all no-data", block.Row, block.Column)
-		}
-		return block, nil
-	}
-	if !pathMatches(asset.Path, relative) || asset.MediaType != forecastpoints.MediaType || asset.DataRecords == 0 || asset.DataRecords+asset.NoDataRecords != records || !validSHA256(asset.SHA256) || !validSHA256(asset.PayloadSHA256) {
-		return PointBlock{}, fmt.Errorf("forecast point block %d/%d metadata is invalid", block.Row, block.Column)
-	}
-	wantRange, _ := forecastpoints.WholeRange(identity)
-	if asset.Bytes != uint64(wantRange.Length) {
-		return PointBlock{}, fmt.Errorf("forecast point block %d/%d byte size is invalid", block.Row, block.Column)
-	}
-	block.Path, block.Bytes, block.SHA256, block.PayloadSHA256 = relative, asset.Bytes, asset.SHA256, asset.PayloadSHA256
-	return block, nil
-}
-
 func scalarTileFromAsset(config Config, source forecasttiles.ScalarTile) (ScalarTile, error) {
 	if fieldRank(source.Field) < 0 || source.Bytes != tiledelivery.ScalarTileBytes || !validSHA256(source.SHA256) || source.DataTexels == 0 || uint64(source.DataTexels)+uint64(source.NoDataTexels) != tiledelivery.ScalarTileBytes {
 		return ScalarTile{}, fmt.Errorf("forecast scalar %s %d/%d/%d metadata is invalid", source.Field, source.Zoom, source.X, source.Y)
@@ -490,44 +398,6 @@ func scalarTileFromAsset(config Config, source forecasttiles.ScalarTile) (Scalar
 		Bytes: source.Bytes, SHA256: source.SHA256, MediaType: tiledelivery.ScalarMediaType,
 		DataTexels: source.DataTexels, NoDataTexels: source.NoDataTexels,
 	}, nil
-}
-
-func validatePointBlocks(catalog Catalog, spec tierSpec) error {
-	rows, columns, err := forecastpoints.BlockGrid(spec.provider, spec.tier, spec.grid)
-	if err != nil || len(catalog.PointBlocks) != int(rows*columns) {
-		return fmt.Errorf("forecast catalogue has %d point blocks; want %d", len(catalog.PointBlocks), rows*columns)
-	}
-	available := 0
-	for row := uint32(0); row < rows; row++ {
-		for column := uint32(0); column < columns; column++ {
-			index := int(row*columns + column)
-			block := catalog.PointBlocks[index]
-			identity, err := forecastpoints.NewIdentity(catalog.ReleaseID, catalog.Provider, catalog.Tier, catalog.LocalDate, catalog.Evidence.RunUTC, catalog.Evidence.SourceEvidenceSHA256, spec.grid, forecastpoints.Coordinate{Row: row, Column: column})
-			if err != nil {
-				return err
-			}
-			records := uint32(identity.Rows) * uint32(identity.Columns)
-			if block.Row != row || block.Column != column || block.Rows != identity.Rows || block.Columns != identity.Columns || block.MediaType != forecastpoints.MediaType || block.DataRecords+block.NoDataRecords != records {
-				return fmt.Errorf("forecast point block at index %d does not match expected coordinate %d/%d", index, row, column)
-			}
-			if block.Omitted {
-				if block.Path != "" || block.Bytes != 0 || block.SHA256 != "" || block.PayloadSHA256 != "" || block.DataRecords != 0 || block.NoDataRecords != records {
-					return fmt.Errorf("omitted forecast point block %d/%d is not all no-data", row, column)
-				}
-				continue
-			}
-			available++
-			relative, _ := forecastpoints.RelativePath(identity)
-			whole, _ := forecastpoints.WholeRange(identity)
-			if block.Path != relative || block.Bytes != uint64(whole.Length) || !validSHA256(block.SHA256) || !validSHA256(block.PayloadSHA256) || block.DataRecords == 0 {
-				return fmt.Errorf("forecast point block %d/%d file identity is invalid", row, column)
-			}
-		}
-	}
-	if available == 0 {
-		return errors.New("forecast catalogue has no available native point blocks")
-	}
-	return nil
 }
 
 func validateScalarSource(config Config, spec tierSpec, source forecasttiles.SourceIdentity) error {
@@ -549,7 +419,7 @@ func validateScalarCoverageOutcomes(catalog Catalog, spec tierSpec) error {
 			uint64(outcome.DataRecords)+uint64(outcome.FallbackRecords)+uint64(outcome.NoDataRecords) != tiledelivery.TileSize*tiledelivery.TileSize ||
 			(outcome.Omitted && (outcome.DataRecords != 0 || outcome.FallbackRecords != 0 || outcome.NoDataRecords != tiledelivery.TileSize*tiledelivery.TileSize)) ||
 			(!outcome.Omitted && outcome.DataRecords+outcome.FallbackRecords == 0) ||
-			(catalog.Tier != forecastpoints.TierEurope && outcome.FallbackRecords != 0) {
+			(catalog.Tier != forecasttiles.TierEurope && outcome.FallbackRecords != 0) {
 			return fmt.Errorf("forecast scalar coverage outcome at index %d is invalid", index)
 		}
 	}
@@ -708,15 +578,8 @@ func catalogGrid(grid delivery.GridSpec) Grid {
 
 func coverage(catalog Catalog) Coverage {
 	result := Coverage{
-		ExpectedPointBlocks: uint32(len(catalog.PointBlocks)), ExpectedMaxZoomTiles: uint32(len(catalog.ScalarCoverage)),
-		ScalarTiles: uint32(len(catalog.ScalarTiles)), DailyPointBlocks: uint32(len(catalog.DailyPointBlocks)),
-	}
-	for _, block := range catalog.PointBlocks {
-		if block.Omitted {
-			result.OmittedPointBlocks++
-		} else {
-			result.AvailablePointBlocks++
-		}
+		ExpectedMaxZoomTiles: uint32(len(catalog.ScalarCoverage)),
+		ScalarTiles:          uint32(len(catalog.ScalarTiles)), DailyPointBlocks: uint32(len(catalog.DailyPointBlocks)),
 	}
 	for _, outcome := range catalog.ScalarCoverage {
 		if outcome.Omitted {

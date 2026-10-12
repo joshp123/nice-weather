@@ -223,6 +223,73 @@ func LoadCellPlan(path, expectedCompressedSHA256 string) (CellPlan, error) {
 	}, nil
 }
 
+// DeriveMonthPlan preserves the checksum-trusted land and timezone geometry,
+// then recomputes the exact civil calendar for a different month. It writes a
+// normal validated plan, so publication retains an inspectable source identity.
+func DeriveMonthPlan(original CellPlan, path, expectedSHA256, output string, month time.Month) (CellPlan, error) {
+	if original.SHA256() != expectedSHA256 || original.CellCount() == 0 {
+		return CellPlan{}, errors.New("ERA5 derivation requires the validated source plan")
+	}
+	if month < time.January || month > time.December {
+		return CellPlan{}, errors.New("ERA5 month is invalid")
+	}
+	compressed, err := readBoundedFile(path, maxPlanGzipBytes)
+	if err != nil {
+		return CellPlan{}, err
+	}
+	decoded, err := decodePlanGzip(compressed)
+	if err != nil {
+		return CellPlan{}, err
+	}
+	var encoded encodedCellPlan
+	if err := json.Unmarshal(decoded, &encoded); err != nil {
+		return CellPlan{}, err
+	}
+	encoded.Month = int(month)
+	for index := range encoded.RemoteIslandNamedZoneAudits {
+		audit := &encoded.RemoteIslandNamedZoneAudits[index]
+		location, err := time.LoadLocation(audit.Timezone)
+		if err != nil {
+			return CellPlan{}, err
+		}
+		_, offset := time.Date(encoded.Year, month, 15, 12, 0, 0, 0, location).Zone()
+		audit.EvaluationMonthUTCOffsetHours = float64(offset) / 3600
+		audit.SolarOffsetDeltaHours = math.Abs(math.Remainder(audit.Longitude/15-audit.EvaluationMonthUTCOffsetHours, 24))
+	}
+	body, err := json.Marshal(encoded)
+	if err != nil {
+		return CellPlan{}, err
+	}
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write(body); err != nil {
+		return CellPlan{}, err
+	}
+	if err := writer.Close(); err != nil {
+		return CellPlan{}, err
+	}
+	digest := sha256.Sum256(buffer.Bytes())
+	sha := hex.EncodeToString(digest[:])
+	if existing, err := os.ReadFile(output); err == nil {
+		if !bytes.Equal(existing, buffer.Bytes()) {
+			return CellPlan{}, errors.New("existing ERA5 derived month plan differs")
+		}
+	} else if !os.IsNotExist(err) {
+		return CellPlan{}, err
+	} else if err := os.WriteFile(output, buffer.Bytes(), 0o600); err != nil {
+		return CellPlan{}, err
+	}
+	result, err := LoadCellPlan(output, sha)
+	if err != nil {
+		return CellPlan{}, err
+	}
+	if result.CellCount() != original.CellCount() || result.LandSourceSHA256() != original.LandSourceSHA256() {
+		return CellPlan{}, errors.New("derived ERA5 month changed source geometry")
+	}
+	result.cells = original.cells
+	return result, nil
+}
+
 // logicalPlanSHA256 fingerprints the validated plan semantics used by daily
 // shards and climate publication. It is independent of JSON and gzip encoding.
 func logicalPlanSHA256(year, month int, cells []Cell, expectedDays []uint16) string {
