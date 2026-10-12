@@ -210,16 +210,10 @@ export default function App() {
     const index = climateState.index;
     const point = selectedPoint;
     async function loadYear() {
-      const months: ClimatePointEvidence[] = [];
-      for (const reference of index.months) {
-        const evidence = await annualClimateClient.loadPoint(reference.period, point.lon, point.lat, controller.signal, point.allowNearbyClimate === true);
-        if (!evidence) return;
-        if (evidence.releaseId !== reference.releaseId || evidence.period !== reference.period) throw new ClimateDataError('stale');
-        const first = months[0];
-        if (first && (evidence.sourceCell.latitude !== first.sourceCell.latitude || evidence.sourceCell.longitude !== first.sourceCell.longitude)) return;
-        months.push(evidence);
-      }
-      if (!controller.signal.aborted && months.length === 12) setAnnualEvidence(months);
+      const months = await annualClimateClient.loadYearPoint(point.lon, point.lat, controller.signal, point.allowNearbyClimate === true);
+      if (!months) return;
+      if (months.some((month, position) => month.releaseId !== index.months[position].releaseId || month.period !== index.months[position].period)) throw new ClimateDataError('stale');
+      if (!controller.signal.aborted) setAnnualEvidence(months);
     }
     loadYear().catch((error: unknown) => {
       if (controller.signal.aborted) return;

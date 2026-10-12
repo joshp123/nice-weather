@@ -240,17 +240,25 @@ export class WorldwideClimateClient {
 
   async loadPoint(period: string, longitude: number, latitude: number, signal?: AbortSignal, allowAdjacent = false): Promise<ClimatePointEvidence | undefined> {
     if (!periodID(period)) throw new ClimateDataError('invalid');
+    return (await this.#loadPointPeriods(period, longitude, latitude, signal, allowAdjacent))?.[0];
+  }
+
+  async loadYearPoint(longitude: number, latitude: number, signal?: AbortSignal, allowAdjacent = false): Promise<readonly ClimatePointEvidence[] | undefined> {
+    return this.#loadPointPeriods(undefined, longitude, latitude, signal, allowAdjacent);
+  }
+
+  async #loadPointPeriods(period: string | undefined, longitude: number, latitude: number, signal: AbortSignal | undefined, allowAdjacent: boolean): Promise<readonly ClimatePointEvidence[] | undefined> {
     this.#activePoint?.abort(new ClimateDataError('stale'));
     const controller = new AbortController();
     this.#activePoint = controller;
     const generation = ++this.#pointGeneration;
     const combined = combineSignals(controller.signal, signal);
     try {
-      const snapshot = await this.#loadSnapshot(combined);
+      const pointer = await this.#loadPointer(combined);
+      const index = await this.#indexFor(pointer, combined);
       this.#assertCurrent(generation, controller, combined);
-      const reference = snapshot.index.months.find((month) => month.period === period);
-      if (!reference) return undefined;
-      const catalog = await this.#catalogFor(snapshot.index, reference, combined);
+      const references = period ? index.months.filter((month) => month.period === period) : index.months;
+      const catalog = await this.#catalogFor(index, references[0], combined);
       this.#assertCurrent(generation, controller, combined);
       const location = locatePoint(longitude, latitude);
       let evidence = await this.#recordAt(catalog, location, false, combined, generation, controller);
@@ -264,14 +272,30 @@ export class WorldwideClimateClient {
           if (evidence) break;
         }
       }
-      await this.#confirmCurrent(snapshot.pointer, combined, generation, controller);
-      return evidence;
+      const months: ClimatePointEvidence[] = [];
+      if (evidence) {
+        const first = evidence;
+        months.push(first);
+        const sourceLocation = locatePoint(evidence.sourceCell.longitude, evidence.sourceCell.latitude);
+        for (let offset = 1; offset < references.length; offset += 3) {
+          const batch = await Promise.all(references.slice(offset, offset + 3).map(async (reference) => {
+            const monthCatalog = await this.#catalogFor(index, reference, combined);
+            const month = await this.#recordAt(monthCatalog, sourceLocation, first.usedAdjacentCell, combined, generation, controller);
+            if (!month) throw new ClimateDataError('invalid');
+            return month;
+          }));
+          months.push(...batch);
+        }
+      }
+      await this.#confirmCurrent(pointer, combined, generation, controller);
+      return evidence ? months : undefined;
     } catch (error) {
       if (signal?.aborted) throw abortReason(signal);
       if (controller.signal.aborted || generation !== this.#pointGeneration) throw new ClimateDataError('stale');
       if (error instanceof ClimateDataError) throw error;
       throw new ClimateDataError('invalid');
     } finally {
+      controller.abort();
       if (this.#activePoint === controller) this.#activePoint = undefined;
     }
   }

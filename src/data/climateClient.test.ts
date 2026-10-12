@@ -21,6 +21,44 @@ describe('WorldwideClimateClient ERA5 contract', () => {
     expect(fixture.calls.filter((call) => call === '/climate/current.json')).toHaveLength(5);
   });
 
+  it('reads the complete year at one coastal source cell with two pointer checks and bounded concurrency', async () => {
+    const fixture = await publication();
+    let activeRequests = 0;
+    let maximumRequests = 0;
+    const fetcher: typeof fetch = async (input, init) => {
+      activeRequests++;
+      maximumRequests = Math.max(maximumRequests, activeRequests);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return await fixture.fetcher(input, init);
+      } finally { activeRequests--; }
+    };
+    const months = await new WorldwideClimateClient({ fetcher }).loadYearPoint(-179.75, 0, undefined, true);
+    expect(months?.map((month) => month.period)).toEqual(Array.from({ length: 12 }, (_, month) => `month-${String(month + 1).padStart(2, '0')}`));
+    expect(months?.every((month) => month.sourceCell.latitude === 0 && month.sourceCell.longitude === -180 && month.usedAdjacentCell)).toBe(true);
+    expect(fixture.calls.filter((call) => call === '/climate/current.json')).toHaveLength(2);
+    expect(fixture.calls.filter((call) => call.endsWith('/catalog.json'))).toHaveLength(12);
+    expect(fixture.rangeHeaders).toEqual(Array(12).fill('bytes=0-32831'));
+    expect(maximumRequests).toBe(3);
+  });
+
+  it('discards the whole year if its publication changes during the read', async () => {
+    const fixture = await publication({ changePointerAfter: 1 });
+    await expect(new WorldwideClimateClient({ fetcher: fixture.fetcher }).loadYearPoint(-180, 0)).rejects.toMatchObject({ code: 'stale' });
+    expect(fixture.calls.filter((call) => call.endsWith('.nwc'))).toHaveLength(12);
+  });
+
+  it('preserves caller cancellation while reading a year', async () => {
+    const fixture = await publication();
+    const controller = new AbortController();
+    const reason = new DOMException('Selection changed', 'AbortError');
+    const fetcher: typeof fetch = async (input, init) => {
+      if (String(input).endsWith('/era5-02/catalog.json')) controller.abort(reason);
+      return fixture.fetcher(input, init);
+    };
+    await expect(new WorldwideClimateClient({ fetcher }).loadYearPoint(-180, 0, controller.signal)).rejects.toBe(reason);
+  });
+
   it('decodes the established distribution prefix and all ERA5 physical evidence', async () => {
     const fixture = await publication();
     const point = await new WorldwideClimateClient({ fetcher: fixture.fetcher }).loadPoint('month-11', -180, 0);
@@ -180,12 +218,20 @@ async function publication(options: Options = {}) {
     scalarTiles,
   };
   options.mutateCatalog?.(catalog);
-  const catalogBytes = jsonBytes(catalog);
-  const catalogSha = await digest(catalogBytes);
+  const monthlyCatalogs = new Map<string, Uint8Array>();
+  const months = await Promise.all(Array.from({ length: 12 }, async (_, month) => {
+    const period = `month-${String(month + 1).padStart(2, '0')}`;
+    const releaseId = month === 10 ? 'era5-nov' : `era5-${String(month + 1).padStart(2, '0')}`;
+    const monthly = JSON.parse(JSON.stringify(catalog).replaceAll('month-11', period));
+    monthly.releaseId = releaseId;
+    const bytes = jsonBytes(monthly);
+    monthlyCatalogs.set(`/climate/releases/${releaseId}/catalog.json`, bytes);
+    return { period, releaseId, catalogSha256: await digest(bytes) };
+  }));
   const index: any = {
     version: 2, indexId: 'era5-index', state: 'complete', referencePeriod: { firstYear: 2006, lastYear: 2025 },
     geometry, source: sourceCommon, positiveDateline, probability, scalarSemantics, maximumZoom: 4, pointRecordBytes: 64,
-    months: Array.from({ length: 12 }, (_, month) => ({ period: `month-${String(month + 1).padStart(2, '0')}`, releaseId: month === 10 ? 'era5-nov' : `era5-${String(month + 1).padStart(2, '0')}`, catalogSha256: catalogSha })),
+    months,
   };
   options.mutateIndex?.(index);
   const indexBytes = jsonBytes(index);
@@ -204,7 +250,8 @@ async function publication(options: Options = {}) {
       return jsonResponse(body);
     }
     if (path === '/climate/indexes/era5-index.json') return jsonResponse(indexBytes);
-    if (path === '/climate/releases/era5-nov/catalog.json') return jsonResponse(catalogBytes);
+    const monthlyCatalog = monthlyCatalogs.get(path);
+    if (monthlyCatalog) return jsonResponse(monthlyCatalog);
     if (path.endsWith('.nwc') || path.endsWith('.nwd')) {
       if (options.delayPoint) await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, path.endsWith('.nwc') ? 10 : 0);
