@@ -14,7 +14,7 @@ const (
 	GridColumns    = 1440
 	FieldCount     = 7
 	SnapshotID     = "C2QSEC9FP3SJ6MT4D94G"
-	NativeDetailKM = 30
+	NativeDetailKM = 31
 )
 
 var sourceContractSHA256 = [sha256.Size]byte{

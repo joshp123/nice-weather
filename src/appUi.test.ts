@@ -147,7 +147,7 @@ describe('clear weather copy', () => {
     ]) expect(nice).toContain(evidence);
     expect(nice.match(/aria-pressed=/g)).toHaveLength(4);
     expect(nice.match(/<button/g)).toHaveLength(4);
-    expect(nice).toContain('Real daily evidence · 2006–2025 · worldwide · about 28 km weather detail');
+    expect(nice).toContain('Real daily evidence · 2006–2025 · worldwide · about 31 km weather detail');
     expect(nice).not.toMatch(/Median score|median 71|climateFacts|monthly average/);
 
     const cyclingHeading = renderToStaticMarkup(createElement(ClimatePointHeading, { data, point: { lat: 36.72, lon: -4.42, label: 'Málaga' }, profile: 'cycling', climateModel }));
@@ -170,7 +170,7 @@ describe('clear weather copy', () => {
     const rendered = renderToStaticMarkup(createElement(ClimateDetails, {
       data: adjacent, point: { lat: 37.2, lon: -7.31667 }, profile: 'nice', lens: 'overall', onLensChange: vi.fn(), climateModel: climateUiModel(climateIndex()),
     }));
-    expect(rendered).toContain('about 28 km weather detail · nearest climate cell 7 km away');
+    expect(rendered).toContain('about 31 km weather detail · nearest climate cell 7 km away');
   });
 
   it('labels forecast headline scores as Overall', () => {

@@ -830,7 +830,7 @@ export function ClimateDetails({ data, point, profile, lens, onLensChange, clima
     <p className="rangeEvidence climateReliability">{climateReliability(data, profile)}</p>
     <ClimateComponentRows data={data} profile={profile} active={lens} onChange={onLensChange} />
     {annualEvidence.length === 12 && <AnnualWeatherChart months={annualEvidence} selected={data.period} profile={profile} onChange={onMonthChange} />}
-    <p className="sourceLine">Real daily evidence · {climateModel.referencePeriod} · worldwide · about 28 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
+    <p className="sourceLine">Real daily evidence · {climateModel.referencePeriod} · worldwide · about 31 km weather detail{nearbyClimateCellQualifier(data, point)}</p>
   </>;
 }
 
