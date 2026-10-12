@@ -178,20 +178,6 @@ func AggregateMonth(
 		if frame.ValidTime.After(lastRequired) {
 			return stats, fmt.Errorf("ERA5 hourly month contains a frame after %s", lastRequired.Format(time.RFC3339))
 		}
-		for index, cell := range cells {
-			sourceIndex := cell.SourceIndex
-			if frame.planOrder {
-				sourceIndex = index
-			}
-			if sourceIndex >= frame.Rows*frame.Columns {
-				return stats, fmt.Errorf("ERA5 source index %d is outside the frame", sourceIndex)
-			}
-			sample, err := readInstantSample(frame, sourceIndex, &stats)
-			if err != nil {
-				return stats, fmt.Errorf("ERA5 cell %d hour %s: %w", index, frame.ValidTime.Format(time.RFC3339), err)
-			}
-			currentSamples[index] = sample
-		}
 		for _, group := range groups {
 			localEnd := frame.ValidTime.In(group.location)
 			localYear, localMonth, localDay := localEnd.Date()
@@ -203,6 +189,27 @@ func AggregateMonth(
 				continue
 			}
 			label, windowStart, windowEnd := window.label, window.start, window.end
+			lastEndpoint := windowEnd.Truncate(time.Hour)
+			if lastEndpoint.Before(windowEnd) {
+				lastEndpoint = lastEndpoint.Add(time.Hour)
+			}
+			if frame.ValidTime.Before(windowStart.Truncate(time.Hour)) || frame.ValidTime.After(lastEndpoint) {
+				continue
+			}
+			for _, cellIndex := range group.cells {
+				sourceIndex := cells[cellIndex].SourceIndex
+				if frame.planOrder {
+					sourceIndex = cellIndex
+				}
+				if sourceIndex >= frame.Rows*frame.Columns {
+					return stats, fmt.Errorf("ERA5 source index %d is outside the frame", sourceIndex)
+				}
+				sample, err := readInstantSample(frame, sourceIndex, &stats)
+				if err != nil {
+					return stats, fmt.Errorf("ERA5 cell %d hour %s: %w", cellIndex, frame.ValidTime.Format(time.RFC3339), err)
+				}
+				currentSamples[cellIndex] = sample
+			}
 			intervalStart := frame.ValidTime.Add(-time.Hour)
 			overlapStart, overlapEnd := later(intervalStart, windowStart), earlier(frame.ValidTime, windowEnd)
 			if !overlapEnd.After(overlapStart) {
@@ -501,7 +508,7 @@ func readInstantSample(frame Frame, sourceIndex int, stats *AggregationStats) (i
 		dewPoint < minimumDewPointC || dewPoint > maximumDewPointC ||
 		wind > maximumWindKPH ||
 		cloud < 0 || cloud > 1 || !finite(temperature, dewPoint, humidity, cloud, wind) {
-		return instantSample{}, errors.New("hourly fields are outside their physical range")
+		return instantSample{}, fmt.Errorf("hourly fields outside physical range: temperature=%.9g C, dew point=%.9g C, cloud=%.9g, wind=%.9g km/h", temperature, dewPoint, cloud, wind)
 	}
 	return instantSample{
 		temperature:      temperature,

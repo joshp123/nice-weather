@@ -118,6 +118,38 @@ func TestAggregateMonthUsesExactFractionalCivilWindowAndHourlyPhysics(t *testing
 	}
 }
 
+func TestAggregateMonthUsesDaytimeEndpointsAndExcludesTheKnownNightWindSpike(t *testing.T) {
+	cells := []Cell{testCell(t, 0, 43.25, 74.5, "Asia/Bishkek")}
+	first, last, err := RequiredEnvelope(2016, time.November, cells)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := syntheticFrames(first, last, 1, func(validTime time.Time, _ int) [FieldCount]float32 {
+		values := [FieldCount]float32{295, 285, 0, 1_000_000, .1, 4, 0}
+		if validTime.Equal(time.Date(2016, 11, 28, 20, 0, 0, 0, time.UTC)) {
+			values[5], values[6] = -15.426407, -69.76958
+		}
+		if validTime.Equal(time.Date(2016, 11, 28, 21, 0, 0, 0, time.UTC)) {
+			values[5], values[6] = -23.265823, -145.74057
+		}
+		return values
+	})
+	sink := &recordingSink{}
+	if _, err := AggregateMonth(context.Background(), &sliceSource{frames: frames}, 2016, time.November, cells, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.transaction.visible) != 30 {
+		t.Fatalf("complete civil days = %d", len(sink.transaction.visible))
+	}
+	for _, day := range sink.transaction.visible {
+		assertClose(t, day.Metrics.WindSpeedKPH, 14.4)
+	}
+	badPrecursor := mutateFrame(frames, 0, func(frame *Frame) { frame.WindVMPS[0] = -69.76958 })
+	if _, err := AggregateMonth(context.Background(), &sliceSource{frames: badPrecursor}, 2016, time.November, cells, &recordingSink{}); err == nil {
+		t.Fatal("invalid daytime interpolation endpoint was accepted")
+	}
+}
+
 func TestAggregateMonthHandlesDSTAndMultipleCivilZones(t *testing.T) {
 	cells := []Cell{
 		testCell(t, 0, 52.37, 4.9, "Europe/Amsterdam"),
