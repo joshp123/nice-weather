@@ -52,16 +52,17 @@ type weights struct {
 // details. Invalid data returns an unavailable result instead of a plausible
 // looking zero.
 func Score(m DailyMetrics, profile Profile) Result {
-	if validateForScoring(m) != nil || (profile != ProfileNice && profile != ProfileCycling) {
+	nice, cycling, err := ScoreProfilesChecked(m)
+	switch {
+	case err != nil:
+		return Result{}
+	case profile == ProfileNice:
+		return nice
+	case profile == ProfileCycling:
+		return cycling
+	default:
 		return Result{}
 	}
-	components := sharedComponents(m)
-	if profile == ProfileCycling {
-		components.Wind = cyclingWindScore(m.WindSpeedKPH, m.GustKPH)
-	} else {
-		components.Wind = niceWindScore(m.WindSpeedKPH, m.GustKPH)
-	}
-	return scoreProfile(m, profile, components)
 }
 
 // ScoreProfilesChecked evaluates both profiles with shared physical components
@@ -76,7 +77,14 @@ func ScoreProfilesChecked(m DailyMetrics) (nice, cycling Result, err error) {
 	niceComponents.Wind = niceWind
 	cyclingComponents := shared
 	cyclingComponents.Wind = cyclingWindScoreWithNice(m.WindSpeedKPH, m.GustKPH, niceWind)
-	return scoreProfile(m, ProfileNice, niceComponents), scoreProfile(m, ProfileCycling, cyclingComponents), nil
+	nice = scoreProfile(m, ProfileNice, niceComponents)
+	cycling = scoreProfile(m, ProfileCycling, cyclingComponents)
+	// Josh: cycling is the stricter judgement. It weighs cloud less, so without
+	// this a grey, calm day could rate better for cycling than for Nice.
+	if cycling.Score > nice.Score {
+		cycling.Score, cycling.Rating = nice.Score, nice.Rating
+	}
+	return nice, cycling, nil
 }
 
 func sharedComponents(m DailyMetrics) Components {
@@ -157,10 +165,6 @@ func niceWindScore(wind float64, gust OptionalFloat) int {
 		return rounded(sustained)
 	}
 	return rounded(math.Min(sustained, piecewise(gust.Value, niceGustCurve)))
-}
-
-func cyclingWindScore(wind float64, gust OptionalFloat) int {
-	return cyclingWindScoreWithNice(wind, gust, niceWindScore(wind, gust))
 }
 
 func cyclingWindScoreWithNice(wind float64, gust OptionalFloat, nice int) int {

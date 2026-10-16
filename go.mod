@@ -2,10 +2,7 @@ module nice-weather-finder
 
 go 1.25.0
 
-require (
-	github.com/ringsaturn/tzf v1.2.0
-	golang.org/x/text v0.37.0
-)
+require github.com/ringsaturn/tzf v1.2.0
 
 require (
 	github.com/paulmach/orb v0.13.0 // indirect
