@@ -8,6 +8,7 @@
 // environment variable NICE_WEATHER_PUBLISH_TOKEN, never from arguments.
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 const [mode, artifacts, site, ...keys] = process.argv.slice(2);
 const token = process.env.NICE_WEATHER_PUBLISH_TOKEN;
@@ -24,8 +25,9 @@ async function filesUnder(path) {
 }
 
 async function upload(key, body) {
+  body = gzipSync(body);
   for (let attempt = 1; ; attempt++) {
-    const response = await fetch(new URL(`/__publish/${key}`, site), { method: 'PUT', headers: authorisation, body }).catch((error) => error);
+    const response = await fetch(new URL(`/__publish/${key}`, site), { method: 'PUT', headers: { ...authorisation, 'Content-Encoding': 'gzip' }, body }).catch((error) => error);
     if (response instanceof Response && response.status === 201) return;
     if (attempt === 3) throw new Error(`upload ${key}: ${response instanceof Response ? response.status : response.message}`);
     await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
@@ -36,7 +38,7 @@ async function uploadAll(paths) {
   const started = Date.now();
   let next = 0;
   let bytes = 0;
-  await Promise.all(Array.from({ length: 12 }, async () => {
+  await Promise.all(Array.from({ length: 2 }, async () => {
     while (next < paths.length) {
       const path = paths[next++];
       const body = await readFile(path);

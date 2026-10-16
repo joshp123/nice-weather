@@ -268,7 +268,10 @@ export async function handleRequest(request, env, serveAsset) {
     if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
     const key = url.pathname.slice('/__publish/'.length);
     if (forecastPublisher && !key.startsWith('forecast/')) return new Response('Not found', { status: 404 });
-    await bucket.put(key, request.body);
+    const body = request.headers.get('Content-Encoding') === 'gzip'
+      ? await new Response(request.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+      : request.body;
+    await bucket.put(key, body);
     memo.delete(key);
     if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
