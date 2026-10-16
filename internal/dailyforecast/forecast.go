@@ -335,9 +335,22 @@ func downloadStep(ctx context.Context, client *ifs.Client, run ifs.Run, step int
 		workers.Add(1)
 		go func(index int, name string) {
 			defer workers.Done()
-			var buffer strings.Builder
-			errorsByField[index] = client.DownloadIndexedMessage(ctx, run, step, messages[name], &buffer)
-			payloads[index] = []byte(buffer.String())
+			for attempt := 1; attempt <= 3; attempt++ {
+				var buffer strings.Builder
+				errorsByField[index] = client.DownloadIndexedMessage(ctx, run, step, messages[name], &buffer)
+				if errorsByField[index] == nil {
+					payloads[index] = []byte(buffer.String())
+					return
+				}
+				if attempt == 3 {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(attempt) * time.Second):
+				}
+			}
 		}(fieldIndex, field)
 	}
 	workers.Wait()
