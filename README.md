@@ -52,4 +52,6 @@ The daily command needs one static executable and network access to ECMWF and th
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o niceweather-linux-amd64 ./cmd/niceweather
 ```
 
+When replacing the executable, upload it as `artifacts/runner/niceweather-linux-amd64` together with `hosting/sites/refresh.md` and `internal/providers/ifsgrib/LICENSE.libaec`, using the files publisher with the `runner` key.
+
 GDAL and ecCodes are development tools, used to regenerate the embedded land mask (`go generate ./internal/dailyforecast`) and compare real GRIB messages (`go run ./cmd/compare-ifs-grib`). They are absent from the daily runtime. The app itself is deployed as a Sites Worker built by `hosting/sites/build.mjs`.
