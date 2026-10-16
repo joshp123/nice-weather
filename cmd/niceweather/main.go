@@ -45,7 +45,7 @@ func main() {
 			err = climateperiods.Build(*climate, *places)
 		}
 	default:
-		err = fmt.Errorf("unknown command %q; use forecast, publish or climate-convert", os.Args[1])
+		err = fmt.Errorf("unknown command %q; use forecast, publish, climate-convert or climate-measures", os.Args[1])
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

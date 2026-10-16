@@ -48,6 +48,9 @@ timezone database. Temperature is sampled at local 10:00 through 19:00. States
 in fractional-hour zones are linearly interpolated. Rain and sunlight use
 preceding-hour ERA5 intervals and their exact overlap with local 10:00–20:00 or
 midnight–midnight. Wind is the mean of hourly vector magnitudes, in km/h.
+Midnight clock changes produce real 23- or 25-hour whole days. A civil date
+that never occurred, such as Samoa's 30 December 2011, has no record; the
+report counts these skipped dates.
 
 Only temperature changes source cell. The nearest cell with at least 80% land
 within the surrounding 3×3 is selected; without one, the cell with the most

@@ -35,6 +35,7 @@ type Report struct {
 	Cells             int     `json:"cells"`
 	Days              int     `json:"days"`
 	Records           int     `json:"records"`
+	SkippedLocalDates int     `json:"skippedLocalDates"`
 	SourceChunks      int     `json:"sourceChunks"`
 	ReadBytes         int64   `json:"readBytes"`
 	WrittenBytes      int64   `json:"writtenBytes"`
@@ -196,6 +197,10 @@ func Build(ctx context.Context, options Options, log io.Writer) (report Report, 
 		hours := hourlyFacts(start, cell, temperatureElevation, solar, solarHours, series)
 		for date := firstDate; date.Before(lastDate); date = date.AddDate(0, 0, 1) {
 			dayStart, dayEnd := daymeasures.LocalDayBounds(date, cell.Location)
+			if dayStart.Equal(dayEnd) {
+				report.SkippedLocalDates++
+				continue
+			}
 			low := max(0, int(dayStart.Sub(start)/time.Hour)-1)
 			high := min(len(hours), int(dayEnd.Sub(start)/time.Hour)+2)
 			measures, measureErr := daymeasures.Aggregate(date, cell.Location, hours[low:high])

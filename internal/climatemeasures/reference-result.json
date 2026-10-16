@@ -1,0 +1,176 @@
+{
+  "writtenBy": "AI, GPT-6.1 Sol, 2026-10-16",
+  "method": "Retained hourly inputs through production hourlyFacts, clearsky, daymeasures.Aggregate and binary writer/reader. Historical source chunks are checked separately.",
+  "dailyRecords": 87659,
+  "wholeDayRainReferenceRecords": 87652,
+  "results": [
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005967438222569,
+        7.105427357601002e-15,
+        0,
+        4.999819899942359e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.07179219070080851,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.25791661887181544,
+      "place": "Bangkok",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005455017091265,
+        7.105427357601002e-15,
+        0,
+        4.9994882476700475e-05,
+        1.4210854715202004e-14
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.06473428458091825,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.35370344126059977,
+      "place": "Cape Town",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005006088256838126,
+        7.105427357601002e-15,
+        0,
+        4.9998540606055464e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.0755914070794484,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.3609714380284989,
+      "place": "Chania",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7304,
+      "maximumStoredDifferences": [
+        0.005005615234376037,
+        3.552713678800501e-15,
+        0,
+        4.999210248046726e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.17197396959142924,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.3000273835452377,
+      "place": "Denver",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005035400390767,
+        7.105427357601002e-15,
+        0,
+        4.9983902958905535e-05,
+        1.4210854715202004e-14
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.07399796588976323,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.31619078003251055,
+      "place": "Lisbon",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005355834960923,
+        7.105427357601002e-15,
+        0,
+        4.9995420006943014e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.08740842295942439,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.2970320431207644,
+      "place": "London",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005859375000199,
+        7.105427357601002e-15,
+        0,
+        4.999447067910445e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.13601903599590195,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.27317204765971737,
+      "place": "Marrakech",
+      "wholeDayRainDays": 7305
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005828857424177,
+        7.105427357601002e-15,
+        0,
+        4.999601635691242e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.08793086494567487,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.2431365789362386,
+      "place": "M\u00e1laga",
+      "wholeDayRainDays": 7305
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005838930607354,
+        7.105427357601002e-15,
+        0,
+        4.999415312162414e-05,
+        1.0658141036401503e-14
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.0865540772365521,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.3341942619561244,
+      "place": "Rotterdam",
+      "wholeDayRainDays": 7305
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.0050056457519538355,
+        7.105427357601002e-15,
+        0,
+        4.998937787170643e-05,
+        1.4210854715202004e-14
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.048456939266202384,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.2339683911932198,
+      "place": "Santa Cruz de Tenerife",
+      "wholeDayRainDays": 7304
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005142211913949,
+        7.105427357601002e-15,
+        0,
+        4.999703385888399e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.12097556159712124,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.3331255049815376,
+      "place": "Seville",
+      "wholeDayRainDays": 7305
+    },
+    {
+      "days": 7305,
+      "maximumStoredDifferences": [
+        0.005005070686337376,
+        7.105427357601002e-15,
+        0,
+        4.999677623418464e-05,
+        7.105427357601002e-15
+      ],
+      "meanAbsoluteDifferenceFromOriginal11SampleDewC": 0.027354036613279682,
+      "meanAbsoluteDifferenceFromOriginal11SampleWindKPH": 0.288205836654898,
+      "place": "Singapore",
+      "wholeDayRainDays": 7304
+    }
+  ]
+}
