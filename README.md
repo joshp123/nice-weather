@@ -1,119 +1,41 @@
 ---
-written_by: AI, GPT-6 (Codex), 2026-10-12
+written_by: AI (Claude Opus 5.5), 2026-10-16
 ---
 
 # Nice Weather Finder
 
-Nice Weather Finder answers one question: where should I go for genuinely pleasant weather?
+A map of the world that shows where the weather is nice: the next 14 days, and every month of a typical year. Live at <https://nice.jjpcodes.com>.
 
-The full-screen map covers the world. It opens on the next 14 days and remembers the last view. Search for any place or click the map. The place view gives one answer, then explains it with temperature, moisture, rain, cloud and wind. The January–December view becomes available when its complete recent-climate publication is installed.
+Click anywhere to see the place's name, its rating and why: temperature, humidity, rain, cloud and wind in real units. Switch to **Cycling** for stricter wind and rain. See [AGENTS.md](AGENTS.md) for the product intent and engineering rules.
 
-The visible lenses are:
-
-- **Overall**: the complete warm-weather judgement;
-- **Comfort**: temperature and moisture together;
-- **Dry**: rain amount and wet time;
-- **Clear sky**: cloud cover only;
-- **Calm**: wind comfort for the selected preference.
-
-**Nice** favours comfortable warmth, clear sky, dryness and low wind. **Cycling** makes rain and wind more costly. The warm bias is deliberate: 22–27°C is ideal and 16°C is mediocre.
-
-## Current data
-
-- **Worldwide forecast:** ECMWF IFS on its public 0.25° delivery grid, labelled as about 28 km weather detail.
-- **European forecast refinement:** DWD ICON-EU at about 7 km for complete supported days. A daily record comes wholly from IFS or ICON-EU; fields are never mixed.
-- **Recent climate:** the replacement build uses hourly ERA5 evidence for 2006–2025 on the source 0.25° grid. It scores real civil-local days and publishes their monthly distributions. The annual view requires all twelve accepted months; a partial acquisition is not a product release.
-- **Land:** Natural Earth 5.1.1. Water stays transparent. A coastal place can use its nearest valid land cell, which is disclosed in the place view.
-- **Places:** a pinned worldwide GeoNames index with local names, alternate names and transliterations.
-
-The climate view answers questions such as “How often is Málaga nice in November?” It shows the chance of a Nice day, the chance of an Awful day, the median score and the risk of a poor week. It does not score a synthetic average day.
-
-## Run locally
-
-Use the project shell to build the frontend, then serve it with the current artifacts:
+## Run it locally
 
 ```bash
 devenv shell
+npm install
 npm run build
-go run ./cmd/niceweather serve \
-  --web ./dist \
-  --artifacts ./artifacts \
-  --listen 127.0.0.1:5198
+npm run serve          # http://127.0.0.1:5198
 ```
 
-Open <http://127.0.0.1:5198/>. Port `5198` is the only local application port.
+`npm run serve` runs the same Worker code as the live site, with `./artifacts` standing in for Sites storage.
 
-## Refresh data
+## Data
 
-Build and atomically publish a worldwide forecast:
+| What | Command | How often | Output |
+| --- | --- | --- | --- |
+| Forecast | `go run ./cmd/niceweather forecast --out ./artifacts` | daily, ~4 min | `forecast/<run>/`: one PNG per day and layer, one points file per day |
+| Typical year | `go run ./cmd/niceweather climate-convert --from <ERA5 product> --out ./artifacts` | rarely | `climate/`: one PNG per month and layer, one points file per month |
+| Place names | `node hosting/sites/places.mjs .cache/geonames artifacts/places.tsv` | rarely | `places.tsv` from GeoNames cities |
+
+Every PNG is an 8-bit greyscale map of the world on ECMWF's 0.25° grid (1440 × 721): 0–100 is a score or a share of nice days; 255 is sea or no data. Open one to see it. Each points file holds one fixed-size record per grid cell; its layout is in the matching `manifest.json` / `current.json`.
+
+Sources: forecast from ECMWF IFS open data (CC BY 4.0); typical year from ERA5 2006–2025 (Copernicus); place names from GeoNames (CC BY 4.0); base map from OpenFreeMap and OpenStreetMap.
+
+## Publish
 
 ```bash
-go run ./cmd/niceweather forecast-world \
-  --cache ./.cache/weather \
-  --staging /absolute/path/on/a-large-disk \
-  --out ./artifacts
+NICE_WEATHER_PUBLISH_TOKEN=… node hosting/sites/publish.mjs forecast artifacts https://nice.jjpcodes.com
+NICE_WEATHER_PUBLISH_TOKEN=… node hosting/sites/publish.mjs files artifacts https://nice.jjpcodes.com climate places.tsv
 ```
 
-The annual ERA5 build reads each native land tile once from the pinned temporal source. It reduces all twenty years into twelve monthly distributions, checkpoints each completed tile, then publishes validated worldwide months. It retains about 1.4 GB of temporary hourly tiles instead of the full daily history. Prepare the checksum-trusted land authority and inspect the annual command's required paths:
-
-```bash
-go run ./cmd/niceweather era5-publication-authority -h
-go run ./cmd/niceweather era5-climate-year -h
-```
-
-Re-running the annual command resumes validated tile checkpoints. Repeat `--source-tile row,column` for a bounded source diagnosis; that mode never publishes. The complete climate verifier accepts only a coherent twelve-month publication. Partial builds remain internal.
-
-Build the worldwide place index from pinned GeoNames extracts, then rebuild the forecast-bound destination shortlist:
-
-```bash
-go run ./cmd/niceweather places \
-  --source ./.cache/geonames/2026-07-18 \
-  --source-date 2026-07-18 \
-  --out ./artifacts
-
-go run ./cmd/niceweather best-weather --out ./artifacts
-```
-
-The server starts directly from the active artifact root; it does not require a monolithic `artifacts/current` release. It validates and hot-swaps complete forecast snapshots. Climate, place and shortlist clients verify their static pointers and immutable files before changing visible state. A normal data refresh does not require a restart.
-
-## Architecture
-
-Go owns source retrieval, normalisation, scoring, artifact generation, validation and HTTP serving. The browser never scores weather:
-
-```text
-source fields -> DailyMetrics -> canonical component and profile scores
-              -> immutable point blocks and scalar tiles
-              -> viewport-loaded map and place evidence
-```
-
-Forecast map pixels, opened days and the fortnight strip read the same stored XYZ daily records. Complete European days also refine the fortnight; the remaining days use the corresponding worldwide cell.
-
-Forecast and climate use small pointer and catalogue files. The browser loads only scalar tiles for the visible viewport and exact point blocks for a selected place. Versioned files are release-scoped, checksum-bound, immutable, cacheable and suitable for a private static origin. HTTP Range is supported for immutable point assets.
-
-React owns product state and progressive disclosure. MapLibre owns the geographic map. A WebGL custom layer colours stored scalar values through the canonical palette. Place labels, borders and coastlines remain visible above the weather.
-
-Generated weather belongs in `artifacts`; the frontend build belongs in `dist`. Neither is source code.
-
-## Verify
-
-```bash
-go test ./...
-go vet ./...
-npm test -- --run
-npm run build
-go run ./cmd/niceweather verify-climate --out ./artifacts
-```
-
-Then use the running map to verify:
-
-- the map loads useful weather in under two seconds;
-- forecast and climate controls respond within 100 ms;
-- ordinary map movement has no task over 100 ms;
-- desktop, phone and ultrawide layouts do not clip or waste the screen;
-- selected-place evidence matches the visible scalar value;
-- the browser console has no warning or error;
-- exact immutable files return the declared cache and content-type headers.
-
-New agents must read [AGENTS.md](AGENTS.md), [docs/project-context.md](docs/project-context.md) and [.agent/execplan-pending.md](.agent/execplan-pending.md) before editing.
-
-The visual direction and product boundaries are in [docs/product-reset.md](docs/product-reset.md) and [docs/design-system.md](docs/design-system.md). Production hosting uses ChatGPT Sites; weather acquisition and scoring run offline.
+The forecast is uploaded first and its pointer last, so visitors never see a half-uploaded run. Old runs are then removed. The app itself is deployed as a Sites Worker built by `hosting/sites/build.mjs`.
