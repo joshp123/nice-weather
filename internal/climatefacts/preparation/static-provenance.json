@@ -1,0 +1,21 @@
+{
+  "writtenBy": "AI, GPT-6.1 Sol, 2026-10-16",
+  "era5Snapshot": "TZ2KX6A24CJ5DG17T7MG",
+  "groundSource": "WorldClim 2.1 elevation, 2.5 arcminutes",
+  "groundSourceURL": "https://geodata.ucdavis.edu/climate/worldclim/2_1/base/wc2.1_2.5m_elev.zip",
+  "groundSampling": "nearest valid terrain pixel in the surrounding 7x7, geographic distance; longitude wraps",
+  "groundComplementSource": "NOAA ETOPO1 Ice Surface, 1 arcminute source sampled at exact 0.25-degree nodes",
+  "groundComplementURL": "https://data.pmel.noaa.gov/socat/erddap/griddap/etopo180.csv?altitude[0:15:10800][0:15:21585]",
+  "groundComplementDatum": "WGS84 horizontal, mean sea level vertical; top of Antarctic and Greenland ice sheets",
+  "groundComplementBathymetry": "negative values clamped to sea level only where WorldClim is missing; valid WorldClim below-sea-level ground is retained",
+  "groundComplementSHA256": "cf94ca6689dfd2ba4f06cffe164b3df7e96fcc7bb36703dcfabe9c9b28aad4df",
+  "groundComplementPositiveWithERA5Land": 6560,
+  "groundComplementSeaLevelWithERA5Land": 21367,
+  "groundMissingCellsBeforeComplement": 669115,
+  "groundMissingWithERA5LandBeforeComplement": 27927,
+  "landFractionCountNote": "lsm > 0 includes tiny nonzero ocean fractions; it is not the application land mask",
+  "worldclimInputSHA256": "6761259f10b4d5ac421e9949d38cc80e8f586c54bba4ef30b1f257c4475774a9",
+  "era5InputSHA256": "6973c5e776be07efbaff43e4ec787f174d0c5ecda8b52eedcee57acdbdb4b5d5",
+  "sha256": "25313bc5805f560372acfff1ec316756aecaea0b397827d6c89893d030b87284",
+  "bytes": 4737119
+}
