@@ -2,19 +2,14 @@
 package dailyforecast
 
 import (
-	"archive/zip"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +17,7 @@ import (
 
 	"github.com/ringsaturn/tzf"
 	"nice-weather-finder/internal/providers/ifs"
+	"nice-weather-finder/internal/providers/ifsgrib"
 )
 
 const (
@@ -30,7 +26,6 @@ const (
 	Height            = int(180/ResolutionDegrees) + 1
 	PointRecordBytes  = 17
 	noData            = 255
-	landURL           = "https://naciscdn.org/naturalearth/5.1.1/10m/physical/ne_10m_land.zip"
 )
 
 var Layers = []string{"nice", "cycling", "comfort", "dry", "clear", "calm-nice", "calm-cycling"}
@@ -102,10 +97,6 @@ func (body countingBody) Read(buffer []byte) (int, error) {
 	return n, err
 }
 func (transport *forecastTransport) Do(request *http.Request) (*http.Response, error) {
-	// The reused index/range client supplies the legacy 0p25 URL template;
-	// the requested source grid follows the same constant as decoded geometry.
-	request = request.Clone(request.Context())
-	request.URL.Path = strings.Replace(request.URL.Path, "/ifs/0p25/", "/ifs/"+strings.ReplaceAll(number(ResolutionDegrees), ".", "p")+"/", 1)
 	response, err := transport.client.Do(request)
 	if err == nil {
 		response.Body = countingBody{response.Body, &transport.bytes}
@@ -134,13 +125,8 @@ func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, 
 	if err = os.Mkdir(report.Directory, 0755); err != nil {
 		return report, fmt.Errorf("create fresh run directory (choose a fresh --out when rerunning): %w", err)
 	}
-	scratch, err := os.MkdirTemp("", "niceweather-forecast-")
-	if err != nil {
-		return report, err
-	}
-	defer os.RemoveAll(scratch)
 	fmt.Fprintf(log, "IFS run %s; grid %dx%d at %.2f°\n", run.Time.Format(time.RFC3339), Width, Height, ResolutionDegrees)
-	land, err := landCells(ctx, transport, scratch)
+	land, err := landCells()
 	if err != nil {
 		return report, err
 	}
@@ -163,12 +149,6 @@ func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, 
 	var priorRain []float32
 	var previousEnd time.Time
 	adjustments := rainAdjustments{}
-	stepScratch := [2]string{filepath.Join(scratch, "step-0"), filepath.Join(scratch, "step-1")}
-	for _, directory := range stepScratch {
-		if err = os.Mkdir(directory, 0755); err != nil {
-			return report, err
-		}
-	}
 	for firstStepIndex := 0; firstStepIndex < len(steps); firstStepIndex += 2 {
 		if err = ctx.Err(); err != nil {
 			return report, err
@@ -183,7 +163,7 @@ func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, 
 			downloads.Add(1)
 			go func(slot int) {
 				defer downloads.Done()
-				results[slot].frames, results[slot].err = downloadStep(ctx, client, run, steps[firstStepIndex+slot], stepScratch[slot])
+				results[slot].frames, results[slot].err = downloadStep(ctx, client, run, steps[firstStepIndex+slot])
 			}(slot)
 		}
 		downloads.Wait()
@@ -297,94 +277,6 @@ func latestRun(ctx context.Context, client *ifs.Client) (ifs.Run, error) {
 	return ifs.Run{}, errors.New("no complete IFS run found in the last four days")
 }
 
-func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(output)))
-	}
-	return output, nil
-}
-
-func landCells(ctx context.Context, transport *forecastTransport, scratch string) ([]int, error) {
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, landURL, nil)
-	response, err := transport.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Natural Earth land download: HTTP %d", response.StatusCode)
-	}
-	archive, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-	reader, err := zip.NewReader(strings.NewReader(string(archive)), int64(len(archive)))
-	if err != nil {
-		return nil, err
-	}
-	for _, member := range reader.File {
-		extension := filepath.Ext(member.Name)
-		if extension != ".shp" && extension != ".shx" && extension != ".dbf" && extension != ".prj" {
-			continue
-		}
-		source, openErr := member.Open()
-		if openErr != nil {
-			return nil, openErr
-		}
-		target, createErr := os.Create(filepath.Join(scratch, filepath.Base(member.Name)))
-		if createErr != nil {
-			source.Close()
-			return nil, createErr
-		}
-		_, copyErr := io.Copy(target, source)
-		source.Close()
-		closeErr := target.Close()
-		if copyErr != nil {
-			return nil, copyErr
-		}
-		if closeErr != nil {
-			return nil, closeErr
-		}
-	}
-	half := ResolutionDegrees / 2
-	raster := filepath.Join(scratch, "land.bin")
-	_, err = runCommand(ctx, "gdal_rasterize", "-q", "-at", "-burn", "1", "-init", "0", "-ot", "Byte", "-of", "ENVI", "-te", number(-180-half), number(-90-half), number(180-half), number(90+half), "-ts", strconv.Itoa(Width), strconv.Itoa(Height), filepath.Join(scratch, "ne_10m_land.shp"), raster)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(raster)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) != Width*Height {
-		return nil, fmt.Errorf("land mask has %d cells, want %d", len(data), Width*Height)
-	}
-	wrappingRaster := filepath.Join(scratch, "land-dateline.bin")
-	_, err = runCommand(ctx, "gdal_rasterize", "-q", "-at", "-burn", "1", "-init", "0", "-ot", "Byte", "-of", "ENVI", "-te", number(180-half), number(-90-half), number(180+half), number(90+half), "-ts", "1", strconv.Itoa(Height), filepath.Join(scratch, "ne_10m_land.shp"), wrappingRaster)
-	if err != nil {
-		return nil, err
-	}
-	wrappingData, err := os.ReadFile(wrappingRaster)
-	if err != nil {
-		return nil, err
-	}
-	if len(wrappingData) != Height {
-		return nil, fmt.Errorf("date line land mask has %d rows, want %d", len(wrappingData), Height)
-	}
-	for row, value := range wrappingData {
-		data[row*Width] |= value
-	}
-	var cells []int
-	for cell, value := range data {
-		if value != 0 {
-			cells = append(cells, cell)
-		}
-	}
-	return cells, nil
-}
-func number(value float64) string { return strconv.FormatFloat(value, 'f', -1, 64) }
-
 type timezoneGroup struct {
 	location    *time.Location
 	landIndices []int
@@ -431,7 +323,7 @@ func timezoneGroups(land []int) ([]timezoneGroup, error) {
 	return groups, nil
 }
 
-func downloadStep(ctx context.Context, client *ifs.Client, run ifs.Run, step int, scratch string) ([][]float32, error) {
+func downloadStep(ctx context.Context, client *ifs.Client, run ifs.Run, step int) ([][]float32, error) {
 	messages, err := client.FetchIndex(ctx, run, step)
 	if err != nil {
 		return nil, err
@@ -449,84 +341,21 @@ func downloadStep(ctx context.Context, client *ifs.Client, run ifs.Run, step int
 		}(fieldIndex, field)
 	}
 	workers.Wait()
-	path := filepath.Join(scratch, "step.grib2")
-	file, err := os.Create(path)
-	if err != nil {
-		return nil, err
-	}
-	for fieldIndex := range fields {
+	values := make([][]float32, len(fields))
+	for fieldIndex, name := range fields {
 		if errorsByField[fieldIndex] != nil {
-			file.Close()
 			return nil, errorsByField[fieldIndex]
 		}
-		if _, err = file.Write(payloads[fieldIndex]); err != nil {
-			file.Close()
-			return nil, err
+		field, decodeErr := ifsgrib.Decode(payloads[fieldIndex])
+		if decodeErr != nil {
+			return nil, decodeErr
 		}
-	}
-	if err = file.Close(); err != nil {
-		return nil, err
-	}
-	metadata, err := runCommand(ctx, "grib_ls", "-j", "-p", "shortName,stepType,startStep,endStep,units,Ni,Nj,latitudeOfFirstGridPointInDegrees,longitudeOfFirstGridPointInDegrees", path)
-	if err != nil {
-		return nil, err
-	}
-	var inspected struct {
-		Messages []struct {
-			ShortName string  `json:"shortName"`
-			StepType  string  `json:"stepType"`
-			StartStep int     `json:"startStep"`
-			EndStep   int     `json:"endStep"`
-			Units     string  `json:"units"`
-			Ni        int     `json:"Ni"`
-			Nj        int     `json:"Nj"`
-			Latitude  float64 `json:"latitudeOfFirstGridPointInDegrees"`
-			Longitude float64 `json:"longitudeOfFirstGridPointInDegrees"`
-		} `json:"messages"`
-	}
-	if err = json.Unmarshal(metadata, &inspected); err != nil {
-		return nil, err
-	}
-	if len(inspected.Messages) != len(fields) {
-		return nil, errors.New("GRIB message count differs from requested fields")
-	}
-	expectedUnits := []string{"K", "K", "(0 - 1)", "m s**-1", "m s**-1", "m"}
-	for index, message := range inspected.Messages {
-		if message.ShortName != fields[index] || message.Ni != Width || message.Nj != Height || message.Latitude != 90 || message.Longitude != 180 || message.EndStep != step || message.Units != expectedUnits[index] {
-			return nil, fmt.Errorf("unexpected IFS %s metadata: %+v", fields[index], message)
+		if field.Name != name || !field.RunTime.Equal(run.Time) || field.EndStep != step {
+			return nil, fmt.Errorf("IFS %s message does not match requested field, run and step", name)
 		}
-		if index < 5 && message.StepType != "instant" {
-			return nil, fmt.Errorf("IFS %s is not an instant field", fields[index])
-		}
-		if index == 5 && (message.StepType != "accum" || message.StartStep != 0) {
-			return nil, errors.New("IFS precipitation is not accumulated from run time")
-		}
-	}
-	// ecCodes decodes ECMWF's CCSDS packing; GDAL in the project profile
-	// cannot. Repacking preserves decoded samples and avoids NetCDF variables.
-	simplePacking := filepath.Join(scratch, "step-simple.grib2")
-	if _, err = runCommand(ctx, "grib_set", "-r", "-s", "packingType=grid_simple", path, simplePacking); err != nil {
-		return nil, err
-	}
-	raster := filepath.Join(scratch, "step.bin")
-	_, err = runCommand(ctx, "gdal_translate", "-q", "--config", "GRIB_NORMALIZE_UNITS", "NO", "--config", "GRIB_ADJUST_LONGITUDE_RANGE", "YES", "-of", "ENVI", "-ot", "Float32", "-co", "INTERLEAVE=BSQ", simplePacking, raster)
-	if err != nil {
-		return nil, err
-	}
-	payload, err := os.ReadFile(raster)
-	if err != nil {
-		return nil, err
-	}
-	count := Width * Height
-	if len(payload) != len(fields)*count*4 {
-		return nil, fmt.Errorf("decoded IFS grid has %d bytes, want %d", len(payload), len(fields)*count*4)
-	}
-	values := make([][]float32, len(fields))
-	for fieldIndex := range fields {
-		values[fieldIndex] = make([]float32, count)
-		for cell := range values[fieldIndex] {
-			offset := (fieldIndex*count + cell) * 4
-			values[fieldIndex][cell] = math.Float32frombits(binary.LittleEndian.Uint32(payload[offset : offset+4]))
+		values[fieldIndex] = make([]float32, len(field.Values))
+		for cell, value := range field.Values {
+			values[fieldIndex][cell] = float32(value)
 		}
 	}
 	return values, nil
