@@ -167,14 +167,18 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 	report.Bytes += int64(len(pointer))
 	request, _ = http.NewRequestWithContext(ctx, http.MethodPost, endpoint("/__prune"), nil)
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err = client.Do(request)
+	pruneClient := &http.Client{Timeout: 10 * time.Minute}
+	response, err = pruneClient.Do(request)
 	if err != nil {
-		return report, err
+		return report, fmt.Errorf("forecast %s published; prune old forecasts: %w", report.RunID, err)
 	}
-	io.Copy(io.Discard, response.Body)
+	_, err = io.Copy(io.Discard, response.Body)
 	response.Body.Close()
+	if err != nil {
+		return report, fmt.Errorf("forecast %s published; read cleanup result: %w", report.RunID, err)
+	}
 	if response.StatusCode != http.StatusOK {
-		return report, fmt.Errorf("prune old forecasts: HTTP %d", response.StatusCode)
+		return report, fmt.Errorf("forecast %s published; prune old forecasts: HTTP %d", report.RunID, response.StatusCode)
 	}
 	report.Elapsed = time.Since(started)
 	return report, nil
