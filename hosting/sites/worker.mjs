@@ -17,6 +17,33 @@ const FORECAST_RECORD_BYTES = 17;
 const FIRST_SCORE_OFFSET = 10;
 const NO_DATA = 255;
 
+async function refreshSignature(secret, expires) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`forecast:${expires}`)))));
+}
+
+async function isForecastPublisher(request, env) {
+  const token = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
+  const [scope, expires, signature] = token.split('.');
+  return scope === 'forecast' && Number(expires) > Date.now() && Number(expires) <= Date.now() + 3600000
+    && signature === await refreshSignature(env.WEATHER_PUBLISH_TOKEN, expires);
+}
+
+async function siteTool(request, env) {
+  const { id, method, params } = await request.json();
+  const reply = (result) => Response.json({ jsonrpc: '2.0', id, result });
+  if (method === 'server/discover') return reply({ supportedVersions: ['2026-07-28'], capabilities: { tools: {} } });
+  if (method === 'initialize') return reply({ protocolVersion: '2026-07-28', capabilities: { tools: {} }, serverInfo: { name: 'Nice Weather', version: '1' } });
+  if (method === 'tools/list') return reply({ tools: [{ name: 'begin_forecast_refresh', description: 'Start the owner’s daily ECMWF forecast refresh. Returns a temporary upload credential and the standalone program URL. Follow the saved instructions; keep credentials out of output.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }] });
+  if (method === 'tools/call' && params?.name === 'begin_forecast_refresh') {
+    if (!env.WEATHER_OWNER_EMAIL || request.headers.get('oai-authenticated-user-email') !== env.WEATHER_OWNER_EMAIL) return reply({ isError: true, content: [{ type: 'text', text: 'Only the Site owner can refresh the forecast.' }] });
+    const expires = String(Date.now() + 3600000);
+    const origin = new URL(request.url).origin;
+    return reply({ content: [{ type: 'text', text: JSON.stringify({ token: `forecast.${expires}.${await refreshSignature(env.WEATHER_PUBLISH_TOKEN, expires)}`, expiresAt: new Date(Number(expires)).toISOString(), binary: `${origin}/data/runner/niceweather-linux-amd64`, instructions: `${origin}/data/runner/refresh.md`, site: origin }) }] });
+  }
+  return Response.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
+}
+
 function readForecastRecord(view, date) {
   const score = (index) => view.getUint8(FIRST_SCORE_OFFSET + index);
   if (score(0) === NO_DATA) return { date, scores: null };
@@ -231,11 +258,16 @@ export async function handleRequest(request, env, serveAsset) {
   const url = new URL(request.url);
   const bucket = env.WEATHER;
 
+  if (url.pathname === '/mcp' && request.method === 'POST') return siteTool(request, env);
+
   if (url.pathname.startsWith('/__publish/') || url.pathname === '/__prune') {
-    if (!env.WEATHER_PUBLISH_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.WEATHER_PUBLISH_TOKEN}`) return new Response('Not found', { status: 404 });
+    const ownerPublisher = env.WEATHER_PUBLISH_TOKEN && request.headers.get('Authorization') === `Bearer ${env.WEATHER_PUBLISH_TOKEN}`;
+    const forecastPublisher = env.WEATHER_PUBLISH_TOKEN && await isForecastPublisher(request, env);
+    if (!ownerPublisher && !forecastPublisher) return new Response('Not found', { status: 404 });
     if (url.pathname === '/__prune' && request.method === 'POST') return prune(bucket);
     if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
     const key = url.pathname.slice('/__publish/'.length);
+    if (forecastPublisher && !key.startsWith('forecast/')) return new Response('Not found', { status: 404 });
     await bucket.put(key, request.body);
     memo.delete(key);
     return new Response(null, { status: 201 });

@@ -1,5 +1,6 @@
 {
   "project_id": "appgprj_6a654a7dbac4819195c2a53c38a09465",
   "d1": null,
-  "r2": "WEATHER"
+  "r2": "WEATHER",
+  "capabilities": ["mcp"]
 }
