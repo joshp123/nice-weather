@@ -229,7 +229,7 @@ const mediaTypes = { '.json': 'application/json', '.png': 'image/png', '.bin': '
 async function serveData(request, bucket, key) {
   const object = await bucket.get(key);
   if (!object) return new Response('Not found', { status: 404 });
-  const mutable = key.endsWith('current.json');
+  const mutable = key.endsWith('current.json') || key.startsWith('runner/');
   return new Response(request.method === 'HEAD' ? null : object.body, {
     headers: {
       'Content-Type': mediaTypes[key.slice(key.lastIndexOf('.'))] ?? 'application/octet-stream',
@@ -270,6 +270,7 @@ export async function handleRequest(request, env, serveAsset) {
     if (forecastPublisher && !key.startsWith('forecast/')) return new Response('Not found', { status: 404 });
     await bucket.put(key, request.body);
     memo.delete(key);
+    if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
