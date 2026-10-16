@@ -1,0 +1,61 @@
+// Written by AI on 2026.10.16 by model claude opus 5.5.
+// Runs the Sites Worker on this machine: ./artifacts stands in for Sites storage
+// and ./dist for the embedded app. http://127.0.0.1:5198
+import { createServer } from 'node:http';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { dirname, join, extname, relative } from 'node:path';
+import { Readable } from 'node:stream';
+import { handleRequest } from './worker.mjs';
+
+const root = process.cwd();
+const artifacts = join(root, 'artifacts');
+const dist = join(root, 'dist');
+
+const bucket = {
+  async get(key, options) {
+    const path = join(artifacts, key);
+    let size;
+    try { size = (await stat(path)).size; } catch { return null; }
+    const bytes = await readFile(path);
+    const range = options?.range;
+    const body = range ? bytes.subarray(range.offset, range.offset + range.length) : bytes;
+    return {
+      size, httpEtag: `"${size}"`, body: Readable.toWeb(Readable.from([body])),
+      arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
+      text: async () => body.toString('utf8'),
+      json: async () => JSON.parse(body.toString('utf8')),
+    };
+  },
+  async put(key, body) {
+    const path = join(artifacts, key);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, Buffer.from(await new Response(body).arrayBuffer()));
+  },
+  // Local runs keep every forecast; pruning only matters for Sites storage.
+  async list({ prefix }) {
+    const entries = await readdir(join(artifacts, prefix), { recursive: true, withFileTypes: true }).catch(() => []);
+    return { objects: entries.filter((entry) => entry.isFile()).map((entry) => ({ key: relative(artifacts, join(entry.parentPath, entry.name)) })), truncated: false };
+  },
+  async delete() {},
+};
+
+const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
+async function serveAsset(pathname) {
+  const file = pathname === '/' || !extname(pathname) ? 'index.html' : pathname.slice(1);
+  try {
+    return new Response(await readFile(join(dist, file)), { headers: { 'Content-Type': types[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' } });
+  } catch {
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+createServer(async (incoming, outgoing) => {
+  const hasBody = incoming.method === 'PUT' || incoming.method === 'POST';
+  const request = new Request(`http://127.0.0.1:5198${incoming.url}`, { method: incoming.method, headers: incoming.headers, body: hasBody ? Readable.toWeb(incoming) : undefined, duplex: 'half' });
+  const started = performance.now();
+  const response = await handleRequest(request, { WEATHER: bucket, WEATHER_PUBLISH_TOKEN: 'local' }, serveAsset);
+  outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+  if (response.body) for await (const chunk of response.body) outgoing.write(chunk);
+  outgoing.end();
+  if (!incoming.url.startsWith('/assets/')) console.log(`${response.status} ${incoming.url} ${(performance.now() - started).toFixed(0)} ms`);
+}).listen(5198, '127.0.0.1', () => console.log('Nice weather: http://127.0.0.1:5198'));

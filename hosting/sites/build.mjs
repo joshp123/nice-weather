@@ -17,7 +17,7 @@ async function visit(directory, prefix = '') {
 }
 await visit(webRoot);
 if (!assets['/index.html']) throw new Error('Build the frontend before packaging Sites');
-const source = (await readFile(resolve(hostingRoot, 'worker.mjs'), 'utf8')).replace('__WEB_ASSETS__', JSON.stringify(assets));
+const source = (await readFile(resolve(hostingRoot, 'worker.mjs'), 'utf8')).replace('/*WEB_ASSETS*/ {}', JSON.stringify(assets));
 await mkdir(resolve(outputRoot, 'worker'), { recursive: true });
 await mkdir(resolve(outputRoot, '.openai'), { recursive: true });
 await writeFile(resolve(outputRoot, 'worker/index.js'), source);
