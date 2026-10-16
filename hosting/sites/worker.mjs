@@ -136,9 +136,9 @@ async function search(bucket, query) {
   const results = [];
   for (const place of places) {
     if (place.key.startsWith(wanted)) results.push(place);
-    if (results.length === 8) break;
   }
-  return results.map(({ name, region, latitude, longitude }) => ({ name, region, latitude, longitude }));
+  results.sort((left, right) => left.key.length - right.key.length || right.population - left.population);
+  return results.slice(0, 8).map(({ name, region, latitude, longitude }) => ({ name, region, latitude, longitude }));
 }
 
 // ---------------------------------------------------------------- weather for one place
