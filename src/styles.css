@@ -95,7 +95,7 @@ h1, h2, p, dl, dd, ul { margin: 0; padding: 0; }
 /* Bottom: the dock. Row 1 is time; row 2 is what to show, and what the colours mean. */
 .dock {
   left: 50%; bottom: calc(var(--edge) + env(safe-area-inset-bottom)); transform: translateX(-50%);
-  width: min(1240px, calc(100% - 2 * var(--edge)));
+  width: min(1560px, calc(100% - 2 * var(--edge) - 2 * 40px));
   padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3);
 }
 .dock-row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
@@ -177,15 +177,14 @@ h1, h2, p, dl, dd, ul { margin: 0; padding: 0; }
 .month.selected .month-label { color: var(--text); font-weight: var(--weight-strong); }
 .footnote { font-size: var(--text-caption); color: var(--faint); }
 
-.place-marker { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5); }
-
 /* Phones: search across the top; the card and the dock stack at the bottom,
    and the card scrolls so the map stays visible. The title only appears when
    the forecast is out of date, to say so. */
 @media (max-width: 720px) {
   :root { --edge: 8px; --text-answer: 28px; --text-title: 20px; }
-  .masthead:not(:has(.stale)) { display: none; }
-  .masthead { top: calc(var(--edge) + 56px); }
+  .masthead { top: calc(var(--edge) + 56px); padding: 5px 10px; border-radius: var(--radius-control); }
+  .masthead h1 { display: none; }
+  .status { margin: 0; }
   .search { left: var(--edge); width: auto; }
   .overlay {
     position: fixed; left: var(--edge); right: var(--edge); bottom: calc(var(--edge) + env(safe-area-inset-bottom));
@@ -194,7 +193,7 @@ h1, h2, p, dl, dd, ul { margin: 0; padding: 0; }
   .overlay .panel { position: static; transform: none; width: auto; pointer-events: auto; }
   .card-slot { min-height: 0; display: flex; }
   .card { max-height: 40vh; flex: 1; padding: var(--space-4); }
-  .dock { padding: var(--space-2); gap: var(--space-2); }
+  .dock { width: auto; padding: var(--space-2); gap: var(--space-2); }
   .dock-row { flex-wrap: wrap; row-gap: var(--space-1); }
   .dock-row .chips { flex-basis: 100%; }
   .dock-row.secondary { flex-direction: column; align-items: stretch; }

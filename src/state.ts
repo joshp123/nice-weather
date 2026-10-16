@@ -26,6 +26,10 @@ const defaultState: AppState = {
   center: [12, 42], zoom: 2.6,
 };
 
+export function hasSavedView(): boolean {
+  return localStorage.getItem(storageKey) !== null;
+}
+
 export function loadState(): AppState {
   try {
     return { ...defaultState, ...JSON.parse(localStorage.getItem(storageKey) ?? '{}') };

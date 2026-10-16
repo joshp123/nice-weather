@@ -4,34 +4,19 @@
 
 export type Band = Readonly<{ name: string; minimumScore: number; colour: string }>;
 
-// Low to high. Brightness carries the meaning: bad weather darkens the land,
-// "Fair" leaves the plain land showing, and good weather lights it up, up to
-// gold for Perfect. Good places stand out; bad places recede (Ryan Hall's principle).
+// Low to high, one ramp: deep red for awful, brick for poor, slate for fair,
+// then blue, green and gold for the good bands (Josh: "red/black should be
+// awful and maybe golden for perfect, but pleasing colours"). Every band is
+// visible, so "awful" never looks like missing data.
 // Colours are #rrggbbaa; the alpha sets how strongly a band covers the land.
-const palettes = {
-  dusk: [
-    { name: 'Awful', minimumScore: 0, colour: '#170d118c' },
-    { name: 'Poor', minimumScore: 25, colour: '#5a2a3aa8' },
-    { name: 'Fair', minimumScore: 40, colour: 'transparent' },
-    { name: 'Nice', minimumScore: 55, colour: '#3b9edbd6' },
-    { name: 'Beautiful', minimumScore: 70, colour: '#55c27ad6' },
-    { name: 'Perfect', minimumScore: 85, colour: '#f5c542e0' },
-  ],
-  ember: [
-    { name: 'Awful', minimumScore: 0, colour: '#2a0b10d0' },
-    { name: 'Poor', minimumScore: 25, colour: '#7a2630b0' },
-    { name: 'Fair', minimumScore: 40, colour: 'transparent' },
-    { name: 'Nice', minimumScore: 55, colour: '#6fb7e8d6' },
-    { name: 'Beautiful', minimumScore: 70, colour: '#7ccf5bd6' },
-    { name: 'Perfect', minimumScore: 85, colour: '#ffd23fe0' },
-  ],
-} satisfies Record<string, Band[]>;
-
-export type PaletteName = keyof typeof palettes;
-
-const requestedPalette = new URLSearchParams(location.search).get('palette');
-export const bands: readonly Band[] =
-  palettes[(requestedPalette && requestedPalette in palettes ? requestedPalette : 'dusk') as PaletteName];
+export const bands: readonly Band[] = [
+  { name: 'Awful', minimumScore: 0, colour: '#4a122299' },
+  { name: 'Poor', minimumScore: 25, colour: '#9c4040b3' },
+  { name: 'Fair', minimumScore: 40, colour: '#6f7b8a99' },
+  { name: 'Nice', minimumScore: 55, colour: '#3b9edbdc' },
+  { name: 'Beautiful', minimumScore: 70, colour: '#55c27adc' },
+  { name: 'Perfect', minimumScore: 85, colour: '#f5c542e6' },
+];
 
 export function bandForScore(score: number): Band {
   for (let index = bands.length - 1; index >= 0; index--) {

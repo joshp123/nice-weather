@@ -56,7 +56,7 @@ export type Actions = Readonly<{
 
 /** The bottom control dock: time, preference, lens and legend. */
 export function renderDock(state: AppState, forecast: ForecastIndex | null, actions: Actions, place: PlaceWeather | null): HTMLElement {
-  const viewControl = segmented<View>([['forecast', 'Next 14 days'], ['year', 'Year']], state.view, actions.setView, 'Time');
+  const viewControl = segmented<View>([['forecast', 'Next 15 days'], ['year', 'Year']], state.view, actions.setView, 'Time');
   const profileControl = segmented<Profile>([['nice', 'Nice'], ['cycling', 'Cycling']], state.profile, actions.setProfile, 'Preference');
 
   const chips = element('div', 'chips');
@@ -72,7 +72,7 @@ export function renderDock(state: AppState, forecast: ForecastIndex | null, acti
     for (let month = 1; month <= 12; month++) {
       const climate = place?.months?.[month - 1];
       const chance = climate?.niceChance[state.profile];
-      chips.append(chip(months[month - 1], chance === undefined ? null : `${chance}% nice`, state.month === month, () => actions.setMonth(month), chance ?? null));
+      chips.append(chip(months[month - 1], null, state.month === month, () => actions.setMonth(month), chance ?? null));
     }
   }
 
@@ -86,8 +86,7 @@ export function renderDock(state: AppState, forecast: ForecastIndex | null, acti
   const scale = element('div', 'legend-scale');
   for (const band of bands) {
     const colour = element('span', 'bar-colour');
-    // "Fair" has no colour on the map; show the plain land it leaves.
-    colour.style.background = band.colour === 'transparent' ? 'var(--land)' : band.colour;
+    colour.style.background = band.colour;
     const text = fortnight ? daysRange(band.minimumScore, dayCount) : state.view === 'year' ? percentRange(band.minimumScore) : band.name;
     scale.append(element('span', 'legend-step', colour, text));
   }
@@ -138,15 +137,15 @@ function meter(score: number): HTMLElement {
   const fill = element('span', 'meter-fill');
   const colour = bandForScore(score).colour;
   fill.style.width = `${Math.max(3, score)}%`;
-  fill.style.background = colour === 'transparent' ? 'rgba(255, 255, 255, 0.4)' : colour;
+  fill.style.background = colour;
   const bar = element('span', 'meter', fill);
   bar.setAttribute('aria-hidden', 'true');
   return bar;
 }
 
 function swatch(colour: string): HTMLElement {
-  const node = element('span', colour === 'transparent' ? 'swatch empty' : 'swatch');
-  if (colour !== 'transparent') node.style.background = colour;
+  const node = element('span', 'swatch');
+  node.style.background = colour;
   return node;
 }
 
@@ -193,8 +192,7 @@ function forecastBody(state: AppState, place: PlaceWeather): HTMLElement {
       : 'No two nice days in a row.';
     return element('div', 'answer',
       element('div', 'answer-line', swatch(bandForScore(share).colour), element('strong', '', `${nice} of ${days.length} days`), element('span', 'muted', 'Nice or better')),
-      element('p', 'answer-sentence', spellText),
-      element('p', 'answer-heading muted', 'Choose a day below to see why.'));
+      element('p', 'answer-sentence', spellText));
   }
   const day = days.find((candidate) => candidate.date === state.day) ?? days[0];
   const factors = element('dl', 'factors');
@@ -217,13 +215,20 @@ function yearBody(state: AppState, place: PlaceWeather, climate: ClimateIndex | 
     const bar = element('span', 'bar');
     bar.style.height = `${Math.max(3, entry.niceChance[state.profile])}%`;
     const colour = bandForScore(entry.niceChance[state.profile]).colour;
-    bar.style.background = colour === 'transparent' ? 'rgba(255, 255, 255, 0.28)' : colour;
+    bar.style.background = colour;
     const column = element('button', entry.month === state.month ? 'month selected' : 'month', element('span', 'bar-track', bar), element('span', 'month-label', months[entry.month - 1][0]));
     column.title = `${longMonths[entry.month - 1]}: ${entry.niceChance[state.profile]}% of days nice`;
     column.onclick = () => actions.setMonth(entry.month);
     chart.append(column);
   }
-  const bestMonths = [...months12].sort((left, right) => right.niceChance[state.profile] - left.niceChance[state.profile]).slice(0, 3).map((entry) => longMonths[entry.month - 1]);
+  // The three nicest months that are nice at least half the time, in calendar order.
+  const bestMonths = [...months12]
+    .filter((entry) => entry.niceChance[state.profile] >= 50)
+    .sort((left, right) => right.niceChance[state.profile] - left.niceChance[state.profile])
+    .slice(0, 3)
+    .sort((left, right) => left.month - right.month)
+    .map((entry) => longMonths[entry.month - 1]);
+  const bestMonthsSentence = bestMonths.length ? `Best months: ${bestMonths.join(', ')}.` : 'No month is usually nice here.';
   const round = Math.round;
   const typical = element('dl', 'factors',
     fact('Temperature', `${round(month.temperatureC)} °C`, `Cool day ${round(month.coolDayC)} °C, warm day ${round(month.warmDayC)} °C`),
@@ -236,7 +241,7 @@ function yearBody(state: AppState, place: PlaceWeather, climate: ClimateIndex | 
     element('div', 'answer',
       element('div', 'answer-line', swatch(bandForScore(chance).colour), element('strong', '', `${chance}% nice`)),
       element('p', 'answer-heading muted', `A typical ${longMonths[state.month - 1]}`),
-      element('p', 'answer-sentence', `${chance}% of days are Nice or better${awful > 0 ? `, ${awful}% are Awful` : ''}. Best months: ${bestMonths.join(', ')}.`)),
+      element('p', 'answer-sentence', `${chance}% of days are Nice or better${awful > 0 ? `, ${awful}% are Awful` : ''}. ${bestMonthsSentence}`)),
     typical,
     element('p', 'section-label muted', 'Nice days, month by month'),
     chart,
@@ -253,7 +258,7 @@ export function forecastStatus(forecast: ForecastIndex, now = new Date()): { tex
   const hours = (now.getTime() - run.getTime()) / 3_600_000;
   const when = run.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   if (hours > 36) return { text: `Forecast is ${Math.round(hours / 24)} days old (${when})`, stale: true };
-  return { text: `Forecast from ${when}`, stale: false };
+  return { text: `Updated ${when}`, stale: false };
 }
 
 export function renderSearch(onChoose: (result: SearchResult) => void, onLocate: () => void, search: (query: string) => Promise<SearchResult[]>): HTMLElement {

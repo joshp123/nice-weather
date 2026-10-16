@@ -1,10 +1,9 @@
 // Written by AI on 2026.10.16 by model claude opus 5.5.
 import './styles.css';
-import maplibregl from 'maplibre-gl';
 import { fetchClimateIndex, fetchForecastIndex, fetchPlace, searchPlaces, type ClimateIndex, type ForecastIndex, type PlaceWeather } from './api';
 import { createWeatherMap } from './map';
 import { bands } from './palette';
-import { layerName, loadState, saveState, type AppState } from './state';
+import { hasSavedView, layerName, loadState, saveState, type AppState } from './state';
 import { element, forecastStatus, renderCard, renderDock, renderHelp, renderSearch, type Actions } from './ui';
 
 let state: AppState = loadState();
@@ -19,11 +18,9 @@ const status = element('p', 'status');
 const masthead = element('header', 'masthead panel', element('h1', '', 'Nice Weather Finder'), status);
 const dockSlot = element('div', 'dock-slot');
 const cardSlot = element('div', 'card-slot');
-const placeMarkerElement = element('div', 'place-marker');
-const placeMarker = new maplibregl.Marker({ element: placeMarkerElement });
 app.append(mapContainer, masthead, element('div', 'overlay', cardSlot, dockSlot));
 
-const { map, weather } = await createWeatherMap(mapContainer, bands, { center: state.center, zoom: state.zoom });
+const { map, weather, showChosenPlace } = await createWeatherMap(mapContainer, bands, hasSavedView() ? { center: state.center, zoom: state.zoom } : null);
 
 function update(change: Partial<AppState>): void {
   state = { ...state, ...change };
@@ -37,7 +34,7 @@ const actions: Actions = {
   setMonth: (month) => update({ month }),
   setProfile: (profile) => update({ profile }),
   setLens: (lens) => update({ lens }),
-  closePlace: () => { place = null; showingHelp = false; placeMarker.remove(); update({ place: null }); },
+  closePlace: () => { place = null; showingHelp = false; showChosenPlace(null); update({ place: null }); },
   choosePlace: (latitude, longitude) => selectPlace(latitude, longitude),
   showHelp: () => { showingHelp = true; render(); },
 };
@@ -45,11 +42,12 @@ const actions: Actions = {
 async function selectPlace(latitude: number, longitude: number): Promise<void> {
   showingHelp = false;
   update({ place: { latitude, longitude } });
-  placeMarker.setLngLat([longitude, latitude]).addTo(map);
+  showChosenPlace({ latitude, longitude, name: '' });
   const requested = state.place;
   const loaded = await fetchPlace(latitude, longitude);
   if (state.place !== requested) return;
   place = loaded;
+  showChosenPlace({ latitude, longitude, name: loaded.name });
   render();
   // On a phone the card covers the lower map; keep the chosen spot in view above it.
   if (window.matchMedia('(max-width: 720px)').matches) {

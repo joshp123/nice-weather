@@ -217,7 +217,6 @@ async function loadGreyscaleImage(url: string): Promise<Uint8Array> {
 }
 
 function premultipliedRgba(colour: string): number[] {
-  if (colour === 'transparent') return [0, 0, 0, 0];
   const channel = (index: number) => parseInt(colour.slice(1 + index * 2, 3 + index * 2), 16) / 255;
   const opacity = channel(3);
   return [channel(0) * opacity, channel(1) * opacity, channel(2) * opacity, opacity];
