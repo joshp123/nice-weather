@@ -1,0 +1,15 @@
+<p>They are large, and today's data barely sees them. On an average July afternoon Half Moon Bay is 17 °C, downtown San Francisco 19 °C, San Jose 28 °C and Livermore 32 °C. Each weather square is about 25 km across, too coarse to see a fog belt a few kilometres wide, so the data reads the foggy coast about 5 °C too warm and the inland valleys up to 4 °C too cold.</p>
+<table>
+<tr><th>Place</th><th class="num">July high, weather station</th><th class="num">Nice days a year: today's data</th><th class="num">with real temperatures</th><th class="num">with the fix</th></tr>
+<tr><td>Half Moon Bay (coast)</td><td class="num">17 °C</td><td class="num">138</td><td class="num">36</td><td class="num">38</td></tr>
+<tr><td>San Francisco, downtown</td><td class="num">19 °C</td><td class="num">102</td><td class="num">66</td><td class="num">73</td></tr>
+<tr><td>San Francisco airport</td><td class="num">22 °C</td><td class="num">138</td><td class="num">118</td><td class="num">102</td></tr>
+<tr><td>Oakland airport</td><td class="num">22 °C</td><td class="num">116</td><td class="num">103</td><td class="num">87</td></tr>
+<tr><td>Berkeley</td><td class="num">23 °C</td><td class="num">91</td><td class="num">83</td><td class="num">91</td></tr>
+<tr><td>Redwood City, near Palo Alto</td><td class="num">27 °C</td><td class="num">138</td><td class="num">130</td><td class="num">137</td></tr>
+<tr><td>San Jose</td><td class="num">28 °C</td><td class="num">155</td><td class="num">153</td><td class="num">146</td></tr>
+<tr><td>Livermore (inland valley)</td><td class="num">32 °C</td><td class="num">154</td><td class="num">136</td><td class="num">152</td></tr>
+</table>
+<p class="small muted">"Real temperatures" reshapes each day's hourly temperatures to that day's measured high and low at the station, 2016 to 2025. Sun, wind, humidity and rain stay as the weather data has them.</p>
+<p>The fix is a fine climate map built from weather stations: PRISM, at 800 m, for the US. Each pixel's temperature is shifted by how much warmer or cooler that spot runs than its weather square, month by month. That gets every place to within 17 nice days a year of the real temperatures, against errors of up to 100 days today. Outside the US the same correction uses WorldClim, at about 1 km, as Theo's site does; I haven't tested that yet. One gap remains: fog also hides the sun, which a temperature map can't see, so the foggy coast may still read a little too nice.</p>
+<p>So the Bay Area tops out at about 150 nice days a year, inland, against San Diego's 219. San Francisco in the table above is today's uncorrected data; it really gets about 70.</p>

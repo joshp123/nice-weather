@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nice Weather: the product direction</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --text: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --panel: #f5f5f3; --page: #ffffff;
+  --accent: #2f93c2; --track: #d9d9dc;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --text: #f2f2f0; --muted: #a1a1a6; --line: #33343a; --panel: #1c1d21; --page: #121316; --accent: #5bb4dd; --track: #3a3b41; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; }
+main { max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; }
+h1 { font-size: 28px; font-weight: 600; line-height: 1.25; margin: 0 0 8px; }
+h2 { font-size: 20px; font-weight: 600; margin: 52px 0 12px; }
+p { margin: 0 0 12px; }
+b { font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+ul { margin: 0 0 12px; padding-left: 20px; }
+li { margin: 4px 0; }
+.panel { background: var(--panel); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+.decide { border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 20px 0 0; }
+
+/* Sliders */
+.controls { background: var(--panel); border-radius: 12px; padding: 6px 20px 16px; margin: 16px 0; }
+.control { padding: 14px 0 12px; border-bottom: 1px solid var(--line); }
+.control-head { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+.control-head .name { font-weight: 600; }
+.control-head .value { font-variant-numeric: tabular-nums; }
+.scale { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
+.controls-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 14px; flex-wrap: wrap; }
+.controls-foot .small { font-variant-numeric: tabular-nums; }
+button { font: inherit; font-size: 14px; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 6px 0 0; background: transparent; }
+input[type=range]:focus { outline: none; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--track); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; background: var(--page); border: 2px solid var(--accent); cursor: pointer; }
+input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--page); border: 2px solid var(--accent); cursor: pointer; }
+input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.range2 { position: relative; height: 34px; }
+.range2 input { position: absolute; left: 0; right: 0; top: 0; pointer-events: none; }
+.range2 input::-webkit-slider-runnable-track { background: transparent; }
+.range2 input::-moz-range-track { background: transparent; }
+.range2 input::-webkit-slider-thumb { pointer-events: auto; }
+.range2 input::-moz-range-thumb { pointer-events: auto; }
+.range2 .track { position: absolute; left: 0; right: 0; top: 18px; height: 4px; border-radius: 2px; background: var(--track); }
+.range2 .fill { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 12px 0 4px; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.heat { border-collapse: separate; border-spacing: 2px; font-size: 13px; }
+table.heat td { text-align: center; border: 0; border-radius: 5px; padding: 5px 0; font-variant-numeric: tabular-nums; min-width: 30px; transition: background-color .12s; }
+table.heat th { border: 0; padding: 4px 6px; white-space: nowrap; }
+table.heat th.month { text-align: center; color: var(--muted); font-weight: 400; }
+table.heat td.year { background: none; text-align: right; padding-left: 10px; white-space: nowrap; }
+table.heat td.year .delta { color: var(--muted); font-size: 12px; margin-left: 4px; }
+table.heat tr.marked th .tag { color: var(--muted); font-weight: 400; }
+@media (max-width: 640px) {
+  main { padding: 28px 14px 60px; }
+  table.heat { font-size: 11px; border-spacing: 1px; }
+  table.heat td { min-width: 0; padding: 0; height: 22px; font-size: 0; }
+  table.heat td.year { font-size: 12px; }
+  table.heat th { padding: 3px 4px; white-space: normal; }
+  .wide-only { display: none; }
+}
+.key { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+</style>
+</head>
+<body>
+<main>
+<h1>Nice Weather: the product direction</h1>
+<p class="muted">Everything that decides what the product does, in one place. The sliders are the real calculation: the table below recounts ten years of hourly weather (2016 to 2025) at 31 places as you drag, the same way the map will. Your taste is the default. Reply with what you'd change; anything you don't mention, I take as agreed.</p>
+
+<h2>Where on earth is best all year round?</h2>
+
+<div class="controls" id="controls">
+  <div class="control">
+    <div class="control-head"><span class="name">T-shirt weather</span><span class="value" id="v-range"></span></div>
+    <div class="range2">
+      <div class="track"><div class="fill" id="range-fill"></div></div>
+      <input type="range" id="low" min="12" max="38" step="0.5" aria-label="Warm enough, felt in the sun">
+      <input type="range" id="high" min="12" max="38" step="0.5" aria-label="Too hot, felt in the shade">
+    </div>
+    <p class="scale">Cool hours count in the sun, hot hours in the shade, as you'd choose yourself. For scale: San Diego or Málaga at 1 pm in winter feels 22 °C in the sun; at 4 pm in July, Seville feels 35 °C in the shade and Austin 37 °C.</p>
+  </div>
+  <div class="control">
+    <div class="control-head"><span class="name">The walk home at 9 pm</span><span class="value" id="v-evening"></span></div>
+    <input type="range" id="evening" min="8" max="22" step="0.5" aria-label="Felt temperature at 9 pm">
+    <p class="scale">San Diego at 9 pm feels about 12 °C in January and 25 °C in August. Below your setting, the day is Fair at best.</p>
+  </div>
+  <div class="control">
+    <div class="control-head"><span class="name">Humidity</span><span class="value" id="v-humidity"></span></div>
+    <input type="range" id="humidity" min="10" max="26" step="0.5" aria-label="Dew point where humidity starts to bother">
+    <p class="scale">Measured as dew point, which is what you feel as muggy; relative humidity changes with the temperature. Typical summer days: Seville 15 °C, San Diego and Málaga 18 °C, Austin 21 °C; Bangkok and Singapore 24 to 25 °C all year. Each degree past your setting costs a little more.</p>
+  </div>
+  <div class="control">
+    <div class="control-head"><span class="name">Rain</span><span class="value" id="v-rain"></span></div>
+    <input type="range" id="rain" min="0" max="100" step="1" aria-label="Rain that spoils half the day">
+    <p class="scale">Rain between 10:00 and 9 pm. A third of your amount costs a fifth of the day; twice your amount costs most of it.</p>
+  </div>
+  <div class="control">
+    <div class="control-head"><span class="name">Wind</span><span class="value" id="v-wind"></span></div>
+    <input type="range" id="wind" min="10" max="50" step="1" aria-label="Average wind that starts to bother">
+    <p class="scale">Wind already counts in how warm it feels. This is the nuisance on top: dust, sand, hair. Cape Town in January averages 25 km/h (the "Cape Doctor"); Rotterdam in January 17 km/h.</p>
+  </div>
+  <div class="controls-foot">
+    <span class="small muted" id="settings-line"></span>
+    <button type="button" id="reset">Back to your taste</button>
+  </div>
+</div>
+
+<table class="heat" id="heat"><thead><tr><th></th>__MONTH_HEADERS__<th class="num">Nice days<span class="wide-only"> a year</span></th></tr></thead><tbody></tbody></table>
+<div class="key"><span><i style="background:#2e1119"></i>under 20%</span><span><i style="background:#6a3127"></i>20%</span><span><i style="background:#625d55"></i>40%</span><span><i style="background:#2f93c2"></i>55%</span><span><i style="background:#48b35c"></i>70%</span><span><i style="background:#f2c230"></i>85% or more</span></div>
+<p class="small muted">Each cell is the share of days that month that are nice or better. A grey figure after a year total is the change from your default taste.</p>
+<p>At your taste, two kinds of place beat SoCal: subtropical islands with a sunny, sheltered south coast (south Tenerife, Gran Canaria, Honolulu) and high, dry cities in the tropics (Nairobi at 1,800 m, Guadalajara at 1,550 m), warm every afternoon and never muggy. These are 31 places I picked; the map ranks every square on land, including places nobody thought of.</p>
+
+<h2>What a nice day is</h2>
+<div class="panel">
+<p><b>T-shirt-and-shorts weather from 10:00 until the walk home at 9 pm.</b> Each hour counts if it feels warm enough in the sun and not too hot in the shade. Cold costs faster than heat: an hour 5 °C below your lower setting no longer counts; above your upper setting it takes 10 °C. Rain, humidity and wind take a share off the day. If the walk home is colder than your evening setting, the day is Fair at best. A day is Nice when most of it works.</p>
+<p style="margin:0">The same score grades each forecast day: Awful, Poor, Fair, Nice, Beautiful or Perfect.</p>
+</div>
+<p>You asked whether an average wind of 30 km/h should make a day Fair. Not on its own: wind already lowers how warm it feels, which is where most of its cost lies. At your setting, 30 km/h costs a tenth of the day and 45 km/h half.</p>
+<p>I tested a sixth setting, a minimum of sunshine, and left it out. It barely changes anything, because days warm enough for a t-shirt are almost always sunny: nice days at every test place have a median of 8 to 10 sunny hours out of 12.</p>
+
+<h2>Austin, where you just were</h2>
+__AUSTIN__
+
+<h2>Why SoCal isn't nice all year</h2>
+__SOCAL__
+
+<h2>Bay Area microclimates</h2>
+__BAYAREA__
+
+<h2>How the map keeps up with the sliders</h2>
+<p>Under 0.2 s for any change, anywhere on the map. Every 100 km square keeps a small sample of real days. When a slider moves, your device's graphics chip recounts them and adds the fine detail for height and coast pixel by pixel, the way Theo's map does. Nothing waits on a server while you drag. Sites does the heavy work in advance: it builds the samples, and the map at your default taste in full detail, every day, so the first view is instant.</p>
+<p>I checked that the small day summary this needs gives the same answer as the full hour-by-hour calculation: the same verdict on 99 to 100% of days at 19 places, never more than 3 nice days a year apart. This page runs exactly that recount. The timing for the whole world on a phone is the first thing I measure when building.</p>
+
+<h2>What I'm fixing anyway</h2>
+<ul>
+<li><b>Coasts.</b> Today coastal towns read 2 to 4 °C too cold, because each square mixes sea, coast and mountain. Taking temperature from the nearest land and correcting for height cuts the error to under 1 °C against weather stations. Cape Town still reads about 3 °C too hot in summer; that gets fixed before it goes live.</li>
+<li><b>Rain.</b> The data counts too many wet days in dry places: Málaga in January reads wet on 26% of days, its weather station 16.5%. I'll test Theo's correction against stations and keep whatever matches them.</li>
+<li><b>Forecast and climate agree.</b> Both use the same sun measure (from solar radiation) and the forecast adds gusts. 15 forecast days, as ECMWF gives; ECMWF's 9 km forecast when it becomes free.</li>
+<li><b>The 20-year climate is built on Sites.</b> It works; run one area at a time, the world would take weeks, so it runs in parallel.</li>
+</ul>
+
+<h2>Lock it</h2>
+<div class="decide">
+<p><b>Decide 1: where should the walk home sit by default?</b> Two things you said pull against each other here: walking home "without having to layer", and "socal weather all year round". SoCal's winter evenings need a jacket. Nice days at each setting:</p>
+__EVENING_TABLE__
+<p>I recommend "a light layer at most" (15 °C). It still puts Cape Town and south Tenerife first for December to February, as you ranked them, and SoCal's summer and autumn among the best anywhere. At "t-shirt", even south Tenerife's winter mostly fails; at "don't mind", a cold evening never counts against a day.</p>
+<p><b>Decide 2: is this what nice means, with the other defaults?</b> If one feels wrong, drag it until the table looks right and send me the line under the sliders.</p>
+<p style="margin:0"><b>Decide 3: lock the product direction?</b> Then the design starts again from it, led by Fable, with your notes as the brief: every element earns its place, fewer weights and sizes, balanced, colours with rounded edges as on Ryan's map, and only what answers where and when it is nice. Each round comes back to you as screenshots on phone, MacBook and the 57-inch.</p>
+</div>
+<p class="small muted" style="margin-top:32px">Written by AI on 2026.10.17 by model claude opus 5.5. ERA5 hourly weather, 2016 to 2025. The twelve places you graded before are corrected for coast and height; the others are not yet.</p>
+</main>
+
+<script>
+const PAYLOAD = __PAYLOAD__;
+const MARKED = __MARKED__;
+const KEY_HOURS = [0, 3, 6, 9, 11];
+const DEFAULT_TASTE = { low: 21, high: 30, evening: 15, humidity: 16, rain: 3, wind: 25 };
+const EVENING_OFF = 8, HUMIDITY_OFF = 26, RAIN_OFF = 100, WIND_OFF = 50;
+const RAIN_MIN_MM = 0.5, RAIN_MAX_MM = 20;
+
+const rainMm = position => RAIN_MIN_MM * Math.pow(RAIN_MAX_MM / RAIN_MIN_MM, position / 100);
+const rainPosition = mm => Math.round(100 * Math.log(mm / RAIN_MIN_MM) / Math.log(RAIN_MAX_MM / RAIN_MIN_MM));
+const piecewise = points => x => {
+  if (x <= points[0][0]) return points[0][1];
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i];
+    if (x <= x1) { const [x0, y0] = points[i - 1]; return y0 + (y1 - y0) * (x - x0) / (x1 - x0); }
+  }
+  return points[points.length - 1][1];
+};
+const rainCost = piecewise([[0, 1], [0.2, 0.95], [1, 0.8], [3, 0.5], [6, 0.2], [10, 0]]);
+const windCost = piecewise([[0, 1], [25, 1], [35, 0.8], [45, 0.5], [60, 0]]);
+const humidityCost = piecewise([[16, 1], [18, 0.95], [20, 0.8], [22, 0.55], [24, 0.3], [26, 0.1], [28, 0]]);
+const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+
+let places = [];
+
+async function decodePlaces() {
+  const compressed = Uint8Array.from(atob(PAYLOAD.data), c => c.charCodeAt(0));
+  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate'));
+  const raw = new Uint8Array(await new Response(stream).arrayBuffer());
+  const segment = [], weight = [];
+  for (let h = 0; h < 12; h++) {
+    let k = 0; while (k < KEY_HOURS.length - 2 && h > KEY_HOURS[k + 1]) k++;
+    segment.push(k); weight.push((h - KEY_HOURS[k]) / (KEY_HOURS[k + 1] - KEY_HOURS[k]));
+  }
+  let offset = 0;
+  return PAYLOAD.places.map(place => {
+    const n = place.days, column = i => raw.subarray(offset + i * n, offset + (i + 1) * n);
+    const columns = Array.from({ length: 15 }, (_, i) => column(i)); offset += 15 * n;
+    const sun = new Float64Array(n * 12), shade = new Float64Array(n * 12);
+    for (let d = 0; d < n; d++) for (let h = 0; h < 12; h++) {
+      const k = segment[h], w = weight[h];
+      sun[d * 12 + h] = (columns[k][d] * (1 - w) + columns[k + 1][d] * w + 0.5) / 3 - 25;
+      shade[d * 12 + h] = (columns[5 + k][d] * (1 - w) + columns[6 + k][d] * w + 0.5) / 3 - 25;
+    }
+    const dew = Float64Array.from(columns[10], x => (x + 0.5) / 3 - 25), rain = Float64Array.from(columns[11], x => (x / 50) ** 2);
+    const wind = Float64Array.from(columns[12], x => (x + 0.5) / 2), month = columns[14];
+    const daysInMonth = new Uint16Array(12); for (let d = 0; d < n; d++) daysInMonth[month[d] - 1]++;
+    return { name: place.name, n, sun, shade, dew, rain, wind, month, daysInMonth };
+  });
+}
+
+function niceDays(place, taste) {
+  const perMonth = new Uint16Array(12);
+  for (let d = 0; d < place.n; d++) {
+    let comfort = 0;
+    for (let h = 0; h < 12; h++) {
+      const warmEnough = clamp01(1 - (taste.low - place.sun[d * 12 + h]) / 5);
+      const notTooHot = clamp01(1 - (place.shade[d * 12 + h] - taste.high) / 10);
+      comfort += warmEnough < notTooHot ? warmEnough : notTooHot;
+    }
+    let score = comfort / 12 * 100;
+    if (taste.rain !== null) score *= rainCost(place.rain[d] * 3 / taste.rain);
+    if (taste.wind !== null) score *= windCost(place.wind[d] - (taste.wind - 25));
+    if (taste.humidity !== null) score *= humidityCost(place.dew[d] - (taste.humidity - 16));
+    if (taste.evening !== null && place.shade[d * 12 + 11] < taste.evening) score = Math.min(score, 54);
+    if (score >= 55) perMonth[place.month[d] - 1]++;
+  }
+  const total = perMonth.reduce((a, b) => a + b, 0);
+  return { year: Math.round(total / (place.n / 365.25)), months: Array.from(perMonth, (c, m) => Math.round(100 * c / place.daysInMonth[m])) };
+}
+
+const $ = id => document.getElementById(id);
+function readTaste() {
+  const evening = +$('evening').value, humidity = +$('humidity').value, rain = +$('rain').value, wind = +$('wind').value;
+  return {
+    low: +$('low').value, high: +$('high').value,
+    evening: evening <= EVENING_OFF ? null : evening,
+    humidity: humidity >= HUMIDITY_OFF ? null : humidity,
+    rain: rain >= RAIN_OFF ? null : Math.round(rainMm(rain) * 10) / 10,
+    wind: wind >= WIND_OFF ? null : wind,
+  };
+}
+function setTaste(t) {
+  $('low').value = t.low; $('high').value = t.high; $('evening').value = t.evening;
+  $('humidity').value = t.humidity; $('rain').value = rainPosition(t.rain); $('wind').value = t.wind;
+}
+const fmt = x => (Math.round(x * 2) / 2).toString();
+const eveningWord = c => c >= 18 ? 't-shirt' : c >= 14 ? 'a light layer at most' : c >= 10 ? 'a jacket at most' : 'a coat at most';
+const humidityWord = d => d < 13 ? 'dry' : d < 16 ? 'comfortable' : d < 18 ? 'humid' : d < 21 ? 'muggy' : d < 24 ? 'oppressive' : 'miserable';
+const rainWord = mm => mm <= 1 ? 'a passing shower' : mm <= 5 ? 'a few showers' : mm <= 12 ? 'a wet afternoon' : 'a downpour';
+const windWord = k => k < 12 ? 'a light breeze' : k < 20 ? 'a gentle breeze' : k < 29 ? 'a moderate breeze' : k < 39 ? 'a fresh breeze' : 'a strong breeze';
+function describe(t) {
+  $('v-range').textContent = `feels ${fmt(t.low)} to ${fmt(t.high)} °C`;
+  $('v-evening').textContent = t.evening === null ? "don't mind" : `feels at least ${fmt(t.evening)} °C: ${eveningWord(t.evening)}`;
+  $('v-humidity').textContent = t.humidity === null ? 'never bothers me' : `bothers me above a dew point of ${fmt(t.humidity)} °C (${humidityWord(t.humidity)})`;
+  $('v-rain').textContent = t.rain === null ? "doesn't bother me" : `${t.rain} mm spoils half the day (${rainWord(t.rain)})`;
+  $('v-wind').textContent = t.wind === null ? "doesn't bother me" : `bothers me above ${t.wind} km/h on average (${windWord(t.wind)})`;
+  const lowPct = (t.low - 12) / 26 * 100, highPct = (t.high - 12) / 26 * 100;
+  $('range-fill').style.left = `calc(${lowPct}% + ${10 - lowPct * 0.2}px)`;
+  $('range-fill').style.width = `calc(${highPct - lowPct}% - ${(highPct - lowPct) * 0.2}px)`;
+  $('settings-line').textContent = [`${fmt(t.low)}–${fmt(t.high)} °C`, t.evening === null ? '9 pm: any' : `9 pm ≥ ${fmt(t.evening)} °C`,
+    t.humidity === null ? 'humidity: any' : `dew point ${fmt(t.humidity)} °C`, t.rain === null ? 'rain: any' : `rain ${t.rain} mm`, t.wind === null ? 'wind: any' : `wind ${t.wind} km/h`].join(' · ');
+}
+
+function cellColour(share) {
+  if (share >= 85) return ['#f2c230', '#1b1b1b'];
+  if (share >= 70) return ['#48b35c', '#1b1b1b'];
+  if (share >= 55) return ['#2f93c2', '#f4f4f2'];
+  if (share >= 40) return ['#625d55', '#f4f4f2'];
+  if (share >= 20) return ['#6a3127', '#f4f4f2'];
+  return ['#2e1119', '#f4f4f2'];
+}
+
+let rows = new Map(), baseline = new Map();
+function buildTable() {
+  const body = $('heat').tBodies[0];
+  for (const place of places) {
+    const tr = document.createElement('tr');
+    if (MARKED[place.name]) tr.className = 'marked';
+    const th = document.createElement('th');
+    th.innerHTML = MARKED[place.name] ? `${place.name} <span class="tag">${MARKED[place.name]}</span>` : place.name;
+    tr.append(th);
+    const cells = Array.from({ length: 12 }, () => { const td = document.createElement('td'); tr.append(td); return td; });
+    const year = document.createElement('td'); year.className = 'year num'; tr.append(year);
+    body.append(tr); rows.set(place.name, { tr, cells, year });
+  }
+}
+function render() {
+  const taste = readTaste(); describe(taste);
+  const results = places.map(place => ({ place, result: niceDays(place, taste) }));
+  results.sort((a, b) => b.result.year - a.result.year);
+  const body = $('heat').tBodies[0];
+  for (const { place, result } of results) {
+    const row = rows.get(place.name);
+    result.months.forEach((share, m) => { const [bg, ink] = cellColour(share); row.cells[m].style.background = bg; row.cells[m].style.color = ink; row.cells[m].textContent = share; });
+    const delta = result.year - baseline.get(place.name);
+    row.year.innerHTML = `${result.year}${delta ? `<span class="delta">${delta > 0 ? '+' : '−'}${Math.abs(delta)}</span>` : ''}`;
+    body.append(row.tr);
+  }
+  window.lastResults = Object.fromEntries(results.map(r => [r.place.name, r.result.year]));
+}
+
+let pending = false;
+function schedule(event) {
+  if (+$('low').value > +$('high').value - 2) {
+    if (event.target.id === 'low') $('low').value = +$('high').value - 2;
+    if (event.target.id === 'high') $('high').value = +$('low').value + 2;
+  }
+  if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; render(); }); }
+}
+
+(async () => {
+  places = await decodePlaces();
+  for (const place of places) baseline.set(place.name, niceDays(place, DEFAULT_TASTE).year);
+  window.niceDaysAt = taste => Object.fromEntries(places.map(p => [p.name, niceDays(p, taste).year]));
+  setTaste(DEFAULT_TASTE); buildTable(); render();
+  for (const id of ['low', 'high', 'evening', 'humidity', 'rain', 'wind']) $(id).addEventListener('input', schedule);
+  $('reset').addEventListener('click', () => { setTaste(DEFAULT_TASTE); render(); });
+})();
+</script>
+</body>
+</html>
