@@ -84,8 +84,8 @@ export class WeatherLayer implements CustomLayerInterface {
   private gl?: WebGL2RenderingContext;
   private program?: WebGLProgram;
   private quad?: WebGLVertexArrayObject;
-  private texture?: WebGLTexture;
-  private grid?: Grid;
+  /** The grid at full detail, then halved three times. Zoomed out, a coarser level keeps bands smooth instead of speckled. */
+  private levels: { texture: WebGLTexture; grid: Grid }[] = [];
   private valueToScore = 1;
   private requestedUrl?: string;
 
@@ -97,14 +97,25 @@ export class WeatherLayer implements CustomLayerInterface {
     const image = await loadGreyscaleImage(url);
     if (this.requestedUrl !== url || !this.gl) return;
     const gl = this.gl;
-    const texture = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, grid.width, grid.height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, image);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    if (this.texture) gl.deleteTexture(this.texture);
-    this.texture = texture;
-    this.grid = grid;
+    const levels: { texture: WebGLTexture; grid: Grid }[] = [];
+    let values = image;
+    let levelGrid = grid;
+    for (let level = 0; level < 4; level++) {
+      if (level > 0) {
+        const halved = halveGrid(values, levelGrid);
+        values = halved.values;
+        levelGrid = halved.grid;
+      }
+      const texture = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, levelGrid.width, levelGrid.height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, values);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      levels.push({ texture, grid: levelGrid });
+    }
+    for (const old of this.levels) gl.deleteTexture(old.texture);
+    this.levels = levels;
     this.valueToScore = valueToScore;
     this.map?.triggerRepaint();
   }
@@ -131,8 +142,12 @@ export class WeatherLayer implements CustomLayerInterface {
   }
 
   render(_context: WebGLRenderingContext | WebGL2RenderingContext, input: CustomRenderMethodInput): void {
-    const { gl, program, quad, texture, grid } = this;
-    if (!gl || !program || !quad || !texture || !grid) return;
+    const { gl, program, quad, map } = this;
+    if (!gl || !program || !quad || !map || this.levels.length === 0) return;
+    // Use the finest level whose cells are still at least ~5 screen pixels wide.
+    const pixelsPerCell = (512 * 2 ** map.getZoom()) / this.levels[0].grid.width;
+    const level = Math.min(this.levels.length - 1, Math.max(0, Math.ceil(Math.log2(5 / pixelsPerCell))));
+    const { texture, grid } = this.levels[level];
     gl.useProgram(program);
     gl.bindVertexArray(quad);
     gl.activeTexture(gl.TEXTURE0);
@@ -155,9 +170,37 @@ export class WeatherLayer implements CustomLayerInterface {
   }
 
   onRemove(): void {
-    if (this.gl && this.texture) this.gl.deleteTexture(this.texture);
-    this.texture = undefined;
+    for (const level of this.levels) this.gl?.deleteTexture(level.texture);
+    this.levels = [];
   }
+}
+
+/** Averages each 2 x 2 block of cells, ignoring sea. The coarser cell sits at the centre of its block. */
+function halveGrid(values: Uint8Array, grid: Grid): { values: Uint8Array; grid: Grid } {
+  const width = Math.ceil(grid.width / 2);
+  const height = Math.ceil(grid.height / 2);
+  const halved = new Uint8Array(width * height);
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      let sum = 0;
+      let count = 0;
+      for (let dRow = 0; dRow < 2; dRow++) {
+        for (let dColumn = 0; dColumn < 2; dColumn++) {
+          const sourceRow = row * 2 + dRow;
+          const sourceColumn = column * 2 + dColumn;
+          if (sourceRow >= grid.height || sourceColumn >= grid.width) continue;
+          const value = values[sourceRow * grid.width + sourceColumn];
+          if (value !== 255) { sum += value; count++; }
+        }
+      }
+      halved[row * width + column] = count ? Math.round(sum / count) : 255;
+    }
+  }
+  const resolution = grid.resolution * 2;
+  return {
+    values: halved,
+    grid: { width, height, resolution, west: grid.west + grid.resolution / 2, north: grid.north - grid.resolution / 2 },
+  };
 }
 
 async function loadGreyscaleImage(url: string): Promise<Uint8Array> {

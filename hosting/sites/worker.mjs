@@ -137,7 +137,9 @@ async function search(bucket, query) {
   for (const place of places) {
     if (place.key.startsWith(wanted)) results.push(place);
   }
-  results.sort((left, right) => left.key.length - right.key.length || right.population - left.population);
+  // An exact name first ("Nice" the town), then the biggest places, as a map app would.
+  const exact = (place) => (place.key === wanted ? 0 : 1);
+  results.sort((left, right) => exact(left) - exact(right) || right.population - left.population);
   return results.slice(0, 8).map(({ name, region, latitude, longitude }) => ({ name, region, latitude, longitude }));
 }
 
@@ -218,6 +220,38 @@ async function climateForPlace(bucket, latitude, longitude) {
   return Promise.all(index.months.map(async (key, position) => readClimateRecord(await readBytes(bucket, `climate/${key}/points.bin`, offset, recordBytes), fields, position + 1)));
 }
 
+// ---------------------------------------------------------------- best places
+
+// climate/places.json: every town of 5,000+ people with its share of nice days
+// (0-100, 255 = none) per month and period, for Nice and for Cycling.
+let climatePlacesPromise;
+
+/** The towns with the most nice days in a period, spread out across the view. */
+async function bestPlaces(bucket, period, profile, bounds) {
+  climatePlacesPromise ??= bucket.get('climate/places.json').then((object) => object.json());
+  const table = await climatePlacesPromise;
+  const column = table.periods.indexOf(period);
+  if (column < 0) return [];
+  const valuesIndex = profile === 'cycling' ? 6 : 5;
+  const inView = ([, , latitude, longitude]) =>
+    latitude >= bounds.south && latitude <= bounds.north &&
+    (bounds.west <= bounds.east ? longitude >= bounds.west && longitude <= bounds.east : longitude >= bounds.west || longitude <= bounds.east);
+  const candidates = table.places
+    .filter((place) => inView(place) && place[valuesIndex][column] !== NO_DATA)
+    .sort((left, right) => right[valuesIndex][column] - left[valuesIndex][column] || right[4] - left[4]);
+  // Keep the list useful: one entry per area, not eight towns on the same coast.
+  const spacingKm = kilometres(bounds.south, bounds.west, bounds.north, bounds.west < bounds.east ? bounds.east : bounds.east + 360) / 10;
+  const chosen = [];
+  for (const place of candidates) {
+    if (chosen.some((other) => kilometres(place[2], place[3], other[2], other[3]) < spacingKm)) continue;
+    chosen.push(place);
+    if (chosen.length === 8) break;
+  }
+  return chosen.map(([name, region, latitude, longitude, , nice, cycling]) => ({
+    name, region, latitude, longitude, niceShare: (profile === 'cycling' ? cycling : nice)[column],
+  }));
+}
+
 // ---------------------------------------------------------------- HTTP
 
 function json(value, cacheSeconds = 0) {
@@ -291,6 +325,12 @@ export async function handleRequest(request, env, serveAsset) {
     return json({ ...where, latitude, longitude, days, months }, 300);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
+  if (url.pathname === '/api/best') {
+    const number = (name) => Number(url.searchParams.get(name));
+    const bounds = { west: number('west'), south: number('south'), east: number('east'), north: number('north') };
+    if (Object.values(bounds).some((value) => !Number.isFinite(value))) return new Response('Bad bounds', { status: 400 });
+    return json(await bestPlaces(bucket, url.searchParams.get('period') ?? '', url.searchParams.get('profile') ?? 'nice', bounds), 3600);
+  }
   return serveAsset(url.pathname, request);
 }
 

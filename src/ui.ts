@@ -81,22 +81,23 @@ export function renderDock(state: AppState, forecast: ForecastIndex | null, acti
     ? null
     : segmented<Lens>([['overall', 'Overall'], ['comfort', 'Comfort'], ['dry', 'Dry'], ['clear', 'Clear sky'], ['calm', 'Calm']], state.lens, actions.setLens, 'Show');
 
-  const legend = element('div', 'legend');
   const dayCount = forecast?.dates.length ?? 14;
-  if (fortnight) legend.append(element('span', 'legend-caption', `Nice days out of ${dayCount}`));
-  if (state.view === 'year') legend.append(element('span', 'legend-caption', `Share of days that are ${state.lens === 'overall' ? 'nice' : 'good for this'}`));
-  for (const band of [...bands].reverse()) {
+  const caption = fortnight ? `Nice days out of ${dayCount}` : state.view === 'year' ? (state.lens === 'overall' ? 'Share of days that are nice' : 'Share of days that are good') : 'How nice the day is';
+  const scale = element('div', 'legend-scale');
+  for (const band of bands) {
+    const colour = element('span', 'bar-colour');
+    // "Fair" has no colour on the map; show the plain land it leaves.
+    colour.style.background = band.colour === 'transparent' ? 'var(--land)' : band.colour;
     const text = fortnight ? daysRange(band.minimumScore, dayCount) : state.view === 'year' ? percentRange(band.minimumScore) : band.name;
-    legend.append(element('span', 'legend-item', swatch(band.colour), text));
+    scale.append(element('span', 'legend-step', colour, text));
   }
-
   const help = element('button', 'help-button', 'How scores work');
   help.onclick = actions.showHelp;
-  legend.append(help);
+  const legend = element('div', 'legend', element('span', 'legend-caption', caption), scale, help);
 
   return element('nav', 'dock panel',
-    element('div', 'dock-row', viewControl, chips, profileControl),
-    element('div', 'dock-row secondary', lensControl ?? element('span', ''), legend));
+    element('div', 'dock-row', viewControl, chips),
+    element('div', 'dock-row secondary', element('div', 'dock-controls', profileControl, lensControl), legend));
 }
 
 /** How a score is made, in plain words. */
@@ -130,6 +131,17 @@ function percentRange(minimumScore: number): string {
   const index = bands.findIndex((band) => band.minimumScore === minimumScore);
   const to = index === bands.length - 1 ? 100 : bands[index + 1].minimumScore - 1;
   return `${minimumScore}–${to}%`;
+}
+
+/** A bar filled to a 0-100 score in its band's colour. */
+function meter(score: number): HTMLElement {
+  const fill = element('span', 'meter-fill');
+  const colour = bandForScore(score).colour;
+  fill.style.width = `${Math.max(3, score)}%`;
+  fill.style.background = colour === 'transparent' ? 'rgba(255, 255, 255, 0.4)' : colour;
+  const bar = element('span', 'meter', fill);
+  bar.setAttribute('aria-hidden', 'true');
+  return bar;
 }
 
 function swatch(colour: string): HTMLElement {
@@ -188,8 +200,9 @@ function forecastBody(state: AppState, place: PlaceWeather): HTMLElement {
   const factors = element('dl', 'factors');
   for (const factor of factorsForDay(day, state.profile)) {
     factors.append(element('div', 'factor',
-      element('dt', '', swatch(bandForScore(factor.score).colour), factor.label),
-      element('dd', '', element('span', 'factor-value', factor.value), element('span', 'muted', factor.detail))));
+      element('dt', '', factor.label),
+      element('dd', '', element('span', 'factor-value', factor.value), element('span', 'muted', factor.detail)),
+      meter(factor.score)));
   }
   return element('div', '', answer(day.scores[state.profile], longDayLabel(day.date), summaryForDay(day, state.profile)), factors);
 }
