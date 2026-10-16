@@ -24,7 +24,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: niceweather forecast|publish|climate-convert [flags]")
+		fmt.Fprintln(os.Stderr, "usage: niceweather forecast|publish|climate-convert|climate-measures [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -35,6 +35,8 @@ func main() {
 		err = runPublish(os.Args[2:])
 	case "climate-convert":
 		err = runClimateConvert(os.Args[2:])
+	case "climate-measures":
+		err = runClimateMeasures(os.Args[2:])
 	case "climate-periods":
 		flags := flag.NewFlagSet("climate-periods", flag.ContinueOnError)
 		climate := flags.String("climate", "./artifacts/climate", "converted climate directory")
