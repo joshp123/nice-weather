@@ -31,6 +31,12 @@ Every PNG is an 8-bit greyscale map of the world on ECMWF's 0.25° grid (1440 ×
 
 Sources: forecast from ECMWF IFS open data (CC BY 4.0); typical year from ERA5 2006–2025 (Copernicus); place names from GeoNames (CC BY 4.0); base map from OpenFreeMap and OpenStreetMap.
 
+## Daily cloud refresh
+
+The Site’s linked **Refresh Nice Weather** automation runs every day at **08:00 UTC**. It downloads the static Linux executable from `/data/runner/niceweather-linux-amd64`, obtains a one-hour upload grant through the owner-only `begin_forecast_refresh` Site tool, and builds and publishes the forecast. Its saved instructions are in [hosting/sites/refresh.md](hosting/sites/refresh.md).
+
+The daily path needs Sites compute and storage, ECMWF downloads and one executable. It installs no packages and uses no local server, Node, Go toolchain, GDAL or ecCodes. The automation prompt and repository contain no publisher credential. The former mini-server timer is disabled and its Nix module has been removed.
+
 ## Publish
 
 ```bash
