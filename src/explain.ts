@@ -11,8 +11,11 @@ const round = (value: number) => Math.round(value);
 export function factorsForDay(day: DayWeather, profile: Profile): Factor[] {
   const temperature = `${round(day.temperatureC)} °C`;
   const dewPoint = `dew point ${round(day.dewPointC)} °C`;
+  // 22-27 °C is ideal; 16 °C is mediocre, not bad (Josh, April).
   const comfort =
-    day.dewPointC >= 24 ? 'Oppressively humid' : day.dewPointC >= 20 ? 'Humid' : day.temperatureC < 16 ? 'Too cold' : day.temperatureC > 30 ? 'Too hot' : day.temperatureC < 20 ? 'Cool' : 'Comfortable';
+    day.dewPointC >= 24 ? 'Oppressively humid' : day.dewPointC >= 20 ? 'Humid'
+      : day.temperatureC < 10 ? 'Cold' : day.temperatureC < 16 ? 'Cool' : day.temperatureC < 20 ? 'Mild'
+      : day.temperatureC > 33 ? 'Too hot' : day.temperatureC > 28 ? 'Hot' : 'Warm';
   const sky = day.cloudPercent < 25 ? 'Sunny' : day.cloudPercent < 55 ? 'Some cloud' : day.cloudPercent < 80 ? 'Mostly cloudy' : 'Overcast';
   const rain = day.rainMm.toFixed(day.rainMm < 10 ? 1 : 0);
   return [

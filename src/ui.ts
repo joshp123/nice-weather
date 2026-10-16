@@ -82,7 +82,12 @@ export function renderDock(state: AppState, forecast: ForecastIndex | null, acti
     : segmented<Lens>([['overall', 'Overall'], ['comfort', 'Comfort'], ['dry', 'Dry'], ['clear', 'Clear sky'], ['calm', 'Calm']], state.lens, actions.setLens, 'Show');
 
   const dayCount = forecast?.dates.length ?? 14;
-  const caption = fortnight ? `Nice days out of ${dayCount}` : state.view === 'year' ? (state.lens === 'overall' ? 'Share of days that are nice' : 'Share of days that are good') : 'How nice the day is';
+  // The caption names exactly what the colours show, including the lens and Cycling.
+  const lensWord = { overall: 'nice', comfort: 'comfortable', dry: 'dry', clear: 'clear', calm: 'calm' }[state.lens];
+  const forCycling = state.profile === 'cycling' && (fortnight || state.lens === 'overall' || state.lens === 'calm') ? ' for cycling' : '';
+  const caption = fortnight ? `Nice days out of ${dayCount}${forCycling}`
+    : state.view === 'year' ? `Share of days that are ${lensWord}${forCycling}`
+    : `How ${lensWord} the day is${forCycling}`;
   const scale = element('div', 'legend-scale');
   for (const band of bands) {
     const colour = element('span', 'bar-colour');
@@ -166,10 +171,10 @@ export function renderCard(state: AppState, place: PlaceWeather, climate: Climat
   return element('section', 'card panel', header, body);
 }
 
-function answer(score: number, heading: string, sentence: string): HTMLElement {
+function answer(score: number, profile: Profile, heading: string, sentence: string): HTMLElement {
   const band = bandForScore(score);
   return element('div', 'answer',
-    element('div', 'answer-line', swatch(band.colour), element('strong', '', band.name), element('span', 'score', String(Math.round(score)))),
+    element('div', 'answer-line', swatch(band.colour), element('strong', '', `${band.name}${profile === 'cycling' ? ' for cycling' : ''}`), element('span', 'score', String(Math.round(score)))),
     element('p', 'answer-heading muted', heading),
     element('p', 'answer-sentence', sentence));
 }
@@ -191,7 +196,7 @@ function forecastBody(state: AppState, place: PlaceWeather): HTMLElement {
       ? `Longest nice spell: ${spell.length} days, ${dayLabel(spell[0].date)} to ${dayLabel(spell.at(-1)!.date)}.`
       : 'No two nice days in a row.';
     return element('div', 'answer',
-      element('div', 'answer-line', swatch(bandForScore(share).colour), element('strong', '', `${nice} of ${days.length} days`), element('span', 'muted', 'Nice or better')),
+      element('div', 'answer-line', swatch(bandForScore(share).colour), element('strong', '', `${nice} of ${days.length} days`), element('span', 'muted', state.profile === 'cycling' ? 'nice for cycling' : 'Nice or better')),
       element('p', 'answer-sentence', spellText));
   }
   const day = days.find((candidate) => candidate.date === state.day) ?? days[0];
@@ -202,7 +207,7 @@ function forecastBody(state: AppState, place: PlaceWeather): HTMLElement {
       element('dd', '', element('span', 'factor-value', factor.value), element('span', 'muted', factor.detail)),
       meter(factor.score)));
   }
-  return element('div', '', answer(day.scores[state.profile], longDayLabel(day.date), summaryForDay(day, state.profile)), factors);
+  return element('div', '', answer(day.scores[state.profile], state.profile, longDayLabel(day.date), summaryForDay(day, state.profile)), factors);
 }
 
 function yearBody(state: AppState, place: PlaceWeather, climate: ClimateIndex | null, actions: Actions): HTMLElement {
@@ -221,35 +226,50 @@ function yearBody(state: AppState, place: PlaceWeather, climate: ClimateIndex | 
     column.onclick = () => actions.setMonth(entry.month);
     chart.append(column);
   }
-  // The three nicest months that are nice at least half the time, in calendar order.
-  const bestMonths = [...months12]
-    .filter((entry) => entry.niceChance[state.profile] >= 50)
-    .sort((left, right) => right.niceChance[state.profile] - left.niceChance[state.profile])
-    .slice(0, 3)
-    .sort((left, right) => left.month - right.month)
-    .map((entry) => longMonths[entry.month - 1]);
-  const bestMonthsSentence = bestMonths.length ? `Best months: ${bestMonths.join(', ')}.` : 'No month is usually nice here.';
   const round = Math.round;
+  // Same four things, in the same order, as the lenses and the day card.
+  const muggy = month.muggyDaysPercent >= 5 ? `muggy on ${round(month.muggyDaysPercent)}% of days` : 'rarely muggy';
   const typical = element('dl', 'factors',
-    fact('Temperature', `${round(month.temperatureC)} °C`, `Cool day ${round(month.coolDayC)} °C, warm day ${round(month.warmDayC)} °C`),
-    fact('Humidity', `dew point ${round(month.dewPointC)} °C`, month.muggyDaysPercent >= 5 ? `Muggy on ${round(month.muggyDaysPercent)}% of days` : 'Rarely muggy'),
-    fact('Rain', `${round(month.rainFreeDaysPercent)}% dry days`, `Rain on ${100 - round(month.rainFreeDaysPercent)}% of days`),
-    fact('Sky', `${round(month.cloudPercent)}% cloud`, `Clear on ${round(month.clearDaysPercent)}% of days`),
-    fact('Wind', `${round(month.windKph)} km/h`, 'Typical daytime wind'));
+    fact('Comfort', `${round(month.temperatureC)} °C`, `Cool day ${round(month.coolDayC)} °C, warm day ${round(month.warmDayC)} °C`, `Dew point ${round(month.dewPointC)} °C, ${muggy}`),
+    fact('Dry', `${round(month.rainFreeDaysPercent)}% dry days`, `Rain on ${100 - round(month.rainFreeDaysPercent)}% of days`),
+    fact('Clear sky', `${round(month.clearDaysPercent)}% clear days`, `${round(month.cloudPercent)}% cloud on a typical day`),
+    fact('Calm', `${round(month.windKph)} km/h`, 'Typical daytime wind'));
   const awful = month.awfulChance[state.profile];
+  const forCycling = state.profile === 'cycling' ? ' for cycling' : '';
   return element('div', '',
     element('div', 'answer',
-      element('div', 'answer-line', swatch(bandForScore(chance).colour), element('strong', '', `${chance}% nice`)),
+      element('div', 'answer-line', swatch(bandForScore(chance).colour), element('strong', '', `${chance}% nice${forCycling}`)),
       element('p', 'answer-heading muted', `A typical ${longMonths[state.month - 1]}`),
-      element('p', 'answer-sentence', `${chance}% of days are Nice or better${awful > 0 ? `, ${awful}% are Awful` : ''}. ${bestMonthsSentence}`)),
+      element('p', 'answer-sentence', `${chance}% of days are Nice or better${awful > 0 ? `, ${awful}% are Awful` : ''}. ${bestMonthsSentence(months12, state.profile)}`)),
     typical,
     element('p', 'section-label muted', 'Nice days, month by month'),
     chart,
     climate ? element('p', 'footnote muted', `Real days ${climate.years}, 10:00–20:00 local time.`) : null);
 }
 
-function fact(label: string, value: string, detail: string): HTMLElement {
-  return element('div', 'factor', element('dt', '', label), element('dd', '', element('span', 'factor-value', value), element('span', 'muted', detail)));
+function fact(label: string, value: string, ...details: string[]): HTMLElement {
+  return element('div', 'factor', element('dt', '', label), element('dd', '', element('span', 'factor-value', value), ...details.map((detail) => element('span', 'muted', detail))));
+}
+
+/** "Best months: May to October." Every month nice at least half the time, as calendar ranges. */
+function bestMonthsSentence(months12: readonly MonthClimate[], profile: Profile): string {
+  const good = months12.map((entry) => entry.niceChance[profile] >= 50);
+  if (good.every(Boolean)) return 'Usually nice all year.';
+  if (!good.some(Boolean)) return 'No month is usually nice here.';
+  // Start just after a month that is not good, so a run across December and January stays whole.
+  const start = good.findIndex((isGood) => !isGood);
+  const ranges: string[] = [];
+  let first = -1;
+  for (let step = 1; step <= 12; step++) {
+    const index = (start + step) % 12;
+    if (good[index] && first < 0) first = index;
+    if (!good[index] && first >= 0) {
+      const last = (index + 11) % 12;
+      ranges.push(first === last ? longMonths[first] : `${longMonths[first]} to ${longMonths[last]}`);
+      first = -1;
+    }
+  }
+  return `Best months: ${ranges.join(', ')}.`;
 }
 
 /** "Updated this morning" style freshness for the forecast. Old forecasts say so plainly. */
