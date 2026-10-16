@@ -1,0 +1,72 @@
+{
+  "writtenBy": "AI on 2026.10.16 by model GPT-6.1 Sol",
+  "execution": "linked Sites automation; cloud Linux; standalone Go executable",
+  "tile": "39 to 36.25 degrees north; 6 to 3.25 degrees west; Spain and coast",
+  "year": 2020,
+  "build": {
+    "sourceSnapshot": "TZ2KX6A24CJ5DG17T7MG",
+    "tileRow": 17,
+    "tileColumn": 118,
+    "year": 2020,
+    "cells": 131,
+    "days": 366,
+    "records": 47946,
+    "skippedLocalDates": 0,
+    "sourceChunks": 12,
+    "readBytes": 26115302,
+    "writtenBytes": 1469483,
+    "peakHeapBytes": 828055552,
+    "peakResidentBytes": 949723136,
+    "wallSeconds": 19.106371928,
+    "path": "/tmp/niceweather-climate-probe-7_ppmbjq/output/climate-measures/r17-c118/2020.bin.gz",
+    "resumed": false,
+    "inputIdentity": "0982eb0230f2ec485a4a6389ae0c556f04c8a8b01a7727e36af0fb0cf5f9b790",
+    "outputSHA256": "bd32606804f4729b7ab8a0cbbb738ba6ff06ed4d8e3e6324cb89e73b59a1fdc6"
+  },
+  "buildAndUploadWallSeconds": 27.168486906,
+  "bootstrapDownloadedBytes": 42551553,
+  "bootstrapDownloadWallSeconds": 12.268635495999888,
+  "uploadedBatchBytes": 1470120,
+  "measuresSHA256": "bd32606804f4729b7ab8a0cbbb738ba6ff06ed4d8e3e6324cb89e73b59a1fdc6",
+  "binarySHA256": "4cd14c0dc3dd3862c32cd8c201652098a580e3a263715aebf325037f2afc9819",
+  "staticSHA256": "25313bc5805f560372acfff1ec316756aecaea0b397827d6c89893d030b87284",
+  "machine": {
+    "system": "Linux",
+    "architecture": "x86_64",
+    "availableCPUs": 9
+  },
+  "measuresURL": "https://nice.jjpcodes.com/data/forecast/climate-measures-probe/r17-c118/2020.bin.gz",
+  "verification": {
+    "observedAtUTC": "2026-10-16T20:00:08Z",
+    "linkedAutomationID": "Automation_a150ab20c2908191a215a578849346d3",
+    "cloudChatElapsedSeconds": 145,
+    "downloadedBytes": 1469483,
+    "downloadedSHA256": "bd32606804f4729b7ab8a0cbbb738ba6ff06ed4d8e3e6324cb89e73b59a1fdc6",
+    "decodedRecords": 47946,
+    "decodedCells": 131,
+    "datesPerCell": 366,
+    "rainCoverageRecords": {
+      "23hours": 131,
+      "24hours": 47684,
+      "25hours": 131
+    },
+    "sunAvailableRecords": 47946,
+    "scratchAutomationDeleted": true,
+    "remainingLinkedAutomation": "Refresh Nice Weather; enabled; daily08:00UTC",
+    "cleanupVerifiedAtUTC": "2026-10-16T20:01:00Z"
+  },
+  "extrapolation": {
+    "landCells": 364523,
+    "landTiles": 3592,
+    "years": 20,
+    "nominalLocalDates": 7305,
+    "tileYears": 71840,
+    "nominalRecords": 2662840515,
+    "uncompressedBytes": 127816344720,
+    "compressedBytesAtMeasuredBytesPerRecord": 81612623962,
+    "sourceBytesAtMeasuredBytesPerTileYear": 1876123295680,
+    "serialBuildDays": 15.886594436429629,
+    "serialBuildAndUploadDays": 22.59009374221111,
+    "serialBootstrapBuildAndUploadDays": 32.79123696018139
+  }
+}

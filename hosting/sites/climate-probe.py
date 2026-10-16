@@ -18,7 +18,8 @@ PREFIX = 'forecast/climate-measures-probe'
 
 def download(name, directory):
     started = time.monotonic()
-    with urllib.request.urlopen(ASSETS + name, timeout=180) as response:
+    request = urllib.request.Request(ASSETS + name, headers={'User-Agent': 'curl/8.10.1'})
+    with urllib.request.urlopen(request, timeout=180) as response:
         body = response.read()
     path = directory / name
     path.write_bytes(body)
@@ -62,7 +63,8 @@ def main():
         }
         body = (json.dumps(result, indent=2) + '\n').encode()
         request = urllib.request.Request(SITE + '/__publish/' + PREFIX + '/result.json', data=body,
-            headers={'Authorization': 'Bearer ' + credential, 'Content-Type': 'application/json'}, method='PUT')
+            headers={'Authorization': 'Bearer ' + credential, 'Content-Type': 'application/json',
+                     'User-Agent': 'curl/8.10.1'}, method='PUT')
         with urllib.request.urlopen(request, timeout=120) as response:
             if response.status != 201:
                 raise RuntimeError('Probe report upload failed')
