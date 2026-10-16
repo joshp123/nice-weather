@@ -47,6 +47,15 @@ Sites now lists only the existing daily forecast automation for this project.
 Scratch artifacts remain under `forecast/climate-measures-probe/`, away from
 the live pointers. The normal forecast cleanup may remove them later.
 
+After the timed run, remote resume was added to the CLI. A fresh cloud task
+can now restore a completed R2 batch, verify its length, checksum and full
+input identity, and skip both ERA5 reads and upload. The actual CLI was exercised
+against this published batch from a fresh output directory with no credential;
+an independent reviewer repeated that flow. Resumed reports preserve the
+original build metrics. The probe executable remains the exact measured
+artifact, identified by its recorded checksum; current source also includes
+this subsequent resume step.
+
 The twelve-place retained research comparison passes **87,659 daily records**.
 Maximum stored temperature difference is 0.0050061 °C; sun-share difference is
 below 0.000051; rain difference is zero at the reference's 0.1 mm precision.
