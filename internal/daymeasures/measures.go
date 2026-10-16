@@ -3,11 +3,14 @@
 package daymeasures
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"time"
 )
+
+var ErrNonexistentLocalDay = errors.New("local calendar date did not occur in this time zone")
 
 // HourlyFacts holds instantaneous state at Time. Rain and sunshine are totals
 // for the preceding hour [Time-1h, Time), following ERA5's accumulation labels.
@@ -41,8 +44,34 @@ func (day DayMeasures) AfternoonHighC() float64 {
 
 func LocalDayBounds(date time.Time, location *time.Location) (start, end time.Time) {
 	year, month, day := date.Date()
-	start = time.Date(year, month, day, 0, 0, 0, 0, location)
-	return start, start.AddDate(0, 0, 1)
+	start = civilDateStart(year, month, day, location)
+	nextDate := time.Date(year, month, day+1, 0, 0, 0, 0, time.UTC)
+	nextYear, nextMonth, nextDay := nextDate.Date()
+	return start, civilDateStart(nextYear, nextMonth, nextDay, location)
+}
+
+func civilDateStart(year int, month time.Month, day int, location *time.Location) time.Time {
+	candidate := time.Date(year, month, day, 0, 0, 0, 0, location)
+	targetDate := year*10000 + int(month)*100 + day
+	localDate := func(instant time.Time) int {
+		localYear, localMonth, localDay := instant.In(location).Date()
+		return localYear*10000 + int(localMonth)*100 + localDay
+	}
+	if localDate(candidate) == targetDate && localDate(candidate.Add(-time.Second)) < targetDate {
+		return candidate
+	}
+	// A midnight jump can normalize time.Date to the previous date, or pick
+	// the second of two midnights. Find the first instant of the civil date.
+	left, right := candidate.Add(-48*time.Hour).Unix(), candidate.Add(48*time.Hour).Unix()
+	for left < right {
+		middle := left + (right-left)/2
+		if localDate(time.Unix(middle, 0)) < targetDate {
+			left = middle + 1
+		} else {
+			right = middle
+		}
+	}
+	return time.Unix(left, 0).In(location)
 }
 
 // Aggregate requires sorted, unique hourly facts and a complete daytime
@@ -60,6 +89,9 @@ func Aggregate(date time.Time, location *time.Location, hours []HourlyFacts) (Da
 		}
 	}
 	dayStart, dayEnd := LocalDayBounds(date, location)
+	if !dayEnd.After(dayStart) {
+		return result, ErrNonexistentLocalDay
+	}
 	daytimeStart := dayStart.Add(10 * time.Hour)
 	// Construct civil hours independently: the midnight-to-10 interval may cross DST.
 	year, month, day := date.Date()

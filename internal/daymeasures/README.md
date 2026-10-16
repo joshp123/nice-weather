@@ -13,6 +13,10 @@ the surrounding hourly states. It integrates precipitation and sun over
 10:00–20:00; whole-day precipitation covers local midnight to the following
 local midnight, including 23-hour and 25-hour daylight-saving days. Rain and
 sun intervals crossing window edges are apportioned by elapsed overlap.
+Midnight clock changes use the first actual instant of each calendar date;
+the boundaries are resolved independently. A skipped date such as Samoa's
+2011-12-30 has zero duration and returns `ErrNonexistentLocalDay`. It produces
+no weather record because that local day never occurred.
 
 Sun share is summed estimated sunshine hours divided by summed sun-up hours.
 No sunshine or no sun-up coverage is different from a measured zero:

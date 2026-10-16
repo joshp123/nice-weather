@@ -3,6 +3,7 @@ package daymeasures_test
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"io"
 	"math"
 	"testing"
@@ -22,6 +23,9 @@ func TestLocalDayMeasuresAcrossOffsetsAndDaylightSaving(t *testing.T) {
 		{"Europe/Amsterdam", "2020-10-25", 25},
 		{"Asia/Kathmandu", "2020-01-01", 24},
 		{"Pacific/Kiritimati", "2020-01-01", 24},
+		{"Africa/Casablanca", "2011-04-03", 23},
+		{"America/Havana", "2020-11-01", 25},
+		{"America/Santiago", "2020-09-06", 23},
 	} {
 		t.Run(test.zone+test.date, func(t *testing.T) {
 			date, _ := time.Parse("2006-01-02", test.date)
@@ -49,6 +53,21 @@ func TestLocalDayMeasuresAcrossOffsetsAndDaylightSaving(t *testing.T) {
 				t.Fatalf("unexpected day: %+v", day)
 			}
 		})
+	}
+}
+
+func TestSamoaSkippedLocalDate(t *testing.T) {
+	date := time.Date(2011, 12, 30, 0, 0, 0, 0, time.UTC)
+	location, err := time.LoadLocation("Pacific/Apia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end := daymeasures.LocalDayBounds(date, location)
+	if !start.Equal(end) || start.In(location).Format("2006-01-02") != "2011-12-31" {
+		t.Fatalf("skipped local date has bounds %s..%s", start, end)
+	}
+	if _, err = daymeasures.Aggregate(date, location, nil); !errors.Is(err, daymeasures.ErrNonexistentLocalDay) {
+		t.Fatalf("skipped local date: %v", err)
 	}
 }
 
