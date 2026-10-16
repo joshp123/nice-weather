@@ -103,7 +103,11 @@ gust are explicitly unavailable. No radiation decomposition or cloud-cover
 substitution is introduced. The current forecast job is unchanged.
 
 Before a full run: agree the resource plan and confirm available storage and
-execution limits. Historical raw ERA5 winds also retain documented analysis
+execution limits. The existing cloud upload grant only permits `forecast/`;
+the probe uses its scratch subdirectory. Normal `climate-measures/` publication
+accepts the owner publisher credential through stdin. A dedicated cloud climate
+grant would need a Worker change and deployment, outside this task's scope.
+Historical raw ERA5 winds also retain documented analysis
 spikes; this work does not repair or publish those inputs. The terrain has a
 documented sea-level approximation at 389 coastline/island cells. Judgement,
 period summaries, forecast-job integration and any presentation change remain
