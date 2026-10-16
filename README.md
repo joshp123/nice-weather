@@ -1,5 +1,5 @@
 ---
-written_by: AI (Claude Opus 5.5), 2026-10-16
+written_by: AI (Claude Opus 5.5 and GPT-6.1 Sol), 2026-10-16
 ---
 
 # Nice Weather Finder
@@ -34,8 +34,16 @@ Sources: forecast from ECMWF IFS open data (CC BY 4.0); typical year from ERA5 2
 ## Publish
 
 ```bash
-NICE_WEATHER_PUBLISH_TOKEN=… node hosting/sites/publish.mjs forecast artifacts https://nice.jjpcodes.com
+go run ./cmd/niceweather forecast --out ./artifacts --publish https://nice.jjpcodes.com --token-stdin
 NICE_WEATHER_PUBLISH_TOKEN=… node hosting/sites/publish.mjs files artifacts https://nice.jjpcodes.com climate places.tsv
 ```
 
-The forecast is uploaded first and its pointer last, so visitors never see a half-uploaded run. Old runs are then removed. The app itself is deployed as a Sites Worker built by `hosting/sites/build.mjs`.
+The forecast command reads its upload token from standard input with `--token-stdin`, or from `NICE_WEATHER_PUBLISH_TOKEN` when that flag is absent. It uploads the forecast first and its pointer last, so visitors never see a half-uploaded run. Old runs are then removed. To upload an existing completed run, use `niceweather publish --from artifacts/forecast/<run> --site https://nice.jjpcodes.com --token-stdin`.
+
+The daily command needs one static executable and network access to ECMWF and the Site. It embeds its land mask and time-zone database and decodes ECMWF GRIB2 directly, including CCSDS packing. Build the Linux executable with:
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o niceweather-linux-amd64 ./cmd/niceweather
+```
+
+GDAL and ecCodes are development tools, used to regenerate the embedded land mask (`go generate ./internal/dailyforecast`) and compare real GRIB messages (`go run ./cmd/compare-ifs-grib`). They are absent from the daily runtime. The app itself is deployed as a Sites Worker built by `hosting/sites/build.mjs`.
