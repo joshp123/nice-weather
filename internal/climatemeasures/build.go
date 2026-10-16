@@ -10,7 +10,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -54,9 +53,8 @@ func Build(ctx context.Context, options Options, log io.Writer) (report Report, 
 		return report, fmt.Errorf("climate measures year must be 2006..2025")
 	}
 	report.TileRow, report.TileColumn, report.Year = options.TileRow, options.TileColumn, options.Year
-	directory := filepath.Join(options.Output, "climate-measures", fmt.Sprintf("r%02d-c%03d", options.TileRow, options.TileColumn))
-	report.Path = filepath.Join(directory, fmt.Sprintf("%d.bin.gz", options.Year))
-	checkpoint := filepath.Join(directory, fmt.Sprintf("%d.report.json", options.Year))
+	directory, path, checkpoint := batchPaths(options)
+	report.Path = path
 	grid, err := climatefacts.ReadStatic(options.StaticGrid)
 	if err != nil {
 		return report, err

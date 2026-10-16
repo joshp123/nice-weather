@@ -33,6 +33,15 @@ root when changing source snapshots, static terrain, or the measure schema.
 The full run is a list of independent tile-year invocations; no global cube is
 held in memory. Adjacent tiles can reread source chunks at their boundaries.
 
+With `--publish`, a fresh cloud task first checks that Site's report for the
+requested batch. When it exists, the command downloads and checks the completed
+measures, restores the local checkpoint and validates the requested inputs.
+It then skips ERA5 downloads, calculation and upload. The report was uploaded
+last, so an interrupted first upload is not mistaken for a completed batch.
+A local checkpoint still permits upload, because a prior upload may have
+failed. A resumed report retains the **original build's** wall time, memory and
+source-read totals; these are not costs measured for the resume invocation.
+
 `--publish <Site> --token-stdin` writes these two files below the Site's
 `climate-measures/` storage prefix. It never changes an app deployment or a live
 climate or forecast pointer. The existing publisher bearer is read from stdin,

@@ -35,13 +35,24 @@ func runClimateMeasures(arguments []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	token, err := publishToken(*site, *tokenStdin)
-	if err != nil {
-		return err
-	}
+	var err error
 	options := climatemeasures.Options{SourceIndex: *index, StaticGrid: *static, Output: *out, TileRow: *row, TileColumn: *column, Year: *year}
 	if *places != "" {
 		options.Cells, err = readClimatePlaces(*places, *static)
+		if err != nil {
+			return err
+		}
+	}
+	restored := false
+	if *site != "" {
+		restored, err = climatemeasures.Restore(ctx, options, *site, *publishPrefix)
+		if err != nil {
+			return err
+		}
+	}
+	token := ""
+	if *site != "" && !restored {
+		token, err = publishToken(*site, *tokenStdin)
 		if err != nil {
 			return err
 		}
@@ -50,7 +61,7 @@ func runClimateMeasures(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	if *site != "" {
+	if *site != "" && !restored {
 		if err = climatemeasures.Publish(ctx, report, *out, *site, token, *publishPrefix); err != nil {
 			return err
 		}

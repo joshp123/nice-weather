@@ -48,3 +48,11 @@ The preparation and reproduction commands are in [README.md](README.md).
 This comparison does **not** claim a second download of every historical ERA5
 chunk. Actual archive retrieval, Pcodec decoding and a complete tile-year are
 separately exercised by the Sites probe.
+
+The cloud batch was then restored through the actual CLI into a fresh local
+output directory using only public R2 reads. No publisher token was supplied.
+The command returned `resumed: true`, verified the 1,469,483-byte measures file
+and its SHA-256, used the expected local path, emitted no ERA5 download logs
+and skipped upload. The restored report retains the original cloud build's
+metrics. A separate bounded test verifies that a corrupt download cannot
+install a completion checkpoint.
