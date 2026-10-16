@@ -140,10 +140,7 @@ func publishForecast(ctx context.Context, directory, site, token string) error {
 	if err != nil {
 		return err
 	}
-	if report.AlreadyLive {
-		fmt.Printf("forecast %s is already live\n", report.RunID)
-		return nil
-	}
+
 	fmt.Printf("published: %s; %d files / %d bytes; %s\n", report.RunID, report.Files, report.Bytes, report.Elapsed.Round(time.Millisecond))
 	return nil
 }

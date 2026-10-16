@@ -17,11 +17,10 @@ import (
 )
 
 type PublicationReport struct {
-	RunID       string
-	Files       int64
-	Bytes       int64
-	Elapsed     time.Duration
-	AlreadyLive bool
+	RunID   string
+	Files   int64
+	Bytes   int64
+	Elapsed time.Duration
 }
 
 // Publish uploads a completed forecast, switches the current pointer last, then prunes old runs.
@@ -56,7 +55,8 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		return report, err
 	}
 	var current struct {
-		RunID string `json:"runId"`
+		RunID         string  `json:"runId"`
+		PreviousRunID *string `json:"previousRunId"`
 	}
 	if response.StatusCode == http.StatusOK {
 		err = json.NewDecoder(response.Body).Decode(&current)
@@ -66,11 +66,6 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 	response.Body.Close()
 	if err != nil {
 		return report, err
-	}
-	if current.RunID == report.RunID {
-		report.AlreadyLive = true
-		report.Elapsed = time.Since(started)
-		return report, nil
 	}
 
 	upload := func(ctx context.Context, key string, body []byte) error {
@@ -156,7 +151,9 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		Manifest
 		PreviousRunID *string `json:"previousRunId"`
 	}{Manifest: manifest}
-	if current.RunID != "" {
+	if current.RunID == report.RunID {
+		pointerManifest.PreviousRunID = current.PreviousRunID
+	} else if current.RunID != "" {
 		pointerManifest.PreviousRunID = &current.RunID
 	}
 	pointer, err := json.Marshal(pointerManifest)
