@@ -21,6 +21,8 @@ Thirty places, including all eight named by Josh, were checked for November to M
 
 The saved rows are `chromium.csv` and `webkit.csv`. For example, Chania in November to March now has a card score of 38.2317 and a map-fragment score of 38.2316666, both Poor. The previous nearest-point card was 31.338; the final filtered shader was 37.77314 when its constituent default grid scores were floored. Fixing this changes the card to describe the actual displayed field. It preserves the native temporal rule and does not claim the old nearest-point value was the same spatial sample.
 
+A separate check read the actual composed map pixel at Chania's canonical named point, 35.51124 N, 24.02921 E. Its card score was 38.4989, Poor, and the map pixel was Poor red, RGBA 157/112/115/255, with live records active. The selection ring hides the narrow coastal strip at zoom 5. About 30 km south, the score reaches 56.22, Nice, explaining the neighbouring blue area. The unlabelled screenshot and pixel samples are in `/tmp/nwf-agents/round5/build-followup/chania-pixel/`.
+
 ## Exact pixel check
 
 `make-fine-fixture.mjs` reads the actual sealed data from the SSD and writes the production binary transport format for those same thirty places. `check-fine-field.py` serves those bytes through a headless route, runs the production browser client, requests the real exact card verdicts, then reads the actual uploaded batched vertex buffer and runs its production fine-cell vertex/fragment shaders. It verifies that each cell contains the requested place and reads the cell's value at its centre. Sampling the interior avoids GPU edge rasterisation of an exactly-on-boundary coordinate; it does not change the geographic pixel or the card's value.
@@ -29,12 +31,12 @@ Chromium and WebKit each passed all 90 exact-pixel climate comparisons, with max
 
 ## Redraw performance
 
-After the fix, actual pointer drags and 24 measured input changes across all six sliders gave these full input-to-painted-interface times in headless WebKit on this Mac. The phone row is viewport emulation, not physical-phone hardware.
+After the final interface changes, actual pointer drags and 24 measured input changes across all six sliders gave these full input-to-painted-interface times in headless WebKit on this Mac. The phone row is viewport emulation, not physical-phone hardware.
 
 | Viewport | Input to paint | Median | 95th percentile | GPU engine | First weather frame |
 |---|---:|---:|---:|---:|---:|
-| 1512 × 982 | 74–112 ms | 84 ms | 106 ms | 17–31 ms | 311 ms |
-| 390 × 844 | 67–112 ms | 81 ms | 104 ms | 17–29 ms | 230 ms |
+| 1512 × 982 | 70–116 ms | 81 ms | 98 ms | 17–31 ms | 354 ms |
+| 390 × 844 | 52–81 ms | 64 ms | 73 ms | 17–33 ms | 155 ms |
 
 No JavaScript errors occurred. Raw samples are in `performance.csv`; the full JSON is in the temporary proof folder. The sixteen-neighbour sampling is not causing a redraw regression in this local check.
 
