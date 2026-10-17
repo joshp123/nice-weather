@@ -23,9 +23,9 @@ import numpy as np
 import tifffile
 
 try:
-    from .source_cache import download, save_evidence
+    from .source_cache import download, save_evidence, sha256_file
 except ImportError:
-    from source_cache import download, save_evidence
+    from source_cache import download, save_evidence, sha256_file
 
 
 DEFAULT_CACHE = pathlib.Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-sources')
@@ -53,10 +53,10 @@ def chelsa_url(variable,month):
 
 def prepare_worldclim(root,workers=6):
     directory = root/'worldclim14'
-    save_evidence('https://www.worldclim.org/data/v1.4/worldclim14.html',directory/'licence.html')
+    licence_snapshot = save_evidence('https://www.worldclim.org/data/v1.4/worldclim14.html',directory/'licence.html')
     metadata = dict(source='WorldClim1.4',licence='CC-BY-SA-4.0',period=[1960,1990],
                     period_caveat='Nominal1960-1990; original interpolation also used some1950-2000/undated normals.',
-                    variables={})
+                    licence_snapshot=licence_snapshot,variables={})
     def fetch(variable):
         archive_path = directory/f'{variable}_30s_bil.zip'
         return variable,archive_path,download(worldclim_url(variable),archive_path,workers=workers)
@@ -88,7 +88,7 @@ def prepare_worldclim(root,workers=6):
 
 def prepare_chelsa(root,workers=2):
     directory = root/'chelsa'
-    save_evidence('https://www.chelsa-climate.org/datasets/chelsa_climatologies',directory/'licence.html')
+    licence_snapshot = save_evidence('https://www.chelsa-climate.org/datasets/chelsa_climatologies',directory/'licence.html')
     jobs = [(variable,month) for variable in ['tasmax','tasmin'] for month in range(1,13)]
     def prepare(job):
         variable,month = job
@@ -106,7 +106,8 @@ def prepare_chelsa(root,workers=2):
                         height=page.imagelength,nodata=int(page.tags['GDAL_NODATA'].value),
                         scale=float(attributes['SCALE']),offset=float(attributes.get('OFFSET','0'))-273.15)
         return variable,month,dict(path=path.name,source=source,grid=grid,attributes=attributes)
-    metadata = dict(source='CHELSAv2.1',licence='CC0-1.0',period=[1981,2010],variables={})
+    metadata = dict(source='CHELSAv2.1',licence='CC0-1.0',period=[1981,2010],
+                    licence_snapshot=licence_snapshot,variables={})
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for variable,month,result in pool.map(prepare,jobs):
             metadata['variables'].setdefault(variable,{})[str(month)] = result
@@ -116,6 +117,7 @@ def prepare_chelsa(root,workers=2):
 def prepare_prism(root,workers=2):
     directory = root/'prism'
     directory.mkdir(parents=True,exist_ok=True)
+    licence_snapshot = save_evidence('https://www.prism.oregonstate.edu/terms/',directory/'licence.html')
     jobs = [(variable,month) for variable in ['tmax','tmin'] for month in range(1,13)]
     def prepare(job):
         variable,month = job
@@ -124,6 +126,11 @@ def prepare_prism(root,workers=2):
         path = directory/(stem+'.zip')
         source = download(url,path,workers=8,part_bytes=1024*1024)
         with zipfile.ZipFile(path) as archive:
+            bad_member = archive.testzip()
+            if bad_member is not None:
+                raise ValueError(f'PRISM ZIP failed CRC verification: {path}: {bad_member}')
+            information_name = next(name for name in archive.namelist() if name.endswith('.info.txt'))
+            producer_information = archive.read(information_name).decode()
             names = [name for name in archive.namelist() if name.endswith('.tif')]
             if len(names) != 1:
                 raise ValueError(f'Expected one PRISM GeoTIFF in {path}')
@@ -135,6 +142,14 @@ def prepare_prism(root,workers=2):
                 partial.replace(raster_path)
         with tifffile.TiffFile(raster_path) as raster:
             page = raster.pages[0]
+            decoded = page.asarray()
+            nodata = float(page.tags['GDAL_NODATA'].value)
+            valid_values = decoded[decoded != nodata]
+            if not valid_values.size or not np.isfinite(valid_values).all():
+                raise ValueError(f'PRISM raster has no finite land values: {raster_path}')
+            validation = dict(zip_member_crc='all passed',tiff_decode='all pixels decoded',
+                              valid_pixels=int(valid_values.size),minimum_c=float(valid_values.min()),
+                              maximum_c=float(valid_values.max()),tiff_sha256=sha256_file(raster_path))
             dx,dy,_ = page.tags['ModelPixelScaleTag'].value
             _,_,_,west,north,_ = page.tags['ModelTiepointTag'].value
             grid = dict(west=west,north=north,dx=dx,dy=dy,width=page.imagewidth,
@@ -142,11 +157,13 @@ def prepare_prism(root,workers=2):
                         scale=1.0,offset=0.0,coordinate_reference_system='EPSG:4269')
             if not (abs(dx-1/120)<1e-10 and abs(dy-1/120)<1e-10):
                 raise ValueError(f'Unexpected PRISM grid: {grid}')
-        return variable,month,dict(path=raster_path.name,source=source,grid=grid)
+        print(f'PRISM {variable} {month:02d}: ZIP CRC and complete raster decode passed',flush=True)
+        return variable,month,dict(path=raster_path.name,source=source,grid=grid,
+                                   producer_information=producer_information,validation=validation)
     metadata = dict(source='PRISM800m1991-2020normals',
                     licence='PRISM terms: unrestricted distribution with attribution',
-                    licence_url='https://prism.oregonstate.edu/terms/',
-                    licence_evidence='research/fine/LICENCES.md; primary grant verified2026-10-17 in Phase1',
+                    licence_url='https://www.prism.oregonstate.edu/terms/',
+                    licence_snapshot=licence_snapshot,
                     period=[1991,2020],variables={})
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for variable,month,result in pool.map(prepare,jobs):
@@ -163,8 +180,8 @@ def prepare_era5_means(root,workers=4):
 
     directory = root/'era5_monthly'
     directory.mkdir(parents=True,exist_ok=True)
-    save_evidence('https://raw.githubusercontent.com/PlanetteAI/planette_era5_archive/main/README.md',
-                  directory/'producer_README.md')
+    licence_snapshot = save_evidence('https://raw.githubusercontent.com/PlanetteAI/planette_era5_archive/main/README.md',
+                                    directory/'producer_README.md')
     reference_path = directory/'archive.json'
     if reference_path.exists():
         metadata = json.loads(reference_path.read_text())
@@ -207,14 +224,16 @@ def prepare_era5_means(root,workers=4):
         source = download(url,path,workers=8,part_bytes=1024*1024)
         if source['bytes'] != chunk['bytes']:
             raise ValueError(f"Monthly source chunk length changed: {chunk['id']}")
-        return chunk,path
+        return chunk,path,source
 
     sums = np.zeros((len(PERIODS),12,721,1440),np.float64)
     counts = np.zeros((len(PERIODS),12),np.int32)
+    used_chunks = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(fetch,chunk) for chunk in chunks]
         for future in concurrent.futures.as_completed(futures):
-            chunk,path = future.result()
+            chunk,path,source = future.result()
+            used_chunks.append(dict(index=chunk['index'],**source))
             decoded = imagecodecs.zstd_decode(path.read_bytes())
             values = np.frombuffer(decoded,dtype='<f4').reshape(30,721,1440)
             begin = chunk['index']*30
@@ -240,6 +259,8 @@ def prepare_era5_means(root,workers=4):
         np.save(directory/f'mean_{first}_{last}.npy',means)
     metadata['aggregation'] = 'Calendar-day-weighted monthly means, Celsius; longitude rolled to -180..179.75'
     metadata['periods'] = PERIODS
+    metadata['licence_snapshot'] = licence_snapshot
+    metadata['used_chunks'] = sorted(used_chunks,key=lambda source:source['index'])
     (directory/'dataset.json').write_text(json.dumps(metadata,indent=2))
 
 
@@ -430,12 +451,14 @@ def load_era5_target_mean(months,cache_root=DEFAULT_CACHE,workers=3,month_day_we
     def fetch(chunk):
         url = f"https://planette-era5.s3.us-east-2.amazonaws.com/ERA5_ic/month/chunks/{chunk['id']}"
         path = directory/'chunks'/chunk['id']
-        download(url,path,workers=8,part_bytes=1024*1024)
-        return chunk,path
+        source = download(url,path,workers=8,part_bytes=1024*1024)
+        return chunk,path,source
     sums = np.zeros((12,721,1440),np.float64)
     counts = np.zeros(12,np.int32)
+    used_chunks = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        for chunk,path in pool.map(fetch,chunks):
+        for chunk,path,source in pool.map(fetch,chunks):
+            used_chunks.append(dict(index=chunk['index'],**source))
             values = np.frombuffer(imagecodecs.zstd_decode(path.read_bytes()),dtype='<f4').reshape(30,721,1440)
             for offset in range(30):
                 index = chunk['index']*30+offset
@@ -454,6 +477,7 @@ def load_era5_target_mean(months,cache_root=DEFAULT_CACHE,workers=3,month_day_we
     temporary.replace(output_path)
     output_path.with_suffix('.json').write_text(json.dumps(dict(
         snapshot=metadata['snapshot'],months=requested,month_day_weights=weights,support_days=counts.tolist(),
+        used_chunks=used_chunks,
         units='C',grid='721x1440; latitude90..-90; longitude-180..179.75',
         aggregation='Monthly mean t2m weighted by selected-day counts',
         limitation='Partly selected months use full-month mean T; exact retained-day normals require raw hourly data.'),indent=2))

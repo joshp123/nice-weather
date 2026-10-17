@@ -94,13 +94,23 @@ def _download(url, destination, workers, part_bytes):
 
 def save_evidence(url, destination):
     destination = pathlib.Path(destination)
-    if destination.exists():
-        return
-    destination.parent.mkdir(parents=True,exist_ok=True)
-    partial = destination.with_name(destination.name+'.partial')
-    subprocess.run(['curl','--fail','--silent','--show-error','--location',
-                    '--retry','4','--retry-all-errors','--connect-timeout','20',
-                    '--max-time','120',url,'--output',str(partial)],check=True)
-    partial.replace(destination)
+    if not destination.exists():
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        partial = destination.with_name(destination.name+'.partial')
+        subprocess.run(['curl','--fail','--silent','--show-error','--location',
+                        '--retry','4','--retry-all-errors','--connect-timeout','20',
+                        '--max-time','120',url,'--output',str(partial)],check=True)
+        partial.replace(destination)
+    metadata_path = destination.with_name(destination.name+'.source.json')
+    if metadata_path.exists():
+        metadata = json.loads(metadata_path.read_text())
+        if metadata['url'] != url or metadata['sha256'] != sha256_file(destination):
+            raise ValueError(f'Licence snapshot does not match its manifest: {destination}')
+    else:
+        metadata = dict(url=url,path=destination.name,bytes=destination.stat().st_size,
+                        sha256=sha256_file(destination),
+                        accessed_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()))
+        metadata_path.write_text(json.dumps(metadata,indent=2))
+    return metadata
 
 
