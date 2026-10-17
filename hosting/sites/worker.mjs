@@ -7,7 +7,7 @@
 //   PUT /__publish/<key>          the publisher uploads files (bearer token)
 //   POST /__prune                 the publisher removes forecast runs no longer current or previous
 
-import { createFinePlaceLoader, placeNumbers, placeMonths } from './fine-place.mjs';
+import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
 import { finePreviewPng } from './fine-preview.mjs';
 
@@ -671,6 +671,21 @@ export async function handleRequest(request, env, serveAsset) {
       ? { name: request.cf.city || 'Your area', region: request.cf.country || '', latitude, longitude, slug: null }
       : null;
     return new Response(JSON.stringify(home), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' } });
+  }
+  if (url.pathname === '/api/fine/replay') {
+    const fine = finePlaces(bucket);
+    if (!url.searchParams.has('lat') && !url.searchParams.has('lon')) return json({enabled: await fine.enabled()}, 60);
+    const latitude = Number(url.searchParams.get('lat')), longitude = Number(url.searchParams.get('lon'));
+    if (!url.searchParams.has('lat') || !url.searchParams.has('lon') || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return new Response('Bad coordinates', {status: 400});
+    const packet = await fine.load(latitude, longitude);
+    if (!packet) return new Response('Fine place unavailable', {status: 404, headers: {'Cache-Control': 'public, max-age=60'}});
+    const bytes = encodeFinePlacePacket(packet);
+    const body = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+    return new Response(request.method === 'HEAD' ? null : body, {headers: {
+      'Content-Type': 'application/vnd.niceweather.place', 'Content-Encoding': 'gzip',
+      'Cache-Control': 'public, max-age=60', 'X-Fine-Generation': packet.replay.generation,
+      'X-Fine-Evening-Model': packet.eveningModel,
+    }});
   }
   if (url.pathname === '/api/place') {
     const latitude = Number(url.searchParams.get('lat'));

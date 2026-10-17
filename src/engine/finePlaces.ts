@@ -1,14 +1,14 @@
 // Written by AI on 2026.10.18 by model gpt-6.1-sol.
-import { createFinePlaceLoader, placeNumbers } from '../../hosting/sites/fine-place.mjs';
+import { createFinePlaceClient, placeNumbers } from '../../hosting/sites/fine-place.mjs';
 import type { Period, PointVerdict } from './index';
 import type { Taste } from './taste';
 
-type PlacePacket = Awaited<ReturnType<ReturnType<typeof createFinePlaceLoader>['load']>>;
+type PlacePacket = Awaited<ReturnType<ReturnType<typeof createFinePlaceClient>['load']>>;
 type CachedPlace = { packet?: PlacePacket; complete: boolean; judgements: Map<string, PointVerdict | null> };
 
 /** Exact-pixel climate queries; the overview map keeps its existing data source. */
 export class FinePlaces {
-  private loader: ReturnType<typeof createFinePlaceLoader>;
+  private loader: ReturnType<typeof createFinePlaceClient>;
   private places = new Map<string, CachedPlace>();
   private pending = 0;
   private active = 0;
@@ -19,15 +19,8 @@ export class FinePlaces {
   private availability: 'checking' | 'inactive' | 'active' = 'checking';
 
   constructor(dataUrl: string, private changed: () => void) {
-    const dataRoot = dataUrl.replace(/\/[^/]*$/, '');
-    const readBytes = async (key: string): Promise<Uint8Array | null> => {
-      const path = key.startsWith('v6/') ? `${dataUrl}/${key.slice(3)}` : `${dataRoot}/${key}`;
-      const response = await fetch(path);
-      if (response.status === 404) return null;
-      if (!response.ok) throw new Error(`Fine place data: HTTP ${response.status}`);
-      return new Uint8Array(await response.arrayBuffer());
-    };
-    this.loader = createFinePlaceLoader(readBytes);
+    const endpoint = new URL('/api/fine/replay', new URL(dataUrl, window.location.href)).href;
+    this.loader = createFinePlaceClient(endpoint);
     void this.loader.enabled().then(enabled => {
       this.availability = enabled ? 'active' : 'inactive';
     }).catch(error => {

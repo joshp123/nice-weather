@@ -247,3 +247,51 @@ export function createFinePlaceLoader(readBytes) {
   };
   return loader;
 }
+
+
+const PLACE_TRANSPORT_FIELDS=[['airC',12],['dewC',12],['sunC',12],['shadeC',12],['highC',1],['lowC',1],['rainMm',1],['windKmh',1],['sunnyHours',1],['daylightHours',1]];
+/** Only the representative weather needed by placeNumbers crosses to the browser. */
+export function encodeFinePlacePacket(packet) {
+  const {replay,pixel,status,eveningModel,corrections}=packet,count=replay.dates.length;
+  const metadata=new TextEncoder().encode(JSON.stringify({pixel,status,eveningModel,replay:{fineIndex:replay.fineIndex,generation:replay.generation,targetTimezone:replay.targetTimezone,dates:replay.dates,selectedDateIndices:replay.selectedDateIndices}}));
+  const bytes=new Uint8Array(16+metadata.length+24*8+count*54*4),view=new DataView(bytes.buffer);
+  view.setUint32(0,0x4c50574e,true);view.setUint16(4,1,true);view.setUint16(6,count,true);view.setUint32(8,metadata.length,true);
+  bytes.set(metadata,16);let offset=16+metadata.length;
+  for(const pair of corrections)for(const value of pair){view.setFloat64(offset,value,true);offset+=8;}
+  for(const [name,width]of PLACE_TRANSPORT_FIELDS)for(let index=0;index<count*width;index++){view.setFloat32(offset,replay[name][index],true);offset+=4;}
+  return bytes;
+}
+export function decodeFinePlacePacket(bytes) {
+  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+  if(bytes.byteLength<16||view.getUint32(0,true)!==0x4c50574e||view.getUint16(4,true)!==1||view.getUint32(12,true)!==0)throw new Error('Fine place transport header mismatch');
+  const count=view.getUint16(6,true),metadataLength=view.getUint32(8,true);
+  if(bytes.byteLength!==16+metadataLength+24*8+count*54*4)throw new Error('Fine place transport length mismatch');
+  const packet=JSON.parse(new TextDecoder().decode(bytes.subarray(16,16+metadataLength)));
+  if(packet.replay.dates.length!==count||!packet.replay.generation||!['ordered','uniform','native'].includes(packet.eveningModel))throw new Error('Fine place transport metadata mismatch');
+  let offset=16+metadataLength;
+  packet.corrections=Array.from({length:12},()=>Array.from({length:2},()=>{const value=view.getFloat64(offset,true);offset+=8;return value;}));
+  for(const [name,width]of PLACE_TRANSPORT_FIELDS)packet.replay[name]=Float32Array.from({length:count*width},()=>{const value=view.getFloat32(offset,true);offset+=4;return value;});
+  packet.replay.selectedIndices=Array.from({length:count},(_,index)=>index);
+  return packet;
+}
+/** The browser receives exact pixels and replay, and still judges them with placeNumbers. */
+export function createFinePlaceClient(endpoint,fetchResponse=fetch) {
+  return {
+    async enabled() {
+      const response=await fetchResponse(endpoint);
+      if(!response.ok)throw new Error(`Fine place availability: HTTP ${response.status}`);
+      return (await response.json()).enabled;
+    },
+    async load(latitude,longitude) {
+      const url=new URL(endpoint);url.searchParams.set('lat',String(latitude));url.searchParams.set('lon',String(longitude));
+      const response=await fetchResponse(url.href);
+      if(response.status===404)return null;
+      if(!response.ok)throw new Error(`Fine place data: HTTP ${response.status}`);
+      const packet=decodeFinePlacePacket(await uncompressed(new Uint8Array(await response.arrayBuffer())));
+      if(packet.replay.generation!==response.headers.get('X-Fine-Generation')||packet.eveningModel!==response.headers.get('X-Fine-Evening-Model'))throw new Error('Fine place transport generation or model mismatch');
+      const expectedPixel=finePixel(latitude,longitude);
+      if(packet.pixel.row!==expectedPixel.row||packet.pixel.column!==expectedPixel.column)throw new Error('Fine place transport pixel mismatch');
+      return packet;
+    }
+  };
+}

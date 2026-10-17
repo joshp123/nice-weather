@@ -29,3 +29,10 @@ export function createFinePlaceLoader(readBytes:(key:string)=>Promise<Uint8Array
  cacheUsage():Readonly<{correctionBytes:number;timezoneBytes:number;activeTileReads:number;maximumActiveTileReads:number;waitingTileReads:number}>;
  load(latitude:number,longitude:number):Promise<FinePacket|null>;
 };
+
+export function encodeFinePlacePacket(packet:FinePacket):Uint8Array;
+export function decodeFinePlacePacket(bytes:Uint8Array):FinePacket;
+export function createFinePlaceClient(endpoint:string,fetchResponse?:typeof fetch):{
+ enabled():Promise<boolean>;
+ load(latitude:number,longitude:number):Promise<FinePacket|null>;
+};
