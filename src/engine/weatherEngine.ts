@@ -7,6 +7,10 @@ import { WeatherData, type Cells, type PeriodData, type Records } from './data';
 import { PointSampler, readFineScore } from './sampling';
 import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
 
+function periodKey(period: Period): string {
+  return period.kind === 'month' ? `month:${period.month}` : period.kind === 'season' ? `season:${period.season}` : period.kind === 'forecast-day' ? `forecast-day:${period.day}` : period.kind;
+}
+
 type PendingFrame = { started: number; resolve: (timing: RedrawTiming) => void; reject: (error: Error) => void };
 type Programs = { score: WebGLProgram; resolve: WebGLProgram; map: WebGLProgram };
 
@@ -18,6 +22,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private period: Period = { kind: 'month', month: 1 };
   private taste: Taste = DEFAULT_TASTE;
   private sampler?: PointSampler;
+  private periodSamplers = new Map<string, PointSampler>();
   private gl?: WebGL2RenderingContext;
   private programs?: Programs;
   private quad?: WebGLVertexArrayObject;
@@ -55,17 +60,29 @@ export class BrowserWeatherEngine implements WeatherEngine {
     this.data = data;
     this.period = { ...period };
     this.sampler = new PointSampler(cells, data, this.period, this.taste);
+    this.periodSamplers.set(periodKey(this.period), this.sampler);
     await this.requestFrame();
   }
 
   setTaste(taste: Taste): Promise<RedrawTiming> {
     this.taste = { ...taste };
+    this.periodSamplers.clear();
     if (this.cells && this.data) this.sampler = new PointSampler(this.cells, this.data, this.period, this.taste);
     return this.requestFrame();
   }
 
-  judgePoint(latitude: number, longitude: number): PointVerdict | null {
-    return this.sampler?.judge(latitude, longitude) ?? null;
+  judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null {
+    if (!period) return this.sampler?.judge(latitude, longitude) ?? null;
+    if (!this.cells) return null;
+    const key = periodKey(period);
+    let sampler = this.periodSamplers.get(key);
+    if (!sampler) {
+      const data = this.source.loaded(period);
+      if (!data) return null;
+      sampler = new PointSampler(this.cells, data, period, this.taste);
+      this.periodSamplers.set(key, sampler);
+    }
+    return sampler.judge(latitude, longitude);
   }
 
   scorePoints(points: readonly Point[]): Float32Array {

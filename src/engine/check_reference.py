@@ -29,7 +29,17 @@ def judge(samples, taste):
         sunFactor=reference.SUN_FACTOR(raw[:, 13] / daylight),
     )
     score = parts['warmth'] * parts['rainFactor'] * parts['windFactor'] * parts['humidityFactor'] * parts['sunFactor']
-    return dict(meanScore=float(score @ weights), niceDayShare=float((score >= reference.NICE) @ weights), parts={name:float(value @ weights) for name,value in parts.items()})
+    typical = dict(
+        feelsInSunAt14C=raw[:, 2] / 3 - 30 + offsets[:, 0],
+        feelsInShadeAt21C=raw[:, 9] / 3 - 30 + offsets[:, 0],
+        dewPointC=raw[:, 10] / 3 - 30,
+        rainMmPerDay=(raw[:, 11] / 50) ** 2,
+        wetDayShare=((raw[:, 11] / 50) ** 2 >= 1).astype(float),
+        windKmh=raw[:, 12] / 2,
+        sunnyShare=raw[:, 13] / daylight,
+        daylightHours=daylight,
+    )
+    return dict(typical={name:float(value @ weights) for name,value in typical.items()}, meanScore=float(score @ weights), niceDayShare=float((score >= reference.NICE) @ weights), parts={name:float(value @ weights) for name,value in parts.items()})
 
 
 for filename in sys.argv[1:]:
@@ -38,5 +48,6 @@ for filename in sys.argv[1:]:
         actual = place['verdict']
         errors = [abs(expected[key] - actual[key]) for key in ['meanScore', 'niceDayShare']]
         errors += [abs(expected['parts'][key] - actual['parts'][key]) for key in expected['parts']]
+        errors += [abs(expected['typical'][key] - actual['typical'][key]) for key in expected['typical']]
         assert max(errors) < 1e-9, (place['place'], expected, actual)
         print(f"{pathlib.Path(filename).name} {place['place']}: Python {expected['meanScore']:.9f}, engine {actual['meanScore']:.9f}; max part error {max(errors):.3g}")

@@ -14,6 +14,19 @@ export type Period =
   | Readonly<{ kind: 'season'; season: Season }>
   | Readonly<{ kind: 'year' }>;
 export type Point = Readonly<{ latitude: number; longitude: number }>;
+/** Physical averages of the same shifted, spatially interpolated days as meanScore. */
+export type TypicalWeather = Readonly<{
+  feelsInSunAt14C: number;
+  feelsInShadeAt21C: number;
+  dewPointC: number;
+  rainMmPerDay: number;
+  /** Share in 0..1 of days with at least 1 mm rain. */
+  wetDayShare: number;
+  windKmh: number;
+  /** Mean daily sunnyHours / daylightHours, in 0..1. */
+  sunnyShare: number;
+  daylightHours: number;
+}>;
 export type PointVerdict = Readonly<{
   meanScore: number;
   band: BandName;
@@ -23,6 +36,8 @@ export type PointVerdict = Readonly<{
   niceDayCount: number | null;
   sampleDays: number;
   parts: Omit<DayJudgement, 'score'>;
+  /** Always supplied by this engine; optional for existing interface consumers. */
+  typical?: TypicalWeather;
 }>;
 export type RedrawTiming = Readonly<{ milliseconds: number; period: Period; revision: number }>;
 export type EngineOptions = Readonly<{
@@ -38,8 +53,8 @@ export interface WeatherEngine {
   setPeriod(period: Period): Promise<void>;
   /** Reuses loaded data. Resolves after GPU completion, including the next MapLibre frame. */
   setTaste(taste: Taste): Promise<RedrawTiming>;
-  /** Synchronous. null before data loads or south of 60°S. Longitude wraps; water uses nearest land, as on the map. */
-  judgePoint(latitude: number, longitude: number): PointVerdict | null;
+  /** Synchronous; optional period uses already-loaded data without selecting it or fetching. null if unavailable or south of 60°S. Longitude wraps; water uses nearest land. */
+  judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
   /** Same scores as judgePoint within GPU rounding, in input order; NaN means missing. After setTaste/setPeriod resolves, this cheaply reads and caches the GPU grid for city labels. */
   scorePoints(points: readonly Point[]): Float32Array;
   /** Releases GPU resources. Remove the layer first, or call this before removing the map. */

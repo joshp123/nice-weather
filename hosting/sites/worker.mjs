@@ -89,24 +89,25 @@ function kilometres(latitudeA, longitudeA, latitudeB, longitudeB) {
   return Math.sqrt(x * x + y * y) * 6371;
 }
 
-/** The town or city you clicked in, as a map app would name it. */
+/** The town or city you clicked in, as a map app would name it: size counts, but falls off fast with distance,
+ *  so a click in Manila names Manila, not one of its districts or Quezon City next door. */
 async function nameForPoint(bucket, latitude, longitude) {
-  const { byDegree } = await loadPlaces(bucket);
+  const { byDegree, bySlug } = await loadPlaces(bucket);
+  let best = null;
+  let bestPull = 0;
   let nearest = null;
   let nearestDistance = Infinity;
   for (let dLatitude = -1; dLatitude <= 1; dLatitude++) {
     for (let dLongitude = -1; dLongitude <= 1; dLongitude++) {
       for (const place of byDegree.get(`${Math.floor(latitude) + dLatitude},${Math.floor(longitude) + dLongitude}`) ?? []) {
-        // Favour bigger places slightly, so a click between villages names the town.
-        const distance = kilometres(latitude, longitude, place.latitude, place.longitude) / (1 + Math.log10(1 + place.population / 5000) * 0.35);
+        const distance = kilometres(latitude, longitude, place.latitude, place.longitude);
+        const pull = place.population / (distance + 2) ** 2;
+        if (distance < 30 && pull > bestPull) { best = place; bestPull = pull; }
         if (distance < nearestDistance) { nearest = place; nearestDistance = distance; }
       }
     }
   }
-  if (nearest && nearestDistance < 30) {
-    const { bySlug } = await loadPlaces(bucket);
-    return { name: nearest.name, region: nearest.region, slug: bySlug.get(nearest.slug) === nearest ? nearest.slug : undefined };
-  }
+  if (best) return { name: best.name, region: best.region, slug: bySlug.get(best.slug) === best ? best.slug : undefined };
   if (nearest) return { name: `Near ${nearest.name}`, region: nearest.region };
   const north = latitude >= 0 ? 'N' : 'S';
   const east = longitude >= 0 ? 'E' : 'W';
@@ -177,7 +178,13 @@ async function nearestLandPoint(bucket, latitude, longitude) {
   return best;
 }
 
-const typicalYearForPlace = async (bucket, latitude, longitude) => (await nearestLandPoint(bucket, latitude, longitude))?.months ?? null;
+/** A place's typical year with the default taste's score for each month (null where unknown), or null at sea. */
+async function typicalYearForPlace(bucket, latitude, longitude) {
+  const point = await nearestLandPoint(bucket, latitude, longitude);
+  if (!point) return null;
+  const scores = await readBytes(bucket, 'v6/climate/scores.bin', (point.row * FINE_WIDTH + point.column) * 12, 12);
+  return point.months.map((month, index) => ({ ...month, score: scores && scores.getUint8(index) !== 255 ? scores.getUint8(index) : null }));
+}
 
 // ---------------------------------------------------------------- shareable URLs
 

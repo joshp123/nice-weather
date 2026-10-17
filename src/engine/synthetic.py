@@ -35,6 +35,6 @@ for month in range(1, 13):
     png = b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB', 1440, 721, 8, 0, 0, 0, 0)) + png_chunk(b'IDAT', zlib.compress(filtered)) + png_chunk(b'IEND', b'')
     (target / 'climate' / f'offsets-{month:02}.png').write_bytes(png)
 first = datetime.date(2026, 10, 25)
-(target / 'forecast' / 'synthetic' / 'days.bin').write_bytes(b''.join(record(row, column, (first + datetime.timedelta(days=day)).month, day % 8) for row, column in cells for day in range(15)))
-(target / 'forecast' / 'current.json').write_text('{"run":"synthetic","firstDate":"2026-10-25","days":15}')
+(target / 'forecast' / 'synthetic' / 'days.bin').write_bytes(b''.join(record(row, column, (first + datetime.timedelta(days=day)).month, day % 8) for row, column in cells for day in range(14)))
+(target / 'forecast' / 'current.json').write_text('{"run":"synthetic","firstDate":"2026-10-25","days":14}')
 print(f'{len(cells)} cells, full-size synthetic fixture at {target}')

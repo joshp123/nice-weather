@@ -35,7 +35,7 @@ map.addLayer(engine.layer, 'sea');
 function showVerdict(): void {
   const verdict = engine.judgePoint(selectedPoint.latitude, selectedPoint.longitude);
   element('verdict').textContent = verdict
-    ? `${selectedPoint.latitude.toFixed(2)}°, ${selectedPoint.longitude.toFixed(2)}°\n${verdict.band} · ${verdict.meanScore.toFixed(1)} / 100\n${(verdict.niceDayShare * 100).toFixed(0)}% nice days · ${verdict.sampleDays} samples\nWarmth ${verdict.parts.warmth.toFixed(1)} · walk home ${verdict.parts.evening.toFixed(1)}\nRain ×${verdict.parts.rainFactor.toFixed(2)} · wind ×${verdict.parts.windFactor.toFixed(2)}\nHumidity ×${verdict.parts.humidityFactor.toFixed(2)} · sun ×${verdict.parts.sunFactor.toFixed(2)}`
+    ? `${selectedPoint.latitude.toFixed(2)}°, ${selectedPoint.longitude.toFixed(2)}°\n${verdict.band} · ${verdict.meanScore.toFixed(1)} / 100\n${(verdict.niceDayShare * 100).toFixed(0)}% nice days · ${verdict.sampleDays} samples\nWarmth ${verdict.parts.warmth.toFixed(1)} · walk home ${verdict.parts.evening.toFixed(1)}\nRain ×${verdict.parts.rainFactor.toFixed(2)} · wind ×${verdict.parts.windFactor.toFixed(2)}\nHumidity ×${verdict.parts.humidityFactor.toFixed(2)} · sun ×${verdict.parts.sunFactor.toFixed(2)}${verdict.typical ? `\n14:00 sun ${verdict.typical.feelsInSunAt14C.toFixed(1)} °C · 21:00 shade ${verdict.typical.feelsInShadeAt21C.toFixed(1)} °C\nDew point ${verdict.typical.dewPointC.toFixed(1)} °C · wind ${verdict.typical.windKmh.toFixed(1)} km/h\nRain ${verdict.typical.rainMmPerDay.toFixed(1)} mm/day · ${(verdict.typical.wetDayShare * 100).toFixed(0)}% wet days\n${(verdict.typical.sunnyShare * 100).toFixed(0)}% sunny · ${verdict.typical.daylightHours.toFixed(1)} h daylight` : ''}`
     : 'No land data here.';
 }
 for (const slider of SLIDERS) {
