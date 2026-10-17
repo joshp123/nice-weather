@@ -64,7 +64,7 @@ func mapViews(region string) []mapViewport {
 			{-161, -154, 18, 23, margin, 330, 220, 110, "HAWAII", 0},
 		}
 	case "europe":
-		return []mapViewport{{-32, 60, 26, 72, margin, top, width, height, "", Style.EastEdgeFade}}
+		return []mapViewport{{-32, 40, 26, 72, margin, top, width, height, "", Style.EastEdgeFade}}
 	default:
 		return []mapViewport{{-180, 180, -60, 84, margin, top, width, height, "", 0}}
 	}

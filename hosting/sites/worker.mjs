@@ -547,7 +547,7 @@ async function outlookPage(request, bucket, url) {
     }
   }
   const ready = outlook !== null;
-  const sentence = ready ? (forTomorrow ? outlook.sentence : outlook.sentence.replace(' tomorrow, ', ' on ')) : null;
+  const sentence = ready ? (forTomorrow ? outlook.sentence : outlook.sentence.replace(' tomorrow, ', ' on ').replace(', will be in and around ', ', in and around ')) : null;
   const image = ready ? `${url.origin}/data/${key}.png` : null;
   const fullDate = outlookDate.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const title = `${settings.name}: nice weather outlook for ${fullDate} | Nice!`;
@@ -567,7 +567,7 @@ async function outlookPage(request, bucket, url) {
       <a href="${escapeHtml(outlook.fullImage ?? image)}" download="nice-weather-${region}-${outlook.date}.png">Download image</a>
       ${explore}
     </div>
-    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Forecast from ECMWF. Dates use UTC.</p>
+    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Each winning spot is named after the largest eligible place within 50 km and five score points. Forecast from ECMWF. Dates use UTC.</p>
     <p class="status" id="copy-status" role="status"></p>
     <script>
       document.getElementById('copy-post').addEventListener('click', async () => {

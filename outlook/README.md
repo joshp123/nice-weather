@@ -20,12 +20,15 @@ The same row-major nearest land point within ±2 fine grid points supplies the
 score; sea and missing points are omitted. Rank by the published whole-number
 default score, then population, then slug. Select three at least 250 km apart.
 This deliberately resolves equal displayed scores in favour of larger places.
+Name each winning spot after the largest eligible place within 50 km whose score
+is within five points. Both winning spots and the named places stay at least
+250 km apart. The poster shows the named place’s own score and location.
 
 USA means the 50 states and Washington, DC, including Alaska and Hawaii insets.
 Europe includes European countries, Cyprus, Malta, the Canaries, Madeira and
 the Azores. Turkey is limited to Thrace, west of the Bosporus, Marmara and
 Dardanelles. Spanish cities in North Africa are excluded. The regional bounds
-(32° W–60° E, 27–72° N) exclude other overseas territories. World uses all
+(32° W–40° E, 27–72° N) exclude other overseas territories. World uses all
 eligible places. The Europe map extends south to include the Canaries and fades
 at the eastern edge. Every poster identifies a single forecast day and its date.
 

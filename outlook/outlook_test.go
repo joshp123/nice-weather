@@ -46,8 +46,9 @@ func TestEuropeanHeadlinesIncludeIslandsButExcludeAsiaAndNorthAfrica(t *testing.
 		{"Ponta Delgada", "Portugal", 37.74, -25.67, true},
 		{"Valletta", "Malta", 35.90, 14.51, true},
 		{"Nicosia", "Cyprus", 35.18, 33.36, true},
-		{"Kazan", "Russia", 55.79, 49.12, true},
-		{"Samara", "Russia", 53.2, 50.15, true},
+		{"Derbent", "Russia", 42.07, 48.29, false},
+		{"Kazan", "Russia", 55.79, 49.12, false},
+		{"Samara", "Russia", 53.2, 50.15, false},
 		{"Novosibirsk", "Russia", 55.03, 82.92, false},
 		{"Edirne", "Turkey", 41.68, 26.56, true},
 		{"Istanbul", "Turkey", 41.01, 28.95, true},
@@ -84,5 +85,37 @@ func TestWorldHeadlinesPreferLargerCitiesOnTiedScores(t *testing.T) {
 	chosen := rankPlaces(places, "world")
 	if len(chosen) != 3 || chosen[0].Name != "First" || chosen[1].Name != "Second" || chosen[2].Name != "Third" {
 		t.Fatalf("unexpected world headlines: %+v", chosen)
+	}
+}
+
+func TestWinningSuburbUsesNearbyCityWithSimilarWeather(t *testing.T) {
+	winner := Place{Name: "Pomigliano d'Arco", Population: 38921, Latitude: 40.91, Longitude: 14.39, Score: 98}
+	naples := Place{Name: "Naples", Population: 900000, Latitude: 40.85, Longitude: 14.27, Score: 93}
+	candidates := []Place{
+		winner, naples,
+		{Name: "Too cold", Population: 2000000, Latitude: 40.85, Longitude: 14.27, Score: 92},
+		{Name: "Too far", Population: 3000000, Latitude: 42, Longitude: 14.27, Score: 98},
+	}
+	if got := largestNearbyPlace(winner, candidates); got.Name != "Naples" || got.Score != 93 {
+		t.Fatalf("unexpected nearby name or city score: %+v", got)
+	}
+}
+
+func TestNearbyNamesKeepBothCitiesAndWinningSpotsSeparated(t *testing.T) {
+	places := []Place{
+		{Name: "First winner", Population: 10000, Score: 100},
+		{Name: "First city", Population: 100000, Score: 96, Longitude: .4},
+		{Name: "Second winner", Population: 10000, Score: 99, Longitude: 2.3},
+		{Name: "Second city", Population: 100000, Score: 95, Longitude: 1.9},
+		{Name: "Third", Population: 10000, Score: 98, Longitude: 10},
+		{Name: "Fourth", Population: 10000, Score: 97, Longitude: 20},
+	}
+	// Synthetic positions are on the equator: use World-sized populations.
+	for index := range places {
+		places[index].Population *= 100
+	}
+	chosen := rankPlaces(places, "world")
+	if len(chosen) != 3 || chosen[0].Name != "First city" || chosen[1].Name != "Third" || chosen[2].Name != "Fourth" {
+		t.Fatalf("nearby city names lost separation: %+v", chosen)
 	}
 }

@@ -25,6 +25,8 @@ import (
 const gridWidth, gridHeight = 1440, 721
 const minimumPopulation = 10000
 const minimumSeparationKM = 250
+const nearbyNameRadiusKM = 50
+const nearbyNameScoreDifference = 5
 
 type Pointer struct {
 	Run       string `json:"run"`
@@ -129,7 +131,7 @@ func Generate(ctx context.Context, source, placesSource, out string, now time.Ti
 		}
 		base := fmt.Sprintf("/data/v6/forecast/%s/outlook/%s", pointer.Run, region.ID)
 		outlook := Outlook{MinimumPopulation: populationThreshold(region.ID), Region: region.ID, Title: region.Title, Date: tomorrow.Format("2006-01-02"), Run: pointer.Run, Day: day, Places: chosen, Image: base + ".png", FullImage: base + "-full.png"}
-		outlook.Sentence = fmt.Sprintf("The nicest weather in %s tomorrow, %s: %s, %s and %s.", region.SentenceName, tomorrow.Format("Monday 2 January"), chosen[0].Name, chosen[1].Name, chosen[2].Name)
+		outlook.Sentence = fmt.Sprintf("The nicest weather in %s tomorrow, %s, will be in and around %s, %s and %s.", region.SentenceName, tomorrow.Format("Monday 2 January"), chosen[0].Name, chosen[1].Name, chosen[2].Name)
 		if err = posters.write(directory, outlook, scores); err != nil {
 			return nil, err
 		}
@@ -280,7 +282,7 @@ func inRegion(place Place, region string) bool {
 	case "usa":
 		return country == "United States" && (place.Latitude >= 24 && place.Latitude <= 72 && place.Longitude >= -180 && place.Longitude <= -66 || place.Latitude >= 18 && place.Latitude <= 23 && place.Longitude >= -161 && place.Longitude <= -154)
 	case "europe":
-		if place.Latitude < 27 || place.Latitude > 72 || place.Longitude < -32 || place.Longitude > 60 {
+		if place.Latitude < 27 || place.Latitude > 72 || place.Longitude < -32 || place.Longitude > 40 {
 			return false
 		}
 		if country == "Turkey" {
@@ -344,23 +346,38 @@ func rankPlaces(places []Place, region string) []Place {
 		}
 		return a.Slug < b.Slug
 	})
-	var chosen []Place
+	var chosen, winningSpots []Place
 	for _, candidate := range candidates {
+		namedPlace := largestNearbyPlace(candidate, candidates)
 		separate := true
-		for _, place := range chosen {
-			if distanceKM(candidate, place) < minimumSeparationKM {
+		for index, place := range chosen {
+			if distanceKM(candidate, winningSpots[index]) < minimumSeparationKM || distanceKM(namedPlace, place) < minimumSeparationKM {
 				separate = false
 				break
 			}
 		}
 		if separate {
-			chosen = append(chosen, candidate)
+			chosen = append(chosen, namedPlace)
+			winningSpots = append(winningSpots, candidate)
 		}
 		if len(chosen) == 3 {
 			break
 		}
 	}
 	return chosen
+}
+
+func largestNearbyPlace(winner Place, candidates []Place) Place {
+	name := winner
+	for _, candidate := range candidates {
+		if math.Abs(float64(candidate.Score-winner.Score)) > nearbyNameScoreDifference || distanceKM(winner, candidate) > nearbyNameRadiusKM {
+			continue
+		}
+		if candidate.Population > name.Population || candidate.Population == name.Population && candidate.Slug < name.Slug {
+			name = candidate
+		}
+	}
+	return name
 }
 
 func distanceKM(a, b Place) float64 {
