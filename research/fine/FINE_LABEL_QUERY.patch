@@ -1,0 +1,39 @@
+--- a/src/engine/weatherEngine.ts
++++ b/src/engine/weatherEngine.ts
+@@ -59,6 +59,8 @@
+   private pending: PendingFrame[] = [];
+   private destroyed = false;
+   private landColour: number[];
++  private renderedLabelSlugs = new Set<string>();
++  private labelQueryPending = false;
+ 
+   constructor(private map: MapLibreMap, private options: EngineOptions) {
+     this.landColour = premultipliedRgba(`${getComputedStyle(document.documentElement).getPropertyValue('--map-land').trim()}ff`);
+@@ -205,10 +207,26 @@
+   private fineCandidates(points: readonly Point[], all = false): Set<number> {
+     if (this.loadState || this.destroyed) return new Set();
+     const bounds = this.map.getBounds();
+-    const labelSlugs = new Set(all ? [] : this.map.queryRenderedFeatures({ layers: ['city-labels'] }).map(feature => String(feature.properties?.slug)));
++    const labelSlugs = all ? new Set<string>() : this.fineLabelSlugs();
+     return finePlaceCandidates(points, this.overviewScores(points), {
+       west: all ? -180 : bounds.getWest(), east: all ? 180 : bounds.getEast(), south: all ? -90 : bounds.getSouth(), north: all ? 90 : bounds.getNorth(), labelSlugs,
+     });
++  }
++
++  private fineLabelSlugs(): Set<string> {
++    if (!this.labelQueryPending) {
++      this.labelQueryPending = true;
++      this.map.once('idle', () => {
++        this.labelQueryPending = false;
++        if (this.destroyed) return;
++        const slugs = new Set(this.map.queryRenderedFeatures({ layers: ['city-labels'] }).map(feature => String(feature.properties?.slug)));
++        if (slugs.size === this.renderedLabelSlugs.size && [...slugs].every(slug => this.renderedLabelSlugs.has(slug))) return;
++        this.renderedLabelSlugs = slugs;
++        this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
++      });
++      this.map.triggerRepaint();
++    }
++    return this.renderedLabelSlugs;
+   }
+ 
+   private overviewScores(points: readonly Point[]): Float32Array {
