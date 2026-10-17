@@ -124,7 +124,7 @@ coverage is separate from this older forecast mask.
 To render fresh posters and verify their actual named winners:
 
 ```sh
-RENDER="$SSD/fine-validation/b1-worldwide/outlook-refresh/spatial-render"
+RENDER="$SSD/fine-validation/b1-worldwide/outlook-refresh/ranking-render"
 POSTERS="$RENDER/v6/forecast/20261017T0000Z/outlook"
 go run ./tools/outlook --source "$SSD" --places-source ./artifacts \
   --static-source "$SSD/v6" --out "$RENDER" --today 2026-10-17
@@ -134,13 +134,20 @@ node research/fine/outlook/verify_posters.mjs "$POSTERS" \
   "$RENDER/app-parity/expected.jsonl" "$RENDER/poster-number-parity.json"
 ```
 
-Fresh posters were rendered with these commands using the new
-`scores-typical-day-*` filenames. Their nine named winners' displayed
-scores match the actual Worker and app. All three preview images were opened
-and inspected. The changed spatial model changes the world winners to
-Tijuana, Harare and Osaka; Europe remains Sassari, Naples and Lisbon; the USA
-becomes San Diego, Lake Havasu City and Fresno. These are retained 18 October
-forecast results, not current live recommendations.
+Fresh posters were rendered again after the interface worker changed outlook
+ranking to favour nice days and recognised city size. The runner uses the new
+`scores-typical-day-*` filenames. The world winners are Lahore, Delhi and Tokyo;
+Europe is Rome, Palermo and Lisbon; the USA is Los Angeles, Houston and San
+Antonio. These are retained 18 October forecast results, not current live
+recommendations.
+
+All nine winners' displayed scores, unrounded scores and day counts match
+shared JavaScript. Their 36 app/Worker judgements cover tomorrow and the
+fortnight at default and non-default tastes: scores, counts and bands match
+exactly; the largest remaining numeric difference is `5.69e-14`. All three
+preview images were opened and inspected. Evidence is in the `ranking-render`
+folder above. The ranking change did not change the place judgement function;
+the 397-place arithmetic proofs remain applicable.
 
 `sampling-shared.patch` is an **unapplied** minimal import/averaging hook for
 `src/engine/sampling.ts`. The measured browser results above use its unchanged
@@ -153,5 +160,5 @@ change, including the independent NWFP binary decoder. Each still passed all
 
 The prepared Linux amd64 runner and refreshed instructions/notices remain in
 `$SSD/fine-runner-b1-20261018/`. Its manifest records exact sizes and SHA-256
-hashes of the five upload files and 28 local build inputs. Nothing was uploaded
+hashes of the five upload files and 29 local build inputs. Nothing was uploaded
 or deployed.
