@@ -1,8 +1,10 @@
 Nice Weather fine temperature data
 
-This derived temperature dataset is licensed under Creative Commons
-Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+The derived weather values and temperature-source properties are licensed under
+Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
 https://creativecommons.org/licenses/by-sa/4.0/
+The publication is a collection with separately licensed geographic properties;
+the entire NWFT tile is not offered under one blanket CC BY-SA licence.
 
 WorldClim version 1.4 historical climate data, Hijmans et al. (2005),
 International Journal of Climatology 25:1965–1978.
@@ -36,10 +38,27 @@ resampling, quantization and tiling. Step A uses a uniform hourly air shift.
 The fine high/low dataset supports independent high/low corrections with an
 ordered-day exception. Build metadata records the exact sources and dates.
 
-This licence covers the derived data, not the Nice Weather application code.
+This weather-data licence does not cover the Nice Weather application code.
 No endorsement by any source provider is implied.
 Land support includes Natural Earth public-domain land polygons.
 https://www.naturalearthdata.com/about/terms-of-use/
+
+30 arc-second polygon-land membership: © OpenStreetMap contributors.
+Contains information from OpenStreetMap, available under the Open Database
+License 1.0 (ODbL), via the OSM land-polygons download service.
+https://osmdata.openstreetmap.de/data/land-polygons.html
+https://www.openstreetmap.org/copyright
+https://opendatacommons.org/licenses/odbl/1-0/
+Changes: polygon rasterization to the regular 30 arc-second grid, retaining
+every touched pixel; combination with public-domain Natural Earth polygons.
+The pure OSM membership mask and union polygon-membership mask are separately
+offered under ODbL; the build manifest records their paths, provenance and hashes.
+NWFT support bit 5 (value 32), the union polygon membership, is ODbL.
+Weather values, source selection and source-validity properties are independent
+non-OSM properties. NWFT bits 6 and 7 record WorldClim/PRISM source validity,
+not OSM coastlines. Their weather-data licence remains CC BY-SA 4.0.
+The ODbL membership notice also applies to that geographic property when stored
+alongside weather values; file co-location does not replace component licences.
 
 Local-clock timezone lookup: contains information from timezone-boundary-builder,
 processed by timezonefinder, and © OpenStreetMap contributors, available under
