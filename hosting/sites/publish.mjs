@@ -1,7 +1,6 @@
 // Written by AI on 2026.10.16 by model claude opus 5.5.
 // Uploads weather files to the Site's storage through the Worker.
 //
-//   node publish.mjs forecast <artifacts dir> <site url>   newest forecast run, then its pointer, then prunes old runs
 //   node publish.mjs files <artifacts dir> <site url> <key>...   any other files, e.g. places.tsv or climate/
 //
 // The publish token (the Site secret WEATHER_PUBLISH_TOKEN) is read from the
@@ -12,8 +11,8 @@ import { gzipSync } from 'node:zlib';
 
 const [mode, artifacts, site, ...keys] = process.argv.slice(2);
 const token = process.env.NICE_WEATHER_PUBLISH_TOKEN;
-if (!token || !artifacts || !site || !['forecast', 'files'].includes(mode)) {
-  console.error('usage: NICE_WEATHER_PUBLISH_TOKEN=... node publish.mjs forecast|files <artifacts dir> <site url> [keys...]');
+if (!token || !artifacts || !site || mode !== 'files' || !keys.length) {
+  console.error('usage: NICE_WEATHER_PUBLISH_TOKEN=... node publish.mjs files <artifacts dir> <site url> [keys...]');
   process.exit(2);
 }
 const authorisation = { Authorization: `Bearer ${token}` };
@@ -49,20 +48,4 @@ async function uploadAll(paths) {
   console.log(`uploaded ${paths.length} files, ${(bytes / 1048576).toFixed(1)} MiB in ${((Date.now() - started) / 1000).toFixed(0)} s`);
 }
 
-if (mode === 'files') {
-  await uploadAll((await Promise.all(keys.map((key) => filesUnder(join(artifacts, key))))).flat());
-} else {
-  const runs = (await readdir(join(artifacts, 'forecast'), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  const runId = runs.at(-1);
-  const manifest = JSON.parse(await readFile(join(artifacts, 'forecast', runId, 'manifest.json'), 'utf8'));
-  const live = await fetch(new URL('/data/forecast/current.json', site)).then((response) => (response.ok ? response.json() : null)).catch(() => null);
-  if (live?.runId === runId) {
-    console.log(`forecast ${runId} is already live`);
-  } else {
-    await uploadAll(await filesUnder(join(artifacts, 'forecast', runId)));
-    // The pointer goes last, so visitors never see a run whose files are still uploading.
-    await upload('forecast/current.json', JSON.stringify({ ...manifest, runId, previousRunId: live?.runId ?? null }));
-    const pruned = await fetch(new URL('/__prune', site), { method: 'POST', headers: authorisation }).then((response) => response.json());
-    console.log(`forecast ${runId} is live; removed ${pruned.removed} old files`);
-  }
-}
+await uploadAll((await Promise.all(keys.map((key) => filesUnder(join(artifacts, key))))).flat());

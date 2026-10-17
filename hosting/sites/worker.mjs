@@ -61,16 +61,13 @@ function loadPlaces(bucket) {
   placesPromise ??= (async () => {
     const text = await (await bucket.get('places.tsv')).text();
     const places = text.split('\n').map((line) => {
-      const [name, plainName, region, latitude, longitude, population, geonamesPlainName = plainName, searchAliases = '', linkAliases = ''] = line.split('\t');
+      const [name, plainName, region, latitude, longitude, population, geonamesPlainName = plainName, searchAliases = ''] = line.split('\t');
       const keys = [...new Set([plainName, geonamesPlainName, ...searchAliases.split('|')].filter(Boolean).map(normalise))];
-      return { name, keys, aliases: linkAliases.split('|').filter(Boolean), slug: slugFor(plainName, region), oldSlug: oldSlugFor(geonamesPlainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
+      return { name, keys, slug: slugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
     });
     const bySlug = new Map();
-    const byOldSlug = new Map();
     for (const place of [...places].sort((left, right) => right.population - left.population)) {
       if (!bySlug.has(place.slug)) bySlug.set(place.slug, place);
-      if (!byOldSlug.has(place.oldSlug)) byOldSlug.set(place.oldSlug, place);
-      for (const alias of place.aliases) if (!byOldSlug.has(alias)) byOldSlug.set(alias, place);
     }
     const byFirstLetters = new Map();
     for (const place of places) {
@@ -85,19 +82,16 @@ function loadPlaces(bucket) {
       if (!byDegree.has(key)) byDegree.set(key, []);
       byDegree.get(key).push(place);
     }
-    return { places, byDegree, bySlug, byOldSlug, byFirstLetters };
+    return { places, byDegree, bySlug, byFirstLetters };
   })();
   return placesPromise;
 }
 
 const normalise = (text) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const kebab = (text) => normalise(text).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-/** "Lisbon" in "Lisbon, Portugal" -> "lisbon-portugal": the place and its country, as a readable URL path. */
 const countryOf = (region) => kebab(region.split(',').pop() ?? '');
 /** "Chania" in "Crete, Greece" -> "greece/chania": the country, then the place, as a readable URL path. */
 const slugFor = (plainName, region) => `${countryOf(region)}/${kebab(plainName)}`;
-/** The first link form, "chania-greece", which shared links may still use. */
-const oldSlugFor = (plainName, region) => `${kebab(plainName)}-${countryOf(region)}`.replace(/-$/, '');
 
 function kilometres(latitudeA, longitudeA, latitudeB, longitudeB) {
   const radians = Math.PI / 180;
@@ -263,8 +257,7 @@ function periodFromWord(word) {
   return null;
 }
 
-/** What a path shows: { place, period }, { redirect } for the old link form, or null for an unknown path.
- *  Paths: /, /<period>, /<country>/<city>[/<period>], /@<lat>,<lon>[,<zoom>z][/<period>]; old: /<city>-<country>[/<period>]. */
+/** A place and period, or null for an unknown path. */
 async function viewFromPath(bucket, pathname) {
   const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts.length > 3) return null;
@@ -277,11 +270,7 @@ async function viewFromPath(bucket, pathname) {
     return { place: { ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude }, period };
   }
   if (parts.length === 1 && periodFromWord(parts[0])) return { place: null, period: periodFromWord(parts[0]) };
-  const { bySlug, byOldSlug } = await loadPlaces(bucket);
-  const old = byOldSlug.get(parts[0]);
-  if (old && parts.length <= 2 && (!parts[1] || periodFromWord(parts[1]))) return { redirect: `/${old.slug}${parts[1] ? `/${parts[1]}` : ''}` };
-  const nestedAlias = parts.length >= 2 ? byOldSlug.get(`${parts[0]}/${parts[1]}`) : null;
-  if (nestedAlias && (!parts[2] || periodFromWord(parts[2]))) return { redirect: `/${nestedAlias.slug}${parts[2] ? `/${parts[2]}` : ''}` };
+  const { bySlug } = await loadPlaces(bucket);
   const place = parts.length >= 2 ? bySlug.get(`${parts[0]}/${parts[1]}`) : null;
   if (!place) return null;
   const period = parts[2] ? periodFromWord(parts[2]) : null;
@@ -372,22 +361,22 @@ async function serveData(request, bucket, key) {
   });
 }
 
-/** Removes forecast runs that are neither the current nor the previous run, for the old and the v6 forecast. */
+/** Removes forecast runs that are neither the current nor the previous run. */
 async function prune(bucket) {
+  const prefix = 'v6/forecast/';
+  const pointer = `${prefix}current.json`;
+  const index = await cachedJson(bucket, pointer, 0);
+  if (!index) return json({ removed: 0 });
+  const keep = [index.run, index.previousRun].filter(Boolean).map((run) => `${prefix}${run}/`);
   let removed = 0;
-  for (const [prefix, pointer, current, previous] of [['forecast/', 'forecast/current.json', 'runId', 'previousRunId'], ['v6/forecast/', 'v6/forecast/current.json', 'run', 'previousRun']]) {
-    const index = await cachedJson(bucket, pointer, 0);
-    if (!index) continue;
-    const keep = [index[current], index[previous]].filter(Boolean).map((run) => `${prefix}${run}/`);
-    let cursor;
-    do {
-      const page = await bucket.list({ prefix, cursor, limit: 1000 });
-      const expired = page.objects.map((object) => object.key).filter((key) => key !== pointer && !keep.some((kept) => key.startsWith(kept)));
-      if (expired.length) await bucket.delete(expired);
-      removed += expired.length;
-      cursor = page.truncated ? page.cursor : undefined;
-    } while (cursor);
-  }
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix, cursor, limit: 1000 });
+    const expired = page.objects.map((object) => object.key).filter((key) => key !== pointer && !keep.some((kept) => key.startsWith(kept)));
+    if (expired.length) await bucket.delete(expired);
+    removed += expired.length;
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
   return json({ removed });
 }
 
@@ -402,9 +391,23 @@ export async function handleRequest(request, env, serveAsset) {
     const forecastPublisher = env.WEATHER_PUBLISH_TOKEN && await isForecastPublisher(request, env);
     if (!ownerPublisher && !forecastPublisher) return new Response('Not found', { status: 404 });
     if (url.pathname === '/__prune' && request.method === 'POST') return prune(bucket);
-    if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
     const key = url.pathname.slice('/__publish/'.length);
-    if (forecastPublisher && !key.startsWith('forecast/') && !key.startsWith('v6/forecast/')) return new Response('Not found', { status: 404 });
+    if (ownerPublisher && request.method === 'DELETE' && key) {
+      let removed = 0;
+      let bytes = 0;
+      let cursor;
+      do {
+        const page = await bucket.list({ prefix: key, cursor, limit: 1000 });
+        if (page.objects.length) await bucket.delete(page.objects.map((object) => object.key));
+        removed += page.objects.length;
+        bytes += page.objects.reduce((sum, object) => sum + object.size, 0);
+        cursor = page.truncated ? page.cursor : undefined;
+      } while (cursor);
+      memo.clear();
+      return json({ removed, bytes });
+    }
+    if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
+    if (forecastPublisher && !key.startsWith('v6/forecast/')) return new Response('Not found', { status: 404 });
     const body = request.headers.get('Content-Encoding') === 'gzip'
       ? await new Response(request.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
       : request.body;
@@ -437,9 +440,8 @@ export async function handleRequest(request, env, serveAsset) {
   const isAppPath = (url.pathname.startsWith('/@') || !/\.[a-z0-9]+$/i.test(url.pathname)) && !url.pathname.startsWith('/api/');
   if (isAppPath && url.pathname !== '/method') {
     const view = await viewFromPath(bucket, url.pathname);
-    if (view?.redirect) return Response.redirect(`${url.origin}${view.redirect}${url.search}`, 301);
     const page = await serveAsset('/index.html', request);
-    if (request.method === 'HEAD') return page;
+    if (request.method === 'HEAD') return new Response(null, { status: view ? page.status : 404, headers: page.headers });
     const html = await page.text();
     if (!view) return new Response(withPreview(html, await previewFor(bucket, url.origin, '/', { place: null, period: null })), { status: 404, headers: page.headers });
     return new Response(withPreview(html, await previewFor(bucket, url.origin, url.pathname, view)), { headers: page.headers });

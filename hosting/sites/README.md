@@ -1,62 +1,29 @@
-Written by AI (GPT-6 Astra), 2026-10-12.
+Written by AI (GPT-6.1 Sol), 2026-10-17.
 
-Nice Weather uses the existing owner-private ChatGPT Sites project at
-`https://nice-weather.jjpcodes.chatgpt.site`. Hosting and artifact storage use
-Sites-managed included features; no personal Cloudflare account or paid plan is
-connected. The project reports `requires_byop: false`.
+# Sites hosting
 
-The Worker contains the exact frontend build. Sites-managed R2 stores immutable
-weather artifacts. GET, HEAD, conditional requests and single byte ranges retain
-the Go server's content types and cache policy. The data pipeline runs elsewhere;
-Sites does not acquire or score weather.
+Nice Weather is public at <https://nice.jjpcodes.com>. The project and storage binding are in [.openai/hosting.json](.openai/hosting.json). Sites hosts the Worker, its embedded Vite build and the weather files. No paid hosting service is used.
 
-Build from the repository's declared runtime:
+Build and package from a clean checkout of the committed product:
 
 ```sh
 devenv shell -- npm run build
 devenv shell -- node hosting/sites/build.mjs dist /path/to/sites-source-checkout
 ```
 
-Use the Sites skill's source-repository helper to push this exact generated
-checkout and package its `dist`, then save and deploy that source revision. The
-project ID and R2 binding are in `.openai/hosting.json` beside the hosting scripts.
+Use the Sites skill's source helper to open the existing Site source, commit and upload the generated Worker, and package its `dist`. Save and deploy that exact source revision, preserving the public audience.
 
-Publish data without republishing the frontend:
+The Worker serves the app, place search, place details and link previews. `/data/` reads Sites storage. Place paths are `/country/city[/period]`; unknown paths return HTTP 404.
 
-```sh
-devenv shell -- node hosting/sites/publish.mjs artifacts https://nice-weather.jjpcodes.chatgpt.site
-```
+The daily [forecast runner](refresh.md) writes only `v6/forecast/`. Its temporary owner-issued grant can upload that prefix and prune forecast runs other than the current and previous runs. Data files upload before `current.json`.
 
-The publisher reads `publishToken` and `siteAccessToken` as JSON from hidden stdin.
-The first matches the Sites runtime secret `WEATHER_PUBLISH_TOKEN`; the second is
-the Site's supported service-access credential. Store neither in source. It sends
-only active forecast, place, shortlist and accepted ERA5 climate releases. It
-resumes immutable files by SHA-256 and writes pointers after all files succeed.
-After successful publication, an authenticated pruning request retains the
-forecast pointer's current and previous runs and their shortlists. Older generated
-forecast files are removed from Sites storage and local publication storage;
-each pass reports reclaimed runs, files and bytes. Places and accepted climate
-evidence are kept independently.
-
-The optional `nice.jjpcodes.com` binding and its three DNS records were removed
-because Route53 charges for public queries. The existing DNS zone remains under
-`/Users/josh/code/opentofu-infra/websites/jjpcodes.com`.
-Forecast scheduling belongs to the existing `mini-server-1` Nix host: one outbound
-daily job runs `forecast-world`, then this publisher. No website listener runs on
-the host. The first complete acquisition, forecast build and Sites publication
-succeeded on 2026-10-12.
-
-The Linux job uses a compiled binary and this publisher script. Source stays in
-this repository. Update them after accepting the source and forecast contract:
+For climate, places and runner uploads:
 
 ```sh
-devenv shell -- env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o .cache/niceweather-linux ./cmd/niceweather
-scp .cache/niceweather-linux root@mini-server-1:/var/lib/nice-weather-finder/bin/niceweather.next
-scp hosting/sites/publish.mjs root@mini-server-1:/var/lib/nice-weather-finder/publish.mjs.next
-ssh root@mini-server-1 'chown nice-weather:nice-weather /var/lib/nice-weather-finder/bin/niceweather.next /var/lib/nice-weather-finder/publish.mjs.next; chmod 0755 /var/lib/nice-weather-finder/bin/niceweather.next; chmod 0644 /var/lib/nice-weather-finder/publish.mjs.next; mv /var/lib/nice-weather-finder/bin/niceweather.next /var/lib/nice-weather-finder/bin/niceweather; mv /var/lib/nice-weather-finder/publish.mjs.next /var/lib/nice-weather-finder/publish.mjs'
+NICE_WEATHER_PUBLISH_TOKEN=… node hosting/sites/publish.mjs files artifacts https://nice.jjpcodes.com v6 places.tsv
+NICE_WEATHER_PUBLISH_TOKEN=… node hosting/sites/publish.mjs files artifacts https://nice.jjpcodes.com runner
 ```
 
-Nix declares Node, GDAL and ecCodes and loads the sealed publishing credential
-outside the Nix store. Runtime artifacts, source caches and staging files live
-under `/var/lib/nice-weather-finder`. The daily timer is enabled at 21:30 UTC;
-missed scheduled runs resume when the host returns.
+The publisher credential is supplied privately through the environment at use time. Never store it in the repository or a command argument. The Worker's owner-only `DELETE /__publish/<prefix>` removes objects under a storage prefix and reports the removed file and byte counts; forecast grants cannot delete arbitrary prefixes.
+
+`npm run serve` runs this Worker locally on port 5198, with `artifacts/` as storage and `dist/` as web assets. Local serving does not delete forecast files.

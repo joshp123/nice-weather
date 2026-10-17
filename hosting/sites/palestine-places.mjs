@@ -66,17 +66,13 @@ export const GOLAN_PLACES = new Map([
   ['443093', 'Qasrin'], // https://www.geonames.org/443093/
 ]);
 
-const kebab = text => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 export function applyPlaceNames(place, geonames) {
   const [id, , geonamesPlainName, , , , , , countryCode] = geonames;
   if (countryCode !== 'IL' && countryCode !== 'PS') return place;
   const name = GOLAN_PLACES.get(id) ?? PALESTINE_PLACES.get(id);
   if (!name) return null;
-  const oldCountry = kebab(place.region.split(',').pop());
   const oldNames = [...new Set([place.plainName, geonamesPlainName])];
-  const aliases = oldNames.flatMap(oldName => [`${oldCountry}/${kebab(oldName)}`, `${kebab(oldName)}-${oldCountry}`]);
-  if (id === '293397') aliases.push('israel/jaffa', 'jaffa-israel');
   return { ...place, name, plainName: name, region: GOLAN_PLACES.has(id) ? 'Syria' : 'Palestine',
     searchAliases: [...oldNames, ...(id === '293397' ? ['Jaffa', 'Tel Aviv-Yafo'] : [])].join('|'),
-    linkAliases: aliases.join('|'), geonamesId: id, countryCode: GOLAN_PLACES.has(id) ? 'SY' : 'PS' };
+    geonamesId: id, countryCode: GOLAN_PLACES.has(id) ? 'SY' : 'PS' };
 }
