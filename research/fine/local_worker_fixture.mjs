@@ -23,6 +23,9 @@ export function localWorkerFixture(overlay, finePointer) {
     return {size,httpEtag:`"${size}"`,body:new Blob([bytes]).stream(),
       arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),
       text:async()=>bytes.toString('utf8'),json:async()=>JSON.parse(bytes.toString('utf8'))};
+  },async head(key) {
+    const object=await this.get(key);
+    return object?{size:object.size,httpEtag:object.httpEtag}:null;
   }};
   const serveAsset=async pathname=> {
     const candidate=path.extname(pathname)?pathname.slice(1):pathname==='/'?'index.html':`${pathname.slice(1)}.html`;
