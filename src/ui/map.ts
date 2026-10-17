@@ -21,7 +21,7 @@ function mapDesign() {
     chosenSize: number('chosen-size'), chosenOffset: number('chosen-offset'), chosenHalo: number('chosen-halo'),
     countMinimumWidth: number('count-minimum-width'), countPadding: number('count-padding'), countCharacterWidth: number('count-character-width'), countHeight: number('count-height'), countFontSize: number('count-font-size'), countStroke: number('count-stroke'), countOutline: colour('count-outline'), countTextLow: colour('count-text-low'), countTextHigh: colour('count-text-high'),
     ringSize: number('ring-size'), ringRadius: number('ring-radius'), ringOutlineWidth: number('ring-outline-width'), ringStrokeWidth: number('ring-stroke-width'), ringOutline: colour('ring-outline'), ringStroke: colour('ring-stroke'),
-    showWholeWorld: number('show-whole-world'), worldSouth: number('world-south'), worldNorth: number('world-north'),
+    showWholeWorld: number('show-whole-world'), wideLongitude: number('wide-longitude'), wideLatitude: number('wide-latitude'), wideZoom: number('wide-zoom'),
   };
 }
 type MapDesign = ReturnType<typeof mapDesign>;
@@ -145,7 +145,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   });
   map.touchZoomRotate.disableRotation();
   if (!camera) {
-    if (design.showWholeWorld === 1) map.fitBounds([[-180, design.worldSouth], [180, design.worldNorth]], { animate: false });
+    if (design.showWholeWorld === 1) map.jumpTo({ center: [design.wideLongitude, design.wideLatitude], zoom: design.wideZoom });
     else map.fitBounds([[-125, -45], [150, 62]], { animate: false });
   }
 

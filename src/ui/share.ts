@@ -95,6 +95,8 @@ export async function drawShareCard(width: number, height: number, context: Shar
   draw.save();
   draw.beginPath();
   draw.roundRect(mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height, parseFloat(getComputedStyle(context.map.getContainer()).borderRadius) * width / bounds.width); draw.clip();
+  draw.fillStyle = getComputedStyle(context.map.getContainer()).backgroundColor;
+  draw.fillRect(mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height);
   draw.drawImage(mapImage, mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height);
   draw.restore();
   draw.drawImage(bitmap, 0, 0, width, height);

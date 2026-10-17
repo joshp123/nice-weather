@@ -50,7 +50,7 @@
   --map-count-minimum-width: 24; --map-count-padding: 14; --map-count-character-width: 8; --map-count-height: 23; --map-count-font-size: 13; --map-count-stroke: .75;
   --map-count-outline: #ffffff80; --map-count-text-low: #fff; --map-count-text-high: #000;
   --map-ring-size: 44; --map-ring-radius: 12; --map-ring-outline-width: 9; --map-ring-stroke-width: 5; --map-ring-outline: #00000073; --map-ring-stroke: #fff;
-  --map-show-whole-world: 0; --map-world-south: -50; --map-world-north: 65;
+  --map-show-whole-world: 0; --map-wide-longitude: 5; --map-wide-latitude: 12; --map-wide-zoom: 2.5;
 }
 @media (prefers-color-scheme: light) {
   :root { --map-land: #d5d9df; --map-sea: #fbf9f4; --map-state-border: #14182017; --map-country-border: #1418203b; --map-label: #15181d; --map-label-halo: #fffffff0; --map-count-outline: #0000004d; }
