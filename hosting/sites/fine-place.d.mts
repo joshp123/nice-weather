@@ -8,7 +8,8 @@ export type FineReplay = Readonly<{
   sunC:readonly number[];shadeC:readonly number[];rainMm:readonly number[];windKmh:readonly number[];
   sunnyHours:readonly number[];daylightHours:readonly number[];dewMeanC:readonly number[];selectedIndices:readonly number[];
 }>;
-export type FinePacket = Readonly<{replay:FineReplay;corrections:readonly (readonly [number,number])[];pixel:FinePixel;status:string}>;
+export type FineEveningModel = 'ordered'|'uniform'|'native';
+export type FinePacket = Readonly<{replay:FineReplay;corrections:readonly (readonly [number,number])[];pixel:FinePixel;status:string;eveningModel?:FineEveningModel}>;
 export type FineVerdict = PointVerdict & Readonly<{score:number;pixel:FinePixel;resolutionArcSeconds:30;status:string}>;
 export type FineMonth = Readonly<{month:number;highC:number;feelsAt21C:number;dewPointC:number;wetDaysPercent:number;sunnyPercent:number;windKmh:number;score:number;niceDayShare:number}>;
 export const DEFAULT_FINE_TASTE: Taste;

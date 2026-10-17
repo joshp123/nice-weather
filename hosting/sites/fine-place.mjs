@@ -19,6 +19,12 @@ function curve(points,value) {
   return points.at(-1)[1];
 }
 const vapour = temperature => 6.105*Math.exp(17.27*temperature/(237.7+temperature));
+function eveningModelFor(current,manifest) {
+  if(current.eveningModel&&manifest.eveningModel&&current.eveningModel!==manifest.eveningModel)throw new Error('Fine evening models differ');
+  const model=current.eveningModel??manifest.eveningModel??'ordered';
+  if(!['ordered','uniform','native'].includes(model))throw new Error('Fine evening model is invalid');
+  return model;
+}
 export function finePixel(latitude,longitude) {
   if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||latitude<-90||latitude>90)throw new RangeError('Invalid fine-pixel coordinates');
   return {row:Math.min(21599,Math.floor((90-latitude)*120)),column:Math.floor(wrap(longitude+180,360)*120)};
@@ -41,7 +47,9 @@ function correctedDay(packet,index) {
   const sun=[],shade=[],air=[];let cappedDewSum=0,nativeDewSum=0;
   for(let hour=0;hour<12;hour++) {
     const at=index*12+hour,nativeAir=replay.airC[at],dew=replay.dewC[at];
-    const delta=ordered?lowOffset+(highOffset-lowOffset)*(nativeAir-low)/range:(highOffset+lowOffset)/2;
+    let delta=ordered?lowOffset+(highOffset-lowOffset)*(nativeAir-low)/range:(highOffset+lowOffset)/2;
+    if(hour===11&&packet.eveningModel==='uniform')delta=(highOffset+lowOffset)/2;
+    if(hour===11&&packet.eveningModel==='native')delta=0;
     air.push(nativeAir+delta);cappedDewSum+=Math.min(dew,nativeAir+delta);nativeDewSum+=dew;
     const feltDelta=delta+.33*(vapour(Math.min(dew,nativeAir+delta))-vapour(Math.min(dew,nativeAir)));
     sun.push(replay.sunC[at]+feltDelta);shade.push(replay.shadeC[at]+feltDelta);
@@ -114,6 +122,7 @@ export function createFinePlaceLoader(readBytes) {
       const current=await pointer();if(!current)return null;
       const pixel=finePixel(latitude,longitude),fineIndex=nativeFineIndex(90-(pixel.row+.5)/120,-180+(pixel.column+.5)/120),manifest=await json(`${current.nativeRoot}/manifest.json`);
       if(!manifest)throw new Error('Fine replay manifest is missing');
+      const eveningModel=eveningModelFor(current,manifest);
       if(manifest.nativeFineIndices&&!manifest.nativeFineIndices.includes(fineIndex))return null;
       const replay=await json(`${current.nativeRoot}/native/${fineIndex}.json.gz`);if(!replay)return null;
       if(replay.fineIndex!==fineIndex)throw new Error('Fine replay native-point address mismatch');
@@ -135,7 +144,7 @@ export function createFinePlaceLoader(readBytes) {
         return high===-32768||low===-32768?null:[high/10,low/10];
       }));
       if(corrections.some(value=>value===null))return null;
-      return {replay,corrections,pixel,status:current.status};
+      return {replay,corrections,pixel,status:current.status,eveningModel};
     }
   };
   return loader;
