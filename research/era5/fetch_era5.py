@@ -35,7 +35,13 @@ def work(args):
         path = folder / f'r{r:02d}c{c:03d}.npz'
         if path.exists(): continue
         rows, cols = slice(r * 12, min(r * 12 + 12, 721)), slice(c * 12, c * 12 + 12)
-        arrays = {name: convert(group[name][start:start + HOURS, rows, cols]).astype(np.float16) for name, convert in FIELDS.items()}
+        for attempt in range(6):  # the connection drops now and then; a tile is worth retrying
+            try:
+                arrays = {name: convert(group[name][start:start + HOURS, rows, cols]).astype(np.float16) for name, convert in FIELDS.items()}
+                break
+            except Exception as error:
+                if attempt == 5: raise
+                print(f'retrying r{r}c{c} after {type(error).__name__}', flush=True); time.sleep(10 * (attempt + 1))
         tmp = path.with_suffix('.partial.npz'); np.savez_compressed(tmp, **arrays); os.replace(tmp, path)
     return len(tiles)
 
