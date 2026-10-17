@@ -16,6 +16,8 @@ import { DEFAULT_SLIDERS, buildLink, loadSavedView, parseLink, saveView, sliders
 import { createTastePanel } from './ui/taste';
 import { renderTimeBar } from './ui/timebar';
 
+// Shared links and share cards always point at the live site, also when made from a local copy.
+const PUBLIC_ORIGIN = 'https://nice.jjpcodes.com';
 const parameters = new URLSearchParams(location.search);
 const dataUrl = parameters.get('data') ?? '/data/v6';
 const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -193,7 +195,7 @@ tasteSlot.append(tastePanel.element);
 searchSlot.append(createSearch(actions));
 
 function shareContext(): ShareContext {
-  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, link: new URL(buildLink(state, map.getZoom()), location.origin).href };
+  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, link: new URL(buildLink(state, map.getZoom()), PUBLIC_ORIGIN).href };
 }
 
 function render(): void {
