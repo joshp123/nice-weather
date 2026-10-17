@@ -5,7 +5,7 @@ export function finePlaceCandidates(points, overviewScores, view) {
   const inside=point=>point.latitude>=view.south&&point.latitude<=view.north
     &&(span>=360||((point.longitude-view.west)%360+360)%360<=span);
   const eligible=points.flatMap((point,index)=>inside(point)?[index]:[]);
-  const selected=new Set(eligible.filter(index=>(points[index].population??0)>=view.minimumLabelPopulation));
+  const selected=new Set(eligible.filter(index=>view.labelSlugs.has(points[index].slug)));
   const score=index=>Number.isFinite(overviewScores[index])?overviewScores[index]:-Infinity;
   eligible.sort((left,right)=>score(right)-score(left)
     ||(points[right].population??0)-(points[left].population??0));

@@ -31,7 +31,7 @@ immutable generation available for rollback.
 Named-place scores and counts come from exact replay. To avoid downloading
 the 15,000-place catalogue's weather into each phone, the app first uses the
 overview to shortlist up to 128 headline candidates within the current map
-bounds, alongside every city eligible for a drawn label at that zoom. The
+bounds, alongside the city labels actually drawn in that view. The
 returned numbers and the final headline ranking use exact replay. This is a
 bounded candidate search, not proof of the world's optimum: a place missing
 from the overview shortlist can be missed by the headline. Searching or

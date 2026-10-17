@@ -189,10 +189,10 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   private fineCandidates(points: readonly Point[]): Set<number> {
     if (this.loadState || this.destroyed) return new Set();
-    const bounds = this.map.getBounds(), zoom = this.map.getZoom();
-    const minimumLabelPopulation = zoom < 2 ? 4000000 : zoom < 3 ? 1000000 : zoom < 4 ? 300000 : zoom < 5 ? 80000 : zoom < 6 ? 20000 : 0;
+    const bounds = this.map.getBounds();
+    const labelSlugs = new Set(this.map.queryRenderedFeatures({ layers: ['city-labels'] }).map(feature => String(feature.properties?.slug)));
     return finePlaceCandidates(points, this.overviewScores(points), {
-      west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth(), minimumLabelPopulation,
+      west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth(), labelSlugs,
     });
   }
 
@@ -206,7 +206,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
     }
     const gl = this.gl;
     if (!this.data || !gl || !this.fineScores || this.gpuRevision !== this.revision || this.drawnRevision !== this.revision || this.destroyed) {
-      return Float32Array.from(points, point => this.judgePoint(point.latitude, point.longitude)?.meanScore ?? NaN);
+      return Float32Array.from(points, point => this.sampler?.judge(point.latitude, point.longitude)?.meanScore ?? NaN);
     }
     this.readScores();
     const offsets = [...this.data!.offsets.values()];
