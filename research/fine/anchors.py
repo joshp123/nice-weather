@@ -34,6 +34,37 @@ SOURCE_PERIODS = {1:(1991,2020),2:(1960,1990),3:(1960,1990),4:(1981,2010)}
 PERIODS = [(1960,1990),(1981,2010),(1991,2020)]
 
 
+def worldclim_grid(header):
+    """Use the archive's explicit extent; preserve its rounded center header."""
+    width,height = int(header['NCOLS']),int(header['NROWS'])
+    return dict(west=float(header['MinX']),north=float(header['MaxY']),
+                dx=(float(header['MaxX'])-float(header['MinX']))/width,
+                dy=(float(header['MaxY'])-float(header['MinY']))/height,
+                width=width,height=height)
+
+
+def containing_pixel_indices(latitudes,longitudes,grid):
+    """Return containing rows/columns, with south/east ownership at boundaries.
+
+    All anchor products declare 30 arcseconds. PRISM/CHELSA store that spacing
+    as 0.0083333333 degrees. Snap an integer tie only within its accumulated
+    spacing-rounding error plus 1e-7 pixel for the rounded source origin. The
+    maximum is 0.16 m over CHELSA's full width; its actual ~15 m affine offset
+    remains intact. Raw source georeferencing is preserved in dataset.json.
+    """
+    latitude,longitude = np.broadcast_arrays(np.asarray(latitudes,np.float64),
+                                             np.asarray(longitudes,np.float64))
+    positions = ((grid['north']-latitude)*(1/grid['dy']),
+                 (longitude-grid['west'])*(1/grid['dx']))
+    indices = []
+    for position,spacing in zip(positions,[grid['dy'],grid['dx']]):
+        nearest = np.rint(position)
+        rounding_tolerance = 1e-7+np.abs(position)*abs(spacing-1/120)/(1/120)
+        position = np.where(np.abs(position-nearest)<=rounding_tolerance,nearest,position)
+        indices.append(np.floor(position).astype(np.int64))
+    return tuple(indices)
+
+
 @dataclass
 class AnchorSamples:
     tmax_c: np.ndarray
@@ -261,6 +292,9 @@ def prepare_era5_means(root,workers=4):
     metadata['periods'] = PERIODS
     metadata['licence_snapshot'] = licence_snapshot
     metadata['used_chunks'] = sorted(used_chunks,key=lambda source:source['index'])
+    metadata['normals'] = {f'{first}-{last}':dict(path=f'mean_{first}_{last}.npy',
+                           sha256=sha256_file(directory/f'mean_{first}_{last}.npy'))
+                           for first,last in PERIODS}
     (directory/'dataset.json').write_text(json.dumps(metadata,indent=2))
 
 
@@ -355,14 +389,10 @@ class AnchorSources:
                     break
                 if dataset == 'worldclim14':
                     header = self.datasets[dataset]['variables']['tmax']['months'][str(month)]['header']
-                    grid = dict(west=float(header['ULXMAP'])-float(header['XDIM'])/2,
-                                north=float(header['ULYMAP'])+float(header['YDIM'])/2,
-                                dx=float(header['XDIM']),dy=float(header['YDIM']),
-                                width=int(header['NCOLS']),height=int(header['NROWS']))
+                    grid = worldclim_grid(header)
                 else:
                     grid = self.datasets[dataset]['variables'][variables[0]][str(month)]['grid']
-                rows = np.floor((grid['north']-latitude[positions])/grid['dy']).astype(np.int64)
-                columns = np.floor((longitude[positions]-grid['west'])/grid['dx']).astype(np.int64)
+                rows,columns = containing_pixel_indices(latitude[positions],longitude[positions],grid)
                 inside = (rows>=0)&(rows<grid['height'])&(columns>=0)&(columns<grid['width'])
                 positions,rows,columns = positions[inside],rows[inside],columns[inside]
                 if not positions.size:
@@ -439,8 +469,6 @@ def load_era5_target_mean(months,cache_root=DEFAULT_CACHE,workers=3,month_day_we
         weights[month] = int(weight)
     identity = hashlib.sha256(json.dumps([metadata['snapshot'],weights],sort_keys=True).encode()).hexdigest()[:20]
     output_path = directory/f'target_{identity}.npy'
-    if output_path.exists():
-        return np.load(output_path,mmap_mode='r')
     dates = metadata['dates']
     index_for_month = {month:index for index,month in enumerate(dates)}
     missing = set(requested)-index_for_month.keys()
@@ -448,6 +476,14 @@ def load_era5_target_mean(months,cache_root=DEFAULT_CACHE,workers=3,month_day_we
         raise ValueError(f'ERA5 monthly archive has no requested months: {sorted(missing)}')
     indices = {index_for_month[month] for month in requested}
     chunks = [chunk for chunk in metadata['chunks'] if chunk['index'] in {index//30 for index in indices}]
+    if output_path.exists():
+        manifest_path = output_path.with_suffix('.json')
+        manifest = json.loads(manifest_path.read_text())
+        if 'used_chunks' not in manifest:
+            manifest['used_chunks'] = [dict(index=chunk['index'],**json.loads(
+                (directory/'chunks'/(chunk['id']+'.source.json')).read_text())) for chunk in chunks]
+            manifest_path.write_text(json.dumps(manifest,indent=2))
+        return np.load(output_path,mmap_mode='r')
     def fetch(chunk):
         url = f"https://planette-era5.s3.us-east-2.amazonaws.com/ERA5_ic/month/chunks/{chunk['id']}"
         path = directory/'chunks'/chunk['id']
