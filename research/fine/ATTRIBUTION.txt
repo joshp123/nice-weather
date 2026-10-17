@@ -1,0 +1,43 @@
+Nice Weather fine temperature data
+
+This derived temperature dataset is licensed under Creative Commons
+Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+
+WorldClim version 1.4 historical climate data, Hijmans et al. (2005),
+International Journal of Climatology 25:1965–1978.
+https://www.worldclim.org/data/v1.4/worldclim14.html
+WorldClim 1.4 historical data: CC BY-SA 4.0.
+
+PRISM Group, Oregon State University, https://prism.oregonstate.edu/,
+accessed 17 October 2026. PRISM 1991–2020 monthly temperature normals.
+Modified and combined with other sources; these are not original PRISM maps.
+https://prism.oregonstate.edu/terms/
+
+CHELSA version 2.1 climatologies, 1981–2010, Karger et al.,
+https://www.chelsa-climate.org/datasets/chelsa_climatologies
+CHELSA data: CC0 1.0.
+
+ERA5 hourly: ECMWF / Copernicus Climate Change Service (C3S),
+DOI:10.24381/cds.adbb2d47, via the anonymous Earthmover archive.
+https://registry.opendata.aws/earthmover-era5/
+ERA5 monthly means: ECMWF / C3S and NSF NCAR, via Planette.
+https://github.com/PlanetteAI/planette_era5_archive
+ERA5 and these mirrors: CC BY 4.0.
+https://creativecommons.org/licenses/by/4.0/
+Contains modified Copernicus Climate Change Service information (2026).
+Neither the European Commission nor ECMWF is responsible for any use that
+may be made of the Copernicus information or data it contains.
+
+Changes: source selection; common ERA5 monthly-mean adjustment from each
+source's reference period to the actual assembled dates; temperature offsets;
+felt-temperature calculations using native ERA5 dew point, wind and radiation;
+resampling, quantization and tiling. Step A uses a uniform hourly air shift.
+The fine high/low dataset supports independent high/low corrections with an
+ordered-day exception. Build metadata records the exact sources and dates.
+
+This licence covers the derived data, not the Nice Weather application code.
+No endorsement by any source provider is implied.
+Land support includes Natural Earth public-domain land polygons.
+https://www.naturalearthdata.com/about/terms-of-use/
+
