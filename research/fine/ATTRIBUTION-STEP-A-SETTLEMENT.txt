@@ -1,0 +1,81 @@
+Nice Weather fine temperature data
+
+The derived weather values and temperature-source properties are licensed under
+Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+The publication is a collection with separately licensed geographic properties;
+the separately offered timezone lookup retains its ODbL licence.
+
+WorldClim version 1.4 historical climate data, Hijmans et al. (2005),
+International Journal of Climatology 25:1965–1978.
+https://www.worldclim.org/data/v1.4/worldclim14.html
+WorldClim 1.4 historical data: CC BY-SA 4.0.
+
+PRISM Group, Oregon State University, https://prism.oregonstate.edu/,
+accessed 17 October 2026. PRISM 1991–2020 monthly temperature normals.
+Modified and combined with other sources; these are not original PRISM maps.
+https://prism.oregonstate.edu/terms/
+
+CHELSA version 2.1 climatologies, 1981–2010, Karger et al.,
+https://www.chelsa-climate.org/datasets/chelsa_climatologies
+CHELSA data: CC0 1.0.
+
+ERA5 hourly: ECMWF / Copernicus Climate Change Service (C3S),
+DOI:10.24381/cds.adbb2d47, via the anonymous Earthmover archive.
+https://registry.opendata.aws/earthmover-era5/
+ERA5 monthly means: ECMWF / C3S and NSF NCAR, via Planette.
+https://github.com/PlanetteAI/planette_era5_archive
+Copyright: European Centre for Medium-Range Weather Forecasts (ECMWF).
+NSF NCAR Research Data Archive, dataset d633000:
+https://rda.ucar.edu/datasets/d633000/
+ERA5 and these mirrors: CC BY 4.0.
+https://creativecommons.org/licenses/by/4.0/
+Contains modified Copernicus Climate Change Service information (2026).
+Neither the European Commission nor ECMWF is responsible for any use that
+may be made of the Copernicus information or data it contains.
+
+Changes: native ERA5 temperature/dew-point cell records; source selection;
+common ERA5 monthly-mean adjustment from each source's reference period to
+the actual assembled dates; uniform hourly air-temperature shifts using the
+average high/low offset; felt-temperature calculations with native dew point,
+wind and radiation; quantization to the existing quarter-degree formats.
+Build metadata records the exact sources and dates.
+
+This weather-data licence does not cover the Nice Weather application code.
+No endorsement by any source provider is implied.
+Local-clock timezone lookup: contains information from timezone-boundary-builder,
+processed by timezonefinder, and © OpenStreetMap contributors, available under
+the Open Database License 1.0 (ODbL).
+https://github.com/evansiroky/timezone-boundary-builder
+https://www.openstreetmap.org/copyright
+https://opendatacommons.org/licenses/odbl/1-0/
+The machine-readable point-to-timezone lookup is supplied separately in
+timezones/lookup.npz under ODbL 1.0, with its own notices and provenance.
+This separate lookup-data licence does not replace the weather-data licence.
+timezonefinder code is MIT licensed.
+
+
+GHSL population weighting
+
+© European Union, 1995-2025. European Commission, Joint Research Centre.
+GHSL GHS-POP R2023A, epoch 2020, WGS84 30 arcsecond grid, V1-0.
+Licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+Source: https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/GHSL/GHS_POP_GLOBE_R2023A/GHS_POP_E2020_GLOBE_R2023A_4326_30ss/V1-0/GHS_POP_E2020_GLOBE_R2023A_4326_30ss_V1_0.zip
+Use conditions: https://human-settlement.emergency.copernicus.eu/GHSLhowToCite.php
+
+Schiavina, M., Freire, S., Carioli, A., MacManus, K. (2026). GHS-POP R2023A - GHS population grid multitemporal (1975-2030). European Commission, Joint Research Centre (JRC). https://doi.org/10.2905/JRC.CXKEDRR; https://doi.org/10.2905/2FF68A52-5B5B-4A22-8F40-C41DA8332CFE
+Pesaresi et al. (2024). Advances on the Global Human Settlement Layer by joint assessment of Earth Observation and population survey data. International Journal of Digital Earth, 17(1). https://doi.org/10.1080/17538947.2024.2390454
+
+Changes: source population counts select the relative weights of independent
+fine-grid climate anchors inside each quarter-degree footprint. The resulting
+weather values are derived calculations, not an official GHSL product.
+No endorsement by the European Union or the source authors is implied.
+
+Unpopulated-area support: Natural Earth public-domain land geometry and the
+valid-pixel support of WorldClim 1.4 and PRISM, under the terms above.
+https://www.naturalearthdata.com/about/terms-of-use/
+Population weights apply inside the nearest quarter-degree footprint. With
+no resident population, anchors are weighted by independent land area; with
+no eligible land, the own native ERA5 high/low is retained. OSM-only coastline
+geometry is not an input to these temperature averages.

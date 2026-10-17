@@ -167,6 +167,9 @@ def main():
     parser.add_argument('--meta',type=pathlib.Path,required=True)
     parser.add_argument('--workers',type=int,default=4)
     parser.add_argument('--adjustment-only',action='store_true')
+    parser.add_argument('--adjustments',type=pathlib.Path,help='Precomputed settlement-weighted adjustments in native point order')
+    parser.add_argument('--adjustment-summary',type=pathlib.Path,help='Source and representation provenance for --adjustments')
+    parser.add_argument('--attribution',type=pathlib.Path,default=pathlib.Path(__file__).with_name('ATTRIBUTION-STEP-A.txt'))
     args = parser.parse_args()
     started = time.monotonic()
     chunks = sorted(json.loads(args.meta.read_text())['chunks'])
@@ -175,7 +178,24 @@ def main():
             raise ValueError('Normals must cover exactly the assembled metadata chunk set')
     args.build_root.mkdir(parents=True,exist_ok=True)
     adjustment_path = args.build_root/'adjustment.npz'
-    source_summary = make_adjustment(args.native_root,args.normals,args.source_cache,adjustment_path)
+    if args.adjustments:
+        if not args.adjustment_summary:
+            parser.error('--adjustments requires --adjustment-summary')
+        source_summary = json.loads(args.adjustment_summary.read_text())
+        if (source_summary['output_sha256'] != file_sha256(args.adjustments)
+                or source_summary['native_normals_sha256'] != file_sha256(args.normals)):
+            raise ValueError('Prepared adjustment provenance differs from its values or native normals')
+        points = np.fromfile(args.native_root/'v6/points.bin',dtype=POINT_DTYPE,offset=4)
+        with np.load(args.adjustments) as prepared:
+            if (not np.array_equal(prepared['fine'],points['fine'])
+                    or prepared['uniform_offset_c'].shape != (len(points),12)
+                    or not np.isfinite(prepared['uniform_offset_c']).all()
+                    or sorted(prepared['chunks'].tolist()) != chunks):
+                raise ValueError('Prepared adjustments must cover the exact native points and assembled chunks')
+        if args.adjustments.resolve() != adjustment_path.resolve():
+            shutil.copy2(args.adjustments,adjustment_path)
+    else:
+        source_summary = make_adjustment(args.native_root,args.normals,args.source_cache,adjustment_path)
     if args.adjustment_only:
         print(json.dumps(source_summary),flush=True)
         return
@@ -208,9 +228,11 @@ def main():
         adjustment_sha256=configuration['adjustment_sha256'],
         source='PRISM 1991-2020; WorldClim1.4; CHELSA2.1; common ERA5 monthly-mean period anomaly')
     (climate/'meta.json').write_text(json.dumps(metadata,indent=2)+'\n')
-    shutil.copy2(pathlib.Path(__file__).with_name('ATTRIBUTION-STEP-A.txt'),snapshot/'v6/ATTRIBUTION.txt')
+    shutil.copy2(args.attribution,snapshot/'v6/ATTRIBUTION.txt')
     provenance = {name:json.loads((args.source_cache/name/'dataset.json').read_text())
                   for name in ('worldclim14','prism','chelsa','era5_monthly')}
+    if 'settlement_dataset' in source_summary:
+        provenance['settlement'] = source_summary['settlement_dataset']
     (snapshot/'v6/SOURCE-PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
     subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name('attach_timezones.py')),
         '--native-root',str(args.native_root),'--output',str(snapshot/'v6'),
