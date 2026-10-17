@@ -193,21 +193,21 @@ export class BrowserWeatherEngine implements WeatherEngine {
     return sampler.judge(latitude, longitude);
   }
 
-  scorePoints(points: readonly Point[]): Float32Array {
+  scorePoints(points: readonly Point[], scope?: 'all'): Float32Array {
     if (this.isClimate() && this.finePlaces.enabled) {
-      const candidates = this.fineCandidates(points);
+      const candidates = this.fineCandidates(points, scope === 'all');
       return Float32Array.from(points, (point, index) => candidates.has(index)
         ? this.finePlaces.judge(point.latitude, point.longitude, this.period, this.taste, true)?.meanScore ?? NaN : NaN);
     }
     return this.overviewScores(points);
   }
 
-  private fineCandidates(points: readonly Point[]): Set<number> {
+  private fineCandidates(points: readonly Point[], all = false): Set<number> {
     if (this.loadState || this.destroyed) return new Set();
     const bounds = this.map.getBounds();
-    const labelSlugs = new Set(this.map.queryRenderedFeatures({ layers: ['city-labels'] }).map(feature => String(feature.properties?.slug)));
+    const labelSlugs = new Set(all ? [] : this.map.queryRenderedFeatures({ layers: ['city-labels'] }).map(feature => String(feature.properties?.slug)));
     return finePlaceCandidates(points, this.overviewScores(points), {
-      west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth(), labelSlugs,
+      west: all ? -180 : bounds.getWest(), east: all ? 180 : bounds.getEast(), south: all ? -90 : bounds.getSouth(), north: all ? 90 : bounds.getNorth(), labelSlugs,
     });
   }
 
@@ -234,10 +234,10 @@ export class BrowserWeatherEngine implements WeatherEngine {
     this.readbackRevision = this.drawnRevision;
   }
 
-  countPoints(points: readonly Point[]): Float32Array {
+  countPoints(points: readonly Point[], scope?: 'all'): Float32Array {
     const counts = new Float32Array(points.length * 3).fill(NaN);
     if (this.isClimate() && this.finePlaces.enabled) {
-      const candidates = this.fineCandidates(points);
+      const candidates = this.fineCandidates(points, scope === 'all');
       points.forEach((point, index) => {
         const verdict = candidates.has(index) ? this.finePlaces.judge(point.latitude, point.longitude, this.period, this.taste, true) : null;
         if (verdict) counts.set([verdict.niceDayCount, verdict.perfectDayCount, verdict.awfulDayCount], index * 3);

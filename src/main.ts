@@ -239,7 +239,7 @@ function afterRedraw(): void {
 
 function updateHeadline(): void {
   headlineRegion = viewportRegion(map.getBounds(), weatherMap.visibleCities());
-  rankedPlaces = nicestPlaces(engine, weatherMap.visibleCities(), map.getBounds(), 8);
+  rankedPlaces = nicestPlaces(engine, weatherMap.visibleCities(), map.getBounds(), 8, map.getZoom() >= 5 ? 0 : undefined);
   headlineText = headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion)
     || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
 }
@@ -302,7 +302,7 @@ function renderList(stretchLabel: string): void {
     const comparison = regionalVerdict && regional.name !== home.name ? el('p', 'home-line', button('inline-place', `${countryFlag(regional)} ${regional.name}`, () => actions.selectSearchResult(regional)), `: ${Math.round(regionalVerdict.niceDayCount)} nice days over the same stretch.`) : null;
     // A European van trip includes ferries to Morocco and the Canary Islands.
     const byVan = home.latitude > 35 && home.longitude > -12 && home.longitude < 40
-      ? nicestPlaces(engine, weatherMap.visibleCities().filter(place => place.latitude > 27 && place.latitude < 60 && place.longitude > -18 && place.longitude < 35 && (place.latitude > 35 || place.longitude < 0)), undefined, 1)[0] : null;
+      ? nicestPlaces(engine, weatherMap.visibleCities().filter(place => place.latitude > 27 && place.latitude < 60 && place.longitude > -18 && place.longitude < 35 && (place.latitude > 35 || place.longitude < 0)), undefined, 1, 50000)[0] : null;
     const travel = byVan ? el('p', 'home-line', `Best by van from ${home.name}: `, button('inline-place', `${countryFlag(byVan)} ${byVan.name}`, () => chooseRankedPlace(byVan)), `. Swap ${Math.round(homeVerdict.awfulDayCount)} awful ${Math.round(homeVerdict.awfulDayCount) === 1 ? 'day' : 'days'} at home for ${Math.round(byVan.niceDayCount)} nice ones in ${stretchLabel}.`) : null;
     list.append(el('div', 'home-lines', homeLine, comparison, travel));
     weatherMap.showHomeConnection(home, byVan);

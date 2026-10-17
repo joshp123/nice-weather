@@ -7,61 +7,30 @@ import { daysInPeriod, periodPhrase, type ForecastIndex } from './periods';
 import { type NamedPlace } from './places';
 import { countryCode, countryFlag } from './countries';
 
-const MINIMUM_SPREAD_KM = 250;
-const NEARBY_NAME_RADIUS_KM = 50;
-const NEARBY_NAME_SCORE_DIFFERENCE = 5;
+import { CONTINENT_POPULATION, WORLD_POPULATION, inOutlookRegion, rankPlaces } from './ranking';
 
 type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): number; getNorth(): number }>;
 export type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number; region?: string; slug?: string | null; population?: number }>;
 
-function mostNiceDaysFirst(a: HeadlinePlace, b: HeadlinePlace): number {
-  return b.niceDayCount - a.niceDayCount || b.perfectDayCount - a.perfectDayCount || (b.population ?? 0) - (a.population ?? 0);
-}
-
-/** All named places in the current view compete by day counts, with room between the answers. */
-export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], bounds?: ViewBounds, limit = 3): HeadlinePlace[] {
+export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], bounds?: ViewBounds, limit = 3, minimumPopulation?: number): HeadlinePlace[] {
   const region = bounds ? viewportRegion(bounds, places) : 'the world';
+  const population = minimumPopulation ?? (region === 'the world' ? WORLD_POPULATION : CONTINENT_POPULATION);
   const countries = REGION_COUNTRIES[region];
   const visible = places.filter(place => {
-    const country = countryCode(place);
-    if (countries && !countries.has(country)) return false;
-    if (region === 'Europe' && ((country === 'TR' && place.longitude > 29.1) || (country === 'RU' && place.longitude > 60))) return false;
-    if (place.slug?.startsWith('palestine/')) return false;
-    if (!bounds) return true;
+    if ((place.population ?? 0) < population || !inOutlookRegion(place, region)) return false;
+    if (countries && !countries.has(countryCode(place))) return false;
+    if (!bounds || population > 0) return true;
     if (place.latitude < bounds.getSouth() || place.latitude > bounds.getNorth()) return false;
     const span = bounds.getEast() - bounds.getWest();
     return span >= 360 || ((place.longitude - bounds.getWest()) % 360 + 360) % 360 <= span;
   });
-  const scores = engine.scorePoints(visible);
-  const counts = engine.countPoints(visible);
+  const scores = engine.scorePoints(visible, population > 0 ? 'all' : undefined);
+  const counts = engine.countPoints(visible, population > 0 ? 'all' : undefined);
   const candidates = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }));
-  const ranked = candidates.filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount))
-    .sort(mostNiceDaysFirst);
-  const chosen: HeadlinePlace[] = [];
-  const winningPoints: HeadlinePlace[] = [];
-  for (const place of ranked) {
-    if (winningPoints.some(other => kilometresBetween(place, other) < MINIMUM_SPREAD_KM)) continue;
-    let namedPlace = place;
-    for (const candidate of candidates) {
-      const population = candidate.population ?? 0;
-      const namedPopulation = namedPlace.population ?? 0;
-      if (population < namedPopulation || (population === namedPopulation && (candidate.slug ?? candidate.name) >= (namedPlace.slug ?? namedPlace.name))
-        || Math.abs(candidate.latitude - place.latitude) > .5
-        || kilometresBetween(place, candidate) > NEARBY_NAME_RADIUS_KM) continue;
-      let numberedCandidate = candidate;
-      if (!Number.isFinite(candidate.score) || !Number.isFinite(candidate.niceDayCount)) {
-        const verdict = engine.judgePoint(candidate.latitude, candidate.longitude);
-        if (!verdict) continue;
-        numberedCandidate = { ...candidate, score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount };
-      }
-      if (Math.abs(numberedCandidate.score - place.score) <= NEARBY_NAME_SCORE_DIFFERENCE) namedPlace = numberedCandidate;
-    }
-    if (chosen.some(other => kilometresBetween(namedPlace, other) < MINIMUM_SPREAD_KM)) continue;
-    winningPoints.push(place);
-    chosen.push(namedPlace);
-    if (chosen.length === limit) break;
-  }
-  return chosen.sort(mostNiceDaysFirst);
+  return rankPlaces(candidates, population, limit, place => {
+    const verdict = engine.judgePoint(place.latitude, place.longitude);
+    return verdict ? { ...place, score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount } : null;
+  });
 }
 
 const REGION_COUNTRIES: Record<string, ReadonlySet<string>> = Object.fromEntries(Object.entries({
@@ -88,6 +57,7 @@ export function viewportRegion(bounds: ViewBounds, places: readonly (NamedPlace 
   }
   if (!nearest) return 'the world';
   const country = countryCode(nearest);
+  if (country === 'US') return 'the USA';
   if (country === 'TR' && longitude > 29.1) return 'the Middle East';
   if (country === 'RU' && longitude > 60) return 'Asia';
   return Object.entries(REGION_COUNTRIES).find(([, countries]) => countries.has(country))?.[0] ?? 'the world';

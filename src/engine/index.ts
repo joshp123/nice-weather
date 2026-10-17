@@ -69,9 +69,9 @@ export interface WeatherEngine {
   /** Synchronous; null until data arrive or where unavailable. With the fine-place manifest, climate queries load the exact 30 arc-second pixel and replay; no overview fallback. Other periods do not select a map period. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
   /** Named-place scores in input order; NaN means pending or missing. Fine climate uses the same exact-pixel judgement as the card and the loaded native pixel area on the map. */
-  scorePoints(points: readonly Point[]): Float32Array;
+  scorePoints(points: readonly Point[], scope?: 'all'): Float32Array;
   /** Packed nice, perfect and awful day counts for each point. */
-  countPoints(points: readonly Point[]): Float32Array;
+  countPoints(points: readonly Point[], scope?: 'all'): Float32Array;
   /** Releases GPU resources. Remove the layer first, or call this before removing the map. */
   destroy(): void;
 }

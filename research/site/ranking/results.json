@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-19",
+  "parity": {
+    "world": {
+      "app": [
+        "Chengdu",
+        "Lahore",
+        "Delhi"
+      ],
+      "go": [
+        "Chengdu",
+        "Lahore",
+        "Delhi"
+      ],
+      "rule": [
+        "Chengdu",
+        "Lahore",
+        "Delhi"
+      ],
+      "pass": true,
+      "visibleHeadline": "Nicest in the world tomorrow: \ud83c\udde8\ud83c\uddf3 Chengdu, \ud83c\uddf5\ud83c\uddf0 Lahore and \ud83c\uddee\ud83c\uddf3 Delhi."
+    },
+    "europe": {
+      "app": [
+        "Rome",
+        "Milan",
+        "Rostov-on-Don"
+      ],
+      "go": [
+        "Rome",
+        "Milan",
+        "Rostov-on-Don"
+      ],
+      "rule": [
+        "Rome",
+        "Milan",
+        "Rostov-on-Don"
+      ],
+      "pass": true,
+      "visibleHeadline": "Nicest in Europe tomorrow: \ud83c\uddee\ud83c\uddf9 Rome, \ud83c\uddee\ud83c\uddf9 Milan and \ud83c\uddf7\ud83c\uddfa Rostov-on-Don."
+    },
+    "usa": {
+      "app": [
+        "Los Angeles",
+        "Houston",
+        "Phoenix"
+      ],
+      "go": [
+        "Los Angeles",
+        "Houston",
+        "Phoenix"
+      ],
+      "rule": [
+        "Los Angeles",
+        "Houston",
+        "Phoenix"
+      ],
+      "pass": true,
+      "visibleHeadline": "Nicest in the USA tomorrow: \ud83c\uddfa\ud83c\uddf8 Los Angeles, \ud83c\uddfa\ud83c\uddf8 Houston and \ud83c\uddfa\ud83c\uddf8 Phoenix."
+    }
+  },
+  "headlines": {
+    "winter": "Nicest in the world from November to March: \ud83c\udde8\ud83c\uddf1 Antofagasta, \ud83c\uddea\ud83c\uddf9 Gonder and \ud83c\uddf5\ud83c\uddf0 Karachi.",
+    "fortnight": "Nicest in the world in the next 14 days: \ud83c\uddea\ud83c\uddec Cairo, \ud83c\uddf5\ud83c\uddf0 Peshawar and \ud83c\uddf8\ud83c\uddfe Aleppo.",
+    "europeTomorrow": "Nicest in Europe tomorrow: \ud83c\uddee\ud83c\uddf9 Rome, \ud83c\uddee\ud83c\uddf9 Milan and \ud83c\uddf7\ud83c\uddfa Rostov-on-Don."
+  },
+  "errors": []
+}
