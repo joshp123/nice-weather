@@ -2,10 +2,14 @@ Written by AI on 2026.10.17 by model GPT-6.1 Sol.
 
 # Fine temperature research
 
-Phase 1 only: acquire bounded samples, test temperature corrections against
-stations excluded from our fitting, and propose a publication format. These
-scripts do not build or publish a worldwide correction, modify `artifacts/v6`,
-or change the site. Josh must approve Phase 2 first.
+Josh approved Phase 2 on 2026-10-17: PRISM in CONUS, WorldClim 1.4 elsewhere,
+its centred 5×5 valid-pixel mean where necessary, CHELSA, then native ERA5.
+Separate high/low anchors use an ERA5 period adjustment. No station validation
+values enter the published correction. All generated data stays in isolated
+SSD folders. These scripts do not overwrite `artifacts/v6`, publish, or modify
+the running home job. The opt-in B1 application hooks are documented in
+[B1_RESULT.md](B1_RESULT.md). Both Step A candidates and the exact-pixel B1
+candidate failed the station non-regression gate. **Publish none of them.**
 
 The requested report is `/tmp/nwf-agents/round4/fine/PLAN.md`. Source rights and
 their primary links are retained in [LICENCES.md](LICENCES.md).
@@ -13,7 +17,111 @@ The committed report is [PHASE1.md](PHASE1.md); detailed daily and hourly
 evidence is in [station-results.md](station-results.md) and
 [hourly-results.md](hourly-results.md).
 
-## Run
+## Phase 2: reproduce the data
+
+Run these commands from the repository. All source downloads are anonymous.
+Use new output folders whenever the source files, processor or chunk set
+change. The five local chunks are 76, 78, 80, 82 and 84. The selected chunk
+set comes from the assembled `climate/meta.json`, including its actual scored
+dates; a nominal year range is insufficient. The example uses the native
+rebuild's frozen five-chunk metadata so it remains reproducible after the
+production metadata grows. A larger assembly must supply its new complete
+chunk set and use fresh output roots.
+
+```sh
+SSD='/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data'
+sh research/fine/run.sh anchors.py worldclim --cache "$SSD/fine-sources"
+sh research/fine/run.sh anchors.py prism --cache "$SSD/fine-sources"
+sh research/fine/run.sh anchors.py chelsa --cache "$SSD/fine-sources"
+sh research/fine/run.sh anchors.py era5-monthly --cache "$SSD/fine-sources"
+
+sh research/fine/run.sh rebuild_native.py --source-root "$SSD" \
+  --root "$SSD/fine-build/native" --chunks 76 78 80 82 84 --workers 4
+sh research/fine/run.sh native_normals.py --native-root "$SSD/fine-build/native" \
+  --output "$SSD/fine-build/normals-76-78-80-82-84" \
+  --meta "$SSD/fine-build/native/selected-meta.json" --workers 4
+sh research/fine/run.sh build_step_a.py --native-root "$SSD/fine-build/native" \
+  --normals "$SSD/fine-build/normals-76-78-80-82-84/normals.npz" \
+  --source-cache "$SSD/fine-sources" --meta "$SSD/fine-build/native/selected-meta.json" \
+  --build-root "$SSD/fine-build/step-a" --output "$SSD/v6-fine-step-a" --workers 4
+sh research/fine/run.sh compare_step_a.py --current-root "$SSD/v6" \
+  --step-a-root "$SSD/v6-fine-step-a"
+
+sh research/fine/run.sh land_support.py --source-cache "$SSD/fine-sources" \
+  --output "$SSD/fine-build/land-support-v2"
+sh research/fine/run.sh audit_land.py --source-cache "$SSD/fine-sources" \
+  --land-support "$SSD/fine-build/land-support-v2" \
+  --output "$SSD/fine-validation/step-b/land-audit.json"
+sh research/fine/run.sh native_reference.py --source-root "$SSD/fine-build/reference" \
+  --root "$SSD/fine-build/reference-global" --legacy-root "$SSD/fine-build/native" \
+  --tile-list "$SSD/fine-build/land-support-v2/reference-tiles.json" \
+  --meta "$SSD/v6-fine-step-a/climate/meta.json" --workers 8
+sh research/fine/run.sh tiles.py --source-cache "$SSD/fine-sources" \
+  --reference-root "$SSD/fine-build/reference-global" \
+  --reference-normals "$SSD/fine-build/reference-global/normals/normals.npz" \
+  --legacy-points "$SSD/v6-fine-step-a/points.bin" \
+  --land-support "$SSD/fine-build/land-support-v2" \
+  --meta "$SSD/v6-fine-step-a/climate/meta.json" --output "$SSD/fine-30s"
+sh research/fine/run.sh audit_tiles.py --tiles "$SSD/fine-30s" \
+  --source-cache "$SSD/fine-sources" \
+  --output "$SSD/fine-validation/step-b/tile-audit.json"
+```
+
+The reference command above reuses this delivery's `fine-build/reference`
+cache, which includes symlinks to the retained full raw chunks. For a fresh
+reference build, use `--source-root "$SSD"` and a new reference root; the
+script anonymously fetches the missing t2m tiles itself. Reference configurations
+bind the input root, so do not change it inside an existing generation.
+
+`build_step_a.py` reuses native cell-day sums, changes fine aggregates using
+the average of the high/low air offsets, and replays the exact vapor-pressure
+cap change for felt temperatures. It calls the current assembler and default
+score/image generator unchanged. Native dew point is never shifted. Its
+`fine-build.json` binds inputs, dates, source counts, runtime and output hashes.
+
+`tiles.py` retains separate high/low offsets at 30 arc seconds, with a source
+and support byte for every land pixel. Apply the high/low correction across
+the day's native temperature range. If the corrected high would be at or
+below the corrected low, apply their average offset uniformly for that day.
+The same canonical pixel and model must serve the map and place card.
+[consumer_design.md](consumer_design.md) describes the binary contract,
+weather carrier, measured rendering cost and consumer work still required.
+
+`land_support.py` retains independent Natural Earth, OpenStreetMap coastline,
+WorldClim validity and PRISM validity properties. Any-touched polygon rasterization
+preserves narrow islands. CHELSA-only coastline support is explicitly marked.
+The publication offers OSM-only and polygon-union membership masks separately
+under ODbL; source validity is not merged into that coastline property.
+`native_reference.py`
+retains each coastal pixel's own native ERA5 reference, downloading only t2m
+for missing tiles; its reference-only points file is never a publishable v6
+points file. Existing raw files remain untouched.
+
+Read [HOME_JOB_HANDOFF.md](HOME_JOB_HANDOFF.md) before incorporating the home
+job's additional chunks. Every new chunk set requires new period normals and
+corrections across the complete selected set, including a new fine-tile
+generation. Keep station validation output private, outside publication roots.
+Publication requires the supplied [ATTRIBUTION.txt](ATTRIBUTION.txt), the
+CC BY-SA 4.0 weather-data licence, ODbL notices for the separately offered
+coastline/timezone properties, and prominent PRISM credit.
+
+The five-chunk Step A validation is in `$SSD/fine-validation/step-a`.
+Its current-format bundle is **not recommended for publication alone**:
+the unchanged card selects an inland mountain point for Funchal and a point
+26 km from San Francisco. The format also clips 0.12% of felt offsets and
+cold-region facts. Fine correction values require the scheduled shared-pixel
+map/card consumer to remove the geographic mismatch; no place-specific
+temperature repair is applied.
+
+[PHASE2.md](PHASE2.md) records the earlier generations and their limits;
+[B1_RESULT.md](B1_RESULT.md) is the current result. The global correction build
+is incomplete and has no completion manifest. It is not an upload bundle.
+Step A receives `ATTRIBUTION-STEP-A.txt` as its output `ATTRIBUTION.txt`;
+the fine tiles receive `ATTRIBUTION.txt`, including the separate OSM coastline
+property and its offered ODbL masks. Both retain the separately offered timezone
+lookup and its ODbL notice.
+
+## Phase 1: reproduce the experiments
 
 Run from this repository. `run.sh` enters its existing devenv and uses uv for
 the research Python dependencies. Raw downloads and derived samples stay in
