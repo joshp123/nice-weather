@@ -7,6 +7,8 @@
 //   PUT /__publish/<key>          the publisher uploads files (bearer token)
 //   POST /__prune                 the publisher removes forecast runs no longer current or previous
 
+import { createFinePlaceLoader, placeNumbers, placeMonths } from './fine-place.mjs';
+
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
@@ -40,6 +42,14 @@ async function siteTool(request, env) {
 // ---------------------------------------------------------------- storage helpers
 
 const memo = new Map();
+const fineLoaders = new WeakMap();
+function finePlaces(bucket) {
+  if (!fineLoaders.has(bucket)) fineLoaders.set(bucket, createFinePlaceLoader(async key => {
+    const object = await bucket.get(key);
+    return object ? new Uint8Array(await object.arrayBuffer()) : null;
+  }));
+  return fineLoaders.get(bucket);
+}
 async function cachedJson(bucket, key, seconds) {
   const hit = memo.get(key);
   if (hit && hit.expires > Date.now()) return hit.value;
@@ -221,6 +231,11 @@ async function nearestLandPoint(bucket, latitude, longitude) {
 
 /** A place's typical year with the default taste's score for each month (null where unknown), or null at sea. */
 async function typicalYearForPlace(bucket, latitude, longitude) {
+  const fine = finePlaces(bucket);
+  if (await fine.enabled()) {
+    const packet = await fine.load(latitude, longitude);
+    return packet ? placeMonths(packet) : null;
+  }
   const point = await nearestLandPoint(bucket, latitude, longitude);
   if (!point) return null;
   const scores = await readBytes(bucket, 'v6/climate/scores.bin', (point.row * FINE_WIDTH + point.column) * 12, 12);
@@ -402,6 +417,11 @@ function defaultDayScore(bytes, at, shift) {
 }
 
 async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
+  const fine = finePlaces(bucket);
+  if (period.kind === 'climate' && await fine.enabled()) {
+    const packet = await fine.load(latitude, longitude);
+    return packet ? placeNumbers(packet, period) : null;
+  }
   let groups;
   if (period.kind === 'forecast') {
     const current = await cachedJson(bucket, 'v6/forecast/current.json', 60);
@@ -465,7 +485,8 @@ async function previewFor(bucket, origin, pathname, view) {
   }
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
   const namedPlace = place?.slug && !pathname.startsWith('/@') && !place.slug.startsWith('palestine/');
-  const image = period && (!place || namedPlace)
+  const fineClimate = place && period?.kind === 'climate' && await finePlaces(bucket).enabled();
+  const image = !fineClimate && period && (!place || namedPlace)
     ? await card(`v6/cards/typical-day/${namedPlace ? place.slug + '/' : 'world-'}${period.word}.png`) : null;
   return { title, description, image, url: `${origin}${pathname}` };
 }
@@ -653,6 +674,7 @@ export async function handleRequest(request, env, serveAsset) {
     await bucket.put(key, body);
     memo.delete(key);
     weatherFiles.delete(key);
+    if (key.startsWith('v6/fine/') || key.startsWith('fine-')) fineLoaders.delete(bucket);
     if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
   }
@@ -668,8 +690,11 @@ export async function handleRequest(request, env, serveAsset) {
     const latitude = Number(url.searchParams.get('lat'));
     const longitude = Number(url.searchParams.get('lon'));
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return new Response('Bad coordinates', { status: 400 });
-    const [where, months] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude)]);
-    return json({ ...where, latitude, longitude, months }, 3600);
+    const fine = finePlaces(bucket);
+    const [where, months, fineEnabled] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude), fine.enabled()]);
+    const period = periodFromWord(url.searchParams.get('period') ?? 'year');
+    const judgement = fineEnabled && period?.kind === 'climate' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : undefined;
+    return json({ ...where, latitude, longitude, months, ...(fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true, judgement } : {}) }, 3600);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
   if (url.pathname.startsWith('/api/slug/')) {

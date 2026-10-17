@@ -1,0 +1,142 @@
+// Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+// Shared exact-pixel climate replay for the Worker, app, and offline posters.
+const MONTH_DAYS = [31,28,31,30,31,30,31,31,30,31,30,31];
+const THRESHOLDS = [0,25,40,55,70,85,100];
+const BANDS = ['Awful','Poor','Fair','Nice','Beautiful','Perfect'];
+export const DEFAULT_FINE_TASTE = {warmShift:0,heatShift:0,eveningShift:0,humidityShift:0,windShift:0,rainScale:1};
+const COLD=[[9,0],[11,3],[13,10],[15,22],[17,40],[19,62],[21,85],[23,100]];
+const HEAT=[[28,100],[31,85],[34,60],[37,30],[40,10],[43,0]];
+const EVENING=[[4,0],[8,30],[12,65],[16,90],[19,100]];
+const RAIN=[[0,1],[.5,.95],[1,.88],[2,.74],[4,.5],[8,.22],[15,.05]];
+const WIND=[[15,1],[20,.97],[25,.92],[30,.85],[40,.65],[50,.4],[65,.15]];
+const HUMIDITY=[[16,1],[18,.95],[20,.85],[22,.65],[24,.4],[26,.2],[28,.1]];
+const SUN=[[0,.75],[.3,.85],[.6,.95],[.8,1]];
+const canonical = value => Math.round(value*10000)/10000;
+const wrap = (value,width) => (value%width+width)%width;
+function curve(points,value) {
+  if(value<=points[0][0])return points[0][1];
+  for(let i=1;i<points.length;i++)if(value<=points[i][0])return points[i-1][1]+(points[i][1]-points[i-1][1])*(value-points[i-1][0])/(points[i][0]-points[i-1][0]);
+  return points.at(-1)[1];
+}
+const vapour = temperature => 6.105*Math.exp(17.27*temperature/(237.7+temperature));
+export function finePixel(latitude,longitude) {
+  if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||latitude<-90||latitude>90)throw new RangeError('Invalid fine-pixel coordinates');
+  return {row:Math.min(21599,Math.floor((90-latitude)*120)),column:Math.floor(wrap(longitude+180,360)*120)};
+}
+export function nativeFineIndex(latitude,longitude) {
+  return Math.max(0,Math.min(720,Math.floor((90-latitude)*4+.5)))*1440+wrap(Math.floor((longitude+180)*4+.5),1440);
+}
+function monthsForPeriod(period) {
+  if(period.months)return period.months;
+  if(period.kind==='month')return [period.month];
+  if(period.kind==='season')return {'Dec-Feb':[12,1,2],'Mar-May':[3,4,5],'Jun-Aug':[6,7,8],'Sep-Nov':[9,10,11]}[period.season];
+  if(period.kind==='months')return Array.from({length:(period.endMonth-period.startMonth+12)%12+1},(_,i)=>(period.startMonth-1+i)%12+1);
+  if(period.kind==='year')return Array.from({length:12},(_,i)=>i+1);
+  throw new Error('Fine-place replay supports typical-year periods; native forecast replay is not available');
+}
+function correctedDay(packet,index) {
+  const {replay,corrections}=packet,month=Number(replay.dates[index].slice(5,7));
+  const [highOffset,lowOffset]=corrections[month-1],high=replay.highC[index],low=replay.lowC[index],range=high-low;
+  const ordered=range>0&&range+highOffset-lowOffset>0;
+  const sun=[],shade=[],air=[];let cappedDewSum=0,nativeDewSum=0;
+  for(let hour=0;hour<12;hour++) {
+    const at=index*12+hour,nativeAir=replay.airC[at],dew=replay.dewC[at];
+    const delta=ordered?lowOffset+(highOffset-lowOffset)*(nativeAir-low)/range:(highOffset+lowOffset)/2;
+    air.push(nativeAir+delta);cappedDewSum+=Math.min(dew,nativeAir+delta);nativeDewSum+=dew;
+    const feltDelta=delta+.33*(vapour(Math.min(dew,nativeAir+delta))-vapour(Math.min(dew,nativeAir)));
+    sun.push(replay.sunC[at]+feltDelta);shade.push(replay.shadeC[at]+feltDelta);
+  }
+  return {sun,shade,air,dew:cappedDewSum/12,nativeDew:nativeDewSum/12,rain:replay.rainMm[index],wind:replay.windKmh[index],sunny:replay.sunnyHours[index],daylight:Math.max(1,replay.daylightHours[index])};
+}
+function judgeDay(day,taste) {
+  let daytime=0;
+  for(let hour=0;hour<day.daylight;hour++)daytime+=Math.min(curve(COLD,day.sun[hour]-taste.warmShift),curve(HEAT,day.shade[hour]+taste.heatShift));
+  const evening=Math.min(curve(EVENING,day.shade[11]-taste.eveningShift),curve(HEAT,day.shade[11]+taste.heatShift));
+  const warmth=(daytime+2*evening)/(day.daylight+2),rainFactor=curve(RAIN,day.rain*taste.rainScale),windFactor=curve(WIND,day.wind-taste.windShift),humidityFactor=curve(HUMIDITY,day.dew-taste.humidityShift),sunFactor=curve(SUN,day.sunny/day.daylight);
+  return {score:canonical(warmth*rainFactor*windFactor*humidityFactor*sunFactor),warmth,evening,rainFactor,windFactor,humidityFactor,sunFactor};
+}
+function typicalScore(shares) {
+  for(let band=5;band>=0;band--)if(shares[band]>=.5-1e-9)return canonical(band===5?Math.max(85,85+(shares[5]-.5)*30):Math.max(THRESHOLDS[band],THRESHOLDS[band]+(THRESHOLDS[band+1]-THRESHOLDS[band])*(shares[band]-.5)/(shares[band]-shares[band+1])));
+  return 0;
+}
+/** Every named climate number is derived here, using the exact pixel and own native point. */
+export function placeNumbers(packet,period,taste=DEFAULT_FINE_TASTE) {
+  const months=monthsForPeriod(period),totalDays=months.reduce((sum,month)=>sum+MONTH_DAYS[month-1],0),shares=THRESHOLDS.map(()=>0);
+  const parts={warmth:0,evening:0,rainFactor:0,windFactor:0,humidityFactor:0,sunFactor:0};
+  const typical={feelsInSunAt14C:0,feelsInShadeAt21C:0,dewPointC:0,rainMmPerDay:0,wetDayShare:0,windKmh:0,sunnyShare:0,daylightHours:0};
+  let sampleDays=0;
+  for(const month of months) {
+    const indices=packet.replay.selectedIndices.filter(index=>Number(packet.replay.dates[index].slice(5,7))===month);
+    if(!indices.length)throw new Error(`Fine replay has no representative days for month ${month}`);
+    const weight=MONTH_DAYS[month-1]/totalDays/indices.length;
+    for(const index of indices) {
+      const day=correctedDay(packet,index),judgement=judgeDay(day,taste);sampleDays++;
+      for(let threshold=0;threshold<THRESHOLDS.length;threshold++)if(judgement.score>=THRESHOLDS[threshold])shares[threshold]+=weight;
+      for(const name of Object.keys(parts))parts[name]+=judgement[name]*weight;
+      const values={feelsInSunAt14C:day.sun[4],feelsInShadeAt21C:day.shade[11],dewPointC:day.dew,rainMmPerDay:day.rain,wetDayShare:day.rain>=1?1:0,windKmh:day.wind,sunnyShare:day.sunny/day.daylight,daylightHours:day.daylight};
+      for(const name of Object.keys(typical))typical[name]+=values[name]*weight;
+    }
+  }
+  const score=typicalScore(shares),niceDayShare=shares[3],perfectDayShare=shares[5],awfulDayShare=Math.max(0,1-shares[1]),count=share=>Math.round(share*totalDays*1e9)/1e9;
+  return {meanScore:score,score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],niceDayShare,perfectDayShare,awfulDayShare,niceDayCount:count(niceDayShare),perfectDayCount:count(perfectDayShare),awfulDayCount:count(awfulDayShare),totalDays,sampleDays,parts,typical,pixel:packet.pixel,resolutionArcSeconds:30,status:packet.status};
+}
+export function placeMonths(packet,taste=DEFAULT_FINE_TASTE) {
+  return Array.from({length:12},(_,monthIndex)=> {
+    const indices=packet.replay.dates.flatMap((date,index)=>Number(date.slice(5,7))===monthIndex+1?[index]:[]);
+    if(!indices.length)throw new Error(`Fine replay has no full-period days for month ${monthIndex+1}`);
+    const totals={highC:0,feelsAt21C:0,dewPointC:0,wetDaysPercent:0,sunnyPercent:0,windKmh:0};
+    for(const index of indices) {
+      const day=correctedDay(packet,index);
+      totals.highC+=Math.max(...day.air.slice(0,11));totals.feelsAt21C+=day.shade[11];totals.dewPointC+=day.nativeDew;totals.wetDaysPercent+=(day.rain>=1?100:0);totals.sunnyPercent+=100*day.sunny/day.daylight;totals.windKmh+=day.wind;
+    }
+    for(const key of Object.keys(totals))totals[key]/=indices.length;
+    const judgement=placeNumbers(packet,{kind:'month',month:monthIndex+1},taste);
+    return {month:monthIndex+1,...totals,score:judgement.meanScore,niceDayShare:judgement.niceDayShare};
+  });
+}
+async function uncompressed(bytes) {
+  if(bytes[0]!==31||bytes[1]!==139)return bytes;
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+}
+const parseJson=async bytes=>JSON.parse(new TextDecoder().decode(await uncompressed(bytes)));
+/** readBytes(key) returns Uint8Array or null. An absent pointer preserves the current product. */
+export function createFinePlaceLoader(readBytes) {
+  const requests=new Map();
+  const cached=(key,decode)=> {
+    if(!requests.has(key))requests.set(key,readBytes(key).then(bytes=>bytes===null?null:decode(bytes)).catch(error=>{requests.delete(key);throw error;}));
+    return requests.get(key);
+  };
+  const pointer=()=>cached('v6/fine/current.json',parseJson);
+  const json=key=>cached(key,parseJson);
+  const loader={
+    enabled:async()=>Boolean(await pointer()),
+    async load(latitude,longitude) {
+      const current=await pointer();if(!current)return null;
+      const pixel=finePixel(latitude,longitude),fineIndex=nativeFineIndex(90-(pixel.row+.5)/120,-180+(pixel.column+.5)/120),manifest=await json(`${current.nativeRoot}/manifest.json`);
+      if(!manifest)throw new Error('Fine replay manifest is missing');
+      if(manifest.nativeFineIndices&&!manifest.nativeFineIndices.includes(fineIndex))return null;
+      const replay=await json(`${current.nativeRoot}/native/${fineIndex}.json.gz`);if(!replay)return null;
+      if(replay.fineIndex!==fineIndex)throw new Error('Fine replay native-point address mismatch');
+      const expectedGeneration=manifest.generation??replay.generation??current.generation;
+      if(!expectedGeneration)throw new Error('Fine replay generation is missing');
+      for(const generation of [manifest.generation,replay.generation,current.generation])if(generation&&generation!==expectedGeneration)throw new Error('Fine replay generations differ');
+      const tileRow=Math.floor(pixel.row/256),tileColumn=Math.floor(pixel.column/256),index=(pixel.row%256)*256+pixel.column%256;
+      const corrections=await Promise.all(Array.from({length:12},async(_,monthIndex)=> {
+        const key=`${current.tileRoot}/tiles/${String(monthIndex+1).padStart(2,'0')}/${String(tileRow).padStart(3,'0')}/${String(tileColumn).padStart(3,'0')}.nwf.gz`;
+        const bytes=await cached(key,uncompressed);if(!bytes)return null;
+        if(bytes.byteLength!==327712)throw new Error('Fine correction tile length mismatch');
+        const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+        if(view.getUint32(0,true)!==0x5446574e||view.getUint16(4,true)!==1||view.getUint8(7)!==0||view.getUint8(6)!==monthIndex+1||view.getUint16(8,true)!==tileRow||view.getUint16(10,true)!==tileColumn)throw new Error('Fine correction tile address mismatch');
+        const generation=Array.from(bytes.subarray(16,32),value=>value.toString(16).padStart(2,'0')).join('');
+        if(generation!==expectedGeneration)throw new Error('Fine correction tile generation mismatch');
+        const support=bytes[32+256*256*4+index];
+        if(!(support&8))return null;
+        const high=view.getInt16(32+index*4,true),low=view.getInt16(34+index*4,true);
+        return high===-32768||low===-32768?null:[high/10,low/10];
+      }));
+      if(corrections.some(value=>value===null))return null;
+      return {replay,corrections,pixel,status:current.status};
+    }
+  };
+  return loader;
+}
