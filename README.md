@@ -23,7 +23,7 @@ npm run serve          # http://127.0.0.1:5198
 
 | What | Command | How often | Output |
 | --- | --- | --- | --- |
-| Typical year | `research/climate-v6/run.sh run` (after `/tmp/nwf-agents/overnight/fetch_era5.py <chunk> <processes>` downloads ERA5 hours to the SSD) | rarely | `v6/cells.bin`, `points.bin`, `climate/month-MM.bin`, `offsets-MM.png`, `facts.bin` |
+| Typical year | `research/climate-v6/run.sh run` (after `research/era5/fetch_era5.py <chunk> <processes>` downloads ERA5 hours to the SSD) | rarely | `v6/cells.bin`, `points.bin`, `climate/month-MM.bin`, `offsets-MM.png`, `facts.bin` |
 | Default scores for link previews | `uv run --with numpy --with pillow python -I research/taste/default_scores.py artifacts/v6` | after the typical year | `v6/climate/scores.bin` |
 | Preview images | `uv run --with playwright python -I research/taste/render_cards.py 150` (with `npm run serve` running) | after a release | `v6/cards/*.png` |
 | Forecast | `go run ./cmd/niceweather forecast --out ./artifacts` | daily, ~10 min | legacy `forecast/<run>/` and `v6/forecast/<run>/days.bin` |
