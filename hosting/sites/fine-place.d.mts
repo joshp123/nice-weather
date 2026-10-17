@@ -25,7 +25,7 @@ export function placeNumbers(packet:ForecastPlacePacket,period?:Period,taste?:Ta
 export function placeMonths(packet:FinePacket,taste?:Taste):FineMonth[];
 export function createFinePlaceLoader(readBytes:(key:string)=>Promise<Uint8Array|null>):{
  enabled():Promise<boolean>;
- configuration():Promise<Readonly<{nativeRoot:string;tileRoot:string;generation:string;status:string;eveningModel?:FineEveningModel;attribution?:string}>|null>;
+ configuration():Promise<Readonly<{nativeRoot:string;tileRoot:string;labelsRoot?:string;generation:string;status:string;eveningModel?:FineEveningModel;attribution?:string}>|null>;
  cacheUsage():Readonly<{correctionBytes:number;timezoneBytes:number;activeTileReads:number;maximumActiveTileReads:number;waitingTileReads:number}>;
  load(latitude:number,longitude:number):Promise<FinePacket|null>;
 };

@@ -643,6 +643,15 @@ export async function handleRequest(request, env, serveAsset) {
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
 
+  if (/^\/api\/fine\/labels-[12]\.json$/.test(url.pathname)) {
+    const configuration = await finePlaces(bucket).configuration();
+    const filename = url.pathname.slice('/api/fine/'.length);
+    const object = await bucket.get(`${configuration?.labelsRoot ?? 'v6'}/${filename}`);
+    if (!object) return new Response('City labels unavailable', {status: 503});
+    return new Response(request.method === 'HEAD' ? null : object.body.pipeThrough(new CompressionStream('gzip')), {
+      headers: {'Content-Type': 'application/json', 'Content-Encoding': 'gzip', 'Cache-Control': 'public, max-age=60'},
+    });
+  }
   if (url.pathname.startsWith('/data/')) {
     const key = decodeURIComponent(url.pathname.slice('/data/'.length));
     if (key.split('/').some((part) => !part || part === '.' || part === '..')) return new Response('Not found', { status: 404 });
