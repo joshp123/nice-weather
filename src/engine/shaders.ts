@@ -113,7 +113,8 @@ void main() {
     if (month >= u_month_count) break;
     int layer = u_month_layers[month];
     float offsetByte = float(texelFetch(u_offsets, ivec3(pixel, layer), 0).r);
-    float shift = offsetByte == 255.0 ? 0.0 : (offsetByte - 128.0) / 10.0;
+    if (offsetByte == 255.0) { result = vec4(255.0, 0.0, 0.0, 1.0); return; }
+    float shift = (offsetByte - 128.0) / 10.0;
     float north = mix(cellScore(base, shift, month), cellScore(base + ivec2(1, 0), shift, month), weight.x);
     float south = mix(cellScore(base + ivec2(0, 1), shift, month), cellScore(base + ivec2(1, 1), shift, month), weight.x);
     total += mix(north, south, weight.y) * u_weights[month];
@@ -140,6 +141,8 @@ vec4 cubicBSplineWeights(float t) {
 export const mapFragment = `#version 300 es
 precision highp float;
 uniform highp sampler2D u_grid;
+uniform float u_grid_scale;
+uniform bool u_round_scores;
 uniform vec4 u_band_colours[6];
 in vec2 v_mercator;
 out vec4 fragColour;
@@ -152,14 +155,22 @@ void main() {
   vec4 wx = cubicBSplineWeights(fract(cell.x));
   vec4 wy = cubicBSplineWeights(fract(cell.y));
   float score = 0.0;
+  float landWeight = 0.0;
   for (int row = 0; row < 4; row++) {
     for (int column = 0; column < 4; column++) {
       ivec2 position = base + ivec2(column - 1, row - 1);
       position.x = (position.x % 1440 + 1440) % 1440;
       position.y = clamp(position.y, 0, 720);
-      score += texelFetch(u_grid, position, 0).r * wx[column] * wy[row];
+      float value = texelFetch(u_grid, position, 0).r * u_grid_scale;
+      if (value > 100.5) continue;
+      if (u_round_scores) value = floor(value + 0.5);
+      float weight = wx[column] * wy[row];
+      score += value * weight;
+      landWeight += weight;
     }
   }
+  if (landWeight < 0.00001) discard;
+  score /= landWeight;
   float edgeWidth = max(fwidth(score) * 0.75, 0.02);
   vec4 colour = u_band_colours[0];
   float contour = 0.0;

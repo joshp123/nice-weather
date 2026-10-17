@@ -44,18 +44,23 @@ export type EngineOptions = Readonly<{
   /** Defaults to /data/v6. Override only for isolated synthetic-data debugging. */
   dataUrl?: string;
   layerId?: string;
+  /** Completed visible update, including clearing the default image if taste moves before records arrive. */
   onRedraw?: (timing: RedrawTiming) => void;
+  /** Fires synchronously when current-period record loading changes. Image paint may precede completion. */
+  onLoadingChange?: (loading: boolean) => void;
 }>;
 export interface WeatherEngine {
   /** Add once with map.addLayer(engine.layer, 'sea'), after the style loads. WebGL2 required. */
   readonly layer: CustomLayerInterface;
-  /** Fetches only this period's records and offsets; resolves after its first completed GPU frame. Latest call wins. */
+  /** Current period records are loading. Every judgePoint call returns null while true, including cached-period queries. */
+  readonly loading: boolean;
+  /** Cold period: paints its default score image, then loads records/offsets in the background. Cached records draw immediately without waiting for an image. Resolves after records and a frame; rejects on record failure. Latest call wins. */
   setPeriod(period: Period): Promise<void>;
-  /** Reuses loaded data. Resolves after GPU completion, including the next MapLibre frame. */
+  /** Reuses loaded data. Resolves after a frame for this taste; while records load a changed taste clears the default image and waits. Before the first period, stores taste and resolves immediately. */
   setTaste(taste: Taste): Promise<RedrawTiming>;
-  /** Synchronous; optional period uses already-loaded data without selecting it or fetching. null if unavailable or no fine land point within two grid steps. Longitude wraps; latitude range −60..90°. */
+  /** Synchronous; null while loading, if unavailable, or if no fine land point within two grid steps. Optional period uses loaded files without fetching or selecting. Longitude wraps; latitude range −60..90°. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
-  /** Same nearest-land fine-point scores as judgePoint within GPU rounding, in input order; NaN means missing. After setTaste/setPeriod resolves, this cheaply reads and caches the GPU grid for city labels. */
+  /** Nearest-land fine-point scores in input order; NaN means missing. Default taste reads the score image, including while records load (integer precision). Other tastes cache one GPU readback per redraw. */
   scorePoints(points: readonly Point[]): Float32Array;
   /** Releases GPU resources. Remove the layer first, or call this before removing the map. */
   destroy(): void;

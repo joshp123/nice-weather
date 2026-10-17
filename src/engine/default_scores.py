@@ -3,7 +3,11 @@
 # dependencies = ["numpy", "pillow"]
 # ///
 # Written by AI on 2026.10.17 by model gpt-6.1-sol.
-"""Usage: default_scores.py <v6 folder>. Write the browser's default fine-point monthly means."""
+"""Usage: default_scores.py <v6 folder> [--images <output folder>].
+
+Write scores.bin, or score PNGs rounded after the complete period's mean.
+The image option writes only to the specified output folder.
+"""
 import importlib.util
 import pathlib
 import sys
@@ -102,11 +106,12 @@ def fine_scores(level_scores, offsets, ordinals):
     return indices, scores
 
 
-def write_default_scores(folder):
+def write_default_scores(folder, image_folder=None):
     started = time.monotonic()
     cells = np.fromfile(folder / 'cells.bin', dtype='<u2').reshape(-1, 2)
     ordinals = nearest_land_ordinals(cells)
     output = np.full((FINE_WIDTH * FINE_HEIGHT, 12), 255, dtype=np.uint8)
+    monthly_means = np.full(output.shape, np.nan) if image_folder else None
     for month in range(1, 13):
         records = np.fromfile(folder / f'climate/month-{month:02d}.bin', dtype=np.uint8).reshape(len(cells), 8, 15)
         with Image.open(folder / f'climate/offsets-{month:02d}.png') as image:
@@ -115,13 +120,27 @@ def write_default_scores(folder):
             offsets = np.asarray(image).reshape(-1)
         indices, scores = fine_scores(cell_level_scores(records), offsets, ordinals)
         output[indices, month - 1] = np.floor(scores + 0.5).astype(np.uint8)
+        if monthly_means is not None:
+            monthly_means[indices, month - 1] = scores
         print(f'Month {month:02d}: {len(indices):,} land points', flush=True)
-    path = folder / 'climate/scores.bin'
-    output.tofile(path)
-    print(f'{path}: {path.stat().st_size:,} bytes in {time.monotonic() - started:.1f} s', flush=True)
+    if image_folder:
+        image_folder.mkdir(parents=True, exist_ok=True)
+        words = 'january february march april may june july august september october november december'.split()
+        periods = {word: [index] for index, word in enumerate(words)}
+        periods.update({'dec-feb': [11, 0, 1], 'mar-may': [2, 3, 4], 'jun-aug': [5, 6, 7], 'sep-nov': [8, 9, 10], 'year': list(range(12))})
+        for word, months in periods.items():
+            values = np.full(FINE_WIDTH * FINE_HEIGHT, 255, dtype=np.uint8)
+            valid = np.isfinite(monthly_means[:, months]).all(axis=1)
+            values[valid] = np.floor(monthly_means[valid][:, months].mean(axis=1) + 0.5).astype(np.uint8)
+            Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / f'scores-{word}.png', optimize=True)
+        print(f'{image_folder}: 17 images in {time.monotonic() - started:.1f} s', flush=True)
+    else:
+        path = folder / 'climate/scores.bin'
+        output.tofile(path)
+        print(f'{path}: {path.stat().st_size:,} bytes in {time.monotonic() - started:.1f} s', flush=True)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != '--images'):
         raise SystemExit(__doc__)
-    write_default_scores(pathlib.Path(sys.argv[1]))
+    write_default_scores(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[3]) if len(sys.argv) == 4 else None)

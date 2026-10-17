@@ -10,6 +10,10 @@ export type SampleGroup = Readonly<{ records: Records; firstDay: number; dayCoun
 export type PeriodData = Readonly<{ groups: readonly SampleGroup[]; offsets: ReadonlyMap<Month, Uint8Array>; sampleDays: number }>;
 export type Cells = Readonly<{ count: number; ordinals: Uint16Array }>;
 
+type ForecastIndex = Readonly<{ run: string; firstDate: string; days: number }>;
+export type ScoreImage = Readonly<{ bytes: Uint8Array }>;
+const monthWords = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
 type Forecast = Readonly<{ records: Records; firstDate: string }>;
 
 const seasons = { 'Dec-Feb': [12, 1, 2], 'Mar-May': [3, 4, 5], 'Jun-Aug': [6, 7, 8], 'Sep-Nov': [9, 10, 11] } as const;
@@ -34,7 +38,9 @@ function forecastGroups(period: Extract<Period, { kind: 'forecast' | 'forecast-d
 }
 
 export class WeatherData {
-  readonly cells: Promise<Cells>;
+  private cellRequest?: Promise<Cells>;
+  private forecastIndexRequest?: Promise<ForecastIndex>;
+  private scoreImages = new Map<string, Promise<ScoreImage | null>>();
   private monthlyRecords = new Map<Month, Promise<Records>>();
   private monthlyOffsets = new Map<Month, Promise<Uint8Array>>();
   private forecast?: Promise<Forecast>;
@@ -42,12 +48,49 @@ export class WeatherData {
   private loadedOffsets = new Map<Month, Uint8Array>();
   private loadedForecast?: Forecast;
 
-  constructor(private baseUrl: string) {
-    this.cells = this.binary('cells.bin').then(bytes => {
+  constructor(private baseUrl: string) {}
+
+  get cells(): Promise<Cells> {
+    return this.cellRequest ??= this.binary('cells.bin').then(bytes => {
       if (bytes.length === 0 || bytes.length % 4 !== 0) throw new Error('v6 cells.bin has an invalid length');
       const pairs = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
       return { count: bytes.length / 4, ordinals: nearestLandOrdinals(pairs) };
-    });
+    }).catch(error => { this.cellRequest = undefined; throw error; });
+  }
+
+  private forecastIndex(): Promise<ForecastIndex> {
+    return this.forecastIndexRequest ??= (async () => {
+      const response = await fetch(`${this.baseUrl}/forecast/current.json`, { cache: 'no-cache' });
+      if (!response.ok) throw new Error(`v6 forecast/current.json: HTTP ${response.status}`);
+      const current = await response.json() as ForecastIndex;
+      if (current.days !== FORECAST_DAYS || !/^\d{4}-\d{2}-\d{2}$/.test(current.firstDate) || !current.run) throw new Error('Invalid v6 forecast/current.json');
+      return current;
+    })().catch(error => { this.forecastIndexRequest = undefined; throw error; });
+  }
+
+  async scoreImage(period: Period): Promise<ScoreImage | null> {
+    let path: string;
+    if (period.kind === 'forecast' || period.kind === 'forecast-day') {
+      if (period.kind === 'forecast-day' && (!Number.isInteger(period.day) || period.day < 0 || period.day >= FORECAST_DAYS)) throw new RangeError(`Forecast day must be 0..${FORECAST_DAYS - 1}`);
+      const index = await this.forecastIndex();
+      path = `forecast/${encodeURIComponent(index.run)}/scores-${period.kind === 'forecast' ? 'all' : `day-${String(period.day).padStart(2, '0')}`}.png`;
+    } else {
+      const word = period.kind === 'month' ? monthWords[period.month - 1] : period.kind === 'season' ? period.season.toLowerCase() : 'year';
+      path = `climate/scores-${word}.png`;
+    }
+    let request = this.scoreImages.get(path);
+    if (!request) {
+      request = loadGreyscaleImage(`${this.baseUrl}/${path}`).then(bytes => {
+        if (bytes.length !== 1440 * 721) throw new Error(`${path}: expected the 1440 × 721 fine grid`);
+        return { bytes };
+      }).catch(error => {
+        this.scoreImages.delete(path);
+        if (!String(error).endsWith('HTTP 404')) console.warn('Score image unavailable; loading weather records', error);
+        return null;
+      });
+      this.scoreImages.set(path, request);
+    }
+    return request;
   }
 
   private async binary(path: string): Promise<Uint8Array> {
@@ -115,18 +158,28 @@ export class WeatherData {
       if (period.kind === 'forecast-day' && (!Number.isInteger(period.day) || period.day < 0 || period.day >= FORECAST_DAYS)) throw new RangeError(`Forecast day must be 0..${FORECAST_DAYS - 1}`);
       if (!this.forecast) {
         this.forecast = (async () => {
-          const response = await fetch(`${this.baseUrl}/forecast/current.json`, { cache: 'no-cache' });
-          if (!response.ok) throw new Error(`v6 forecast/current.json: HTTP ${response.status}`);
-          const current = await response.json() as { run: string; firstDate: string; days: number };
-          if (current.days !== FORECAST_DAYS || !/^\d{4}-\d{2}-\d{2}$/.test(current.firstDate) || !current.run) throw new Error('Invalid v6 forecast/current.json');
+          const current = await this.forecastIndex();
           return { records: await this.records(`forecast/${encodeURIComponent(current.run)}/days.bin`, FORECAST_DAYS), firstDate: current.firstDate };
         })().then(forecast => { this.loadedForecast = forecast; return forecast; }).catch(error => { this.forecast = undefined; throw error; });
       }
-      groups = forecastGroups(period, await this.forecast);
+      const index = await this.forecastIndex();
+      const firstDay = period.kind === 'forecast-day' ? period.day : 0;
+      const count = period.kind === 'forecast-day' ? 1 : FORECAST_DAYS;
+      const months = new Set<Month>();
+      for (let day = firstDay; day < firstDay + count; day++) {
+        const date = new Date(`${index.firstDate}T12:00:00Z`);
+        date.setUTCDate(date.getUTCDate() + day);
+        months.add((date.getUTCMonth() + 1) as Month);
+      }
+      const [forecast] = await Promise.all([this.forecast, ...[...months].map(month => this.offsets(month))]);
+      groups = forecastGroups(period, forecast);
     } else {
       const months = climateMonths(period);
       if (months.some(month => !Number.isInteger(month) || month < 1 || month > 12)) throw new RangeError('Month must be 1..12');
-      groups = await Promise.all(months.map(async month => ({ records: await this.monthRecords(month), firstDay: 0, dayCount: 8, month, weight: 1 / months.length })));
+      groups = await Promise.all(months.map(async month => {
+        const [records] = await Promise.all([this.monthRecords(month), this.offsets(month)]);
+        return { records, firstDay: 0, dayCount: 8, month, weight: 1 / months.length };
+      }));
     }
     const offsets = new Map(await Promise.all(groups.map(async group => [group.month, await this.offsets(group.month)] as const)));
     return { groups, offsets, sampleDays: groups.reduce((sum, group) => sum + group.dayCount, 0) };
