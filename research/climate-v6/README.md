@@ -2,6 +2,12 @@ Written by AI on 2026.10.17 by model GPT-6.1 Sol.
 
 Status: the 15-byte format and measured approximation error were accepted by Opus on 2026-10-17. Accuracy statistics remain in meta.json and the report; they do not block readiness.
 
+For the ongoing expansion from five to twenty-five chunk years, see
+[`../era5/README.md`](../era5/README.md). Its home runner streams raw tiles to the
+NAS; its laptop receiver assembles only complete chunks at 10, 15 and 25 years.
+It uses `assemble(root, publish=False)` to generate scores and images in the
+immutable snapshot before exchanging the complete climate directory atomically.
+
 Run from the repository:
 
 ```sh

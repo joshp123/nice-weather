@@ -1,5 +1,5 @@
 # Written by AI on 2026.10.17 by model GPT-6.1 Sol.
-import argparse, datetime as dt, importlib.util, json, os, pathlib, tempfile, time, zoneinfo
+import argparse, datetime as dt, importlib.util, io, json, os, pathlib, shlex, subprocess, tempfile, time, zoneinfo
 import numpy as np
 from static import ROOT, POINT_DTYPE, build_static
 spec=importlib.util.spec_from_file_location('taste',pathlib.Path(__file__).parents[1]/'taste/nice_v6.py')
@@ -60,7 +60,7 @@ def chunk_dates(chunk):
     return epoch,dates
 
 def process_tile(args):
-    root,chunk,path=args; started=time.monotonic(); root=pathlib.Path(root)
+    root,chunk,path,*remote=args; started=time.monotonic(); root=pathlib.Path(root)
     points=np.fromfile(root/'v6/points.bin',dtype=POINT_DTYPE,offset=4)
     zones=np.load(root/'climate-v6-work/timezones.npy')
     tile_row=int(path.stem[1:3]); tile_column=int(path.stem[4:7])
@@ -70,7 +70,9 @@ def process_tile(args):
     p=points[selected]; latitude=90-(p['fine']//1440)*.25; longitude=-180+(p['fine']%1440)*.25
     rr=native_row[selected]%12; cc=native_column[selected]%12
     sr=(p['source']//1440)%12; sc=((p['source']%1440+720)%1440)%12
-    with np.load(path) as data:
+    source = io.BytesIO(subprocess.check_output(['/usr/bin/ssh', '-o', 'BatchMode=yes', remote[0],
+        f'cat {shlex.quote(str(path))}'])) if remote else path
+    with np.load(source) as data:
         t=data['t2m'][:,sr,sc].astype(np.float32)+p['shift']/100
         dew=data['d2m'][:,sr,sc].astype(np.float32)+p['shift']/100
         wind=np.hypot(data['u10'][:,rr,cc].astype(np.float32),data['v10'][:,rr,cc].astype(np.float32))*3.6
@@ -127,7 +129,7 @@ def process_tile(args):
     temporary.replace(output/path.name)
     return str(path),time.monotonic()-started
 
-def assemble(root):
+def assemble(root, publish=True):
     from PIL import Image
     started=time.monotonic(); output=root/'v6'
     snapshots=root/'climate-v6-work/assemblies'; snapshots.mkdir(parents=True,exist_ok=True)
@@ -204,14 +206,19 @@ def assemble(root):
     facts[points['fine']]=encoded; facts.tofile(climate/'facts.bin')
     years=sorted({d.year for chunk in selected_chunks for d in chunk_dates(chunk)[1]})
     metadata={'years':years,'chunks':selected_chunks,'buildTime':dt.datetime.now(dt.timezone.utc).isoformat(),'source':'ERA5 hourly Earthmover icechunk; fdir normalized to DNI using integrated solar cosine','N':N,'P':P,'daysPerMonthMinimum':month_days.min(0).tolist(),'daysPerMonthMaximum':month_days.max(0).tolist(),'assemblySeconds':time.monotonic()-started,'buildId':snapshot.name,'compactProof':proof,'incompleteChunks':coverage}
+    metadata.update(chunkYears=len(selected_chunks), sampleDaysPerMonth=8,
+                    firstScoredDay=str(min(chunk_dates(chunk)[1][0] for chunk in selected_chunks)),
+                    lastScoredDay=str(max(chunk_dates(chunk)[1][-1] for chunk in selected_chunks)))
     (climate/'meta.json').write_text(json.dumps(metadata,indent=2)+'\n')
     (snapshot/'v6/READY-climate').write_text(json.dumps({'chunks':selected_chunks,'buildTime':metadata['buildTime'],'N':N})+'\n')
     from report import validate_snapshot, write_report
     validation=validate_snapshot(root,snapshot)
-    from publish_local import publish_climate_snapshot
-    publish_climate_snapshot(root,snapshot)
-    write_report(root,validation=validation)
+    if publish:
+        from publish_local import publish_climate_snapshot
+        publish_climate_snapshot(root,snapshot)
+        write_report(root,validation=validation)
     print(json.dumps(metadata),flush=True)
+    return snapshot
 
 def process_available(root,workers):
     started=time.monotonic()

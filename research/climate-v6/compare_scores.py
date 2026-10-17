@@ -115,6 +115,8 @@ def capture(folder):
 
 
 def print_table(current, baseline=None):
+    if baseline and current['scoringSourceSha256'] != baseline['scoringSourceSha256']:
+        print('Scoring code changed since the baseline; differences may include those code changes.\n')
     months = ' | '.join(calendar.month_abbr[month] for month in range(1, 13))
     print(f'| Place | Assembly | {months} |')
     print('| --- | --- | ' + ' | '.join(['---:'] * 12) + ' |')
@@ -142,6 +144,8 @@ def main():
     args = parser.parse_args()
     report = capture(args.folder)
     baseline = json.loads(args.baseline.read_text()) if args.baseline else None
+    if baseline:
+        report['sameScoringCodeAsBaseline'] = report['scoringSourceSha256'] == baseline['scoringSourceSha256']
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
     print_table(report, baseline)
 
