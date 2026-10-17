@@ -43,7 +43,8 @@ def audit(build_root,publication_root):
                 ids = saved['point_ids']
                 totals[ids] += saved['monthly']
                 for month in range(1,13):
-                    values = features[points['cell'][ids]][:,months==month]
+                    day_indices = np.flatnonzero(months==month)
+                    values = features[points['cell'][ids][:,None],day_indices[None,:]]
                     prefix = np.cumsum((values[:,:,:11]+values[:,:,11:22])*.5,axis=2)
                     cutoff = saved['daylight'][:,months==month].astype(int)-1
                     baseline[ids,month-1] += np.take_along_axis(prefix,cutoff[:,:,None],axis=2)[:,:,0].sum(1)

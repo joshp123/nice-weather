@@ -212,6 +212,9 @@ def main():
     provenance = {name:json.loads((args.source_cache/name/'dataset.json').read_text())
                   for name in ('worldclim14','prism','chelsa','era5_monthly')}
     (snapshot/'v6/SOURCE-PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
+    subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name('attach_timezones.py')),
+        '--native-root',str(args.native_root),'--output',str(snapshot/'v6'),
+        '--source-cache',str(args.source_cache/'timezones')],check=True)
     script = pathlib.Path(__file__).resolve().parents[2]/'src/engine/default_scores.py'
     subprocess.run([sys.executable,str(script),str(snapshot/'v6')],check=True)
     subprocess.run([sys.executable,str(script),str(snapshot/'v6'),'--images',str(snapshot/'v6/images')],check=True)
