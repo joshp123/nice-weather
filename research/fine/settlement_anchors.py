@@ -33,13 +33,58 @@ REPRESENTATION_RULE = (
     'selected own native high/low. No station fitting or place exceptions.')
 
 
-def dense_modern_mean(path, expected_chunks):
+def dense_modern_mean(path, expected_chunks, own_fine, own_mean, supplements=()):
     with np.load(path) as normals:
         if not np.array_equal(normals['chunks'],expected_chunks):
             raise ValueError('Fine-pixel and selected-point normals use different chunks')
         dense = np.full((12,721*1440),np.nan,np.float32)
         dense[:,normals['fine']] = normals['mean_c'].T
+    for supplement in supplements:
+        with np.load(supplement) as normals:
+            if not np.array_equal(normals['chunks'],expected_chunks):
+                raise ValueError('Supplemental reference uses different chunks')
+            ids = normals['fine']
+            missing = ~np.isfinite(dense[:,ids])
+            values = dense[:,ids].copy()
+            values[missing] = normals['mean_c'].T[missing]
+            dense[:,ids] = values
+    # A's selected own-quarter means are exact measurements, not borrowed points.
+    missing = ~np.isfinite(dense[:,own_fine])
+    values = dense[:,own_fine].copy()
+    values[missing] = own_mean.T[missing]
+    dense[:,own_fine] = values
     return dense.reshape(12,721,1440)
+
+
+def reference_preflight(fine,population,land,modern,output):
+    started = time.monotonic()
+    required = np.zeros((721,1440),bool)
+    required.ravel()[fine] = True
+    offsets = np.arange(-15,15)
+    for number,row in enumerate(np.unique(fine//1440),1):
+        columns = fine[fine//1440==row]%1440
+        rows = np.broadcast_to(row*30+offsets[None,:,None],(len(columns),30,30))
+        cols = np.broadcast_to((columns[:,None,None]*30+offsets[None,None,:])%43200,rows.shape)
+        valid = (rows>=0)&(rows<21600)
+        rows,cols = rows[valid],cols[valid]
+        counts = population.sample(90-(rows+.5)/120,-180+(cols+.5)/120)
+        eligible = ((land[rows,cols]&7)>0)|(np.isfinite(counts)&(counts>0))
+        lower_rows,lower_cols = (rows[eligible]+.5)//30,(cols[eligible]+.5)//30
+        lower_rows,lower_cols = lower_rows.astype(int),lower_cols.astype(int)
+        for r in (lower_rows,np.minimum(lower_rows+1,720)):
+            for c in (lower_cols,(lower_cols+1)%1440): required[r,c] = True
+        if number%25==0:
+            print(f'preflight band{number}: {time.monotonic()-started:.1f}s',flush=True)
+    missing = np.flatnonzero(required.ravel()&~np.isfinite(modern).all(0).ravel())
+    tiles = sorted({f'r{int(f)//1440//12:02d}c{((int(f)%1440+720)%1440)//12:03d}.npz'
+                    for f in missing})
+    result = dict(required_corners=int(required.sum()),missing_fine_ids=missing.tolist(),
+        missing_tiles=tiles,seconds=time.monotonic()-started,
+        scope='Conservative all positive-population or independent-land footprint corners, plus exact centres; native-fallback-only pixels may not require anomalies.')
+    output.write_text(json.dumps(result,indent=2)+'\n')
+    output.with_name(output.stem+'-tiles.json').write_text(json.dumps(tiles,indent=2)+'\n')
+    print(json.dumps(dict(required_corners=result['required_corners'],missing_corners=len(missing),
+                         missing_tiles=len(tiles),seconds=result['seconds'])),flush=True)
 
 
 def bilinear(field, rows, columns):
@@ -156,6 +201,9 @@ def main():
         default=SSD/'fine-build/normals-76-78-80-82-84/normals.npz')
     parser.add_argument('--reference-normals',type=pathlib.Path,
         default=SSD/'fine-build/reference-global/normals/normals.npz')
+    parser.add_argument('--supplemental-reference-normals',type=pathlib.Path,action='append',default=[])
+    parser.add_argument('--reference-preflight',type=pathlib.Path,
+                        help='Write all missing exact reference corners and stop before sampling climate')
     parser.add_argument('--land-support',type=pathlib.Path,default=SSD/'fine-build/land-support-v2')
     args = parser.parse_args()
     started = time.monotonic()
@@ -163,6 +211,7 @@ def main():
     summary_path = args.summary or args.output.with_suffix('.summary.json')
     with np.load(args.native_normals) as normals:
         all_fine = normals['fine'].copy()
+        all_mean = normals['mean_c'].copy()
         lookup = {int(fine):index for index,fine in enumerate(all_fine)}
         fine = (np.asarray(json.loads(args.fine_ids.read_text()),np.uint32)
                 if args.fine_ids else all_fine)
@@ -179,6 +228,7 @@ def main():
         fine_sha256=hashlib.sha256(fine.tobytes()).hexdigest(),
         native_normals_sha256=file_sha256(args.native_normals),
         reference_normals_sha256=file_sha256(args.reference_normals),
+        supplemental_reference_sha256={str(path):file_sha256(path) for path in args.supplemental_reference_normals},
         land_support_complete=json.loads((args.land_support/'complete.json').read_text()),
         land_sha256=file_sha256(args.land_support/'land.u8'),
         settlement_dataset=population.metadata,
@@ -191,6 +241,13 @@ def main():
         script_sha256=file_sha256(__file__),
         anchor_sampler_sha256=file_sha256(pathlib.Path(__file__).with_name('anchors.py')),
         chunks=chunks.tolist(),monthly_days=days.tolist())
+    modern = dense_modern_mean(args.reference_normals,chunks,all_fine,all_mean,
+                               args.supplemental_reference_normals)
+    land = np.memmap(args.land_support/'land.u8',mode='r',dtype=np.uint8,shape=(21600,43200))
+    if args.reference_preflight:
+        reference_preflight(fine,population,land,modern,args.reference_preflight)
+        population.close()
+        return
     # Per-latitude-band checkpoints avoid rereading source rasters after interruption.
     checkpoint_root = args.output.parent/(args.output.stem+'-bands')
     checkpoint_root.mkdir(exist_ok=True)
@@ -198,10 +255,8 @@ def main():
     if configuration_path.exists() and json.loads(configuration_path.read_text()) != configuration:
         raise ValueError('Existing band checkpoints have different inputs; choose a fresh output folder')
     configuration_path.write_text(json.dumps(configuration,indent=2)+'\n')
-    modern = dense_modern_mean(args.reference_normals,chunks)
     historical = load_era5_mean_normals(args.source_cache)
     sources = AnchorSources(args.source_cache)
-    land = np.memmap(args.land_support/'land.u8',mode='r',dtype=np.uint8,shape=(21600,43200))
     combined = {}
     quarter_rows = fine//1440
     bands = np.unique(quarter_rows)
