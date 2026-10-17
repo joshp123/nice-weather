@@ -94,9 +94,11 @@ export function renderTimeBar(view: TimeBarView, actions: Actions): HTMLElement 
 
   const method = el('a', 'small-link', 'How it works');
   method.href = '/method';
+  const credits = el('a', 'small-link', 'Credits');
+  credits.href = '/method#credits';
 
   return el('nav', 'bar panel',
     el('div', 'bar-row bar-time', timeKind, picker, el('div', 'bar-actions', taste, share)),
-    el('div', 'bar-row bar-meta', legend(view.theme), el('div', 'small-print-row', method)),
+    el('div', 'bar-row bar-meta', legend(view.theme), el('div', 'small-print-row', method, credits)),
   );
 }
