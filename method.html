@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How Nice Weather works</title>
+<meta name="description" content="How Nice Weather decides where and when the weather is nice: the rule, the data, and where it is wrong." />
+<style>
+  :root { color-scheme: light dark; --text: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --page: #fff; }
+  @media (prefers-color-scheme: dark) { :root { --text: #f2f2f0; --muted: #a1a1a6; --line: #33343a; --page: #121316; } }
+  body { margin: 0; background: var(--page); color: var(--text); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 22px 80px; }
+  h1 { font-size: 30px; font-weight: 600; line-height: 1.2; margin: 0 0 8px; }
+  h2 { font-size: 21px; font-weight: 600; margin: 44px 0 10px; }
+  p, li { margin: 0 0 12px; }
+  a { color: inherit; }
+  .muted { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 8px 0 16px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+<p class="muted"><a href="/">← Back to the map</a></p>
+<h1>How Nice Weather works</h1>
+<p>Nice Weather answers one question: where on earth, and when, is the weather nice? Nice here means warm enough for a t-shirt and shorts from morning until you walk home in the evening, without rain, muggy air or a gale. This page explains exactly how each day is scored, where the weather data comes from, and where we know it is wrong, so you can check it before you share a screenshot.</p>
+
+<h2>How this was made</h2>
+<p>Nice Weather was built over a few days in October 2026. Josh decided what it should do and how nice weather feels to him. AI agents did nearly all the research, code and writing: Claude Opus 5.5 planned the work and wrote this page, Claude Fable 5.1 designed the scoring method and the interface, and GPT-6.1 Sol wrote most of the data code. It was vibe-coded: people checked the results against weather stations and their own sense of places, not every line of code. Treat every number as a good estimate, not a measurement.</p>
+
+<h2>A day's score</h2>
+<p>Every day gets a score from 0 to 100, from the hourly weather between 10:00 and 21:00 local time.</p>
+<ol>
+<li><b>How warm it feels, hour by hour.</b> We use "feels like" temperature: the thermometer adjusted for humidity, wind and sunshine, by the formula Australia's weather service uses (Steadman's apparent temperature). Cool hours are judged in the sun, because that is where you would stand; hot hours are judged in the shade, because that is where you would go. Each daylight hour from 10:00 until sunset (at most until 20:00) gets a grade:
+<table>
+<tr><th>Feels, in the sun</th><td class="num">9 °C</td><td class="num">13</td><td class="num">15</td><td class="num">17</td><td class="num">19</td><td class="num">21</td><td class="num">23+</td></tr>
+<tr><th>Grade</th><td class="num">0</td><td class="num">10</td><td class="num">22</td><td class="num">40</td><td class="num">62</td><td class="num">85</td><td class="num">100</td></tr>
+</table>
+<table>
+<tr><th>Feels, in the shade</th><td class="num">28 °C or less</td><td class="num">31</td><td class="num">34</td><td class="num">37</td><td class="num">40</td><td class="num">43</td></tr>
+<tr><th>Grade</th><td class="num">100</td><td class="num">85</td><td class="num">60</td><td class="num">30</td><td class="num">10</td><td class="num">0</td></tr>
+</table>
+An hour gets the lower of the two. Cold costs more than heat: six degrees too cold scores 40, six degrees too hot scores 60.</li>
+<li><b>The walk home at 21:00.</b> Walking keeps you warm, so the bar is lower than in the day: 19 °C or more scores 100, 16 scores 90, 12 scores 65, 8 scores 30. It counts as much as two daytime hours.</li>
+<li><b>Warmth</b> is the average of the daylight hours and the walk home.</li>
+<li><b>Four things then take a share off:</b>
+<table>
+<tr><th>Rain, 10:00 to 21:00</th><td>1 mm keeps 88% of the day, 2 mm 74%, 4 mm half, 8 mm a fifth</td></tr>
+<tr><th>Wind, day's average</th><td>Nothing up to 15 km/h; 30 km/h keeps 85%, 46 km/h half</td></tr>
+<tr><th>Humidity, day's average dew point</th><td>Nothing up to 16 °C; 20 °C keeps 85%, 23 °C half, 26 °C a fifth</td></tr>
+<tr><th>Sunshine, share of daylight hours with the sun out</th><td>Full marks from 80%; a completely grey day keeps 75%</td></tr>
+</table>
+Dew point measures how much moisture the air holds; it is what makes air feel muggy, whatever the time of day. Wind already counts in how warm it feels, so its share here is for the nuisance: dust, sand, hair.</li>
+</ol>
+<p>The score is warmth multiplied by those four. The six words on the map follow it: <b>Awful</b> under 25, <b>Poor</b> from 25, <b>Fair</b> from 40, <b>Nice</b> from 55, <b>Beautiful</b> from 70, <b>Perfect</b> from 85. A month, a season or the year is the average of its days, and its nice days are the days scoring 55 or more.</p>
+<p>These numbers come from one person's taste. If yours differs, the sliders move each curve: how warm you need it, when heat starts to bother you, the walk home, humidity, wind and rain.</p>
+
+<h2>Checking it against places people know</h2>
+<p>We scored ten years of hourly weather at 31 places and checked the results against things people actually say about them. For example: San Francisco is mild and pleasant all year, Rotterdam is not (San Francisco 54 for the year, Rotterdam 25, and San Francisco ahead every month); Singapore is too humid every month; southern Spain in November is lovely; northern Europe from November to March is grim; for a winter escape, Cape Town and the south of Tenerife beat Seville and Crete. Each of these came out as expected.</p>
+
+<h2>The weather data</h2>
+<ul>
+<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses real days from __YEARS__.</li>
+<li><b>The next 14 days</b> come from the same centre's free forecast, refreshed every morning. Its free version has no direct sunlight, so sunshine is estimated from total solar radiation against a clear sky.</li>
+<li><b>Detail.</b> The weather is stored for squares of 1° (about 100 km). Temperature then gets finer detail on a 25 km grid: each point is shifted by how much warmer or cooler it runs than its square, month by month. Coastal points take their temperature from the nearest mostly-land neighbour, corrected for height, which cut coastal errors from about 3 °C to under 1 °C against weather stations.</li>
+<li><b>Fast sliders.</b> For each square and month, eight real days represent the month's range of weather. Your browser re-scores them on its graphics chip when you move a slider.</li>
+<li><b>Place names</b> come from GeoNames; the base map from OpenFreeMap and OpenStreetMap.</li>
+</ul>
+
+<h2>Where it is wrong</h2>
+<ul>
+<li><b>A 25 km grid misses microclimates.</b> San Francisco's fog belt, a sheltered bay, a single valley: anything smaller than the grid reads like its surroundings. In the Bay Area, for example, the data reads the foggy coast about 5 °C too warm in summer.</li>
+<li><b>Fog and sea mist hide the sun</b>, and the data often misses that, so foggy coasts can read too nice.</li>
+<li><b>Drizzle.</b> ERA5 counts too many light-rain days in dry places: Málaga in January reads wet on about a quarter of days, its weather station on about a sixth.</li>
+<li><b>A few years are not a climate.</b> The typical year uses __YEARS_COUNT__ of real weather. One unusual year can move a month by several points.</li>
+<li><b>The forecast's sunshine is estimated</b>, so a forecast day's sun share is rougher than the typical year's.</li>
+</ul>
+<p class="muted">Data: ERA5 and ECMWF open data (Copernicus, CC BY 4.0); GeoNames (CC BY 4.0); OpenFreeMap and © OpenStreetMap contributors.</p>
+</main>
+</body>
+</html>

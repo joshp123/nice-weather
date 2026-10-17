@@ -31,6 +31,9 @@ const bucket = {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, Buffer.from(await new Response(body).arrayBuffer()));
   },
+  async head(key) {
+    try { const { size } = await stat(join(artifacts, key)); return { size }; } catch { return null; }
+  },
   // Local runs keep every forecast; pruning only matters for Sites storage.
   async list({ prefix }) {
     const entries = await readdir(join(artifacts, prefix), { recursive: true, withFileTypes: true }).catch(() => []);
@@ -41,7 +44,8 @@ const bucket = {
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
 async function serveAsset(pathname) {
-  const file = pathname === '/' || !extname(pathname) ? 'index.html' : pathname.slice(1);
+  const page = pathname === '/' ? 'index.html' : `${pathname.slice(1)}.html`;
+  const file = extname(pathname) ? pathname.slice(1) : await stat(join(dist, page)).then(() => page, () => 'index.html');
   try {
     return new Response(await readFile(join(dist, file)), { headers: { 'Content-Type': types[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' } });
   } catch {

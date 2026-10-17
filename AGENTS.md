@@ -1,5 +1,5 @@
 ---
-written_by: AI (Claude Opus 5.5), 2026-10-16, from Josh's steering
+written_by: AI (Claude Opus 5.5), 2026-10-16, updated 2026-10-17 for v6, from Josh's steering
 ---
 
 # AGENTS.md
@@ -8,33 +8,30 @@ Josh owns this project. His own words are the authority: `.agent/josh-steering-l
 
 ## What it is
 
-Nice Weather Finder is a map of the world that answers one question: where is the weather nice? Josh uses it to decide where to go, camper-van and digital-nomad style.
+Nice Weather is a map of the world that answers one question: where on earth, and when, is the weather nice? Nice means t-shirt-and-shorts weather from 10:00 until the walk home at 21:00, without rain, muggy air or a gale, by the visitor's taste (Josh's by default).
 
-- **Next 14 days**: an overview of how many days are nice, and each day on its own.
-- **Year**: what each month is normally like, from real days 2006–2025.
-- **Nice** and **Cycling**: Cycling is stricter about wind and rain.
-- **Lenses**: Overall, Comfort (temperature and humidity), Dry, Clear sky, Calm.
-- Click anywhere for the place name, the answer, and why: real figures in plain words.
+- **Next 14 days** from ECMWF's free forecast, each day and all 14 together.
+- **Typical year**: each month, the four seasons (Dec to Feb, Mar to May, Jun to Aug, Sep to Nov) and the year, from real days of ERA5.
+- **Taste sliders** in real units (felt temperatures, dew point, km/h, mm). The whole world redraws in tens of milliseconds.
+- Click or search a place: its score, the band word, nice days, and why. Every view has a shareable URL (`/lisbon-portugal/july`, `/@36.72,-4.42,7z/november`) with its own link preview; Copy image makes a share card.
 
-Josh's taste: warm is good, 22–27 °C is ideal, 16 °C is mediocre; humid heat like Singapore is not nice; British and Dutch winters are awful; southern Spain in November is often great. Presentation follows Ryan Hall's nice-weather map (clear colour bands with rounded edges, quiet dark map, big readable city names); the yearly journey follows Theo Jaffee's and WeatherSpark's ideas.
+Josh's taste, in his words, is in `.agent/josh-steering-ledger.md`. The scoring method is Fable's graded rule: `research/taste/nice_v6.py`, explained for the public at `/method` (`method.html`).
 
 ## How it works
 
 ```
-ECMWF IFS open data ──► niceweather forecast ──► forecast/<run>/  (PNG per day and layer, points per day)
-ERA5 2006–2025 result ─► niceweather climate-convert ─► climate/ (PNG per month and layer, points per month)
-GeoNames cities ───────► hosting/sites/places.mjs ───► places.tsv
+ERA5 hourly (free Earthmover archive) ─► research/climate-v6 ─► v6/cells.bin, points.bin, climate/month-MM.bin, offsets-MM.png, facts.bin, scores.bin
+ECMWF IFS open data ─► niceweather forecast (daily, on Sites) ─► v6/forecast/<run>/days.bin
                                    │
                     hosting/sites/publish.mjs uploads to Sites storage
                                    │
-Sites Worker (hosting/sites/worker.mjs): serves the app and /data, answers /api/place and /api/search
+Sites Worker (hosting/sites/worker.mjs): serves the app and /data, answers /api/place, /api/search, /api/slug, and gives each URL its own preview tags
                                    │
-Browser (src/): draws one PNG grid as smooth bands; shows the place card the Worker returns
+Browser: src/engine scores eight real days per 1° square and month on the GPU for the current taste, adds 25 km temperature detail, and draws; src/ui is the interface
 ```
 
-- One scoring function: `internal/weather/score.go`. The pipeline scores; the browser never does.
-- One grid: 0.25°, 1440 × 721, for forecast and climate.
-- PNG layers are 8-bit greyscale: value 0–100, 255 = no data. Open one to see the map.
+- The rule lives in `research/taste/nice_v6.py` (reference) and `src/engine/taste.ts` (the browser). They must agree.
+- Formats and grids: `.agent/v6-contract.md`.
 - Live site: <https://nice.jjpcodes.com> (ChatGPT Sites, free, public). Local: `npm run build && npm run serve` on <http://127.0.0.1:5198>, the only local port.
 
 ## Engineering rules
@@ -49,6 +46,6 @@ Browser (src/): draws one PNG grid as smooth bands; shows the place card the Wor
 
 Josh's rule: agents must see and debug the working product themselves, with no human in the loop.
 
-1. Data: open the PNGs, decode points for known places (Málaga, Rotterdam, Chania, Singapore, Denver, Cape Town) and compare with ECMWF's point forecast or WeatherSpark.
-2. Site: run it, click places, switch day, month, profile and lens, and look at screenshots at phone, laptop and ultrawide sizes. Reject clipped text, misaligned controls, unclear explanations or slow loading.
+1. Data: score known places (Málaga, Rotterdam, Chania, Singapore, Cape Town, San Diego, San Francisco) from the published files and compare with research/taste/fable-results.md and with Josh's own words about them.
+2. Site: run it, click places, switch day, month and season, drag every slider, copy a link and an image, and look at screenshots at phone, laptop and ultrawide sizes. Reject clipped text, misaligned controls, unclear explanations or slow loading.
 3. For product milestones, ask a reviewer with no context to judge the live site against Josh's verbatim steering only.

@@ -2,20 +2,13 @@
 // The Sites Worker. It serves the app and the weather files, and does the work
 // for a clicked place so the browser only draws:
 //   GET /data/...                 weather files from Sites storage (R2 binding WEATHER)
-//   GET /api/place?lat=&lon=      everything the place card shows, as JSON
+//   GET /api/place?lat=&lon=      the place's name and its typical year, as JSON
 //   GET /api/search?q=            places by name
 //   PUT /__publish/<key>          the publisher uploads files (bearer token)
 //   POST /__prune                 the publisher removes forecast runs no longer current or previous
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
 const IMMUTABLE = 'public, max-age=31536000, immutable';
-
-// One record per grid cell in forecast/<run>/points/<date>.bin, little-endian.
-// Matches dailyforecast.PointRecord in Go: temperature i16, dew point i16, rain u16
-// (tenths), wet %, cloud %, wind km/h, gust km/h (255 = none), then seven scores.
-const FORECAST_RECORD_BYTES = 17;
-const FIRST_SCORE_OFFSET = 10;
-const NO_DATA = 255;
 
 async function refreshSignature(secret, expires) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -44,23 +37,6 @@ async function siteTool(request, env) {
   return Response.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
 }
 
-function readForecastRecord(view, date) {
-  const score = (index) => view.getUint8(FIRST_SCORE_OFFSET + index);
-  if (score(0) === NO_DATA) return { date, scores: null };
-  const gust = view.getUint8(9);
-  return {
-    date,
-    scores: { nice: score(0), cycling: score(1), comfort: score(2), dry: score(3), clear: score(4), calmNice: score(5), calmCycling: score(6) },
-    temperatureC: view.getInt16(0, true) / 10,
-    dewPointC: view.getInt16(2, true) / 10,
-    rainMm: view.getUint16(4, true) / 10,
-    wetPercent: view.getUint8(6),
-    cloudPercent: view.getUint8(7),
-    windKph: view.getUint8(8),
-    gustKph: gust === NO_DATA ? null : gust,
-  };
-}
-
 // ---------------------------------------------------------------- storage helpers
 
 const memo = new Map();
@@ -86,20 +62,25 @@ function loadPlaces(bucket) {
     const text = await (await bucket.get('places.tsv')).text();
     const places = text.split('\n').map((line) => {
       const [name, plainName, region, latitude, longitude, population] = line.split('\t');
-      return { name, key: normalise(plainName), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
+      return { name, key: normalise(plainName), slug: slugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
     });
+    const bySlug = new Map();
+    for (const place of [...places].sort((left, right) => right.population - left.population)) if (!bySlug.has(place.slug)) bySlug.set(place.slug, place);
     const byDegree = new Map();
     for (const place of places) {
       const key = `${Math.floor(place.latitude)},${Math.floor(place.longitude)}`;
       if (!byDegree.has(key)) byDegree.set(key, []);
       byDegree.get(key).push(place);
     }
-    return { places, byDegree };
+    return { places, byDegree, bySlug };
   })();
   return placesPromise;
 }
 
 const normalise = (text) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const kebab = (text) => normalise(text).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/** "Lisbon" in "Lisbon, Portugal" -> "lisbon-portugal": the place and its country, as a readable URL path. */
+const slugFor = (plainName, region) => `${kebab(plainName)}-${kebab(region.split(',').pop() ?? '')}`.replace(/-$/, '');
 
 function kilometres(latitudeA, longitudeA, latitudeB, longitudeB) {
   const radians = Math.PI / 180;
@@ -122,7 +103,10 @@ async function nameForPoint(bucket, latitude, longitude) {
       }
     }
   }
-  if (nearest && nearestDistance < 30) return { name: nearest.name, region: nearest.region };
+  if (nearest && nearestDistance < 30) {
+    const { bySlug } = await loadPlaces(bucket);
+    return { name: nearest.name, region: nearest.region, slug: bySlug.get(nearest.slug) === nearest ? nearest.slug : undefined };
+  }
   if (nearest) return { name: `Near ${nearest.name}`, region: nearest.region };
   const north = latitude >= 0 ? 'N' : 'S';
   const east = longitude >= 0 ? 'E' : 'W';
@@ -140,116 +124,160 @@ async function search(bucket, query) {
   // An exact name first ("Nice" the town), then the biggest places, as a map app would.
   const exact = (place) => (place.key === wanted ? 0 : 1);
   results.sort((left, right) => exact(left) - exact(right) || right.population - left.population);
-  return results.slice(0, 8).map(({ name, region, latitude, longitude }) => ({ name, region, latitude, longitude }));
+  return results.slice(0, 8).map(({ name, region, latitude, longitude, slug }) => ({ name, region, latitude, longitude, slug }));
 }
 
-// ---------------------------------------------------------------- weather for one place
+// ---------------------------------------------------------------- a place's typical year
 
-function cellFor(grid, latitude, longitude) {
-  const row = Math.min(grid.height - 1, Math.max(0, Math.round((grid.north - latitude) / grid.resolution)));
-  const column = ((Math.round((longitude - grid.west) / grid.resolution) % grid.width) + grid.width) % grid.width;
-  return { row, column };
+// v6/climate/facts.bin: the 0.25° grid (1440 x 721, north to south, from 180°W), 72 bytes a point:
+// twelve months x [air high, feels-like at 21:00, dew point (°C = byte / 3 - 30), wet days %, sunny %, wind km/h x 2].
+// Sea points are all zeros. See .agent/v6-contract.md.
+const FACTS_KEY = 'v6/climate/facts.bin';
+const FINE_WIDTH = 1440;
+const FINE_HEIGHT = 721;
+const FACT_BYTES_PER_POINT = 72;
+const temperatureFromByte = (byte) => Math.round((byte / 3 - 30) * 10) / 10;
+
+function decodeTypicalYear(view, offset) {
+  return Array.from({ length: 12 }, (_, month) => {
+    const at = offset + month * 6;
+    return {
+      month: month + 1,
+      highC: temperatureFromByte(view.getUint8(at)),
+      feelsAt21C: temperatureFromByte(view.getUint8(at + 1)),
+      dewPointC: temperatureFromByte(view.getUint8(at + 2)),
+      wetDaysPercent: view.getUint8(at + 3),
+      sunnyPercent: view.getUint8(at + 4),
+      windKmh: view.getUint8(at + 5) / 2,
+    };
+  });
 }
 
-/** Coastal clicks can land on a sea cell; use the nearest land cell within two cells. */
-async function nearestLandCell(bucket, key, grid, recordBytes, scoreOffset, latitude, longitude) {
-  const centre = cellFor(grid, latitude, longitude);
+/** The nearest land point within two grid steps (about 50 km) and its typical year, or null at sea. */
+async function nearestLandPoint(bucket, latitude, longitude) {
+  const centreRow = Math.min(FINE_HEIGHT - 1, Math.max(0, Math.round((90 - latitude) / 0.25)));
+  const centreColumn = ((Math.round((longitude + 180) / 0.25) % FINE_WIDTH) + FINE_WIDTH) % FINE_WIDTH;
   let best = null;
   for (let dRow = -2; dRow <= 2; dRow++) {
-    const row = centre.row + dRow;
-    if (row < 0 || row >= grid.height) continue;
-    const firstColumn = Math.max(0, centre.column - 2);
-    const lastColumn = Math.min(grid.width - 1, centre.column + 2);
-    const view = await readBytes(bucket, key, (row * grid.width + firstColumn) * recordBytes, (lastColumn - firstColumn + 1) * recordBytes);
+    const row = centreRow + dRow;
+    if (row < 0 || row >= FINE_HEIGHT) continue;
+    const firstColumn = Math.max(0, centreColumn - 2);
+    const lastColumn = Math.min(FINE_WIDTH - 1, centreColumn + 2);
+    const view = await readBytes(bucket, FACTS_KEY, (row * FINE_WIDTH + firstColumn) * FACT_BYTES_PER_POINT, (lastColumn - firstColumn + 1) * FACT_BYTES_PER_POINT);
     if (!view) return null;
     for (let column = firstColumn; column <= lastColumn; column++) {
-      if (view.getUint8((column - firstColumn) * recordBytes + scoreOffset) === NO_DATA) continue;
-      const distance = Math.hypot(row - centre.row, column - centre.column);
-      if (!best || distance < best.distance) best = { row, column, distance };
+      const offset = (column - firstColumn) * FACT_BYTES_PER_POINT;
+      let land = false;
+      for (let i = 0; i < FACT_BYTES_PER_POINT; i++) if (view.getUint8(offset + i) !== 0) { land = true; break; }
+      if (!land) continue;
+      const distance = Math.hypot(dRow, column - centreColumn);
+      if (!best || distance < best.distance) best = { distance, row, column, months: decodeTypicalYear(view, offset) };
     }
   }
   return best;
 }
 
-async function forecastForPlace(bucket, latitude, longitude) {
-  const index = await cachedJson(bucket, 'forecast/current.json', 60);
-  if (!index) return null;
-  const base = `forecast/${index.runId}/points`;
-  const cell = await nearestLandCell(bucket, `${base}/${index.dates[1]}.bin`, index.grid, FORECAST_RECORD_BYTES, FIRST_SCORE_OFFSET, latitude, longitude);
-  if (!cell) return null;
-  const offset = (cell.row * index.grid.width + cell.column) * FORECAST_RECORD_BYTES;
-  const days = await Promise.all(index.dates.map(async (date) => readForecastRecord(await readBytes(bucket, `${base}/${date}.bin`, offset, FORECAST_RECORD_BYTES), date)));
-  return days.filter((day) => day.scores);
+const typicalYearForPlace = async (bucket, latitude, longitude) => (await nearestLandPoint(bucket, latitude, longitude))?.months ?? null;
+
+// ---------------------------------------------------------------- shareable URLs
+
+// App paths: /, /<period>, /<slug>, /<slug>/<period>, /@<lat>,<lon>[,<zoom>z][/<period>].
+const MONTH_WORDS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const SEASON_MONTHS = { 'dec-feb': [12, 1, 2], 'mar-may': [3, 4, 5], 'jun-aug': [6, 7, 8], 'sep-nov': [9, 10, 11] };
+const SEASON_NAMES = { 'dec-feb': 'December to February', 'mar-may': 'March to May', 'jun-aug': 'June to August', 'sep-nov': 'September to November' };
+
+function periodFromWord(word) {
+  if (word === 'next-14-days' || /^day-(?:[0-9]|1[0-3])$/.test(word)) return { word, kind: 'forecast', title: 'the next 14 days' };
+  const month = MONTH_WORDS.indexOf(word);
+  if (month >= 0) return { word, kind: 'climate', months: [month + 1], title: `${word[0].toUpperCase()}${word.slice(1)}` };
+  if (SEASON_MONTHS[word]) return { word, kind: 'climate', months: SEASON_MONTHS[word], title: SEASON_NAMES[word] };
+  if (word === 'year') return { word, kind: 'climate', months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], title: 'the whole year' };
+  return null;
 }
 
-// One record per grid cell in climate/month-MM/points.bin, little-endian. The field
-// list, offsets and scales are in climate/current.json ("points.fields").
-function readClimateRecord(view, fields, month) {
-  const value = (name) => {
-    const field = fields[name];
-    const raw = field.type === 'uint8' ? view.getUint8(field.offset) : field.type === 'uint16' ? view.getUint16(field.offset, true) : view.getInt16(field.offset, true);
-    return Math.round(raw * field.scale * 10) / 10;
-  };
-  return {
-    month,
-    niceChance: { nice: value('niceChancePercent'), cycling: value('cyclingChancePercent') },
-    awfulChance: { nice: value('niceAwfulPercent'), cycling: value('cyclingAwfulPercent') },
-    medianScore: { nice: value('niceMedianScore'), cycling: value('cyclingMedianScore') },
-    temperatureC: value('daytimeTemperatureP50C'),
-    coolDayC: value('daytimeTemperatureP10C'),
-    warmDayC: value('daytimeTemperatureP90C'),
-    highC: value('daytimeMaximumP50C'),
-    dewPointC: value('dewPointP50C'),
-    muggyDaysPercent: value('muggyDayPercent'),
-    rainFreeDaysPercent: value('rainFreeDayPercent'),
-    cloudPercent: value('cloudCoverP50Percent'),
-    clearDaysPercent: value('clearSkyDayPercent'),
-    windKph: value('windP50KPH'),
-  };
-}
-
-async function climateForPlace(bucket, latitude, longitude) {
-  const index = await cachedJson(bucket, 'climate/current.json', 3600);
-  if (!index) return null;
-  const grid = { ...index.grid, resolution: index.grid.resolutionDegrees };
-  const recordBytes = index.points.recordBytes;
-  const fields = Object.fromEntries(index.points.fields.map((field) => [field.name, field]));
-  const cell = await nearestLandCell(bucket, `climate/${index.months[0]}/points.bin`, grid, recordBytes, fields.niceChancePercent.offset, latitude, longitude);
-  if (!cell) return null;
-  const offset = (cell.row * grid.width + cell.column) * recordBytes;
-  return Promise.all(index.months.map(async (key, position) => readClimateRecord(await readBytes(bucket, `climate/${key}/points.bin`, offset, recordBytes), fields, position + 1)));
-}
-
-// ---------------------------------------------------------------- best places
-
-// climate/places.json: every town of 5,000+ people with its share of nice days
-// (0-100, 255 = none) per month and period, for Nice and for Cycling.
-let climatePlacesPromise;
-
-/** The towns with the most nice days in a period, spread out across the view. */
-async function bestPlaces(bucket, period, profile, bounds) {
-  climatePlacesPromise ??= bucket.get('climate/places.json').then((object) => object.json());
-  const table = await climatePlacesPromise;
-  const column = table.periods.indexOf(period);
-  if (column < 0) return [];
-  const valuesIndex = profile === 'cycling' ? 6 : 5;
-  const inView = ([, , latitude, longitude]) =>
-    latitude >= bounds.south && latitude <= bounds.north &&
-    (bounds.west <= bounds.east ? longitude >= bounds.west && longitude <= bounds.east : longitude >= bounds.west || longitude <= bounds.east);
-  const candidates = table.places
-    .filter((place) => inView(place) && place[valuesIndex][column] !== NO_DATA)
-    .sort((left, right) => right[valuesIndex][column] - left[valuesIndex][column] || right[4] - left[4]);
-  // Keep the list useful: one entry per area, not eight towns on the same coast.
-  const spacingKm = kilometres(bounds.south, bounds.west, bounds.north, bounds.west < bounds.east ? bounds.east : bounds.east + 360) / 10;
-  const chosen = [];
-  for (const place of candidates) {
-    if (chosen.some((other) => kilometres(place[2], place[3], other[2], other[3]) < spacingKm)) continue;
-    chosen.push(place);
-    if (chosen.length === 8) break;
+async function viewFromPath(bucket, pathname) {
+  const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  if (parts.length > 2) return null;
+  let place = null;
+  let period = null;
+  if (parts[0]?.startsWith('@')) {
+    const [latitude, longitude] = parts[0].slice(1).split(',').map(Number);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return null;
+    place = { ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude };
+    period = parts[1] ? periodFromWord(parts[1]) : null;
+  } else if (parts[0]) {
+    period = periodFromWord(parts[0]);
+    if (!period) {
+      const { bySlug } = await loadPlaces(bucket);
+      place = bySlug.get(parts[0]) ?? null;
+      if (!place) return null;
+      period = parts[1] ? periodFromWord(parts[1]) : null;
+    }
   }
-  return chosen.map(([name, region, latitude, longitude, , nice, cycling]) => ({
-    name, region, latitude, longitude, niceShare: (profile === 'cycling' ? cycling : nice)[column],
-  }));
+  if (parts[1] && !period) return null;
+  return { place, period };
+}
+
+// v6/climate/scores.bin: the default taste's mean day score per 0.25° point and month (12 bytes a point, 255 at sea).
+async function defaultScore(bucket, latitude, longitude, months) {
+  const point = await nearestLandPoint(bucket, latitude, longitude);
+  if (!point) return null;
+  const view = await readBytes(bucket, 'v6/climate/scores.bin', (point.row * FINE_WIDTH + point.column) * 12, 12);
+  if (!view) return null;
+  const scores = months.map((month) => view.getUint8(month - 1)).filter((score) => score !== 255);
+  return scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
+}
+
+const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];
+const bandWord = (score) => BAND_WORDS.find(([minimum]) => score >= minimum)[1];
+const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
+
+async function previewFor(bucket, origin, pathname, view) {
+  const { place, period } = view;
+  const placeName = place ? place.name : null;
+  let title = 'Nice Weather: where on earth is the weather nice?';
+  let description = 'A map of the whole world coloured by how nice the weather feels, for the next 14 days or any month of a typical year. Set your own taste.';
+  if (placeName && period?.kind === 'climate') {
+    title = `${placeName} in ${period.title}: Nice Weather`;
+    const score = await defaultScore(bucket, place.latitude, place.longitude, period.months);
+    const months = await typicalYearForPlace(bucket, place.latitude, place.longitude);
+    const typical = months && period.months.length === 1 ? months[period.months[0] - 1] : null;
+    description = score === null ? `How nice the weather is in ${placeName} in ${period.title}.` : `${placeName} in ${period.title}: ${bandWord(score)}, nice score ${Math.round(score)} out of 100.`;
+    if (typical) description += ` Typical highs of ${Math.round(typical.highC)} °C, ${Math.round(typical.feelsAt21C)} °C at 21:00, sunny ${typical.sunnyPercent}% of the day, rain on ${typical.wetDaysPercent}% of days.`;
+  } else if (placeName) {
+    title = `${placeName}: Nice Weather`;
+    description = `How nice the weather will be in ${placeName} over the next 14 days, and in every month of a typical year.`;
+  } else if (period?.kind === 'climate') {
+    title = `Where is the weather nice in ${period.title}? Nice Weather`;
+  }
+  const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
+  let image = place?.slug ? await card(`v6/cards/${place.slug}.png`) : null;
+  if (!image && period?.kind === 'climate') image = await card(`v6/cards/world-${period.word}.png`);
+  image ??= `${origin}/data/v6/cards/world.png`;
+  return { title, description, image, url: `${origin}${pathname}` };
+}
+
+function withPreview(html, preview) {
+  const tags = [
+    `<meta name="description" content="${escapeHtml(preview.description)}" />`,
+    `<link rel="canonical" href="${escapeHtml(preview.url)}" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:site_name" content="Nice Weather" />`,
+    `<meta property="og:title" content="${escapeHtml(preview.title)}" />`,
+    `<meta property="og:description" content="${escapeHtml(preview.description)}" />`,
+    `<meta property="og:url" content="${escapeHtml(preview.url)}" />`,
+    `<meta property="og:image" content="${escapeHtml(preview.image)}" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+    `<meta name="twitter:title" content="${escapeHtml(preview.title)}" />`,
+    `<meta name="twitter:description" content="${escapeHtml(preview.description)}" />`,
+    `<meta name="twitter:image" content="${escapeHtml(preview.image)}" />`,
+  ].join('\n    ');
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(preview.title)}</title>`)
+    .replace(/<meta name="description"[^>]*>\s*/, '')
+    .replace('</head>', `    ${tags}\n  </head>`);
 }
 
 // ---------------------------------------------------------------- HTTP
@@ -273,18 +301,22 @@ async function serveData(request, bucket, key) {
   });
 }
 
+/** Removes forecast runs that are neither the current nor the previous run, for the old and the v6 forecast. */
 async function prune(bucket) {
-  const index = await cachedJson(bucket, 'forecast/current.json', 0);
-  const keep = [index?.runId, index?.previousRunId].filter(Boolean).map((runId) => `forecast/${runId}/`);
   let removed = 0;
-  let cursor;
-  do {
-    const page = await bucket.list({ prefix: 'forecast/', cursor, limit: 1000 });
-    const expired = page.objects.map((object) => object.key).filter((key) => key !== 'forecast/current.json' && !keep.some((prefix) => key.startsWith(prefix)));
-    if (expired.length) await bucket.delete(expired);
-    removed += expired.length;
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
+  for (const [prefix, pointer, current, previous] of [['forecast/', 'forecast/current.json', 'runId', 'previousRunId'], ['v6/forecast/', 'v6/forecast/current.json', 'run', 'previousRun']]) {
+    const index = await cachedJson(bucket, pointer, 0);
+    if (!index) continue;
+    const keep = [index[current], index[previous]].filter(Boolean).map((run) => `${prefix}${run}/`);
+    let cursor;
+    do {
+      const page = await bucket.list({ prefix, cursor, limit: 1000 });
+      const expired = page.objects.map((object) => object.key).filter((key) => key !== pointer && !keep.some((kept) => key.startsWith(kept)));
+      if (expired.length) await bucket.delete(expired);
+      removed += expired.length;
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  }
   return json({ removed });
 }
 
@@ -301,7 +333,7 @@ export async function handleRequest(request, env, serveAsset) {
     if (url.pathname === '/__prune' && request.method === 'POST') return prune(bucket);
     if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
     const key = url.pathname.slice('/__publish/'.length);
-    if (forecastPublisher && !key.startsWith('forecast/')) return new Response('Not found', { status: 404 });
+    if (forecastPublisher && !key.startsWith('forecast/') && !key.startsWith('v6/forecast/')) return new Response('Not found', { status: 404 });
     const body = request.headers.get('Content-Encoding') === 'gzip'
       ? await new Response(request.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
       : request.body;
@@ -321,21 +353,30 @@ export async function handleRequest(request, env, serveAsset) {
     const latitude = Number(url.searchParams.get('lat'));
     const longitude = Number(url.searchParams.get('lon'));
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return new Response('Bad coordinates', { status: 400 });
-    const [where, days, months] = await Promise.all([nameForPoint(bucket, latitude, longitude), forecastForPlace(bucket, latitude, longitude), climateForPlace(bucket, latitude, longitude)]);
-    return json({ ...where, latitude, longitude, days, months }, 300);
+    const [where, months] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude)]);
+    return json({ ...where, latitude, longitude, months }, 3600);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
-  if (url.pathname === '/api/best') {
-    const number = (name) => Number(url.searchParams.get(name));
-    const bounds = { west: number('west'), south: number('south'), east: number('east'), north: number('north') };
-    if (Object.values(bounds).some((value) => !Number.isFinite(value))) return new Response('Bad bounds', { status: 400 });
-    return json(await bestPlaces(bucket, url.searchParams.get('period') ?? '', url.searchParams.get('profile') ?? 'nice', bounds), 3600);
+  if (url.pathname.startsWith('/api/slug/')) {
+    const { bySlug } = await loadPlaces(bucket);
+    const place = bySlug.get(decodeURIComponent(url.pathname.slice('/api/slug/'.length)));
+    if (!place) return new Response('Not found', { status: 404 });
+    return json({ name: place.name, region: place.region, latitude: place.latitude, longitude: place.longitude, slug: place.slug }, 86400);
+  }
+  const isAppPath = (url.pathname.startsWith('/@') || !/\.[a-z0-9]+$/i.test(url.pathname)) && !url.pathname.startsWith('/api/');
+  if (isAppPath && url.pathname !== '/method') {
+    const view = await viewFromPath(bucket, url.pathname);
+    const page = await serveAsset('/index.html', request);
+    if (request.method === 'HEAD') return page;
+    const html = await page.text();
+    if (!view) return new Response(withPreview(html, await previewFor(bucket, url.origin, '/', { place: null, period: null })), { status: 404, headers: page.headers });
+    return new Response(withPreview(html, await previewFor(bucket, url.origin, url.pathname, view)), { headers: page.headers });
   }
   return serveAsset(url.pathname, request);
 }
 
 function serveEmbeddedAsset(pathname, request) {
-  const asset = WEB_ASSETS[pathname] ?? WEB_ASSETS['/index.html'];
+  const asset = WEB_ASSETS[pathname] ?? WEB_ASSETS[`${pathname}.html`] ?? WEB_ASSETS['/index.html'];
   const page = asset === WEB_ASSETS['/index.html'];
   const bytes = Uint8Array.from(atob(asset.data), (character) => character.charCodeAt(0));
   return new Response(request.method === 'HEAD' ? null : bytes, {
