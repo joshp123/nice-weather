@@ -68,7 +68,7 @@ export interface WeatherEngine {
   prepareYear(): Promise<void>;
   /** Synchronous; null until data arrive or where unavailable. With the fine-place manifest, climate queries load the exact 30 arc-second pixel and replay; no overview fallback. Other periods do not select a map period. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
-  /** Named-place scores in input order; NaN means pending or missing. Fine climate uses the same exact-pixel judgement as the card; the overview map is independent. */
+  /** Named-place scores in input order; NaN means pending or missing. Fine climate uses the same exact-pixel judgement as the card and the loaded native pixel area on the map. */
   scorePoints(points: readonly Point[]): Float32Array;
   /** Packed nice, perfect and awful day counts for each point. */
   countPoints(points: readonly Point[]): Float32Array;
@@ -85,7 +85,7 @@ export interface WeatherEngine {
  *
  * Climate months count their real calendar days, represented by eight sampled days each.
  * An installed fine-place manifest selects exact-pixel climate replay for cards and named places.
- * Without it the existing overview sampler remains in use. Only the map applies the final B-spline.
+ * Without it the map and card share the full-verdict B-spline field. Every grid point first uses the same temporal typical-day rule.
  */
 export function createWeatherEngine(map: MapLibreMap, options: EngineOptions = {}): WeatherEngine {
   return new BrowserWeatherEngine(map, options);

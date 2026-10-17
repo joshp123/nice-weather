@@ -147,7 +147,7 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 func v6ScoreImageNames() []string {
 	names := make([]string, 0, v6Days+1)
 	for day := range v6Days {
-		names = append(names, fmt.Sprintf("scores-day-%02d.png", day))
+		names = append(names, fmt.Sprintf("scores-typical-day-day-%02d.png", day))
 	}
-	return append(names, "scores-all.png")
+	return append(names, "scores-typical-day-all.png")
 }

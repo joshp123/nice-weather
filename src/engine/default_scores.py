@@ -156,7 +156,7 @@ def write_default_scores(folder, image_folder=None):
             weights = MONTH_DAYS[months] / MONTH_DAYS[months].sum()
             shares = np.einsum("pmt,m->pt", monthly_shares[valid][:, months], weights)
             values[valid] = np.floor(typical_scores(shares)).astype(np.uint8)
-            Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / f'scores-{word}.png', optimize=True)
+            Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / f'scores-typical-day-{word}.png', optimize=True)
         output.tofile(image_folder / 'scores.bin')
         print(f'{image_folder}: {len(periods)} images in {time.monotonic() - started:.1f} s', flush=True)
     else:
@@ -187,12 +187,12 @@ def write_forecast_scores(folder, run_folder, image_folder):
         values = np.full(FINE_WIDTH * FINE_HEIGHT, 255, dtype=np.uint8)
         valid = np.isfinite(daily[:, day])
         values[valid] = np.floor(daily[valid, day]).astype(np.uint8)
-        Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / f'scores-day-{day:02d}.png', optimize=True)
+        Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / f'scores-typical-day-day-{day:02d}.png', optimize=True)
     valid = np.isfinite(daily).all(axis=1)
     shares = (daily[valid, :, None] >= THRESHOLDS).mean(axis=1)
     values = np.full(FINE_WIDTH * FINE_HEIGHT, 255, dtype=np.uint8)
     values[valid] = np.floor(typical_scores(shares)).astype(np.uint8)
-    Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / 'scores-all.png', optimize=True)
+    Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / 'scores-typical-day-all.png', optimize=True)
     print(f'{image_folder}: 15 forecast images', flush=True)
 
 

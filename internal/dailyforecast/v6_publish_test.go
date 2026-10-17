@@ -98,7 +98,7 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 }
 
 func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T) {
-	for _, failedName := range []string{"days.bin", "scores-day-06.png", "outlook/europe.png"} {
+	for _, failedName := range []string{"days.bin", "scores-typical-day-day-06.png", "outlook/europe.png"} {
 		t.Run(failedName, func(t *testing.T) {
 			directory := publicationFixture(t, "20261016T0000Z")
 			var mutex sync.Mutex
@@ -138,7 +138,7 @@ func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T)
 
 func TestPublishRejectsMissingV6ScoreImageBeforeSwitchingPointers(t *testing.T) {
 	directory := publicationFixture(t, "20261016T0000Z")
-	imagePath := filepath.Join(directory, "scores-all.png")
+	imagePath := filepath.Join(directory, "scores-typical-day-all.png")
 	if err := os.Rename(imagePath, imagePath+".missing"); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestPublishRejectsMissingV6ScoreImageBeforeSwitchingPointers(t *testing.T) 
 	}))
 	defer server.Close()
 	_, err := Publish(context.Background(), directory, server.URL, "test-only-token")
-	if err == nil || !strings.Contains(err.Error(), "scores-all.png") {
+	if err == nil || !strings.Contains(err.Error(), "scores-typical-day-all.png") {
 		t.Fatalf("expected missing score image error, got %v", err)
 	}
 	if pointers != 0 || v6Uploads != 0 || prunes != 0 {

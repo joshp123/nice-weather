@@ -193,8 +193,36 @@ void main() {
     contour = max(contour, 1.0 - smoothstep(0.0, edgeWidth * 2.0, abs(distanceToEdge)));
   }
   colour.rgb *= 1.0 - 0.14 * contour;
-  float coastWidth = max(fwidth(landWeight), 0.01);
-  float landCoverage = smoothstep(0.5 - coastWidth, 0.5 + coastWidth, landWeight);
+  float landCoverage = smoothstep(0.0, 0.02, landWeight);
   vec3 landComposite = colour.rgb + u_land_colour.rgb * (1.0 - colour.a);
   fragColour = vec4(landComposite * landCoverage, landCoverage);
+}`;
+
+/** Exact loaded 30 arc-second cells replace the overview at their real geographic area. */
+export const finePixelVertex = `#version 300 es
+uniform mat4 u_matrix;
+uniform float u_world_offset;
+in vec2 a_position;
+in float a_score;
+out float v_score;
+out float v_world_x;
+void main() {
+  v_score = a_score;
+  v_world_x = a_position.x + u_world_offset;
+  gl_Position = u_matrix * vec4(a_position.x + u_world_offset, a_position.y, 0.0, 1.0);
+}`;
+
+export const finePixelFragment = `#version 300 es
+precision highp float;
+uniform vec4 u_band_colours[6];
+uniform vec4 u_land_colour;
+in float v_score;
+in float v_world_x;
+out vec4 fragColour;
+void main() {
+  if (v_world_x < 0.0 || v_world_x > 1.0) discard;
+  vec4 colour = u_band_colours[0];
+  float minimums[6] = float[6](${BANDS.map(band => `${band.minimum}.0`).join(',')});
+  for (int band = 1; band < 6; band++) if (v_score >= minimums[band]) colour = u_band_colours[band];
+  fragColour = vec4(colour.rgb + u_land_colour.rgb * (1.0 - colour.a), 1.0);
 }`;

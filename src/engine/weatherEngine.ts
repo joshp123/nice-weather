@@ -4,17 +4,17 @@ import { bands } from '../palette';
 import type { EngineOptions, Period, Point, PointVerdict, RedrawTiming, WeatherEngine } from './index';
 import { DEFAULT_TASTE, type Taste } from './taste';
 import { WeatherData, type Cells, type PeriodData, type Records, type ScoreImage } from './data';
-import { PointSampler, readFineScore, nearestLandFineIndex } from './sampling';
+import { PointSampler, readMapPoint } from './sampling';
 import { FinePlaces } from './finePlaces';
 import { finePlaceCandidates } from '../../hosting/sites/fine-candidates.mjs';
-import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
+import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment, finePixelVertex, finePixelFragment } from './shaders';
 
 function periodKey(period: Period): string {
   return period.kind === 'months' ? `months:${period.startMonth}:${period.endMonth}` : period.kind === 'month' ? `month:${period.month}` : period.kind === 'season' ? `season:${period.season}` : period.kind === 'forecast-day' ? `forecast-day:${period.day}` : period.kind;
 }
 
 type PendingFrame = { started: number; resolve: (timing: RedrawTiming) => void; reject: (error: Error) => void };
-type Programs = { score: WebGLProgram; resolve: WebGLProgram; map: WebGLProgram };
+type Programs = { score: WebGLProgram; resolve: WebGLProgram; map: WebGLProgram; finePixel: WebGLProgram };
 
 export class BrowserWeatherEngine implements WeatherEngine {
   readonly layer: CustomLayerInterface;
@@ -39,6 +39,11 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private programs?: Programs;
   private quad?: WebGLVertexArrayObject;
   private framebuffer?: WebGLFramebuffer;
+  private finePixelArray?: WebGLVertexArrayObject;
+  private finePixelBuffer?: WebGLBuffer;
+  private finePixelCount = 0;
+  private fineFieldRevision = 0;
+  private uploadedFineFieldRevision = -1;
   private ordinals?: WebGLTexture;
   private offsets?: WebGLTexture;
   private scores?: WebGLTexture;
@@ -61,6 +66,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
     this.source = new WeatherData(dataUrl);
     this.finePlaces = new FinePlaces(dataUrl, () => {
       if (this.destroyed) return;
+      this.fineFieldRevision++;
+      this.map.triggerRepaint();
       this.notifyLoading();
       if (this.hasPeriod) this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
     });
@@ -100,6 +107,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
     this.periodError = undefined;
     this.hasPeriod = true;
     this.period = { ...period };
+    this.fineFieldRevision++;
     this.data = undefined;
     this.sampler = undefined;
     this.scoreImage = undefined;
@@ -148,6 +156,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   setTaste(taste: Taste): Promise<RedrawTiming> {
     this.taste = { ...taste };
+    this.fineFieldRevision++;
     if (!this.isDefaultTaste()) { this.releaseImageWait?.(); this.releaseImageWait = undefined; }
     this.periodSamplers.clear();
     if (this.cells && this.data) this.sampler = new PointSampler(this.cells, this.data, this.period, this.taste);
@@ -203,23 +212,15 @@ export class BrowserWeatherEngine implements WeatherEngine {
   }
 
   private overviewScores(points: readonly Point[]): Float32Array {
-    if (this.isDefaultTaste() && this.scoreImage && !this.destroyed) {
-      const bytes = this.scoreImage.bytes;
-      return Float32Array.from(points, point => {
-        const index = nearestLandFineIndex(point.latitude, point.longitude, [bytes]);
-        return index === null ? NaN : bytes[index];
-      });
+    if (this.isDefaultTaste() && this.scoreImage && !this.data && !this.destroyed) {
+      return Float32Array.from(points, point => readMapPoint(this.scoreImage!.bytes, point.latitude, point.longitude));
     }
     const gl = this.gl;
     if (!this.data || !gl || !this.fineScores || this.gpuRevision !== this.revision || this.drawnRevision !== this.revision || this.destroyed) {
       return Float32Array.from(points, point => this.sampler?.judge(point.latitude, point.longitude)?.meanScore ?? NaN);
     }
     this.readScores();
-    const offsets = [...this.data!.offsets.values()];
-    return Float32Array.from(points, point => {
-      const index = nearestLandFineIndex(point.latitude, point.longitude, offsets);
-      return index === null ? NaN : this.fineScoreReadback![index * 4];
-    });
+    return Float32Array.from(points, point => readMapPoint(this.fineScoreReadback!, point.latitude, point.longitude, 4));
   }
 
   private readScores(): void {
@@ -245,11 +246,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
     }
     if (!this.data || !this.gl || this.gpuRevision !== this.revision || this.drawnRevision !== this.revision || this.destroyed) return counts;
     this.readScores();
-    const offsets = [...this.data.offsets.values()];
     points.forEach((point, ordinal) => {
-      const index = nearestLandFineIndex(point.latitude, point.longitude, offsets);
-      if (index === null) return;
-      for (let kind = 0; kind < 3; kind++) counts[ordinal * 3 + kind] = Math.round(this.fineScoreReadback![index * 4 + kind + 1] * this.data!.totalDays * 8) / 8;
+      for (let kind = 0; kind < 3; kind++) counts[ordinal * 3 + kind] = readMapPoint(this.fineScoreReadback!, point.latitude, point.longitude, 4, kind + 1) * this.data!.totalDays;
     });
     return counts;
   }
@@ -271,6 +269,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
       score: compileProgram(gl, fullscreenVertex, scoringFragment),
       resolve: compileProgram(gl, fullscreenVertex, resolveFragment),
       map: compileProgram(gl, mapVertex, mapFragment),
+      finePixel: compileProgram(gl, finePixelVertex, finePixelFragment),
     };
     this.quad = gl.createVertexArray()!;
     gl.bindVertexArray(this.quad);
@@ -379,6 +378,51 @@ export class BrowserWeatherEngine implements WeatherEngine {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
+  private uploadFinePixels(): void {
+    if (this.uploadedFineFieldRevision === this.fineFieldRevision) return;
+    const gl = this.gl!;
+    const pixels = this.isClimate() ? this.finePlaces.mapPixels(this.period, this.taste) : [];
+    const vertices: number[] = [];
+    const mercatorY = (latitude: number) => (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2;
+    for (const pixel of pixels) {
+      const north = 90 - pixel.row / 120, south = north - 1 / 120;
+      if (north > 85 || south < -60) continue;
+      const left = pixel.column / 43200, right = (pixel.column + 1) / 43200;
+      const top = mercatorY(north), bottom = mercatorY(south);
+      for (const [x, y] of [[left, top], [right, top], [left, bottom], [left, bottom], [right, top], [right, bottom]]) vertices.push(x, y, pixel.score);
+    }
+    this.finePixelCount = vertices.length / 3;
+    if (!this.finePixelArray) {
+      this.finePixelArray = gl.createVertexArray()!;
+      this.finePixelBuffer = gl.createBuffer()!;
+      this.resources.buffers.push(this.finePixelBuffer);
+      gl.bindVertexArray(this.finePixelArray);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.finePixelBuffer);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 12, 0);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 12, 8);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.finePixelBuffer!);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
+    this.uploadedFineFieldRevision = this.fineFieldRevision;
+  }
+
+  private renderFinePixels(input: CustomRenderMethodInput, worldOffsets: readonly number[]): void {
+    this.uploadFinePixels();
+    if (!this.finePixelCount) return;
+    const gl = this.gl!, program = this.programs!.finePixel;
+    gl.useProgram(program);
+    gl.bindVertexArray(this.finePixelArray!);
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, input.defaultProjectionData.mainMatrix);
+    gl.uniform4fv(gl.getUniformLocation(program, 'u_band_colours'), bands.flatMap(band => premultipliedRgba(band.colour)));
+    gl.uniform4fv(gl.getUniformLocation(program, 'u_land_colour'), this.landColour);
+    for (const worldOffset of worldOffsets) {
+      gl.uniform1f(gl.getUniformLocation(program, 'u_world_offset'), worldOffset);
+      gl.drawArrays(gl.TRIANGLES, 0, this.finePixelCount);
+    }
+  }
+
   private bindTexture(program: WebGLProgram, uniform: string, unit: number, target: number, texture: WebGLTexture): void {
     const gl = this.gl!;
     gl.activeTexture(gl.TEXTURE0 + unit);
@@ -388,7 +432,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   private render(input: CustomRenderMethodInput): void {
     if (!this.gl || !this.programs || !this.quad || this.destroyed) return;
-    const image = this.isDefaultTaste() ? this.scoreImage : undefined;
+    const image = this.isDefaultTaste() && !this.data ? this.scoreImage : undefined;
     if (!image && (!this.cells || !this.data)) {
       // Notify labels when a moved taste clears an already-painted image. Taste promises still wait for records.
       if (this.scoreImage && this.drawnRevision !== this.revision) {
@@ -427,17 +471,19 @@ export class BrowserWeatherEngine implements WeatherEngine {
       gl.useProgram(program);
       this.bindTexture(program, 'u_grid', 0, gl.TEXTURE_2D, image ? this.imageTexture! : this.fineScores!);
       gl.uniform1f(gl.getUniformLocation(program, 'u_grid_scale'), image ? 255 : 1);
-      gl.uniform1i(gl.getUniformLocation(program, 'u_round_scores'), this.isDefaultTaste() ? 1 : 0);
+      gl.uniform1i(gl.getUniformLocation(program, 'u_round_scores'), image ? 1 : 0);
       gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, input.defaultProjectionData.mainMatrix);
       gl.uniform4fv(gl.getUniformLocation(program, 'u_band_colours'), bands.flatMap(band => premultipliedRgba(band.colour)));
       gl.uniform4fv(gl.getUniformLocation(program, 'u_land_colour'), this.landColour);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       const centreWorld = Math.floor((this.map.getCenter().lng + 180) / 360);
-      for (const worldOffset of [centreWorld - 1, centreWorld, centreWorld + 1]) {
+      const worldOffsets = [centreWorld - 1, centreWorld, centreWorld + 1];
+      for (const worldOffset of worldOffsets) {
         gl.uniform1f(gl.getUniformLocation(program, 'u_world_offset'), worldOffset);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       }
+      this.renderFinePixels(input, worldOffsets);
       if (needsRecount) {
         this.drawnRevision = this.revision;
         this.completeFrame(this.pending.splice(0), this.revision, this.period);
@@ -490,6 +536,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
     for (const buffer of this.resources.buffers) gl.deleteBuffer(buffer);
     if (this.programs) for (const program of Object.values(this.programs)) gl.deleteProgram(program);
     if (this.quad) gl.deleteVertexArray(this.quad);
+    if (this.finePixelArray) gl.deleteVertexArray(this.finePixelArray);
     if (this.framebuffer) gl.deleteFramebuffer(this.framebuffer);
     this.recordTextures.clear();
     this.fineScoreReadback = undefined;
@@ -513,6 +560,7 @@ function compileProgram(gl: WebGL2RenderingContext, vertex: string, fragment: st
     gl.deleteShader(shader);
   }
   gl.bindAttribLocation(program, 0, 'a_position');
+  gl.bindAttribLocation(program, 1, 'a_score');
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? 'Weather shader linking failed');
   return program;

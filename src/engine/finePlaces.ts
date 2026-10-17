@@ -4,9 +4,9 @@ import type { Period, PointVerdict } from './index';
 import type { Taste } from './taste';
 
 type PlacePacket = Awaited<ReturnType<ReturnType<typeof createFinePlaceClient>['load']>>;
-type CachedPlace = { packet?: PlacePacket; complete: boolean; judgements: Map<string, PointVerdict | null> };
+type CachedPlace = { latitude: number; longitude: number; packet?: PlacePacket; complete: boolean; judgements: Map<string, PointVerdict | null> };
 
-/** Exact-pixel climate queries; the overview map keeps its existing data source. */
+/** Exact-pixel climate queries and loaded pixel areas for the map. */
 export class FinePlaces {
   private loader: ReturnType<typeof createFinePlaceClient>;
   private places = new Map<string, CachedPlace>();
@@ -45,7 +45,7 @@ export class FinePlaces {
       }
     }
     if (!cached) {
-      cached = { complete: false, judgements: new Map() };
+      cached = { latitude, longitude, complete: false, judgements: new Map() };
       this.places.set(key, cached);
       this.pending++;
       this.notify();
@@ -72,6 +72,20 @@ export class FinePlaces {
       if (cached.judgements.size > 24) cached.judgements.delete(cached.judgements.keys().next().value!);
     }
     return cached.judgements.get(judgementKey) ?? null;
+  }
+
+  /** Loaded native pixels are also the map's exact-data field, not only card values. */
+  mapPixels(period: Period, taste: Taste): { row: number; column: number; score: number }[] {
+    if (this.availability !== 'active') return [];
+    const pixels = new Map<string, { row: number; column: number; score: number }>();
+    for (const cached of [...this.places.values()]) {
+      if (!cached.complete || !cached.packet) continue;
+      const verdict = this.judge(cached.latitude, cached.longitude, period, taste);
+      if (!verdict) continue;
+      const { row, column } = cached.packet.pixel;
+      pixels.set(`${row},${column}`, { row, column, score: verdict.meanScore });
+    }
+    return [...pixels.values()];
   }
 
   private drain(): void {

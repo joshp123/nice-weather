@@ -92,7 +92,7 @@ func GenerateWithStatic(ctx context.Context, source, placesSource, staticSource,
 	if day < 0 || day >= pointer.Days {
 		return nil, fmt.Errorf("tomorrow %s is outside forecast starting %s", tomorrow.Format("2006-01-02"), pointer.FirstDate)
 	}
-	scoreBytes, err := read(fmt.Sprintf("v6/forecast/%s/scores-day-%02d.png", pointer.Run, day))
+	scoreBytes, err := read(fmt.Sprintf("v6/forecast/%s/scores-typical-day-day-%02d.png", pointer.Run, day))
 	if err != nil {
 		return nil, err
 	}

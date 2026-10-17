@@ -77,16 +77,16 @@ export class WeatherData {
     if (period.kind === 'forecast' || period.kind === 'forecast-day') {
       if (period.kind === 'forecast-day' && (!Number.isInteger(period.day) || period.day < 0 || period.day >= FORECAST_DAYS)) throw new RangeError(`Forecast day must be 0..${FORECAST_DAYS - 1}`);
       const index = await this.forecastIndex();
-      path = `forecast/${encodeURIComponent(index.run)}/scores-${period.kind === 'forecast' ? 'all' : `day-${String(period.day).padStart(2, '0')}`}.png`;
+      path = `forecast/${encodeURIComponent(index.run)}/scores-typical-day-${period.kind === 'forecast' ? 'all' : `day-${String(period.day).padStart(2, '0')}`}.png`;
     } else {
       const months = climateMonths(period);
       const word = months.length === 12 ? 'year' : months.length === 1 ? monthWords[months[0] - 1]
         : `${monthShortWords[months[0] - 1]}-${monthShortWords[months[months.length - 1] - 1]}`;
-      path = `climate/scores-${word}.png`;
+      path = `climate/scores-typical-day-${word}.png`;
     }
     let request = this.scoreImages.get(path);
     if (!request) {
-      request = loadGreyscaleImage(`${this.baseUrl}/${path}?statistic=typical-day`).then(bytes => {
+      request = loadGreyscaleImage(`${this.baseUrl}/${path}`).then(bytes => {
         if (bytes.length !== 1440 * 721) throw new Error(`${path}: expected the 1440 × 721 fine grid`);
         return { bytes };
       }).catch(error => {

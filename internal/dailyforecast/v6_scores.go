@@ -220,7 +220,7 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 			}
 			counts[index]++
 		}
-		if err := writeImage(fmt.Sprintf("scores-day-%02d.png", day), pixels); err != nil {
+		if err := writeImage(fmt.Sprintf("scores-typical-day-day-%02d.png", day), pixels); err != nil {
 			return err
 		}
 	}
@@ -230,7 +230,7 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 			pixels[index] = byte(math.Floor(v6TypicalDayScore(thresholdCounts[index], count)))
 		}
 	}
-	if err := writeImage("scores-all.png", pixels); err != nil {
+	if err := writeImage("scores-typical-day-all.png", pixels); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "v6 score images: %d images; %d bytes; %s\n", v6Days+1, totalBytes, time.Since(started).Round(time.Millisecond))

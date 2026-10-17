@@ -16,49 +16,38 @@ function emptyTypical(): MutableTypicalWeather {
 const partNames = ['warmth', 'evening', 'rainFactor', 'windFactor', 'humidityFactor', 'sunFactor'] as const;
 const wrap = (column: number, width: number) => (column % width + width) % width;
 const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
-/** Search the 5 × 5 neighbourhood centred on the rounded fine coordinate; longitude wraps. */
-export function nearestLandFineIndex(latitude: number, longitude: number, offsets: readonly Uint8Array[]): number | null {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -60 || latitude > 90) return null;
+/** The map's normalized 4 × 4 B-spline footprint, excluding missing land. */
+export function mapPointWeights(latitude: number, longitude: number, valid: (index: number) => boolean): { index: number; weight: number }[] {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -60 || latitude > 90) return [];
   const x = wrap((longitude + 180) * 4, 1440), y = (90 - latitude) * 4;
-  const centreColumn = Math.round(x), centreRow = Math.round(y);
-  let nearest: number | null = null, nearestDistance = Infinity;
-  for (let deltaRow = -2; deltaRow <= 2; deltaRow++) {
-    const row = centreRow + deltaRow;
-    if (row < 0 || row > 600) continue;
-    for (let deltaColumn = -2; deltaColumn <= 2; deltaColumn++) {
-      const unwrappedColumn = centreColumn + deltaColumn;
-      const index = row * 1440 + wrap(unwrappedColumn, 1440);
-      if (offsets.some(month => month[index] === 255)) continue;
-      const distance = (row - y) ** 2 + (unwrappedColumn - x) ** 2;
-      if (distance < nearestDistance) { nearest = index; nearestDistance = distance; }
-    }
+  const weights = (fraction: number) => [(1 - fraction) ** 3, 3 * fraction ** 3 - 6 * fraction ** 2 + 4, -3 * fraction ** 3 + 3 * fraction ** 2 + 3 * fraction + 1, fraction ** 3].map(value => value / 6);
+  const horizontal = weights(x - Math.floor(x)), vertical = weights(y - Math.floor(y));
+  const points: { index: number; weight: number }[] = [];
+  let landWeight = 0;
+  for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) {
+    const index = clamp(Math.floor(y) + row - 1, 0, 720) * 1440 + wrap(Math.floor(x) + column - 1, 1440);
+    if (!valid(index)) continue;
+    const weight = horizontal[column] * vertical[row];
+    points.push({ index, weight });
+    landWeight += weight;
   }
-  return nearest;
+  return points.map(point => ({ index: point.index, weight: point.weight / landWeight }));
 }
 
-/** The selected fine point's own cell and felt shift, interpolated between scoring levels. */
-export function pointContributions(latitude: number, longitude: number, cells: Cells, data: PeriodData): PointContribution[] | null {
-  const fineIndex = nearestLandFineIndex(latitude, longitude, [...data.offsets.values()]);
-  if (fineIndex === null) return null;
+function pointContributions(fineIndex: number, cells: Cells, data: PeriodData): PointContribution[] {
   const column = fineIndex % 1440, row = Math.floor(fineIndex / 1440);
   const cell = cells.ordinals[clamp(Math.floor(row / 4), 0, 179) * 360 + Math.floor(column / 4)];
-  const weights = new Map<number, number>();
-  for (let groupIndex = 0; groupIndex < data.groups.length; groupIndex++) {
-    const group = data.groups[groupIndex];
+  const contributions: PointContribution[] = [];
+  data.groups.forEach((group, groupIndex) => {
     const shift = (data.offsets.get(group.month)![fineIndex] - 128) / 10;
     const level = clamp((shift - SHIFT_MINIMUM) / SHIFT_STEP, 0, SHIFT_LEVELS - 1);
     const lower = Math.min(Math.floor(level), SHIFT_LEVELS - 2);
     for (let upper = 0; upper < 2; upper++) {
       const weight = group.weight * (upper ? level - lower : 1 - (level - lower));
-      if (weight === 0) continue;
-      weights.set((groupIndex * cells.count + cell) * SHIFT_LEVELS + lower + upper, weight);
+      if (weight > 0) contributions.push({ group: groupIndex, cell, level: lower + upper, weight });
     }
-  }
-  return Array.from(weights, ([key, weight]) => ({
-    group: Math.floor(key / SHIFT_LEVELS / cells.count),
-    cell: Math.floor(key / SHIFT_LEVELS) % cells.count,
-    level: key % SHIFT_LEVELS, weight,
-  }));
+  });
+  return contributions;
 }
 
 function judgeCell(group: SampleGroup, cell: number, level: number, taste: Taste): CellJudgement {
@@ -85,11 +74,35 @@ function judgeCell(group: SampleGroup, cell: number, level: number, taste: Taste
 
 export class PointSampler {
   private cachedCells = new Map<number, CellJudgement>();
+  private cachedGridPoints = new Map<number, PointVerdict>();
+  private cachedPoints = new Map<string, PointVerdict | null>();
   constructor(private cells: Cells, private data: PeriodData, private period: Period, private taste: Taste) {}
 
   judge(latitude: number, longitude: number): PointVerdict | null {
-    const contributions = pointContributions(latitude, longitude, this.cells, this.data);
-    if (!contributions) return null;
+    const key = `${latitude},${longitude}`;
+    if (this.cachedPoints.has(key)) return this.cachedPoints.get(key)!;
+    const footprint = mapPointWeights(latitude, longitude, index => [...this.data.offsets.values()].every(offsets => offsets[index] !== 255));
+    if (!footprint.length) { this.cachedPoints.set(key, null); return null; }
+    const points = footprint.map(point => ({ verdict: this.judgeGridPoint(point.index), weight: point.weight }));
+    const average = (read: (verdict: PointVerdict) => number) => points.reduce((sum, point) => sum + read(point.verdict) * point.weight, 0);
+    const meanScore = canonicalScore(average(point => point.meanScore));
+    const typical = emptyTypical();
+    for (const name of typicalNames) typical[name] = average(point => point.typical[name] ?? 0);
+    const parts = { warmth: 0, evening: 0, rainFactor: 0, windFactor: 0, humidityFactor: 0, sunFactor: 0 };
+    for (const name of partNames) parts[name] = average(point => point.parts[name]);
+    const verdict = {
+      meanScore, band: bandOf(meanScore), niceDayShare: average(point => point.niceDayShare), perfectDayShare: average(point => point.perfectDayShare), awfulDayShare: average(point => point.awfulDayShare),
+      niceDayCount: average(point => point.niceDayCount), perfectDayCount: average(point => point.perfectDayCount), awfulDayCount: average(point => point.awfulDayCount),
+      totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
+    };
+    this.cachedPoints.set(key, verdict);
+    return verdict;
+  }
+
+  private judgeGridPoint(index: number): PointVerdict {
+    const cached = this.cachedGridPoints.get(index);
+    if (cached) return cached;
+    const contributions = pointContributions(index, this.cells, this.data);
     let meanScore = 0;
     const dayScores = this.data.groups.map(group => new Float64Array(group.dayCount));
     const typical = emptyTypical();
@@ -117,20 +130,23 @@ export class PointSampler {
     }
     meanScore = this.data.totalDays > 1 ? typicalDayScore(shares) : singleDayScore;
     const niceDayShare = shares[3], perfectDayShare = shares[5], awfulDayShare = Math.max(0, 1 - shares[1]);
-    return {
+    const verdict = {
       meanScore, band: bandOf(meanScore), niceDayShare, perfectDayShare, awfulDayShare,
       niceDayCount: Math.round(niceDayShare * this.data.totalDays * 1e9) / 1e9,
       perfectDayCount: Math.round(perfectDayShare * this.data.totalDays * 1e9) / 1e9,
       awfulDayCount: Math.round(awfulDayShare * this.data.totalDays * 1e9) / 1e9,
       totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
     };
+    this.cachedGridPoints.set(index, verdict);
+    return verdict;
   }
 }
 
-/** Read the selected land point before the map's final B-spline filter. */
-export function readFineScore(values: Float32Array, latitude: number, longitude: number, offsets: readonly Uint8Array[]): number {
-  const index = nearestLandFineIndex(latitude, longitude, offsets);
-  return index === null ? NaN : values[index];
+/** The same filtered score field used by the map fragment shader. */
+export function readMapPoint(values: ArrayLike<number>, latitude: number, longitude: number, stride = 1, channel = 0): number {
+  const points = mapPointWeights(latitude, longitude, index => values[index * stride] <= 100.5);
+  if (!points.length) return NaN;
+  return points.reduce((score, point) => score + values[point.index * stride + channel] * point.weight, 0);
 }
 
 const canonicalScore = (score: number): number => Math.round(score * 10000) / 10000;
