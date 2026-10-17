@@ -163,6 +163,23 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		if pointer.Run != report.RunID || pointer.Days != v6Days || len(body) == 0 || len(body)%(v6Days*15) != 0 {
 			return report, fmt.Errorf("invalid v6 forecast publication")
 		}
+		var scoreImages []struct {
+			name string
+			body []byte
+		}
+		for _, name := range v6ScoreImageNames() {
+			imageBody, imageErr := os.ReadFile(filepath.Join(v6Directory, name))
+			if imageErr != nil {
+				return report, imageErr
+			}
+			if len(imageBody) == 0 {
+				return report, fmt.Errorf("empty v6 score image %s", name)
+			}
+			scoreImages = append(scoreImages, struct {
+				name string
+				body []byte
+			}{name, imageBody})
+		}
 		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint("/data/v6/forecast/current.json"), nil)
 		response, readErr := client.Do(request)
 		if readErr != nil {
@@ -187,6 +204,13 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		}
 		report.Files++
 		report.Bytes += int64(len(body))
+		for _, scoreImage := range scoreImages {
+			if err = upload(ctx, "v6/forecast/"+report.RunID+"/"+scoreImage.name, scoreImage.body); err != nil {
+				return report, err
+			}
+			report.Files++
+			report.Bytes += int64(len(scoreImage.body))
+		}
 		encoded, _ := json.Marshal(pointer)
 		if err = upload(ctx, "v6/forecast/current.json", encoded); err != nil {
 			return report, err
@@ -231,4 +255,12 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 	}
 	report.Elapsed = time.Since(started)
 	return report, nil
+}
+
+func v6ScoreImageNames() []string {
+	names := make([]string, 0, v6Days+1)
+	for day := range v6Days {
+		names = append(names, fmt.Sprintf("scores-day-%02d.png", day))
+	}
+	return append(names, "scores-all.png")
 }

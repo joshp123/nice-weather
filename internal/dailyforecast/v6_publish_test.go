@@ -55,14 +55,17 @@ func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if report.Files != 5 {
-				t.Fatalf("uploaded files=%d, want five: legacy manifest, legacy day, v6 day, two pointers", report.Files)
+			if report.Files != 20 {
+				t.Fatalf("uploaded files=%d, want twenty: legacy manifest, legacy day, v6 day, fifteen score images, two pointers", report.Files)
 			}
 			if string(uploaded["/__publish/forecast/"+runID+"/day.bin"]) != "legacy forecast" {
 				t.Fatal("legacy day was not preserved")
 			}
 			if len(uploaded["/__publish/v6/forecast/"+runID+"/days.bin"]) != 14*15 {
 				t.Fatal("v6 day records were not uploaded intact")
+			}
+			if uploaded["/__publish/v6/forecast/"+runID+"/comparison.json"] != nil {
+				t.Fatal("local diagnostics were uploaded")
 			}
 			var pointer v6Pointer
 			if err = json.Unmarshal(uploaded["/__publish/v6/forecast/current.json"], &pointer); err != nil {
@@ -78,6 +81,15 @@ func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
 			if positions["PUT /__publish/v6/forecast/"+runID+"/days.bin"] >= positions["PUT /__publish/v6/forecast/current.json"] {
 				t.Fatal("v6 pointer was published before its data")
 			}
+			for _, name := range v6ScoreImageNames() {
+				key := "/__publish/v6/forecast/" + runID + "/" + name
+				if string(uploaded[key]) != "score image" {
+					t.Fatalf("score image %s was not uploaded intact", name)
+				}
+				if positions["PUT "+key] >= positions["PUT /__publish/v6/forecast/current.json"] {
+					t.Fatalf("v6 pointer was published before %s", name)
+				}
+			}
 			if requests[len(requests)-1] != "POST /__prune" {
 				t.Fatal("cleanup was not last")
 			}
@@ -86,9 +98,52 @@ func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
 }
 
 func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T) {
+	for _, failedName := range []string{"days.bin", "scores-day-06.png"} {
+		t.Run(failedName, func(t *testing.T) {
+			directory := publicationFixture(t, "20261016T0000Z")
+			var mutex sync.Mutex
+			var pointers, prunes int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mutex.Lock()
+				defer mutex.Unlock()
+				if r.Method == http.MethodGet {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				if r.Method == http.MethodPost {
+					prunes++
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "current.json") {
+					pointers++
+				}
+				if strings.HasSuffix(r.URL.Path, "/"+failedName) {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusCreated)
+			}))
+			defer server.Close()
+			_, err := Publish(context.Background(), directory, server.URL, "test-only-token")
+			if err == nil || !strings.Contains(err.Error(), "v6/forecast/20261016T0000Z/"+failedName) {
+				t.Fatalf("expected v6 data upload error, got %v", err)
+			}
+			if pointers != 0 || prunes != 0 {
+				t.Fatalf("failed upload switched %d pointers and ran %d cleanups", pointers, prunes)
+			}
+		})
+	}
+}
+
+func TestPublishRejectsMissingV6ScoreImageBeforeSwitchingPointers(t *testing.T) {
 	directory := publicationFixture(t, "20261016T0000Z")
+	imagePath := filepath.Join(filepath.Dir(filepath.Dir(directory)), "v6", "forecast", "20261016T0000Z", "scores-all.png")
+	if err := os.Rename(imagePath, imagePath+".missing"); err != nil {
+		t.Fatal(err)
+	}
 	var mutex sync.Mutex
-	var pointers, prunes int
+	var pointers, v6Uploads, prunes int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mutex.Lock()
 		defer mutex.Unlock()
@@ -96,27 +151,24 @@ func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		if r.Method == http.MethodPost {
-			prunes++
-			w.WriteHeader(http.StatusOK)
-			return
-		}
 		if strings.HasSuffix(r.URL.Path, "current.json") {
 			pointers++
 		}
-		if strings.HasSuffix(r.URL.Path, "days.bin") {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+		if strings.HasPrefix(r.URL.Path, "/__publish/v6/") {
+			v6Uploads++
+		}
+		if r.Method == http.MethodPost {
+			prunes++
 		}
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer server.Close()
 	_, err := Publish(context.Background(), directory, server.URL, "test-only-token")
-	if err == nil || !strings.Contains(err.Error(), "v6/forecast/20261016T0000Z/days.bin") {
-		t.Fatalf("expected v6 data upload error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "scores-all.png") {
+		t.Fatalf("expected missing score image error, got %v", err)
 	}
-	if pointers != 0 || prunes != 0 {
-		t.Fatalf("failed upload switched %d pointers and ran %d cleanups", pointers, prunes)
+	if pointers != 0 || v6Uploads != 0 || prunes != 0 {
+		t.Fatalf("incomplete run switched %d pointers, uploaded %d v6 files and ran %d cleanups", pointers, v6Uploads, prunes)
 	}
 }
 
@@ -136,6 +188,10 @@ func publicationFixture(t *testing.T, runID string) string {
 		filepath.Join(v6Directory, "days.bin"):                   make([]byte, 14*15),
 		filepath.Join(filepath.Dir(v6Directory), "current.json"): []byte(`{"run":"` + runID + `","firstDate":"2026-10-16","days":14,"previousRun":"local-state-must-not-win"}`),
 	}
+	for _, name := range v6ScoreImageNames() {
+		files[filepath.Join(v6Directory, name)] = []byte("score image")
+	}
+	files[filepath.Join(v6Directory, "comparison.json")] = []byte("local diagnostics")
 	for path, body := range files {
 		if err := os.WriteFile(path, body, 0644); err != nil {
 			t.Fatal(err)

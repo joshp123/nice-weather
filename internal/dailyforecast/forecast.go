@@ -262,7 +262,12 @@ func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log 
 		return nil
 	})
 	if v6 != nil {
-		for _, path := range []string{filepath.Join(outputDirectory, "v6", "forecast", report.RunID, "days.bin"), filepath.Join(outputDirectory, "v6", "forecast", report.RunID, "comparison.json"), filepath.Join(outputDirectory, "v6", "forecast", "current.json")} {
+		v6Directory := filepath.Join(outputDirectory, "v6", "forecast", report.RunID)
+		paths := []string{filepath.Join(v6Directory, "days.bin"), filepath.Join(v6Directory, "comparison.json"), filepath.Join(filepath.Dir(v6Directory), "current.json")}
+		for _, name := range v6ScoreImageNames() {
+			paths = append(paths, filepath.Join(v6Directory, name))
+		}
+		for _, path := range paths {
 			info, statErr := os.Stat(path)
 			if statErr != nil {
 				return report, statErr

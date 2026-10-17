@@ -31,9 +31,10 @@ type v6Frame struct {
 	fields [6][]float32
 }
 type v6Forecast struct {
-	points []v6Point
-	cells  [][2]uint16
-	frames []v6Frame
+	points       []v6Point
+	staticSource string
+	cells        [][2]uint16
+	frames       []v6Frame
 }
 type v6Pointer struct {
 	Run         string `json:"run"`
@@ -42,37 +43,38 @@ type v6Pointer struct {
 	PreviousRun string `json:"previousRun"`
 }
 
-func loadV6Static(ctx context.Context, source string) (*v6Forecast, error) {
-	read := func(name string) ([]byte, error) {
-		if !strings.HasPrefix(source, "https://") && !strings.HasPrefix(source, "http://") {
-			return os.ReadFile(filepath.Join(source, name))
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(source, "/")+"/"+name, nil)
-		if err != nil {
-			return nil, err
-		}
-		response, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer response.Body.Close()
-		if response.StatusCode != 200 {
-			return nil, fmt.Errorf("v6 %s: HTTP %d", name, response.StatusCode)
-		}
-		return io.ReadAll(io.LimitReader(response.Body, 16<<20))
+func readV6StaticFile(ctx context.Context, source, name string) ([]byte, error) {
+	if !strings.HasPrefix(source, "https://") && !strings.HasPrefix(source, "http://") {
+		return os.ReadFile(filepath.Join(source, name))
 	}
-	cells, err := read("cells.bin")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(source, "/")+"/"+name, nil)
 	if err != nil {
 		return nil, err
 	}
-	points, err := read("points.bin")
+	response, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("v6 %s: HTTP %d", name, response.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(response.Body, 16<<20))
+}
+
+func loadV6Static(ctx context.Context, source string) (*v6Forecast, error) {
+	cells, err := readV6StaticFile(ctx, source, "cells.bin")
+	if err != nil {
+		return nil, err
+	}
+	points, err := readV6StaticFile(ctx, source, "points.bin")
 	if err != nil {
 		return nil, err
 	}
 	if len(cells) == 0 || len(cells)%4 != 0 || len(points) < 4 || int(binary.LittleEndian.Uint32(points))*12+4 != len(points) {
 		return nil, fmt.Errorf("invalid v6 static file sizes")
 	}
-	v := &v6Forecast{cells: make([][2]uint16, len(cells)/4), points: make([]v6Point, (len(points)-4)/12)}
+	v := &v6Forecast{staticSource: source, cells: make([][2]uint16, len(cells)/4), points: make([]v6Point, (len(points)-4)/12)}
 	for i := range v.cells {
 		v.cells[i] = [2]uint16{binary.LittleEndian.Uint16(cells[i*4:]), binary.LittleEndian.Uint16(cells[i*4+2:])}
 		if v.cells[i][0] >= 180 || v.cells[i][1] >= 360 {
@@ -375,6 +377,9 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 	}
 	body, _ := json.MarshalIndent(proof, "", "  ")
 	if err := os.WriteFile(filepath.Join(directory, "comparison.json"), body, 0644); err != nil {
+		return err
+	}
+	if err := writeV6ScoreImages(ctx, v.staticSource, directory, v.cells, records, run, log); err != nil {
 		return err
 	}
 	pointerPath := filepath.Join(output, "v6", "forecast", "current.json")
