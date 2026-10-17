@@ -53,9 +53,9 @@ export interface WeatherEngine {
   setPeriod(period: Period): Promise<void>;
   /** Reuses loaded data. Resolves after GPU completion, including the next MapLibre frame. */
   setTaste(taste: Taste): Promise<RedrawTiming>;
-  /** Synchronous; optional period uses already-loaded data without selecting it or fetching. null if unavailable or south of 60°S. Longitude wraps; water uses nearest land. */
+  /** Synchronous; optional period uses already-loaded data without selecting it or fetching. null if unavailable or no fine land point within two grid steps. Longitude wraps; latitude range −60..90°. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
-  /** Same scores as judgePoint within GPU rounding, in input order; NaN means missing. After setTaste/setPeriod resolves, this cheaply reads and caches the GPU grid for city labels. */
+  /** Same nearest-land fine-point scores as judgePoint within GPU rounding, in input order; NaN means missing. After setTaste/setPeriod resolves, this cheaply reads and caches the GPU grid for city labels. */
   scorePoints(points: readonly Point[]): Float32Array;
   /** Releases GPU resources. Remove the layer first, or call this before removing the map. */
   destroy(): void;
@@ -69,8 +69,8 @@ export interface WeatherEngine {
  * const malaga = engine.judgePoint(36.72, -4.42);
  *
  * Climate months have equal weight (eight real representative days each).
- * Fine-grid scores interpolate the neighbouring cells and felt-shift levels;
- * the card uses those identical weights, including the smooth B-spline filter.
+ * Place scores use the nearest fine land point's own offset, interpolating
+ * the neighbouring cells and felt-shift levels. Only the map applies the final B-spline.
  */
 export function createWeatherEngine(map: MapLibreMap, options: EngineOptions = {}): WeatherEngine {
   return new BrowserWeatherEngine(map, options);

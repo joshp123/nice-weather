@@ -7,6 +7,7 @@ source = '/data/v6' if real else '/data/v6-synthetic'
 label = 'real' if real else 'synthetic'
 city_file = pathlib.Path(__file__).resolve().parents[2] / 'artifacts/places.tsv'
 cities = [dict(latitude=float(row[3]), longitude=float(row[4])) for row in [line.split('\t') for line in city_file.read_text().splitlines()[:100]]]
+score_cities=[dict(name='Malaga',latitude=36.72,longitude=-4.42),dict(name='Lisbon',latitude=38.72,longitude=-9.14),dict(name='Rotterdam',latitude=51.92,longitude=4.48),dict(name='Cape Town',latitude=-33.92,longitude=18.42)]
 places=[dict(name='Malaga',latitude=36.72,longitude=-4.42,month=11),dict(name='Rotterdam',latitude=51.92,longitude=4.48,month=1),dict(name='Singapore',latitude=1.35,longitude=103.82,month=7)]
 with sync_playwright() as p:
     for name in ['chromium','webkit']:
@@ -45,7 +46,33 @@ with sync_playwright() as p:
             for key,value in cached_months['year']['typical'].items():
                 assert abs(sum(v['typical'][key] for v in cached_months['months'])/12-value)<1e-9
             yearBatch100=page.evaluate('''(points)=>{const start=performance.now();const scores=weatherDebug.engine.scorePoints(points);return {milliseconds:performance.now()-start,count:scores.length,finite:[...scores].filter(Number.isFinite).length};}''',cities)
-            # Read the actual GPU-resolved fine grid and independently apply its displayed spline.
+            # Compare the published integer table to all twelve cached month verdicts at four places.
+            default_scores=[]
+            if real:
+                table=(city_file.parent/'v6/climate/scores.bin').read_bytes()
+                assert len(table)==1440*721*12
+                for city in score_cities:
+                    values=page.evaluate("""({latitude,longitude})=>{
+                        const e=weatherDebug.engine;
+                        return Array.from({length:12},(_,month)=>{
+                            const data=e.source.loaded({kind:'month',month:month+1}), masks=[...data.offsets.values()];
+                            const x=((longitude+180)*4%1440+1440)%1440,y=(90-latitude)*4;let index=null,distance=Infinity;
+                            for(let r=Math.round(y)-2;r<=Math.round(y)+2;r++)for(let c=Math.round(x)-2;c<=Math.round(x)+2;c++){
+                                if(r<0||r>600)continue;const i=r*1440+((c%1440+1440)%1440),d=(r-y)**2+(c-x)**2;
+                                if(masks.every(m=>m[i]!==255)&&d<distance){distance=d;index=i;}
+                            }
+                            const verdict=e.judgePoint(latitude,longitude,{kind:'month',month:month+1});
+                            const exact=e.judgePoint(90-Math.floor(index/1440)/4,index%1440/4-180,{kind:'month',month:month+1});
+                            return {month:month+1,index,score:verdict.meanScore,rounded:Math.round(verdict.meanScore),exact:exact.meanScore};
+                        });
+                    }""",city)
+                    for value in values:
+                        published=table[value['index']*12+value['month']-1]
+                        assert value['score']==value['exact'] and value['rounded']==published, (city,value,published)
+                        value['published']=published
+                    default_scores.append(dict(place=city['name'],months=values))
+                assert page.evaluate("weatherDebug.engine.judgePoint(-30,-140)===null && Number.isNaN(weatherDebug.engine.scorePoints([{latitude:-30,longitude:-140}])[0])")
+            # Read the actual GPU-resolved fine grid at the nearest land point, before the displayed spline.
             comparisons=[]; reference=[]
             for place in places:
                 period=dict(kind='month',month=place['month'])
@@ -56,9 +83,13 @@ with sync_playwright() as p:
                     const values=new Float32Array(1440*721);gl.readPixels(0,0,1440,721,gl.RED,gl.FLOAT,values);
                     gl.bindFramebuffer(gl.FRAMEBUFFER,before);gl.deleteFramebuffer(fb);
                     const x=((longitude+180)*4%1440+1440)%1440,y=(90-latitude)*4;
-                    const weights=t=>[(1-t)**3/6,(3*t**3-6*t*t+4)/6,(-3*t**3+3*t*t+3*t+1)/6,t**3/6];
-                    const wx=weights(x-Math.floor(x)),wy=weights(y-Math.floor(y));let score=0;
-                    for(let r=0;r<4;r++)for(let c=0;c<4;c++)score+=values[Math.max(0,Math.min(720,Math.floor(y)+r-1))*1440+((Math.floor(x)+c-1)%1440+1440)%1440]*wx[c]*wy[r];
+                    const masks=[...e.data.offsets.values()];let index=null,distance=Infinity;
+                    for(let r=Math.round(y)-2;r<=Math.round(y)+2;r++)for(let c=Math.round(x)-2;c<=Math.round(x)+2;c++){
+                        if(r<0||r>600)continue;const i=r*1440+((c%1440+1440)%1440),d=(r-y)**2+(c-x)**2;
+                        if(masks.every(m=>m[i]!==255)&&d<distance){distance=d;index=i;}
+                    }
+                    const score=values[index],label=e.scorePoints([{latitude,longitude}])[0];
+                    if(Math.abs(label-score)>.001)throw new Error('City label differs from the fine-point score');
                     return {gpu:score,verdict:e.judgePoint(latitude,longitude),error:gl.getError()};
                 }''',place)
                 assert result['error'] == 0 and result['verdict'] is not None, result
@@ -109,7 +140,7 @@ with sync_playwright() as p:
                     assert verdict is not None and 0 <= verdict['meanScore'] <= 100, (slider_id,key,verdict)
             batch=page.evaluate('''(points)=>{const start=performance.now();const scores=weatherDebug.engine.scorePoints(points);return {milliseconds:performance.now()-start,count:scores.length,finite:[...scores].filter(Number.isFinite).length};}''',cities)
             assert not errors, errors
-            result=dict(info=info,month=month,year=year,initial_requests=initial_requests,errors=errors,gpu_comparisons=comparisons,batch100=batch,yearBatch100=yearBatch100,cachedPeriods=dict(months=12,seasons=4,forecastDays=14,unchangedMap=True,noRequests=True,tasteUpdates=True))
+            result=dict(info=info,month=month,year=year,initial_requests=initial_requests,errors=errors,gpu_comparisons=comparisons,default_scores=default_scores,batch100=batch,yearBatch100=yearBatch100,cachedPeriods=dict(months=12,seasons=4,forecastDays=14,unchangedMap=True,noRequests=True,tasteUpdates=True))
             (out/f'{name}-{label}-proof.json').write_text(json.dumps(result,indent=2))
             (out/f'{name}-{label}-reference.json').write_text(json.dumps(reference))
             print(name,json.dumps(result),flush=True)

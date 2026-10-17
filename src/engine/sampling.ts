@@ -16,42 +16,49 @@ function emptyTypical(): MutableTypicalWeather {
 const partNames = ['warmth', 'evening', 'rainFactor', 'windFactor', 'humidityFactor', 'sunFactor'] as const;
 const wrap = (column: number, width: number) => (column % width + width) % width;
 const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
-function splineWeights(t: number): number[] {
-  return [(1 - t) ** 3 / 6, (3 * t ** 3 - 6 * t * t + 4) / 6, (-3 * t ** 3 + 3 * t * t + 3 * t + 1) / 6, t ** 3 / 6];
-}
-
-/** The same spline, cell and felt-shift weights used by the two rendering passes. */
-export function pointContributions(latitude: number, longitude: number, cells: Cells, data: PeriodData): PointContribution[] | null {
+/** Search the 5 × 5 neighbourhood centred on the rounded fine coordinate; longitude wraps. */
+export function nearestLandFineIndex(latitude: number, longitude: number, offsets: readonly Uint8Array[]): number | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -60 || latitude > 90) return null;
   const x = wrap((longitude + 180) * 4, 1440), y = (90 - latitude) * 4;
-  const baseX = Math.floor(x), baseY = Math.floor(y);
-  const wx = splineWeights(x - baseX), wy = splineWeights(y - baseY);
+  const centreColumn = Math.round(x), centreRow = Math.round(y);
+  let nearest: number | null = null, nearestDistance = Infinity;
+  for (let deltaRow = -2; deltaRow <= 2; deltaRow++) {
+    const row = centreRow + deltaRow;
+    if (row < 0 || row > 600) continue;
+    for (let deltaColumn = -2; deltaColumn <= 2; deltaColumn++) {
+      const unwrappedColumn = centreColumn + deltaColumn;
+      const index = row * 1440 + wrap(unwrappedColumn, 1440);
+      if (offsets.some(month => month[index] === 255)) continue;
+      const distance = (row - y) ** 2 + (unwrappedColumn - x) ** 2;
+      if (distance < nearestDistance) { nearest = index; nearestDistance = distance; }
+    }
+  }
+  return nearest;
+}
+
+/** The selected land point's own offset, then the map's level and cell interpolation, without its final spline. */
+export function pointContributions(latitude: number, longitude: number, cells: Cells, data: PeriodData): PointContribution[] | null {
+  const fineIndex = nearestLandFineIndex(latitude, longitude, [...data.offsets.values()]);
+  if (fineIndex === null) return null;
+  const column = fineIndex % 1440, row = Math.floor(fineIndex / 1440);
+  const cellX = column / 4 - 0.5, cellY = row / 4 - 0.5;
+  const cellBaseX = Math.floor(cellX), cellBaseY = Math.floor(cellY);
+  const fractionX = cellX - cellBaseX, fractionY = cellY - cellBaseY;
   const weights = new Map<number, number>();
   for (let groupIndex = 0; groupIndex < data.groups.length; groupIndex++) {
     const group = data.groups[groupIndex];
-    const offsets = data.offsets.get(group.month)!;
-    for (let fineRow = 0; fineRow < 4; fineRow++) {
-      for (let fineColumn = 0; fineColumn < 4; fineColumn++) {
-        const column = wrap(baseX + fineColumn - 1, 1440);
-        const row = clamp(baseY + fineRow - 1, 0, 720);
-        const value = offsets[row * 1440 + column];
-        const shift = value === 255 ? 0 : (value - 128) / 10;
-        const level = clamp((shift - SHIFT_MINIMUM) / SHIFT_STEP, 0, SHIFT_LEVELS - 1);
-        const lower = Math.min(Math.floor(level), SHIFT_LEVELS - 2);
-        const cellX = column / 4 - 0.5, cellY = row / 4 - 0.5;
-        const cellBaseX = Math.floor(cellX), cellBaseY = Math.floor(cellY);
-        const fractionX = cellX - cellBaseX, fractionY = cellY - cellBaseY;
-        for (let cellRow = 0; cellRow < 2; cellRow++) {
-          for (let cellColumn = 0; cellColumn < 2; cellColumn++) {
-            const cell = cells.ordinals[clamp(cellBaseY + cellRow, 0, 179) * 360 + wrap(cellBaseX + cellColumn, 360)];
-            const spatialWeight = wx[fineColumn] * wy[fineRow] * (cellColumn ? fractionX : 1 - fractionX) * (cellRow ? fractionY : 1 - fractionY) * group.weight;
-            for (let upper = 0; upper < 2; upper++) {
-              const weight = spatialWeight * (upper ? level - lower : 1 - (level - lower));
-              if (weight === 0) continue;
-              const key = (groupIndex * cells.count + cell) * SHIFT_LEVELS + lower + upper;
-              weights.set(key, (weights.get(key) ?? 0) + weight);
-            }
-          }
+    const shift = (data.offsets.get(group.month)![fineIndex] - 128) / 10;
+    const level = clamp((shift - SHIFT_MINIMUM) / SHIFT_STEP, 0, SHIFT_LEVELS - 1);
+    const lower = Math.min(Math.floor(level), SHIFT_LEVELS - 2);
+    for (let cellRow = 0; cellRow < 2; cellRow++) {
+      for (let cellColumn = 0; cellColumn < 2; cellColumn++) {
+        const cell = cells.ordinals[clamp(cellBaseY + cellRow, 0, 179) * 360 + wrap(cellBaseX + cellColumn, 360)];
+        const spatialWeight = (cellColumn ? fractionX : 1 - fractionX) * (cellRow ? fractionY : 1 - fractionY) * group.weight;
+        for (let upper = 0; upper < 2; upper++) {
+          const weight = spatialWeight * (upper ? level - lower : 1 - (level - lower));
+          if (weight === 0) continue;
+          const key = (groupIndex * cells.count + cell) * SHIFT_LEVELS + lower + upper;
+          weights.set(key, (weights.get(key) ?? 0) + weight);
         }
       }
     }
@@ -114,17 +121,8 @@ export class PointSampler {
   }
 }
 
-/** Samples the GPU's resolved fine grid with the displayed B-spline. */
-export function readFineScore(values: Float32Array, latitude: number, longitude: number): number {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -60 || latitude > 90) return NaN;
-  const x = wrap((longitude + 180) * 4, 1440), y = (90 - latitude) * 4;
-  const baseX = Math.floor(x), baseY = Math.floor(y);
-  const wx = splineWeights(x - baseX), wy = splineWeights(y - baseY);
-  let score = 0;
-  for (let row = 0; row < 4; row++) {
-    for (let column = 0; column < 4; column++) {
-      score += values[clamp(baseY + row - 1, 0, 720) * 1440 + wrap(baseX + column - 1, 1440)] * wx[column] * wy[row];
-    }
-  }
-  return score;
+/** Read the selected land point before the map's final B-spline filter. */
+export function readFineScore(values: Float32Array, latitude: number, longitude: number, offsets: readonly Uint8Array[]): number {
+  const index = nearestLandFineIndex(latitude, longitude, offsets);
+  return index === null ? NaN : values[index];
 }

@@ -98,7 +98,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
       this.readbackRevision = this.drawnRevision;
     }
-    return Float32Array.from(points, point => readFineScore(this.fineScoreReadback!, point.latitude, point.longitude));
+    const offsets = [...this.data!.offsets.values()];
+    return Float32Array.from(points, point => readFineScore(this.fineScoreReadback!, point.latitude, point.longitude, offsets));
   }
 
   private requestFrame(): Promise<RedrawTiming> {
