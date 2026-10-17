@@ -22,6 +22,29 @@ def directory_size(path):
     return dict(files=len(files), bytes=sum(entry.stat().st_size for entry in files))
 
 
+
+def verify_labels(root, proof):
+    manifest_path = root/'labels/manifest.json'
+    manifest = read(manifest_path)
+    coordinates = read(proof/'coordinates.json')
+    if (not coordinates['passes'] or len(coordinates['cities']) != 13
+            or len(coordinates['homes']) != 18
+            or coordinates['source_sha256']['artifacts/places.tsv'] != manifest['places_sha256']):
+        raise ValueError('The canonical-coordinate comparison is incomplete or uses another catalogue')
+    active = {row['file']: row for row in coordinates['routeChecks'] if row['stage'] == 'active'}
+    for filename, rows in (('labels-1.json', 1000), ('labels-2.json', 14000)):
+        delivered = root/'labels'/filename
+        expected = manifest['files'][filename]
+        if (expected['rows'] != rows or len(read(delivered)) != rows
+                or expected['sha256'] != sha(delivered)
+                or expected['bytes'] != delivered.stat().st_size
+                or active[filename]['sha256'] != expected['sha256']
+                or active[filename]['rows'] != rows):
+            raise ValueError(f'The delivered label file differs from the actual coordinate proof: {filename}')
+    return dict(manifest_sha256=sha(manifest_path),
+        coordinates_sha256=sha(proof/'coordinates.json'), places_sha256=manifest['places_sha256'], rows=15000)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data-root', type=pathlib.Path, required=True)
@@ -30,6 +53,7 @@ def main():
     parser.add_argument('--activation', type=pathlib.Path, required=True)
     args = parser.parse_args()
     root, proof = args.data_root/args.release, args.validation
+    labels = verify_labels(root, proof)
     temperature, replay = read(root/'temperature/manifest.json'), read(root/'replay/manifest.json')
     generation = temperature['configuration']['generation']
     if (replay.get('status') != 'complete' or replay['generation'] != generation
@@ -63,24 +87,26 @@ def main():
         'everywhere. Native dew point is not shifted. Native weather replay uses '
         'the containing fine pixel’s local clock. The overview map and forecast '
         'retain their existing resolution.\n')
+    attribution += '\n'+(root/'labels/ATTRIBUTION.txt').read_text()
     (root/'ATTRIBUTION.txt').write_text(attribution)
-    components = {name: directory_size(root/name) for name in ('temperature','replay')}
+    components = {name: directory_size(root/name) for name in ('temperature','replay','labels')}
     result = dict(written_by='AI, GPT-6.1 Sol, 2026.10.18', status='ready', generation=generation,
         builtUTC=dt.datetime.now(dt.timezone.utc).isoformat(), chunks=replay['chunks'],
         firstScoredDay=min(replay['dates']), lastScoredDay=max(replay['dates']), scoredDays=len(replay['dates']),
         resolutionArcSeconds=30, eveningModel='uniform', supportedFinePixels=replay['supportedFinePixels'],
         ownNativePoints=replay['ownNativePoints'], pointClockPackets=replay['packetCount'], components=components,
-        attribution='ATTRIBUTION.txt', overviewChanged=False, forecastWeatherChanged=False,
+        attribution='ATTRIBUTION.txt', labels=labels, overviewChanged=False, forecastWeatherChanged=False,
         audits={name: dict(sha256=sha(proof/filename)) for name,filename in {
             'temperature':'tile-audit.json','replay':'replay-audit.json','hourly':'module-parity.json',
             'go':'outlook-climate/go-parity.json','goBinary':'outlook-climate/native-go-parity.json',
-            'transport':'transport.json','previews':'previews/parity.json',
+            'transport':'transport.json','coordinates':'coordinates.json','previews':'previews/parity.json',
             'activation':'activation.json','app':'app-complete/results.json'}.items()},
         knownLimits=['Rotterdam May score regression; accepted city-average gate.',
             'Headline search shortlists overview candidates; displayed numbers use exact replay.',
             'Other weather and the overview map retain ERA5 resolution.'])
     (root/'RELEASE.json').write_text(json.dumps(result, indent=2)+'\n')
     pointer = dict(nativeRoot=f'{args.release}/replay', tileRoot=f'{args.release}/temperature',
+        labelsRoot=f'{args.release}/labels',
         generation=generation, eveningModel='uniform', attribution=f'{args.release}/ATTRIBUTION.txt', status='ready')
     destination = args.activation/'v6/fine/current.json'
     destination.parent.mkdir(parents=True, exist_ok=True)

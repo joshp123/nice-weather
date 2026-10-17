@@ -10,7 +10,7 @@ Hardcoded home/reference points also differ from the city catalogue. Of eighteen
 
 The Worker serves `/api/fine/labels-1.json` and `/api/fine/labels-2.json`. An active pointer with `labelsRoot` selects the versioned files; otherwise it serves the original label files. Responses expire after sixty seconds. Existing immutable `/data/v6/labels-*.json` URLs remain untouched. The actual Worker fixture passed activation and rollback for both files and checked every coordinate against the source catalogue.
 
-`CANONICAL_COORDINATES.patch` is an **unapplied** patch for review. It changes the map's label-fetch URL and the eighteen hardcoded home/reference coordinates. It does not restyle the interface. Arbitrary numeric coordinates continue to select their own exact pixel; there is no city-name lookup or coordinate snapping in the place API.
+`CANONICAL_COORDINATES.patch` records the minimal UI changes for review. It changes the map's label-fetch URL and the eighteen hardcoded home/reference coordinates. It does not restyle the interface. Arbitrary numeric coordinates continue to select their own exact pixel; there is no city-name lookup or coordinate snapping in the place API.
 
 Build:
 
@@ -29,4 +29,4 @@ devenv shell -- node research/fine/canonical_coordinates_proof.mjs \
   '/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-validation/b1-worldwide/coordinates.json'
 ```
 
-Release activation must declare `labelsRoot: "v6-fine-b1-20261018/labels"` after these files and the matching Worker/app code are present. The UI patch needs the owner's scope approval before application.
+Release activation must declare `labelsRoot: "v6-fine-b1-20261018/labels"` after these files and the matching Worker/app code are present. The release seal checks the label manifest and both actual active-route checksums against the delivered files, records the coordinate-proof and manifest hashes, includes labels in the component sizes, and appends the GeoNames notice to the root attribution. UI edits remain with the interface owner.
