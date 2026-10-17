@@ -48,6 +48,9 @@ def main():
     go_reports = [read(proof/'outlook-climate'/name) for name in ('go-parity.json','native-go-parity.json')]
     if not all(report['passes'] and report['queries'] == 397 for report in go_reports):
         raise ValueError('Both full Go comparisons must pass')
+    transport = read(proof/'transport.json')
+    if not transport['passes'] or transport['places'] != 397 or transport['maximum_absolute_difference'] != 0:
+        raise ValueError('The compact browser transport has not passed the full place comparison')
     previews, activation, app = read(proof/'previews/parity.json'), read(proof/'activation.json'), read(proof/'app-complete/results.json')
     if not previews['pass'] or not activation['passes'] or not app['passes']:
         raise ValueError('Preview, activation or real-app verification is incomplete')
@@ -71,7 +74,8 @@ def main():
         audits={name: dict(sha256=sha(proof/filename)) for name,filename in {
             'temperature':'tile-audit.json','replay':'replay-audit.json','hourly':'module-parity.json',
             'go':'outlook-climate/go-parity.json','goBinary':'outlook-climate/native-go-parity.json',
-            'previews':'previews/parity.json','activation':'activation.json','app':'app-complete/results.json'}.items()},
+            'transport':'transport.json','previews':'previews/parity.json',
+            'activation':'activation.json','app':'app-complete/results.json'}.items()},
         knownLimits=['Rotterdam May score regression; accepted city-average gate.',
             'Headline search shortlists overview candidates; displayed numbers use exact replay.',
             'Other weather and the overview map retain ERA5 resolution.'])

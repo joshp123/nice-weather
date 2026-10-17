@@ -107,12 +107,16 @@ try {
     const shot=await command('Page.captureScreenshot',{format:'png'});
     await fs.writeFile(path.join(output,name+'.png'),Buffer.from(shot.data,'base64'));
     const reads=pageReads.slice();
-    const native=reads.filter(x=>x.url.includes('/native/'));
+    const native=reads.filter(x=> {
+      const url=new URL(x.url);
+      return url.pathname==='/api/fine/replay'&&url.searchParams.has('lat');
+    });
     const r={name,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste:JSON.parse(after.result.value),firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
     await fs.writeFile(path.join(output,name+'-reads.json'),JSON.stringify(reads,null,2));
     if(r.errors.length)throw Error(`${name}: runtime exceptions`);
-    const missing=reads.filter(read=>(read.url.includes('/native/')||read.url.endsWith('.nwf.gz'))&&read.status!==200);
+    const missing=native.filter(read=>read.status!==200);
     if(missing.length)throw Error(`${name}: ${missing.length} required fine weather objects are unavailable`);
+    if(reads.some(read=>read.url.includes('/native/')||read.url.endsWith('.nwf.gz')||read.url.endsWith('.nwz.gz')))throw Error(`${name}: browser downloaded full correction or native carrier tiles`);
     if(r.nativeDistinct>512)throw Error(`${name}: catalogue weather fanout returned`);
     results.push(r);console.log(JSON.stringify({...r,state:{headline:r.state.headline,card:r.state.card.slice(0,300)},afterTaste:{headline:r.afterTaste.headline,card:r.afterTaste.card.slice(0,300),url:r.afterTaste.url}}));
   }
