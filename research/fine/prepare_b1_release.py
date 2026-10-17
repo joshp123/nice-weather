@@ -51,6 +51,7 @@ def main():
     parser.add_argument('--release', default='v6-fine-b1-20261018')
     parser.add_argument('--validation', type=pathlib.Path, required=True)
     parser.add_argument('--activation', type=pathlib.Path, required=True)
+    parser.add_argument('--rollback', type=pathlib.Path)
     args = parser.parse_args()
     root, proof = args.data_root/args.release, args.validation
     labels = verify_labels(root, proof)
@@ -111,6 +112,10 @@ def main():
     destination = args.activation/'v6/fine/current.json'
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(pointer, indent=2)+'\n')
+    if args.rollback:
+        rollback = args.rollback/'v6/fine/current.json'
+        rollback.parent.mkdir(parents=True, exist_ok=True)
+        rollback.write_text('null\n')
     print(json.dumps(result, indent=2))
 
 
