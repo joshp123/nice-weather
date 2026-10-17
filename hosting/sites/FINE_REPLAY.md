@@ -59,3 +59,10 @@ it does not apply monthly ERA5 climate anchors to forecast weather. The
 Worker uses this path after its existing forecast point and cell lookup.
 The app's forecast GPU retains its existing implementation and resolution;
 the exact-pixel typical-year app path imports this shared module directly.
+
+The loader retains at most 24 decoded correction tiles and eight decoded
+timezone tiles, about 8.9 MB together. It limits their reads and decompression
+to four concurrent jobs. The twelve correction pairs stay in each place's
+packet after those shared tile buffers are evicted. Native replay packets
+remain cached for reuse by named places. `cacheUsage()` exposes retained
+tile bytes and the active-read count for measuring this path.

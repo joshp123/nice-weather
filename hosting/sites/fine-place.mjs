@@ -152,6 +152,30 @@ const parseJson=async bytes=>JSON.parse(new TextDecoder().decode(await uncompres
 /** readBytes(key) returns Uint8Array or null. An absent pointer preserves the current product. */
 export function createFinePlaceLoader(readBytes) {
   const requests=new Map();
+  const correctionTiles=new Map(),timezoneTiles=new Map(),waitingReads=[];
+  let activeReads=0,maximumActiveReads=0;
+  const runWaitingReads=()=> {
+    while(activeReads<4&&waitingReads.length) {
+      const {read,resolve,reject}=waitingReads.shift();activeReads++;maximumActiveReads=Math.max(maximumActiveReads,activeReads);
+      Promise.resolve().then(read).then(resolve,reject).finally(()=>{activeReads--;runWaitingReads();});
+    }
+  };
+  const limitedRead=read=>new Promise((resolve,reject)=>{waitingReads.push({read,resolve,reject});runWaitingReads();});
+  const tileBytes=(key,cache,limit)=> {
+    if(cache.has(key)) {
+      const entry=cache.get(key);cache.delete(key);cache.set(key,entry);return entry.promise;
+    }
+    const entry={complete:false,bytes:0};
+    entry.promise=limitedRead(async()=> {
+      const compressed=await readBytes(key);return compressed===null?null:uncompressed(compressed);
+    }).then(bytes=> {
+      entry.complete=true;entry.bytes=bytes?.byteLength??0;
+      let retained=[...cache.values()].filter(value=>value.complete).length;
+      for(const [address,value]of cache)if(retained>limit&&value.complete){cache.delete(address);retained--;}
+      return bytes;
+    }).catch(error=>{cache.delete(key);throw error;});
+    cache.set(key,entry);return entry.promise;
+  };
   const cached=(key,decode)=> {
     if(!requests.has(key))requests.set(key,readBytes(key).then(bytes=>bytes===null?null:decode(bytes)).catch(error=>{requests.delete(key);throw error;}));
     return requests.get(key);
@@ -161,6 +185,7 @@ export function createFinePlaceLoader(readBytes) {
   const loader={
     enabled:async()=>Boolean(await pointer()),
     configuration:async()=>await pointer(),
+    cacheUsage:()=>({correctionBytes:[...correctionTiles.values()].reduce((sum,entry)=>sum+entry.bytes,0),timezoneBytes:[...timezoneTiles.values()].reduce((sum,entry)=>sum+entry.bytes,0),activeTileReads:activeReads,maximumActiveTileReads:maximumActiveReads,waitingTileReads:waitingReads.length}),
     async load(latitude,longitude) {
       const current=await pointer();if(!current)return null;
       const pixel=finePixel(latitude,longitude),fineIndex=nativeFineIndex(90-(pixel.row+.5)/120,-180+(pixel.column+.5)/120),manifest=await json(`${current.nativeRoot}/manifest.json`);
@@ -173,7 +198,7 @@ export function createFinePlaceLoader(readBytes) {
       if(!expectedGeneration)throw new Error('Fine replay generation is missing');
       let replay;
       if(compact) {
-        const zoneBytes=await cached(`${current.nativeRoot}/zones/${String(Math.floor(pixel.row/256)).padStart(3,'0')}/${String(Math.floor(pixel.column/256)).padStart(3,'0')}.nwz.gz`,uncompressed);
+        const zoneBytes=await tileBytes(`${current.nativeRoot}/zones/${String(Math.floor(pixel.row/256)).padStart(3,'0')}/${String(Math.floor(pixel.column/256)).padStart(3,'0')}.nwz.gz`,timezoneTiles,8);
         if(!zoneBytes)return null;
         const zoneIndex=targetFineZone(zoneBytes,pixel,expectedGeneration);
         if(zoneIndex===null)return null;
@@ -188,7 +213,7 @@ export function createFinePlaceLoader(readBytes) {
       const tileRow=Math.floor(pixel.row/256),tileColumn=Math.floor(pixel.column/256),index=(pixel.row%256)*256+pixel.column%256;
       const corrections=await Promise.all(Array.from({length:12},async(_,monthIndex)=> {
         const key=`${current.tileRoot}/tiles/${String(monthIndex+1).padStart(2,'0')}/${String(tileRow).padStart(3,'0')}/${String(tileColumn).padStart(3,'0')}.nwf.gz`;
-        const bytes=await cached(key,uncompressed);if(!bytes)return null;
+        const bytes=await tileBytes(key,correctionTiles,24);if(!bytes)return null;
         if(bytes.byteLength!==327712)throw new Error('Fine correction tile length mismatch');
         const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
         if(view.getUint32(0,true)!==0x5446574e||view.getUint16(4,true)!==1||view.getUint8(7)!==0||view.getUint8(6)!==monthIndex+1||view.getUint16(8,true)!==tileRow||view.getUint16(10,true)!==tileColumn)throw new Error('Fine correction tile address mismatch');
