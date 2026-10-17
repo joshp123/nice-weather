@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import {gunzipSync} from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { localWorkerFixture } from './local_worker_fixture.mjs';
 
@@ -64,9 +65,11 @@ try {
       void fixture(request.url).then(async response => {
         const bytes = Buffer.from(await response.arrayBuffer());
         pageReads.push({url:request.url,status:response.status,bytes:bytes.length});
+        const compressed=response.headers.get('Content-Encoding')==='gzip';
+        const entity=compressed?gunzipSync(bytes):bytes;
         await command('Fetch.fulfillRequest',{requestId,responseCode:response.status,
-          responseHeaders:[...response.headers].map(([name,value])=>({name,value})),
-          body:bytes.toString('base64')});
+          responseHeaders:[...response.headers].filter(([name])=>!compressed||!['content-encoding','content-length'].includes(name.toLowerCase())).map(([name,value])=>({name,value})),
+          body:entity.toString('base64')});
       }).catch(async error => {
         interceptionError=error;
         await command('Fetch.failRequest',{requestId,errorReason:'Failed'});
@@ -80,6 +83,7 @@ try {
     ['world-desktop','/july',1440,1080],
     ['funchal-cold','/portugal/funchal/july',1440,1080],
     ['san-francisco-phone','/united-states/san-francisco/july',390,844],
+    ['san-diego-desktop','/united-states/san-diego/july',1440,1080],
   ]) {
     await command('Network.clearBrowserCache');
     await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width===390});
@@ -98,7 +102,14 @@ try {
       if(pageReads.length!==lastCount){lastCount=pageReads.length;lastChange=performance.now();}
       if(usable&&!/Loading weather|Checking/.test(state.text)&&performance.now()-lastChange>3000)break;
     }
-    if(!ready)throw Error(`${name}: the real app never produced an answer`);
+    if(!ready) {
+      await fs.writeFile(path.join(output,name+'-failure.json'),JSON.stringify({state,reads:pageReads},null,2));
+      const failedShot=await command('Page.captureScreenshot',{format:'png'});
+      await fs.writeFile(path.join(output,name+'-failure.png'),Buffer.from(failedShot.data,'base64'));
+      throw Error(`${name}: the real app never produced an answer`);
+    }
+    const defaultShot=await command('Page.captureScreenshot',{format:'png'});
+    await fs.writeFile(path.join(output,name+'-default.png'),Buffer.from(defaultShot.data,'base64'));
     const beforeTaste=pageReads.length;
     const dragStart=performance.now();
     const drag=await command('Runtime.evaluate',{expression:`(()=>{const e=document.querySelector('#slider-perfectFrom');e.value='24';e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true})()`,returnByValue:true});
@@ -116,12 +127,14 @@ try {
     if(r.errors.length)throw Error(`${name}: runtime exceptions`);
     const missing=native.filter(read=>read.status!==200);
     if(missing.length)throw Error(`${name}: ${missing.length} required fine weather objects are unavailable`);
+    const labelReads=reads.filter(read=>/\/api\/fine\/labels-[12]\.json$/.test(new URL(read.url).pathname));
+    if(labelReads.length!==2||labelReads.some(read=>read.status!==200))throw Error(`${name}: canonical label files are unavailable`);
     if(reads.some(read=>read.url.includes('/native/')||read.url.endsWith('.nwf.gz')||read.url.endsWith('.nwz.gz')))throw Error(`${name}: browser downloaded full correction or native carrier tiles`);
     if(r.nativeDistinct>512)throw Error(`${name}: catalogue weather fanout returned`);
     results.push(r);console.log(JSON.stringify({...r,state:{headline:r.state.headline,card:r.state.card.slice(0,300)},afterTaste:{headline:r.afterTaste.headline,card:r.afterTaste.card.slice(0,300),url:r.afterTaste.url}}));
   }
   const sources={};
-  for(const file of ['hosting/sites/worker.mjs','hosting/sites/fine-place.mjs','hosting/sites/fine-candidates.mjs','src/engine/finePlaces.ts','src/engine/weatherEngine.ts','dist/index.html']) {
+  for(const file of ['hosting/sites/worker.mjs','hosting/sites/fine-place.mjs','hosting/sites/fine-candidates.mjs','src/engine/finePlaces.ts','src/engine/weatherEngine.ts','src/ui/map.ts','src/ui/home.ts','dist/index.html']) {
     sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
   }
   await fs.writeFile(path.join(output,'results.json'),JSON.stringify({written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,sources,views:results},null,2));
