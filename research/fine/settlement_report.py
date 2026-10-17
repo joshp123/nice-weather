@@ -105,7 +105,8 @@ def main():
     passed = all(row['passes'] for row in summaries)
     lines += ['', '**Acceptance: '+('PASS' if passed else 'FAIL — recommend shipping nothing')+'.**','',
         'This test evaluates the temperature correction. Score aggregation has been developed separately; '
-        'temperature acceptance does not use the default-score columns. '
+        'default-score differences combine that change with the weather correction and cannot isolate its effect. '
+        'Temperature acceptance does not use the default-score columns. '
         'Detailed results: [monthly_step_a.csv](monthly_step_a.csv).','']
     args.output.mkdir(parents=True,exist_ok=True)
     (args.output/'SETTLEMENT_COMPARISON.md').write_text('\n'.join(lines))
