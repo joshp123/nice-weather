@@ -520,31 +520,52 @@ const OUTLOOK_STYLE = `
 
 async function outlookPage(request, bucket, url) {
   const region = url.pathname.slice('/outlook/'.length);
-  const settings = OUTLOOK_REGIONS[region];
+  const settings = Object.hasOwn(OUTLOOK_REGIONS, region) ? OUTLOOK_REGIONS[region] : null;
   if (!settings) return new Response('Not found', { status: 404 });
   const tomorrow = new Date();
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+  const requestedDate = url.searchParams.get('date') ?? tomorrowDate;
+  const outlookDate = new Date(`${requestedDate}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || Number.isNaN(outlookDate.valueOf()) || outlookDate.toISOString().slice(0, 10) !== requestedDate) {
+    return new Response('Use a date in YYYY-MM-DD format.', { status: 400 });
+  }
+  const forTomorrow = requestedDate === tomorrowDate;
   const current = await cachedJson(bucket, 'v6/forecast/current.json', 0);
-  const key = current ? `v6/forecast/${current.run}/outlook/${region}` : null;
-  const outlook = key ? await cachedJson(bucket, `${key}.json`, 0) : null;
-  const firstDate = current ? new Date(`${current.firstDate}T12:00:00Z`) : null;
-  if (firstDate && outlook) firstDate.setUTCDate(firstDate.getUTCDate() + outlook.day);
-  const ready = outlook && outlook.date === tomorrowDate && outlook.run === current.run
-    && firstDate?.toISOString().slice(0, 10) === outlook.date && await bucket.head(`${key}.png`);
+  const runs = current ? [current.run, ...(url.searchParams.has('date') ? [current.previousRun] : [])].filter(Boolean) : [];
+  let key = null;
+  let outlook = null;
+  let latestDate = null;
+  for (const run of runs) {
+    const candidateKey = `v6/forecast/${run}/outlook/${region}`;
+    const candidate = await cachedJson(bucket, `${candidateKey}.json`, 0);
+    if (run === current.run) latestDate = candidate?.date;
+    if (candidate?.date === requestedDate && candidate.run === run && await bucket.head(`${candidateKey}.png`)) {
+      key = candidateKey;
+      outlook = candidate;
+      break;
+    }
+  }
+  const ready = outlook !== null;
+  const sentence = ready ? (forTomorrow ? outlook.sentence : outlook.sentence.replace(' tomorrow, ', ' on ')) : null;
   const image = ready ? `${url.origin}/data/${key}.png` : null;
-  const title = `${settings.name}: tomorrow’s nice weather outlook | Nice!`;
-  const description = ready ? outlook.sentence : `Tomorrow’s nice weather outlook for ${settings.name} is being refreshed.`;
+  const fullDate = outlookDate.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const title = `${settings.name}: nice weather outlook for ${fullDate} | Nice!`;
+  const description = ready ? sentence : forTomorrow
+    ? `Tomorrow’s nice weather outlook for ${settings.name} is being refreshed.`
+    : `The nice weather outlook for ${settings.name} on ${fullDate} is unavailable.`;
   const navigation = Object.entries(OUTLOOK_REGIONS).map(([word, area]) => `<a href="/outlook/${word}"${word === region ? ' aria-current="page"' : ''}>${area.name}</a>`).join('');
-  const fullDate = tomorrow.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const dayInCurrentForecast = current ? Math.round((outlookDate - new Date(`${current.firstDate}T12:00:00Z`)) / 86400000) : -1;
+  const explore = dayInCurrentForecast >= 0 && dayInCurrentForecast < current.days
+    ? `<a href="/@${settings.centre}/day-${dayInCurrentForecast}">Explore ${forTomorrow ? 'tomorrow' : 'this date'}</a>` : '';
   const content = ready ? `
-    <p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)} · Tomorrow</p>
-    <h1>${escapeHtml(outlook.sentence)}</h1>
-    <img class="poster" src="${escapeHtml(image)}" width="1200" height="630" alt="${escapeHtml(outlook.sentence)} Map coloured by tomorrow’s nice weather scores." />
+    <p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)}${forTomorrow ? ' · Tomorrow' : ''}</p>
+    <h1>${escapeHtml(sentence)}</h1>
+    <img class="poster" src="${escapeHtml(image)}" width="1200" height="630" alt="${escapeHtml(sentence)} Map coloured by the day’s nice weather scores." />
     <div class="actions">
       <button id="copy-post" type="button">Copy post</button>
       <a href="${escapeHtml(outlook.fullImage ?? image)}" download="nice-weather-${region}-${outlook.date}.png">Download image</a>
-      <a href="/@${settings.centre}/day-${outlook.day}">Explore tomorrow</a>
+      ${explore}
     </div>
     <p class="note">Places have at least 10,000 residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Forecast from ECMWF. Dates use UTC.</p>
     <p class="status" id="copy-status" role="status"></p>
@@ -560,12 +581,12 @@ async function outlookPage(request, bucket, url) {
       });
     </script>` : `
     <div class="unavailable"><p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)}</p>
-    <h1>Tomorrow’s outlook is being refreshed.</h1>
-    <p class="note">${outlook ? `The latest outlook was for ${escapeHtml(outlook.date)}. ` : ''}Please check back after the daily forecast refresh.</p>
-    <div class="actions"><a href="/">Explore the weather map</a></div></div>`;
+    <h1>${forTomorrow ? 'Tomorrow’s outlook is being refreshed.' : 'This dated outlook is unavailable.'}</h1>
+    <p class="note">${forTomorrow ? `${latestDate ? `The latest outlook was for ${escapeHtml(latestDate)}. ` : ''}Please check back after the daily forecast refresh.` : `This link is for ${escapeHtml(fullDate)}. Its forecast is no longer available.`}</p>
+    <div class="actions"><a href="${forTomorrow ? '/' : `/outlook/${region}`}">${forTomorrow ? 'Explore the weather map' : 'See the current outlook'}</a></div></div>`;
   const html = withPreview(`<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Nice!</title><style>${OUTLOOK_STYLE}</style></head>
     <body><main><header><a class="brand" href="/" aria-label="Nice! weather map">Nice<span>!</span></a><nav aria-label="Outlook region">${navigation}</nav></header>${content}</main></body></html>`,
-  { title, description, image, url: `${url.origin}/outlook/${region}` });
+  { title, description, image, url: `${url.origin}/outlook/${region}?date=${requestedDate}` });
   return new Response(request.method === 'HEAD' ? null : html, {
     status: ready ? 200 : 503,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...(!ready ? { 'Retry-After': '300' } : {}) },
