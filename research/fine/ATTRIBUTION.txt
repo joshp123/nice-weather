@@ -25,6 +25,9 @@ DOI:10.24381/cds.adbb2d47, via the anonymous Earthmover archive.
 https://registry.opendata.aws/earthmover-era5/
 ERA5 monthly means: ECMWF / C3S and NSF NCAR, via Planette.
 https://github.com/PlanetteAI/planette_era5_archive
+Copyright: European Centre for Medium-Range Weather Forecasts (ECMWF).
+NSF NCAR Research Data Archive, dataset d633000:
+https://rda.ucar.edu/datasets/d633000/
 ERA5 and these mirrors: CC BY 4.0.
 https://creativecommons.org/licenses/by/4.0/
 Contains modified Copernicus Climate Change Service information (2026).
@@ -49,8 +52,8 @@ License 1.0 (ODbL), via the OSM land-polygons download service.
 https://osmdata.openstreetmap.de/data/land-polygons.html
 https://www.openstreetmap.org/copyright
 https://opendatacommons.org/licenses/odbl/1-0/
-Changes: polygon rasterization to the regular 30 arc-second grid, retaining
-every touched pixel; combination with public-domain Natural Earth polygons.
+Changes: GDAL any-touched polygon rasterization to the regular 30 arc-second
+grid; combination with public-domain Natural Earth polygons.
 The pure OSM membership mask and union polygon-membership mask are separately
 offered under ODbL; the build manifest records their paths, provenance and hashes.
 NWFT support bit 5 (value 32), the union polygon membership, is ODbL.

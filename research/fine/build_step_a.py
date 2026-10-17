@@ -208,7 +208,7 @@ def main():
         adjustment_sha256=configuration['adjustment_sha256'],
         source='PRISM 1991-2020; WorldClim1.4; CHELSA2.1; common ERA5 monthly-mean period anomaly')
     (climate/'meta.json').write_text(json.dumps(metadata,indent=2)+'\n')
-    shutil.copy2(pathlib.Path(__file__).with_name('ATTRIBUTION.txt'),snapshot/'v6/ATTRIBUTION.txt')
+    shutil.copy2(pathlib.Path(__file__).with_name('ATTRIBUTION-STEP-A.txt'),snapshot/'v6/ATTRIBUTION.txt')
     provenance = {name:json.loads((args.source_cache/name/'dataset.json').read_text())
                   for name in ('worldclim14','prism','chelsa','era5_monthly')}
     (snapshot/'v6/SOURCE-PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')

@@ -1,0 +1,56 @@
+Nice Weather fine temperature data
+
+The derived weather values and temperature-source properties are licensed under
+Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+The publication is a collection with separately licensed geographic properties;
+the separately offered timezone lookup retains its ODbL licence.
+
+WorldClim version 1.4 historical climate data, Hijmans et al. (2005),
+International Journal of Climatology 25:1965–1978.
+https://www.worldclim.org/data/v1.4/worldclim14.html
+WorldClim 1.4 historical data: CC BY-SA 4.0.
+
+PRISM Group, Oregon State University, https://prism.oregonstate.edu/,
+accessed 17 October 2026. PRISM 1991–2020 monthly temperature normals.
+Modified and combined with other sources; these are not original PRISM maps.
+https://prism.oregonstate.edu/terms/
+
+CHELSA version 2.1 climatologies, 1981–2010, Karger et al.,
+https://www.chelsa-climate.org/datasets/chelsa_climatologies
+CHELSA data: CC0 1.0.
+
+ERA5 hourly: ECMWF / Copernicus Climate Change Service (C3S),
+DOI:10.24381/cds.adbb2d47, via the anonymous Earthmover archive.
+https://registry.opendata.aws/earthmover-era5/
+ERA5 monthly means: ECMWF / C3S and NSF NCAR, via Planette.
+https://github.com/PlanetteAI/planette_era5_archive
+Copyright: European Centre for Medium-Range Weather Forecasts (ECMWF).
+NSF NCAR Research Data Archive, dataset d633000:
+https://rda.ucar.edu/datasets/d633000/
+ERA5 and these mirrors: CC BY 4.0.
+https://creativecommons.org/licenses/by/4.0/
+Contains modified Copernicus Climate Change Service information (2026).
+Neither the European Commission nor ECMWF is responsible for any use that
+may be made of the Copernicus information or data it contains.
+
+Changes: native ERA5 temperature/dew-point cell records; source selection;
+common ERA5 monthly-mean adjustment from each source's reference period to
+the actual assembled dates; uniform hourly air-temperature shifts using the
+average high/low offset; felt-temperature calculations with native dew point,
+wind and radiation; quantization to the existing quarter-degree formats.
+Build metadata records the exact sources and dates.
+
+This weather-data licence does not cover the Nice Weather application code.
+No endorsement by any source provider is implied.
+Local-clock timezone lookup: contains information from timezone-boundary-builder,
+processed by timezonefinder, and © OpenStreetMap contributors, available under
+the Open Database License 1.0 (ODbL).
+https://github.com/evansiroky/timezone-boundary-builder
+https://www.openstreetmap.org/copyright
+https://opendatacommons.org/licenses/odbl/1-0/
+The machine-readable point-to-timezone lookup is supplied separately in
+timezones/lookup.npz under ODbL 1.0, with its own notices and provenance.
+This separate lookup-data licence does not replace the weather-data licence.
+timezonefinder code is MIT licensed.
+
