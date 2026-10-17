@@ -255,11 +255,11 @@ const SEASON_MONTHS = { 'dec-feb': [12, 1, 2], 'mar-may': [3, 4, 5], 'jun-aug': 
 const SEASON_NAMES = { 'dec-feb': 'December to February', 'mar-may': 'March to May', 'jun-aug': 'June to August', 'sep-nov': 'September to November' };
 
 function periodFromWord(word) {
-  if (word === 'next-14-days' || /^day-(?:[0-9]|1[0-3])$/.test(word)) return { word, kind: 'forecast', title: 'the next 14 days' };
+  if (word === 'next-14-days' || /^day-(?:[0-9]|1[0-3])$/.test(word)) return { word, kind: 'forecast', when: 'over the next 14 days' };
   const month = MONTH_WORDS.indexOf(word);
-  if (month >= 0) return { word, kind: 'climate', months: [month + 1], title: `${word[0].toUpperCase()}${word.slice(1)}` };
-  if (SEASON_MONTHS[word]) return { word, kind: 'climate', months: SEASON_MONTHS[word], title: SEASON_NAMES[word] };
-  if (word === 'year') return { word, kind: 'climate', months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], title: 'the whole year' };
+  if (month >= 0) return { word, kind: 'climate', months: [month + 1], when: `in ${word[0].toUpperCase()}${word.slice(1)}` };
+  if (SEASON_MONTHS[word]) return { word, kind: 'climate', months: SEASON_MONTHS[word], when: `from ${SEASON_NAMES[word]}` };
+  if (word === 'year') return { word, kind: 'climate', months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], when: 'all year' };
   return null;
 }
 
@@ -309,17 +309,17 @@ async function previewFor(bucket, origin, pathname, view) {
   let title = 'Nice Weather: where on earth is the weather nice?';
   let description = 'A map of the whole world coloured by how nice the weather feels, for the next 14 days or any month of a typical year. Set your own taste.';
   if (placeName && period?.kind === 'climate') {
-    title = `${placeName} in ${period.title}: Nice Weather`;
+    title = `${placeName} ${period.when}: Nice Weather`;
     const score = await defaultScore(bucket, place.latitude, place.longitude, period.months);
     const months = await typicalYearForPlace(bucket, place.latitude, place.longitude);
     const typical = months && period.months.length === 1 ? months[period.months[0] - 1] : null;
-    description = score === null ? `How nice the weather is in ${placeName} in ${period.title}.` : `${placeName} in ${period.title}: ${bandWord(score)}, nice score ${Math.round(score)} out of 100.`;
+    description = score === null ? `How nice the weather is in ${placeName} ${period.when}.` : `${placeName} ${period.when}: ${bandWord(score)}, nice score ${Math.round(score)} out of 100.`;
     if (typical) description += ` Typical highs of ${Math.round(typical.highC)} °C, ${Math.round(typical.feelsAt21C)} °C at 21:00, sunny ${typical.sunnyPercent}% of the day, rain on ${typical.wetDaysPercent}% of days.`;
   } else if (placeName) {
     title = `${placeName}: Nice Weather`;
     description = `How nice the weather will be in ${placeName} over the next 14 days, and in every month of a typical year.`;
   } else if (period?.kind === 'climate') {
-    title = `Where is the weather nice in ${period.title}? Nice Weather`;
+    title = `Where is the weather nice ${period.when}? Nice Weather`;
   }
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
   let image = place?.slug && place.region !== 'Palestine' ? await card(`v6/cards/${place.slug}.png`) : null;  // v6/cards/<country>/<city>.png
