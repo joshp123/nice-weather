@@ -158,17 +158,17 @@ func typicalScore(shares [7]float64) float64 {
 }
 func decodedForecastDay(record []byte, shift float64) day {
 	d := day{dew: float64(record[10])/3 - 30, rain: math.Pow(float64(record[11])/50, 2), wind: float64(record[12]) / 2, sunny: float64(record[13]), daylight: math.Max(1, float64(record[14]))}
+	sun := make(curve, 6)
+	shade := make(curve, 4)
+	for i := range sun {
+		sun[i] = [2]float64{float64(i * 2), float64(record[i])/3 - 30 + shift}
+	}
+	for i := range shade {
+		shade[i] = [2]float64{float64(i*3 + 2), float64(record[i+6])/3 - 30 + shift}
+	}
 	for h := range 12 {
-		pos := math.Min(float64(h)/2, 5)
-		l := int(pos)
-		u := min(l+1, 5)
-		f := pos - float64(l)
-		d.sun[h] = (float64(record[l])*(1-f)+float64(record[u])*f)/3 - 30 + shift
-		pos = math.Max(0, math.Min(3, float64(h-2)/3))
-		l = int(pos)
-		u = min(l+1, 3)
-		f = pos - float64(l)
-		d.shade[h] = (float64(record[6+l])*(1-f)+float64(record[6+u])*f)/3 - 30 + shift
+		d.sun[h] = sun.at(float64(h))
+		d.shade[h] = shade.at(float64(h))
 	}
 	return d
 }

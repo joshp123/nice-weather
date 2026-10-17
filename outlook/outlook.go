@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"nice-weather-finder/internal/placenumbers"
 	"os"
 	"path/filepath"
 	"sort"
@@ -213,7 +214,7 @@ func readPlaces(body []byte, scores *image.Gray) ([]Place, error) {
 		}
 		seen[slug] = true
 		index := nearestLandPoint(latitude, longitude, scores)
-		if index < 0 {
+		if index < 0 || len(placenumbers.MapPointWeights(latitude, longitude, func(point int) bool { return scores.Pix[point] != 255 })) == 0 {
 			continue
 		}
 		places = append(places, Place{fields[0], fields[2], slug, latitude, longitude, int(scores.Pix[index]), index, population})

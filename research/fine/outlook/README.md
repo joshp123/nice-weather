@@ -12,9 +12,12 @@ The application and Worker import the JavaScript implementation; the Go runner
 requires no JavaScript runtime.
 
 The existing outlooks describe tomorrow's ECMWF forecast. Their named-place
-ranking now calls the shared Go function on actual `days.bin` records and the
-same static cells and monthly offsets used by the forecast runner. The score
-PNG supplies the painted overview only. This adds no ERA5 temperature
+ranking calls the shared Go function on actual `days.bin` records and the
+same static cells and monthly offsets used by the forecast runner. It then
+blends native-point judgements with the map's normalized 4 × 4 B-spline
+footprint. The Worker uses the same shared JavaScript footprint and blend;
+the app's existing spatial result is preserved. The score PNG supplies the
+painted overview only. This adds no ERA5 temperature
 correction to forecast weather and creates no climate-poster mode. The daily
 command passes its existing `--v6-static` value to the outlook renderer;
 `tools/outlook` accepts `--static-source` for retained data.
@@ -99,3 +102,58 @@ node research/fine/outlook/verify_posters.mjs \
 `queries.json` contains the nine rendered winners' slug, latitude and longitude
 as `{slug, lat, lon}`. All three preview PNGs were opened and inspected; none
 of their styling changed. No files were uploaded and no social posts were sent.
+
+## Final forecast integration, 18 October
+
+The later interface change made forecast cards and labels read the map's
+B-spline field. Leaving outlooks and previews on their previous nearest point
+would disagree: the 397-place cohort yielded 574 available period judgements,
+with 234 different displayed scores and 36 different band words. The largest
+score difference was 35.1095 points. This was measured before changing the
+outlook producer; it was not a temperature correction problem.
+
+`MapPointWeights` and `BlendPlaceNumbers` now port the shared spatial functions
+into Go. The outlook ranks the same filtered field as the app and Worker.
+A place with no valid map footprint is unavailable, matching the app; it does
+not borrow a more distant land value. A one-in-four-decimal rounding case
+also exposed a pre-existing arithmetic-order difference in Go: hourly
+forecast interpolation must decode each anchor to degrees before interpolating,
+matching JavaScript. No rounding tolerance or fitted adjustment was added.
+
+The actual retained forecast proof is reproducible with:
+
+```sh
+PROOF="$SSD/fine-validation/b1-worldwide/outlook-refresh/spatial-parity"
+node research/fine/outlook/app_forecast_parity.mjs --data "$SSD" \
+  --queries "$SSD/fine-validation/b1-worldwide/queries.json" --output "$PROOF"
+go run ./research/fine/outlook/port < "$PROOF/input.jsonl" > "$PROOF/go-results.jsonl"
+node research/fine/outlook/compare_port.mjs \
+  "$PROOF/expected.jsonl" "$PROOF/go-results.jsonl" "$PROOF/go-parity.json"
+```
+
+This checks all score, count, share, weather and factor fields, for tomorrow
+and the full fortnight at default and non-default tastes. Of 397 coordinates,
+287 have support in the existing quarter-degree forecast mask; the remaining
+110 are unavailable in both app and Worker. All 1,148 available judgements
+matched: scores, day counts and band words exactly, with other numeric fields
+within `7.11e-14`. The independent Go footprint and score calculation matched
+all 28,700 numeric fields to the same precision. Fine climate's 397-place
+coverage is separate from this older forecast mask.
+
+Fresh posters were rendered under
+`$SSD/fine-validation/b1-worldwide/outlook-refresh/spatial-render/` using the
+new `scores-typical-day-*` filenames. Their nine named winners' displayed
+scores match the actual Worker and app. All three preview images were opened
+and inspected. The changed spatial model changes the world winners to
+Tijuana, Harare and Osaka; Europe remains Sassari, Naples and Lisbon; the USA
+becomes San Diego, Lake Havasu City and Fresno. These are retained 18 October
+forecast results, not current live recommendations.
+
+`sampling-shared.patch` is an **unapplied** minimal import/averaging hook for
+`src/engine/sampling.ts`. The measured browser results above use its unchanged
+implementation. Applying the patch centralizes the existing math without
+changing those results; the interface worker owns that source file.
+
+The prepared Linux amd64 runner and refreshed instructions/notices remain in
+`$SSD/fine-runner-b1-20261018/`. Its manifest records exact sizes and SHA-256
+hashes. Nothing was uploaded or deployed.

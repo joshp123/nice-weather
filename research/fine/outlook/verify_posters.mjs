@@ -8,7 +8,7 @@ const checks=[];
 for(const region of ['world','europe','usa']){
  const poster=JSON.parse(fs.readFileSync(path.join(posterRoot,`${region}.json`)));
  for(const place of poster.places){
-  const score=expected.get(`${place.slug}/tomorrow`)?.score;
+  const score=expected.get(`${place.slug}/tomorrow`)?.score ?? expected.get(`${place.slug}/tomorrow/default`)?.score;
   if(!Number.isFinite(score)||Math.floor(score)!==place.score)throw new Error(`${region}/${place.name}: poster ${place.score}, shared JS ${score}`);
   checks.push({region,name:place.name,posterScore:place.score,sharedJSScore:score});
  }

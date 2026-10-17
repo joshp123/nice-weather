@@ -53,18 +53,31 @@ func loadForecastPlaceInputs(ctx context.Context, source, staticSource string, p
 	return forecastPlaceInputs{records: records, offsets: offsets, ordinals: placenumbers.CellOrdinals(pairs), days: pointer.Days, day: day}, nil
 }
 func (inputs forecastPlaceInputs) judge(places []Place) error {
+	cached := make(map[int]placenumbers.Numbers)
 	for i := range places {
 		place := &places[i]
-		index := place.PointIndex
-		row, column := index/gridWidth, index%gridWidth
-		cell := inputs.ordinals[min(row/4, 179)*360+column/4]
-		at := (cell*inputs.days + inputs.day) * 15
-		packet := placenumbers.Packet{Source: "forecast", Records: [][]byte{inputs.records[at : at+15]}, OffsetsC: []float64{(float64(inputs.offsets.Pix[index]) - 128) / 10}, Weights: []float64{1}}
-		numbers, err := placenumbers.PlaceNumbers(packet, placenumbers.Period{TotalDays: 1}, nil)
-		if err != nil {
-			return err
+		footprint := placenumbers.MapPointWeights(place.Latitude, place.Longitude, func(index int) bool { return inputs.offsets.Pix[index] != 255 })
+		if len(footprint) == 0 {
+			return fmt.Errorf("forecast place %s has no map footprint", place.Name)
 		}
-		place.Score = int(math.Floor(numbers.Score))
+		points := make([]placenumbers.WeightedNumbers, 0, len(footprint))
+		for _, point := range footprint {
+			numbers, found := cached[point.Index]
+			if !found {
+				row, column := point.Index/gridWidth, point.Index%gridWidth
+				cell := inputs.ordinals[min(row/4, 179)*360+column/4]
+				at := (cell*inputs.days + inputs.day) * 15
+				packet := placenumbers.Packet{Source: "forecast", Records: [][]byte{inputs.records[at : at+15]}, OffsetsC: []float64{(float64(inputs.offsets.Pix[point.Index]) - 128) / 10}, Weights: []float64{1}}
+				var err error
+				numbers, err = placenumbers.PlaceNumbers(packet, placenumbers.Period{TotalDays: 1}, nil)
+				if err != nil {
+					return err
+				}
+				cached[point.Index] = numbers
+			}
+			points = append(points, placenumbers.WeightedNumbers{Numbers: numbers, Weight: point.Weight})
+		}
+		place.Score = int(math.Floor(placenumbers.BlendPlaceNumbers(points).Score))
 	}
 	return nil
 }

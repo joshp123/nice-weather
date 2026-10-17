@@ -1,0 +1,55 @@
+--- a/src/engine/sampling.ts
++++ b/src/engine/sampling.ts
+@@ -3,6 +3,8 @@
+ import type { Cells, PeriodData, SampleGroup } from './data';
+ import type { Period, PointVerdict, TypicalWeather } from './index';
+ import { SHIFT_LEVELS, SHIFT_MINIMUM, SHIFT_STEP } from './shaders';
++import { mapPointWeights, blendPlaceNumbers } from '../../hosting/sites/fine-place.mjs';
++export { mapPointWeights } from '../../hosting/sites/fine-place.mjs';
+ 
+ export type PointContribution = Readonly<{ group: number; cell: number; level: number; weight: number }>;
+ type MutableTypicalWeather = { -readonly [Key in keyof TypicalWeather]-?: number };
+@@ -16,23 +18,6 @@
+ const partNames = ['warmth', 'evening', 'rainFactor', 'windFactor', 'humidityFactor', 'sunFactor'] as const;
+ const wrap = (column: number, width: number) => (column % width + width) % width;
+ const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
+-/** The map's normalized 4 × 4 B-spline footprint, excluding missing land. */
+-export function mapPointWeights(latitude: number, longitude: number, valid: (index: number) => boolean): { index: number; weight: number }[] {
+-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -60 || latitude > 90) return [];
+-  const x = wrap((longitude + 180) * 4, 1440), y = (90 - latitude) * 4;
+-  const weights = (fraction: number) => [(1 - fraction) ** 3, 3 * fraction ** 3 - 6 * fraction ** 2 + 4, -3 * fraction ** 3 + 3 * fraction ** 2 + 3 * fraction + 1, fraction ** 3].map(value => value / 6);
+-  const horizontal = weights(x - Math.floor(x)), vertical = weights(y - Math.floor(y));
+-  const points: { index: number; weight: number }[] = [];
+-  let landWeight = 0;
+-  for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) {
+-    const index = clamp(Math.floor(y) + row - 1, 0, 720) * 1440 + wrap(Math.floor(x) + column - 1, 1440);
+-    if (!valid(index)) continue;
+-    const weight = horizontal[column] * vertical[row];
+-    points.push({ index, weight });
+-    landWeight += weight;
+-  }
+-  return points.map(point => ({ index: point.index, weight: point.weight / landWeight }));
+-}
+ 
+ function pointContributions(fineIndex: number, cells: Cells, data: PeriodData): PointContribution[] {
+   const column = fineIndex % 1440, row = Math.floor(fineIndex / 1440);
+@@ -83,18 +68,7 @@
+     if (this.cachedPoints.has(key)) return this.cachedPoints.get(key)!;
+     const footprint = mapPointWeights(latitude, longitude, index => [...this.data.offsets.values()].every(offsets => offsets[index] !== 255));
+     if (!footprint.length) { this.cachedPoints.set(key, null); return null; }
+-    const points = footprint.map(point => ({ verdict: this.judgeGridPoint(point.index), weight: point.weight }));
+-    const average = (read: (verdict: PointVerdict) => number) => points.reduce((sum, point) => sum + read(point.verdict) * point.weight, 0);
+-    const meanScore = canonicalScore(average(point => point.meanScore));
+-    const typical = emptyTypical();
+-    for (const name of typicalNames) typical[name] = average(point => point.typical[name] ?? 0);
+-    const parts = { warmth: 0, evening: 0, rainFactor: 0, windFactor: 0, humidityFactor: 0, sunFactor: 0 };
+-    for (const name of partNames) parts[name] = average(point => point.parts[name]);
+-    const verdict = {
+-      meanScore, band: bandOf(meanScore), niceDayShare: average(point => point.niceDayShare), perfectDayShare: average(point => point.perfectDayShare), awfulDayShare: average(point => point.awfulDayShare),
+-      niceDayCount: average(point => point.niceDayCount), perfectDayCount: average(point => point.perfectDayCount), awfulDayCount: average(point => point.awfulDayCount),
+-      totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
+-    };
++    const verdict = blendPlaceNumbers(footprint.map(point => ({ numbers: this.judgeGridPoint(point.index), weight: point.weight })));
+     this.cachedPoints.set(key, verdict);
+     return verdict;
+   }
