@@ -8,6 +8,7 @@
 //   POST /__prune                 the publisher removes forecast runs no longer current or previous
 
 import { createFinePlaceLoader, placeNumbers, placeMonths } from './fine-place.mjs';
+import { fineMethodHtml } from './fine-credits.mjs';
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -288,7 +289,6 @@ async function viewFromPath(bucket, pathname) {
 // The twelve monthly bytes cannot describe a run's distribution. Read the same
 // sampled days and fine offsets as the app for a place's default-taste preview.
 const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-const THRESHOLDS = [0, 25, 40, 55, 70, 85, 100];
 const wrap = (value, width) => (value % width + width) % width;
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const weatherFiles = new Map();
@@ -389,33 +389,6 @@ function nearestFineIndex(latitude, longitude, offsets) {
   return nearest;
 }
 
-function curve(points, value) {
-  if (value <= points[0][0]) return points[0][1];
-  for (let i = 1; i < points.length; i++) if (value <= points[i][0]) {
-    const [x, y] = points[i - 1], [nextX, nextY] = points[i];
-    return y + (value - x) / (nextX - x) * (nextY - y);
-  }
-  return points.at(-1)[1];
-}
-const COLD = [[9,0],[11,3],[13,10],[15,22],[17,40],[19,62],[21,85],[23,100]];
-const HEAT = [[28,100],[31,85],[34,60],[37,30],[40,10],[43,0]];
-const EVENING = [[4,0],[8,30],[12,65],[16,90],[19,100]];
-const RAIN = [[0,1],[0.5,0.95],[1,0.88],[2,0.74],[4,0.5],[8,0.22],[15,0.05]];
-const WIND = [[15,1],[20,0.97],[25,0.92],[30,0.85],[40,0.65],[50,0.4],[65,0.15]];
-const HUMIDITY = [[16,1],[18,0.95],[20,0.85],[22,0.65],[24,0.4],[26,0.2],[28,0.1]];
-const SUN = [[0,0.75],[0.3,0.85],[0.6,0.95],[0.8,1]];
-function defaultDayScore(bytes, at, shift) {
-  const sun = Array.from({length: 6}, (_, i) => [i * 2, bytes[at + i] / 3 - 30 + shift]);
-  const shade = Array.from({length: 4}, (_, i) => [i * 3 + 2, bytes[at + 6 + i] / 3 - 30 + shift]);
-  const daylight = Math.max(1, bytes[at + 14]);
-  let daytime = 0;
-  for (let hour = 0; hour < daylight; hour++) daytime += Math.min(curve(COLD, curve(sun, hour)), curve(HEAT, curve(shade, hour)));
-  const evening = Math.min(curve(EVENING, shade[3][1]), curve(HEAT, shade[3][1]));
-  return (daytime + 2 * evening) / (daylight + 2)
-    * curve(RAIN, (bytes[at + 11] / 50) ** 2) * curve(WIND, bytes[at + 12] / 2)
-    * curve(HUMIDITY, bytes[at + 10] / 3 - 30) * curve(SUN, bytes[at + 13] / daylight);
-}
-
 async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
   const fine = finePlaces(bucket);
   if (period.kind === 'climate' && await fine.enabled()) {
@@ -437,29 +410,15 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
   if (index === null) return null;
   const row = Math.floor(index / FINE_WIDTH), column = index % FINE_WIDTH;
   const cell = ordinals[clamp(Math.floor(row / 4), 0, 179) * 360 + Math.floor(column / 4)];
-  const totalDays = groups.reduce((sum, group) => sum + group.days, 0), shares = THRESHOLDS.map(() => 0);
-  let singleDayScore = 0;
-  await Promise.all(groups.map(async (group, groupIndex) => {
-    const shiftLevel = clamp(((offsets[groupIndex][index] - 128) / 10 + 15) / 3, 0, 10), lower = Math.min(Math.floor(shiftLevel), 9), upperWeight = shiftLevel - lower;
+  const packets = await Promise.all(groups.map(async (group, groupIndex) => {
+    const offset = (offsets[groupIndex][index] - 128) / 10;
     const view = await readBytes(bucket, group.key, cell * group.samples * 15, group.samples * 15);
     if (!view) throw new Error(`Weather records missing: ${group.key}`);
     const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-    for (let sample = group.firstDay; sample < group.firstDay + group.count; sample++) {
-      const interpolatedScore = (1 - upperWeight) * defaultDayScore(bytes, sample * 15, -15 + lower * 3)
-        + upperWeight * defaultDayScore(bytes, sample * 15, -15 + (lower + 1) * 3);
-      const score = Math.round(interpolatedScore * 10000) / 10000;
-      singleDayScore = score;
-      for (let threshold = 0; threshold < THRESHOLDS.length; threshold++) if (score >= THRESHOLDS[threshold]) shares[threshold] += group.days / group.count / totalDays;
-    }
+    return Array.from({length: group.count}, (_, sample) => ({record: bytes.slice((group.firstDay + sample) * 15, (group.firstDay + sample + 1) * 15), offset, weight: group.days / group.count}));
   }));
-  let score = 0;
-  if (totalDays === 1) score = singleDayScore;
-  else if (shares[5] >= 0.5 - 1e-9) score = 85 + Math.max(0, shares[5] - 0.5) * 30;
-  else for (let band = 0; band < 5; band++) if (shares[band] >= 0.5 - 1e-9 && shares[band + 1] < 0.5 - 1e-9) {
-    score = THRESHOLDS[band] + (THRESHOLDS[band + 1] - THRESHOLDS[band]) * Math.max(0, shares[band] - 0.5) / (shares[band] - shares[band + 1]); break;
-  }
-  const dayCount = share => Math.round(share * totalDays * 1e9) / 1e9;
-  return {score: Math.round(score * 10000) / 10000, totalDays, niceDayCount: dayCount(shares[3]), perfectDayCount: dayCount(shares[5]), awfulDayCount: dayCount(1 - shares[1])};
+  const days = packets.flat();
+  return placeNumbers({source: 'forecast', records: days.map(day => day.record), offsetsC: days.map(day => day.offset), weights: days.map(day => day.weight)}, period);
 }
 
 const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];
@@ -704,6 +663,12 @@ export async function handleRequest(request, env, serveAsset) {
     return json({ name: place.name, region: place.region, latitude: place.latitude, longitude: place.longitude, slug: place.slug }, 86400);
   }
   const isAppPath = (url.pathname.startsWith('/@') || !/\.[a-z0-9]+$/i.test(url.pathname)) && !url.pathname.startsWith('/api/');
+  if (url.pathname === '/method') {
+    const page = await serveAsset('/method', request);
+    if (request.method === 'HEAD') return page;
+    const configuration = await finePlaces(bucket).configuration();
+    return configuration?.attribution ? new Response(fineMethodHtml(await page.text(), configuration), {status: page.status, headers: page.headers}) : page;
+  }
   if (isAppPath && url.pathname !== '/method') {
     const view = await viewFromPath(bucket, url.pathname);
     const page = await serveAsset('/index.html', request);

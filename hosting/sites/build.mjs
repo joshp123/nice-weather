@@ -21,13 +21,13 @@ const source = (await readFile(resolve(hostingRoot, 'worker.mjs'), 'utf8')).repl
 await mkdir(resolve(outputRoot, 'worker'), { recursive: true });
 await mkdir(resolve(outputRoot, '.openai'), { recursive: true });
 await writeFile(resolve(outputRoot, 'worker/index.js'), source);
-await cp(resolve(hostingRoot, 'fine-place.mjs'), resolve(outputRoot, 'worker/fine-place.mjs'));
+for (const module of ['fine-place.mjs', 'fine-replay.mjs', 'fine-credits.mjs']) await cp(resolve(hostingRoot, module), resolve(outputRoot, 'worker', module));
 await cp(resolve(hostingRoot, '.openai/hosting.json'), resolve(outputRoot, '.openai/hosting.json'));
 await writeFile(resolve(outputRoot, '.gitignore'), '/dist/\n');
 await writeFile(resolve(outputRoot, 'package.json'), '{"type":"module"}\n');
 await mkdir(resolve(outputRoot, 'dist/server'), { recursive: true });
 await mkdir(resolve(outputRoot, 'dist/.openai'), { recursive: true });
 await writeFile(resolve(outputRoot, 'dist/server/index.js'), source);
-await cp(resolve(hostingRoot, 'fine-place.mjs'), resolve(outputRoot, 'dist/server/fine-place.mjs'));
+for (const module of ['fine-place.mjs', 'fine-replay.mjs', 'fine-credits.mjs']) await cp(resolve(hostingRoot, module), resolve(outputRoot, 'dist/server', module));
 await cp(resolve(hostingRoot, '.openai/hosting.json'), resolve(outputRoot, 'dist/.openai/hosting.json'));
 console.log(`Sites Worker: ${Object.keys(assets).length} web files, ${Buffer.byteLength(source)} bytes`);
