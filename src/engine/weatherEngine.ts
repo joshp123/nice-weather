@@ -5,6 +5,7 @@ import type { EngineOptions, Period, Point, PointVerdict, RedrawTiming, WeatherE
 import { DEFAULT_TASTE, type Taste } from './taste';
 import { WeatherData, type Cells, type PeriodData, type Records, type ScoreImage } from './data';
 import { PointSampler, readFineScore, nearestLandFineIndex } from './sampling';
+import { FinePlaces } from './finePlaces';
 import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
 
 function periodKey(period: Period): string {
@@ -17,6 +18,8 @@ type Programs = { score: WebGLProgram; resolve: WebGLProgram; map: WebGLProgram 
 export class BrowserWeatherEngine implements WeatherEngine {
   readonly layer: CustomLayerInterface;
   private source: WeatherData;
+  private finePlaces: FinePlaces;
+  private reportedLoading = false;
   private hasPeriod = false;
   private loadState = false;
   private scoreImage?: ScoreImage;
@@ -51,7 +54,13 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private destroyed = false;
 
   constructor(private map: MapLibreMap, private options: EngineOptions) {
-    this.source = new WeatherData((options.dataUrl ?? '/data/v6').replace(/\/$/, ''));
+    const dataUrl = (options.dataUrl ?? '/data/v6').replace(/\/$/, '');
+    this.source = new WeatherData(dataUrl);
+    this.finePlaces = new FinePlaces(dataUrl, () => {
+      if (this.destroyed) return;
+      this.notifyLoading();
+      if (this.hasPeriod) this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
+    });
     this.layer = {
       id: 'weather-v6', type: 'custom', renderingMode: '2d',
       onAdd: (_map, context) => this.onAdd(context),
@@ -60,11 +69,20 @@ export class BrowserWeatherEngine implements WeatherEngine {
     };
   }
 
-  get loading(): boolean { return this.loadState; }
+  private isClimate(period: Period = this.period): boolean { return period.kind !== 'forecast' && period.kind !== 'forecast-day'; }
+
+  get loading(): boolean { return this.loadState || (this.isClimate() && this.finePlaces.loading); }
 
   private setLoading(loading: boolean): void {
     if (this.loadState === loading) return;
     this.loadState = loading;
+    this.notifyLoading();
+  }
+
+  private notifyLoading(): void {
+    const loading = this.loading;
+    if (this.reportedLoading === loading) return;
+    this.reportedLoading = loading;
     this.options.onLoadingChange?.(loading);
   }
 
@@ -143,7 +161,9 @@ export class BrowserWeatherEngine implements WeatherEngine {
   }
 
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null {
-    if (this.loading || this.destroyed) return null;
+    if (this.loadState || this.destroyed) return null;
+    const selectedPeriod = period ?? this.period;
+    if (this.isClimate(selectedPeriod) && this.finePlaces.enabled) return this.finePlaces.judge(latitude, longitude, selectedPeriod, this.taste);
     if (!period) return this.sampler?.judge(latitude, longitude) ?? null;
     if (!this.cells) return null;
     const key = periodKey(period);
@@ -158,6 +178,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
   }
 
   scorePoints(points: readonly Point[]): Float32Array {
+    if (this.isClimate() && this.finePlaces.enabled) return Float32Array.from(points, point => this.judgePoint(point.latitude, point.longitude)?.meanScore ?? NaN);
     if (this.isDefaultTaste() && this.scoreImage && !this.destroyed) {
       const bytes = this.scoreImage.bytes;
       return Float32Array.from(points, point => {
@@ -190,6 +211,13 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   countPoints(points: readonly Point[]): Float32Array {
     const counts = new Float32Array(points.length * 3).fill(NaN);
+    if (this.isClimate() && this.finePlaces.enabled) {
+      points.forEach((point, index) => {
+        const verdict = this.judgePoint(point.latitude, point.longitude);
+        if (verdict) counts.set([verdict.niceDayCount, verdict.perfectDayCount, verdict.awfulDayCount], index * 3);
+      });
+      return counts;
+    }
     if (!this.data || !this.gl || this.gpuRevision !== this.revision || this.drawnRevision !== this.revision || this.destroyed) return counts;
     this.readScores();
     const offsets = [...this.data.offsets.values()];
@@ -426,6 +454,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.finePlaces.destroy();
     this.releaseImageWait?.();
     this.releaseImageWait = undefined;
     for (const frame of this.pending.splice(0)) frame.reject(new Error('Weather engine has been destroyed'));

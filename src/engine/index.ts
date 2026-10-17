@@ -57,15 +57,15 @@ export type EngineOptions = Readonly<{
 export interface WeatherEngine {
   /** Add once with map.addLayer(engine.layer, 'sea'), after the style loads. WebGL2 required. */
   readonly layer: CustomLayerInterface;
-  /** Current period records are loading. Every judgePoint call returns null while true, including cached-period queries. */
+  /** Current period or exact-place data are loading. Overview-map records can finish before place data. */
   readonly loading: boolean;
   /** Cold period: paints its default score image, then loads records/offsets in the background. Cached records draw immediately without waiting for an image. Resolves after records and a frame; rejects on record failure. Latest call wins. */
   setPeriod(period: Period): Promise<void>;
   /** Reuses loaded data. Resolves after a frame for this taste; while records load a changed taste clears the default image and waits. Before the first period, stores taste and resolves immediately. */
   setTaste(taste: Taste): Promise<RedrawTiming>;
-  /** Synchronous; null while loading, if unavailable, or if no fine land point within two grid steps. Optional period uses loaded files without fetching or selecting. Longitude wraps; latitude range −60..90°. */
+  /** Synchronous; null until data arrive or where unavailable. With the fine-place manifest, climate queries load the exact 30 arc-second pixel and replay; no overview fallback. Other periods do not select a map period. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
-  /** Nearest-land fine-point scores in input order; NaN means missing. Default taste reads the score image, including while records load (integer precision). Other tastes cache one GPU readback per redraw. */
+  /** Named-place scores in input order; NaN means pending or missing. Fine climate uses the same exact-pixel judgement as the card; the overview map is independent. */
   scorePoints(points: readonly Point[]): Float32Array;
   /** Packed nice, perfect and awful day counts for each point. */
   countPoints(points: readonly Point[]): Float32Array;
@@ -81,8 +81,8 @@ export interface WeatherEngine {
  * const malaga = engine.judgePoint(36.72, -4.42);
  *
  * Climate months count their real calendar days, represented by eight sampled days each.
- * Place scores use the nearest fine land point's own offset, using its owning cell and interpolating
- * felt-shift levels. Only the map applies the final B-spline.
+ * An installed fine-place manifest selects exact-pixel climate replay for cards and named places.
+ * Without it the existing overview sampler remains in use. Only the map applies the final B-spline.
  */
 export function createWeatherEngine(map: MapLibreMap, options: EngineOptions = {}): WeatherEngine {
   return new BrowserWeatherEngine(map, options);
