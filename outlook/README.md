@@ -13,7 +13,8 @@ Tomorrow means the next UTC calendar date. The forecast record for that date
 describes each place's local 10:00–21:00 weather. The forecast day is calculated
 from `firstDate`, rather than assuming it is always day 1.
 
-Candidates are named places with at least 10,000 residents in `places.tsv`.
+World candidates have at least 300,000 residents in `places.tsv`; Europe and
+USA candidates have at least 10,000.
 Palestine places are excluded. Slugs and English names follow the Worker.
 The same row-major nearest land point within ±2 fine grid points supplies the
 score; sea and missing points are omitted. Rank by the published whole-number
@@ -21,8 +22,12 @@ default score, then population, then slug. Select three at least 250 km apart.
 This deliberately resolves equal displayed scores in favour of larger places.
 
 USA means the 50 states and Washington, DC, including Alaska and Hawaii insets.
-Europe uses European countries plus Turkey and Cyprus, within 25° W–45° E and
-30–72° N; this excludes overseas territories. World uses all eligible places.
+Europe includes European countries, Cyprus, Malta, the Canaries, Madeira and
+the Azores. Turkey is limited to Thrace, west of the Bosporus, Marmara and
+Dardanelles. Spanish cities in North Africa are excluded. The regional bounds
+(32° W–60° E, 27–72° N) exclude other overseas territories. World uses all
+eligible places. The Europe map extends south to include the Canaries and fades
+at the eastern edge. Every poster identifies a single forecast day and its date.
 
 The map uses a cubic B-spline over the score grid, with sea omitted, then the
 site's six bands. Smoothing affects display only. Natural Earth land rings mask

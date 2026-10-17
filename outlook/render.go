@@ -115,11 +115,11 @@ func (renderer *posterRenderer) fittedText(canvas *image.NRGBA, text string, x, 
 func (renderer *posterRenderer) write(directory string, outlook Outlook, scores *image.Gray) error {
 	canvas := image.NewNRGBA(image.Rect(0, 0, Style.Width*Style.RenderScale, Style.Height*Style.RenderScale))
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(Style.Background), image.Point{}, draw.Src)
-	renderer.text(canvas, "Nice!", float64(Style.Margin), Layout.BrandBaseline, Style.BrandSize, true, Style.Text)
-	renderer.text(canvas, strings.ToUpper(outlook.Title)+" / WEATHER OUTLOOK", Layout.HeadingX, Layout.EyebrowBaseline, Style.KeySize, true, Style.Accent)
-	renderer.text(canvas, "The nicest weather tomorrow", Layout.HeadingX, Layout.HeadingBaseline, Style.HeadingSize, true, Style.Text)
+	renderer.text(canvas, "Nice!", float64(Style.Margin), Layout.BrandBaseline, Style.BrandSize, Style.BrandBold, Style.Text)
+	renderer.text(canvas, strings.ToUpper(outlook.Title)+" / ONE-DAY FORECAST", Layout.HeadingX, Layout.EyebrowBaseline, Style.KeySize, Style.EyebrowBold, Style.Accent)
+	renderer.text(canvas, "The nicest weather tomorrow", Layout.HeadingX, Layout.HeadingBaseline, Style.HeadingSize, Style.HeadingBold, Style.Text)
 	date, _ := time.Parse("2006-01-02", outlook.Date)
-	renderer.text(canvas, date.Format("Monday 2 January 2006"), Layout.HeadingX, Layout.DateBaseline, Style.DateSize, false, Style.Muted)
+	renderer.text(canvas, "Forecast for "+date.Format("Monday 2 January 2006"), Layout.HeadingX, Layout.DateBaseline, Style.DateSize, Style.DateBold, Style.Muted)
 	renderer.line(canvas, float64(Style.Margin), float64(Style.HeaderBottom), float64(Style.Width-Style.Margin), float64(Style.HeaderBottom), Style.BorderWidth, Style.Border)
 	for _, viewport := range mapViews(outlook.Region) {
 		renderer.drawMap(canvas, viewport, scores, outlook.Places)
@@ -127,18 +127,18 @@ func (renderer *posterRenderer) write(directory string, outlook Outlook, scores 
 	columnWidth := float64(Style.Width-Style.Margin*2) / 3
 	for index, place := range outlook.Places {
 		x, y := float64(Style.Margin)+float64(index)*columnWidth, float64(Style.PlacesTop)
-		renderer.text(canvas, fmt.Sprintf("0%d", index+1), x, y+Layout.PlaceNameOffset, Style.DetailSize, true, Style.Accent)
-		renderer.fittedText(canvas, place.Name, x+Layout.PlaceNumberWidth, y+Layout.PlaceNameOffset, Style.PlaceSize, columnWidth-Layout.PlaceTextInset, true, Style.Text)
-		renderer.fittedText(canvas, place.Region, x+Layout.PlaceNumberWidth, y+Layout.PlaceRegionOffset, Style.DetailSize, columnWidth-Layout.PlaceTextInset, false, Style.Muted)
+		renderer.text(canvas, fmt.Sprintf("0%d", index+1), x, y+Layout.PlaceNameOffset, Style.DetailSize, Style.NumberBold, Style.Accent)
+		renderer.fittedText(canvas, place.Name, x+Layout.PlaceNumberWidth, y+Layout.PlaceNameOffset, Style.PlaceSize, columnWidth-Layout.PlaceTextInset, Style.PlaceBold, Style.Text)
+		renderer.fittedText(canvas, place.Region, x+Layout.PlaceNumberWidth, y+Layout.PlaceRegionOffset, Style.DetailSize, columnWidth-Layout.PlaceTextInset, Style.RegionBold, Style.Muted)
 		band := Style.Bands[bandIndex(place.Score)]
-		renderer.text(canvas, fmt.Sprintf("%d  %s", place.Score, band.Name), x+Layout.PlaceNumberWidth, y+Layout.PlaceScoreOffset, Style.DetailSize, true, Style.Text)
+		renderer.text(canvas, fmt.Sprintf("%d  %s", place.Score, band.Name), x+Layout.PlaceNumberWidth, y+Layout.PlaceScoreOffset, Style.DetailSize, Style.ScoreBold, Style.Text)
 	}
 	for index, band := range Style.Bands {
 		x := float64(Style.Margin) + float64(index)*Layout.KeyStep
 		renderer.rectangle(canvas, x, float64(Style.KeyTop)-Layout.KeySwatchHeight, Layout.KeySwatchWidth, Layout.KeySwatchHeight, scoreColour(band.Minimum))
-		renderer.text(canvas, band.Name, x+Layout.KeyLabelInset, float64(Style.KeyTop), Style.KeySize, false, Style.Muted)
+		renderer.text(canvas, band.Name, x+Layout.KeyLabelInset, float64(Style.KeyTop), Style.KeySize, Style.KeyBold, Style.Muted)
 	}
-	renderer.text(canvas, "nice.jjpcodes.com", Layout.AddressX, float64(Style.KeyTop), Style.KeySize, true, Style.Text)
+	renderer.text(canvas, "nice.jjpcodes.com", Layout.AddressX, float64(Style.KeyTop), Style.KeySize, Style.AddressBold, Style.Text)
 	preview := image.NewNRGBA(image.Rect(0, 0, Style.Width, Style.Height))
 	resample.CatmullRom.Scale(preview, preview.Bounds(), canvas, canvas.Bounds(), draw.Src, nil)
 	for name, picture := range map[string]image.Image{outlook.Region + ".png": preview, outlook.Region + "-full.png": canvas} {
@@ -158,6 +158,7 @@ type mapViewport struct {
 	west, east, south, north float64
 	x, y, width, height      float64
 	label                    string
+	eastEdgeFade             float64
 }
 
 func (viewport mapViewport) fitted() mapViewport {
@@ -232,8 +233,18 @@ func (renderer *posterRenderer) drawMap(canvas *image.NRGBA, view mapViewport, s
 			}
 		}
 	}
+	if view.eastEdgeFade > 0 {
+		fadeWidth := view.eastEdgeFade * scale
+		for x := max(left, left+width-int(fadeWidth)); x < left+width; x++ {
+			ink := Style.Sea
+			ink.A = uint8(255 * (1 - float64(left+width-1-x)/fadeWidth))
+			for y := top; y < top+height; y++ {
+				blend(canvas, x, y, ink)
+			}
+		}
+	}
 	if view.label != "" {
-		renderer.text(canvas, view.label, view.x, view.y+Style.DetailSize, Style.DetailSize, true, Style.Muted)
+		renderer.text(canvas, view.label, view.x, view.y+Style.DetailSize, Style.DetailSize, Style.InsetBold, Style.Muted)
 	}
 	for index, place := range places {
 		if place.Longitude < view.west || place.Longitude > view.east || place.Latitude < view.south || place.Latitude > view.north {
@@ -243,8 +254,8 @@ func (renderer *posterRenderer) drawMap(canvas *image.NRGBA, view mapViewport, s
 		renderer.circle(canvas, x, y, Style.MarkerRadius+Style.MarkerRing, Style.Text)
 		renderer.circle(canvas, x, y, Style.MarkerRadius, Style.Background)
 		label := strconv.Itoa(index + 1)
-		textWidth := float64(font.MeasureString(renderer.face(Style.MarkerSize, true), label)) / 64 / scale
-		renderer.text(canvas, label, x-textWidth/2, y+Style.MarkerSize*Layout.MarkerBaselineFraction, Style.MarkerSize, true, Style.Text)
+		textWidth := float64(font.MeasureString(renderer.face(Style.MarkerSize, Style.MarkerBold), label)) / 64 / scale
+		renderer.text(canvas, label, x-textWidth/2, y+Style.MarkerSize*Layout.MarkerBaselineFraction, Style.MarkerSize, Style.MarkerBold, Style.Text)
 	}
 }
 

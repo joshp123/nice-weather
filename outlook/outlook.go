@@ -44,15 +44,16 @@ type Place struct {
 }
 
 type Outlook struct {
-	Region    string  `json:"region"`
-	Title     string  `json:"title"`
-	Date      string  `json:"date"`
-	Sentence  string  `json:"sentence"`
-	Run       string  `json:"run"`
-	Day       int     `json:"day"`
-	Places    []Place `json:"places"`
-	Image     string  `json:"image"`
-	FullImage string  `json:"fullImage"`
+	MinimumPopulation int     `json:"minimumPopulation"`
+	Region            string  `json:"region"`
+	Title             string  `json:"title"`
+	Date              string  `json:"date"`
+	Sentence          string  `json:"sentence"`
+	Run               string  `json:"run"`
+	Day               int     `json:"day"`
+	Places            []Place `json:"places"`
+	Image             string  `json:"image"`
+	FullImage         string  `json:"fullImage"`
 }
 
 type Region struct{ ID, Title, SentenceName string }
@@ -127,7 +128,7 @@ func Generate(ctx context.Context, source, placesSource, out string, now time.Ti
 			return nil, fmt.Errorf("%s needs three separated places with scores", region.ID)
 		}
 		base := fmt.Sprintf("/data/v6/forecast/%s/outlook/%s", pointer.Run, region.ID)
-		outlook := Outlook{Region: region.ID, Title: region.Title, Date: tomorrow.Format("2006-01-02"), Run: pointer.Run, Day: day, Places: chosen, Image: base + ".png", FullImage: base + "-full.png"}
+		outlook := Outlook{MinimumPopulation: populationThreshold(region.ID), Region: region.ID, Title: region.Title, Date: tomorrow.Format("2006-01-02"), Run: pointer.Run, Day: day, Places: chosen, Image: base + ".png", FullImage: base + "-full.png"}
 		outlook.Sentence = fmt.Sprintf("The nicest weather in %s tomorrow, %s: %s, %s and %s.", region.SentenceName, tomorrow.Format("Monday 2 January"), chosen[0].Name, chosen[1].Name, chosen[2].Name)
 		if err = posters.write(directory, outlook, scores); err != nil {
 			return nil, err
@@ -279,8 +280,14 @@ func inRegion(place Place, region string) bool {
 	case "usa":
 		return country == "United States" && (place.Latitude >= 24 && place.Latitude <= 72 && place.Longitude >= -180 && place.Longitude <= -66 || place.Latitude >= 18 && place.Latitude <= 23 && place.Longitude >= -161 && place.Longitude <= -154)
 	case "europe":
-		if place.Latitude < 30 || place.Latitude > 72 || place.Longitude < -25 || place.Longitude > 45 {
+		if place.Latitude < 27 || place.Latitude > 72 || place.Longitude < -32 || place.Longitude > 60 {
 			return false
+		}
+		if country == "Turkey" {
+			return inEuropeanTurkey(place)
+		}
+		if country == "Spain" && place.Latitude < 36 {
+			return place.Longitude >= -18.5 && place.Longitude <= -13 && place.Latitude <= 30
 		}
 		for _, name := range europeanCountries {
 			if country == name {
@@ -291,10 +298,39 @@ func inRegion(place Place, region string) bool {
 	return false
 }
 
+func populationThreshold(region string) int {
+	if region == "world" {
+		return 300000
+	}
+	return minimumPopulation
+}
+
+// The eastern edge follows the Bosporus, Marmara and Dardanelles through water.
+// The remaining edges enclose Thrace; country membership is checked first.
+var europeanTurkeyBoundary = [][2]float64{
+	{25, 42.5}, {29.3, 42.5}, {29.12, 41.23}, {29.075, 41.12},
+	{29.035, 41.045}, {29.005, 41.025}, {28.985, 41}, {28.98, 40.98},
+	{28.6, 40.8}, {27.5, 40.4}, {26.75, 40.35}, {26.4, 40.2},
+	{26.17, 40.03}, {25.8, 39.8}, {25, 39.8},
+}
+
+func inEuropeanTurkey(place Place) bool {
+	inside := false
+	previous := europeanTurkeyBoundary[len(europeanTurkeyBoundary)-1]
+	for _, current := range europeanTurkeyBoundary {
+		if (current[1] > place.Latitude) != (previous[1] > place.Latitude) &&
+			place.Longitude < (previous[0]-current[0])*(place.Latitude-current[1])/(previous[1]-current[1])+current[0] {
+			inside = !inside
+		}
+		previous = current
+	}
+	return inside
+}
+
 func rankPlaces(places []Place, region string) []Place {
 	candidates := make([]Place, 0)
 	for _, place := range places {
-		if inRegion(place, region) {
+		if place.Population >= populationThreshold(region) && inRegion(place, region) {
 			candidates = append(candidates, place)
 		}
 	}

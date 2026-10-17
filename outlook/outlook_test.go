@@ -34,3 +34,55 @@ func TestRankingSeparatesPlacesAndOmitsPalestineHeadlines(t *testing.T) {
 		t.Fatal("Palestine places were not suppressed")
 	}
 }
+
+func TestEuropeanHeadlinesIncludeIslandsButExcludeAsiaAndNorthAfrica(t *testing.T) {
+	for _, example := range []struct {
+		name, country       string
+		latitude, longitude float64
+		included            bool
+	}{
+		{"Las Palmas", "Spain", 28.12, -15.43, true},
+		{"Funchal", "Portugal", 32.65, -16.91, true},
+		{"Ponta Delgada", "Portugal", 37.74, -25.67, true},
+		{"Valletta", "Malta", 35.90, 14.51, true},
+		{"Nicosia", "Cyprus", 35.18, 33.36, true},
+		{"Kazan", "Russia", 55.79, 49.12, true},
+		{"Samara", "Russia", 53.2, 50.15, true},
+		{"Novosibirsk", "Russia", 55.03, 82.92, false},
+		{"Edirne", "Turkey", 41.68, 26.56, true},
+		{"Istanbul", "Turkey", 41.01, 28.95, true},
+		{"Gelibolu", "Turkey", 40.41, 26.67, true},
+		{"Üsküdar", "Turkey", 41.02274, 29.01366, false},
+		{"Çengelköy", "Turkey", 41.05062, 29.0551, false},
+		{"Yeniköy", "Turkey", 41.12171, 29.06993, true},
+		{"Cizre", "Turkey", 37.33, 42.19, false},
+		{"Akçakale", "Turkey", 36.71, 38.95, false},
+		{"Bursa", "Turkey", 40.20, 29.06, false},
+		{"Çanakkale", "Turkey", 40.15, 26.41, false},
+		{"Ceuta", "Spain", 35.89, -5.32, false},
+		{"Melilla", "Spain", 35.29, -2.94, false},
+		{"Casablanca", "Morocco", 33.59, -7.62, false},
+		{"Beirut", "Lebanon", 33.89, 35.50, false},
+	} {
+		t.Run(example.name, func(t *testing.T) {
+			place := Place{Region: example.country, Latitude: example.latitude, Longitude: example.longitude}
+			if inRegion(place, "europe") != example.included {
+				t.Fatalf("wrong European eligibility for %s", example.name)
+			}
+		})
+	}
+}
+
+func TestWorldHeadlinesPreferLargerCitiesOnTiedScores(t *testing.T) {
+	places := []Place{
+		{Name: "Small perfect town", Population: 290000, Score: 100, Longitude: 80},
+		{Name: "Third", Population: 300000, Score: 99, Longitude: 40},
+		{Name: "Second", Population: 500000, Score: 99, Longitude: 20},
+		{Name: "Nearby", Population: 900000, Score: 99, Longitude: 1},
+		{Name: "First", Population: 1000000, Score: 99, Longitude: 0},
+	}
+	chosen := rankPlaces(places, "world")
+	if len(chosen) != 3 || chosen[0].Name != "First" || chosen[1].Name != "Second" || chosen[2].Name != "Third" {
+		t.Fatalf("unexpected world headlines: %+v", chosen)
+	}
+}

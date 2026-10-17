@@ -21,7 +21,7 @@ test('outlooks serve shareable posters for tomorrow and withhold stale or missin
   for (const region of ['world', 'europe', 'usa']) {
     const key = `v6/forecast/test-run/outlook/${region}`;
     const sentence = `The nicest weather in ${region} tomorrow: Málaga, Chania and Antalya.`;
-    files.set(`${key}.json`, { region, date, sentence, run: 'test-run', day: 1, fullImage: `/data/${key}-full.png` });
+    files.set(`${key}.json`, { region, date, sentence, minimumPopulation: region === 'world' ? 300000 : 10000, run: 'test-run', day: 1, fullImage: `/data/${key}-full.png` });
     files.set(`${key}.png`, 'poster');
     const response = await request(`/outlook/${region}`);
     assert.equal(response.status, 200);
@@ -35,6 +35,7 @@ test('outlooks serve shareable posters for tomorrow and withhold stale or missin
     assert.ok(html.includes(`href="/@`));
     assert.ok(html.includes('/day-1"'));
     assert.ok(html.includes('Copy post'));
+    assert.ok(html.includes(`at least ${region === 'world' ? '300,000' : '10,000'} residents`));
     assert.ok(html.includes(`href="/data/${key}-full.png" download=`));
     const head = await request(`/outlook/${region}`, 'HEAD');
     assert.equal(head.status, 200);

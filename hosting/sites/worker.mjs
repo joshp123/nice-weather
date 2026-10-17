@@ -567,7 +567,7 @@ async function outlookPage(request, bucket, url) {
       <a href="${escapeHtml(outlook.fullImage ?? image)}" download="nice-weather-${region}-${outlook.date}.png">Download image</a>
       ${explore}
     </div>
-    <p class="note">Places have at least 10,000 residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Forecast from ECMWF. Dates use UTC.</p>
+    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Forecast from ECMWF. Dates use UTC.</p>
     <p class="status" id="copy-status" role="status"></p>
     <script>
       document.getElementById('copy-post').addEventListener('click', async () => {
