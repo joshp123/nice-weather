@@ -2,6 +2,8 @@ Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
 # Exact-pixel place numbers: rejected candidate
 
+Current follow-up: [B1_EVENING_RESULT.md](B1_EVENING_RESULT.md) keeps these daytime highs unchanged and evaluates the newly requested visitor-score gate with one global evening rule. This document preserves the earlier ordered-evening result.
+
 **B1 is not proven. Do not upload or deploy this candidate. Keep today's data.**
 The exact 30 arcsecond pixels improve daytime highs at all thirteen city
 queries, but Funchal, San Diego and Seville fail even the previous +0.3 °C
