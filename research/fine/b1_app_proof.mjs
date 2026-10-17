@@ -108,6 +108,15 @@ try {
       await fs.writeFile(path.join(output,name+'-failure.png'),Buffer.from(failedShot.data,'base64'));
       throw Error(`${name}: the real app never produced an answer`);
     }
+    let cardApi;
+    if(name!=='world-desktop') {
+      const slug=pathname.split('/').filter(Boolean).slice(0,2).join('/');
+      const place=await(await localFetch(`http://127.0.0.1:5198/api/slug/${slug}`)).json();
+      const numbers=await(await localFetch(`http://127.0.0.1:5198/api/place?lat=${place.latitude}&lon=${place.longitude}&period=july`)).json();
+      const judgement=numbers.judgement;
+      cardApi={score:Math.floor(judgement.meanScore),nice:Math.round(judgement.niceDayCount),perfect:Math.round(judgement.perfectDayCount),awful:Math.round(judgement.awfulDayCount)};
+      if(!state.card.includes(`\n\n${cardApi.score}\n`)||!state.card.includes(`Nice on ${cardApi.nice} of the 31 days of July. Perfect on ${cardApi.perfect}; awful on ${cardApi.awful}.`))throw Error(`${name}: displayed card and Worker API disagree`);
+    }
     const defaultShot=await command('Page.captureScreenshot',{format:'png'});
     await fs.writeFile(path.join(output,name+'-default.png'),Buffer.from(defaultShot.data,'base64'));
     const beforeTaste=pageReads.length;
@@ -122,7 +131,7 @@ try {
       const url=new URL(x.url);
       return url.pathname==='/api/fine/replay'&&url.searchParams.has('lat');
     });
-    const r={name,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste:JSON.parse(after.result.value),firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
+    const r={name,cardApi,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste:JSON.parse(after.result.value),firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
     await fs.writeFile(path.join(output,name+'-reads.json'),JSON.stringify(reads,null,2));
     if(r.errors.length)throw Error(`${name}: runtime exceptions`);
     const missing=native.filter(read=>read.status!==200);
