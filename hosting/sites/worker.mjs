@@ -9,6 +9,7 @@
 
 import { createFinePlaceLoader, placeNumbers, placeMonths } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
+import { finePreviewPng } from './fine-preview.mjs';
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -74,7 +75,7 @@ function loadPlaces(bucket) {
     const places = text.split('\n').map((line) => {
       const [name, plainName, region, latitude, longitude, population, geonamesPlainName = plainName, searchAliases = ''] = line.split('\t');
       const keys = [...new Set([plainName, geonamesPlainName, ...searchAliases.split('|')].filter(Boolean).map(normalise))];
-      return { name, keys, slug: slugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
+      return { name, plainName, keys, slug: slugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
     });
     const bySlug = new Map();
     for (const place of [...places].sort((left, right) => right.population - left.population)) {
@@ -129,8 +130,8 @@ async function nameForPoint(bucket, latitude, longitude) {
       }
     }
   }
-  if (best) return { name: best.name, region: best.region, slug: bySlug.get(best.slug) === best ? best.slug : undefined };
-  if (nearest) return { name: `Near ${nearest.name}`, region: nearest.region };
+  if (best) return { name: best.name, plainName: best.plainName, region: best.region, slug: bySlug.get(best.slug) === best ? best.slug : undefined };
+  if (nearest) return { name: `Near ${nearest.name}`, plainName: `Near ${nearest.plainName}`, region: nearest.region };
   const north = latitude >= 0 ? 'N' : 'S';
   const east = longitude >= 0 ? 'E' : 'W';
   return { name: `${Math.abs(latitude).toFixed(2)}° ${north}, ${Math.abs(longitude).toFixed(2)}° ${east}`, region: '' };
@@ -445,8 +446,11 @@ async function previewFor(bucket, origin, pathname, view) {
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
   const namedPlace = place?.slug && !pathname.startsWith('/@') && !place.slug.startsWith('palestine/');
   const fineClimate = place && period?.kind === 'climate' && await finePlaces(bucket).enabled();
-  const image = !fineClimate && period && (!place || namedPlace)
-    ? await card(`v6/cards/typical-day/${namedPlace ? place.slug + '/' : 'world-'}${period.word}.png`) : null;
+  const configuration = fineClimate ? await finePlaces(bucket).configuration() : null;
+  const image = fineClimate
+    ? `${origin}/preview/fine.png?path=${encodeURIComponent(pathname)}&generation=${configuration.generation}&model=${configuration.eveningModel ?? 'ordered'}&style=1`
+    : period && (!place || namedPlace)
+      ? await card(`v6/cards/typical-day/${namedPlace ? place.slug + '/' : 'world-'}${period.word}.png`) : null;
   return { title, description, image, url: `${origin}${pathname}` };
 }
 
@@ -645,6 +649,20 @@ export async function handleRequest(request, env, serveAsset) {
     return serveData(request, bucket, key);
   }
   if (url.pathname.startsWith('/outlook/')) return outlookPage(request, bucket, url);
+  if (url.pathname === '/preview/fine.png') {
+    const view = await viewFromPath(bucket, url.searchParams.get('path') ?? '');
+    const configuration = await finePlaces(bucket).configuration();
+    if (!configuration || !view?.place || view.period?.kind !== 'climate') return new Response('Preview unavailable', {status: 404});
+    if (url.searchParams.get('generation') !== configuration.generation || url.searchParams.get('model') !== (configuration.eveningModel ?? 'ordered')) {
+      url.searchParams.set('generation', configuration.generation);
+      url.searchParams.set('model', configuration.eveningModel ?? 'ordered');
+      return Response.redirect(url.href, 302);
+    }
+    const judgement = await defaultPeriodJudgement(bucket, view.place.latitude, view.place.longitude, view.period);
+    if (!judgement) return new Response('Weather unavailable', {status: 503});
+    const image = await finePreviewPng(view.place, view.period, judgement);
+    return new Response(image, {headers: {'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400'}});
+  }
   if (url.pathname === '/api/home') {
     // Cloudflare's request metadata, when Sites supplies it. Never trust client headers or cache a home.
     const latitude = Number(request.cf?.latitude);
