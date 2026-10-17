@@ -392,20 +392,6 @@ export async function handleRequest(request, env, serveAsset) {
     if (!ownerPublisher && !forecastPublisher) return new Response('Not found', { status: 404 });
     if (url.pathname === '/__prune' && request.method === 'POST') return prune(bucket);
     const key = url.pathname.slice('/__publish/'.length);
-    if (ownerPublisher && request.method === 'DELETE' && key) {
-      let removed = 0;
-      let bytes = 0;
-      let cursor;
-      do {
-        const page = await bucket.list({ prefix: key, cursor, limit: 1000 });
-        if (page.objects.length) await bucket.delete(page.objects.map((object) => object.key));
-        removed += page.objects.length;
-        bytes += page.objects.reduce((sum, object) => sum + object.size, 0);
-        cursor = page.truncated ? page.cursor : undefined;
-      } while (cursor);
-      memo.clear();
-      return json({ removed, bytes });
-    }
     if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
     if (forecastPublisher && !key.startsWith('v6/forecast/')) return new Response('Not found', { status: 404 });
     const body = request.headers.get('Content-Encoding') === 'gzip'
