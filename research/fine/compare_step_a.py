@@ -543,7 +543,7 @@ def compare_outputs(args,stations,queries):
     if current.meta['chunks']!=step.meta['chunks']:
         raise ValueError('Current and Step A chunk periods differ; a changed-period comparison requires explicit separate baselines')
     live=verify_current_live(current,queries,stations,args.output,args.base_url.rstrip('/')) if not args.skip_live_verification else None
-    directories=[PHASE1/'hourly',args.output/'hourly',args.output/'hourly-sf-proxy',args.output/'hourly-quintero-alias']
+    directories=[args.base_hourly,args.output/'hourly',args.output/'hourly-sf-proxy',args.output/'hourly-quintero-alias']
     records,sources=load_hourly_observations(stations,directories,args.output)
     with np.load(args.adjustments) as arrays:
         adjustments={int(fine):offset for fine,offset in zip(arrays['fine'],arrays['uniform_offset_c'])}
@@ -744,6 +744,7 @@ def main():
     parser.add_argument('--current-root',type=pathlib.Path)
     parser.add_argument('--step-a-root',type=pathlib.Path)
     parser.add_argument('--observations',type=pathlib.Path,default=PHASE1/'stations')
+    parser.add_argument('--base-hourly',type=pathlib.Path,default=PHASE1/'hourly',help='Frozen initial hourly source cache')
     parser.add_argument('--output',type=pathlib.Path,default=PHASE1/'step-a-comparison')
     parser.add_argument('--base-url',default='https://nice.jjpcodes.com')
     parser.add_argument('--prepare-only',action='store_true')
