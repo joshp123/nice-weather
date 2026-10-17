@@ -14,7 +14,7 @@ export const HEADLINE_PLACES: readonly NamedPlace[] = [
   place('Madeira', 32.65, -16.91), place('Marrakech', 31.63, -7.99), place('Agadir', 30.42, -9.6), place('Tunis', 36.8, 10.18),
   place('Cairo', 30.04, 31.24), place('Nice', 43.7, 7.27), place('Rome', 41.9, 12.5), place('Sicily', 38.12, 13.36),
   place('Malta', 35.9, 14.51), place('Dubrovnik', 42.65, 18.09), place('Athens', 37.98, 23.73), place('Crete', 35.51, 24.02),
-  place('Cyprus', 34.68, 33.04), place('Antalya', 36.9, 30.7), place('Istanbul', 41.01, 28.98), place('Tel Aviv', 32.07, 34.78),
+  place('Cyprus', 34.68, 33.04), place('Antalya', 36.9, 30.7), place('Istanbul', 41.01, 28.98),
   place('Dubai', 25.2, 55.27), place('Tehran', 35.69, 51.39), place('Tbilisi', 41.72, 44.83), place('London', 51.51, -0.13),
   place('Dublin', 53.35, -6.26), place('Edinburgh', 55.95, -3.19), place('Paris', 48.86, 2.35), place('Rotterdam', 51.92, 4.48),
   place('Berlin', 52.52, 13.41), place('Oslo', 59.91, 10.75), place('Stockholm', 59.33, 18.07), place('Moscow', 55.76, 37.62),

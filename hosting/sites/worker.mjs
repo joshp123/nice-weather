@@ -61,18 +61,20 @@ function loadPlaces(bucket) {
   placesPromise ??= (async () => {
     const text = await (await bucket.get('places.tsv')).text();
     const places = text.split('\n').map((line) => {
-      const [name, plainName, region, latitude, longitude, population, geonamesPlainName = plainName] = line.split('\t');
-      return { name, key: normalise(plainName), localKey: normalise(geonamesPlainName), slug: slugFor(plainName, region), oldSlug: oldSlugFor(geonamesPlainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
+      const [name, plainName, region, latitude, longitude, population, geonamesPlainName = plainName, searchAliases = '', linkAliases = ''] = line.split('\t');
+      const keys = [...new Set([plainName, geonamesPlainName, ...searchAliases.split('|')].filter(Boolean).map(normalise))];
+      return { name, keys, aliases: linkAliases.split('|').filter(Boolean), slug: slugFor(plainName, region), oldSlug: oldSlugFor(geonamesPlainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
     });
     const bySlug = new Map();
     const byOldSlug = new Map();
     for (const place of [...places].sort((left, right) => right.population - left.population)) {
       if (!bySlug.has(place.slug)) bySlug.set(place.slug, place);
       if (!byOldSlug.has(place.oldSlug)) byOldSlug.set(place.oldSlug, place);
+      for (const alias of place.aliases) if (!byOldSlug.has(alias)) byOldSlug.set(alias, place);
     }
     const byFirstLetters = new Map();
     for (const place of places) {
-      for (const firstLetters of new Set([place.key.slice(0, 2), place.localKey.slice(0, 2)])) {
+      for (const firstLetters of new Set(place.keys.map(key => key.slice(0, 2)))) {
         if (!byFirstLetters.has(firstLetters)) byFirstLetters.set(firstLetters, []);
         byFirstLetters.get(firstLetters).push(place);
       }
@@ -165,22 +167,22 @@ async function search(bucket, query) {
   }
   const wanted = normalise(query.trim()).replace(/\s+/g, ' ');
   if (wanted.length < 2) return [];
-  const exact = (place) => (place.key === wanted || place.localKey === wanted ? 0 : 1);
+  const exact = (place) => (place.keys.includes(wanted) ? 0 : 1);
   const byBiggest = (left, right) => exact(left) - exact(right) || right.population - left.population;
   const areaTowns = (AREA_TOWNS[wanted] ?? []).map((slug) => bySlug.get(slug)).filter(Boolean);
-  let found = places.filter((place) => place.key.startsWith(wanted) || place.localKey.startsWith(wanted));
+  let found = places.filter((place) => place.keys.some(key => key.startsWith(wanted)));
   // "Málaga Spain", "san diego, california": a name, then its region or country.
   if (!found.length && /[ ,]/.test(wanted)) {
     const words = wanted.split(/[ ,]+/).filter(Boolean);
     for (let split = words.length - 1; split >= 1 && !found.length; split--) {
       const name = words.slice(0, split).join(' ');
       const where = words.slice(split).join(' ');
-      found = places.filter((place) => (place.key.startsWith(name) || place.localKey.startsWith(name)) && normalise(place.region).includes(where));
+      found = places.filter((place) => place.keys.some(key => key.startsWith(name)) && normalise(place.region).includes(where));
     }
   }
   // Another spelling of the same name ("Marrakech" for Marrakesh): close names with the same first letters.
   if (found.length < 3 && wanted.length >= 4) {
-    const close = (byFirstLetters.get(wanted.slice(0, 2)) ?? []).filter((place) => !found.includes(place) && (editDistanceAtMost(place.key.slice(0, wanted.length + 1), wanted, 2) || editDistanceAtMost(place.localKey.slice(0, wanted.length + 1), wanted, 2)));
+    const close = (byFirstLetters.get(wanted.slice(0, 2)) ?? []).filter((place) => !found.includes(place) && place.keys.some(key => editDistanceAtMost(key.slice(0, wanted.length + 1), wanted, 2)));
     found = [...found, ...close.sort(byBiggest).slice(0, 5)];
   }
   found.sort(byBiggest);
@@ -278,6 +280,8 @@ async function viewFromPath(bucket, pathname) {
   const { bySlug, byOldSlug } = await loadPlaces(bucket);
   const old = byOldSlug.get(parts[0]);
   if (old && parts.length <= 2 && (!parts[1] || periodFromWord(parts[1]))) return { redirect: `/${old.slug}${parts[1] ? `/${parts[1]}` : ''}` };
+  const nestedAlias = parts.length >= 2 ? byOldSlug.get(`${parts[0]}/${parts[1]}`) : null;
+  if (nestedAlias && (!parts[2] || periodFromWord(parts[2]))) return { redirect: `/${nestedAlias.slug}${parts[2] ? `/${parts[2]}` : ''}` };
   const place = parts.length >= 2 ? bySlug.get(`${parts[0]}/${parts[1]}`) : null;
   if (!place) return null;
   const period = parts[2] ? periodFromWord(parts[2]) : null;
@@ -318,7 +322,7 @@ async function previewFor(bucket, origin, pathname, view) {
     title = `Where is the weather nice in ${period.title}? Nice Weather`;
   }
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
-  let image = place?.slug ? await card(`v6/cards/${place.slug}.png`) : null;  // v6/cards/<country>/<city>.png
+  let image = place?.slug && place.region !== 'Palestine' ? await card(`v6/cards/${place.slug}.png`) : null;  // v6/cards/<country>/<city>.png
   if (!image && period?.kind === 'climate') image = await card(`v6/cards/world-${period.word}.png`);
   image ??= `${origin}/data/v6/cards/world.png`;
   return { title, description, image, url: `${origin}${pathname}` };

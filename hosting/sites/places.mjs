@@ -3,8 +3,10 @@
 // Sources: GeoNames cities with 1,000 or more people, and GeoNames alternate names for each place's English name
 // (CC BY 4.0), downloaded into the given directory.
 // Output: one tab-separated line per place, largest first: name (English where GeoNames has one), plain name (ASCII of
-// that), region, latitude, longitude, population, and GeoNames' own ASCII name (for links made before English names).
+// that), region, latitude, longitude, population, GeoNames' ASCII name, search aliases, link aliases, GeoNames ID, country code.
+// The last four columns are set for curated place names; aliases are separated by pipes.
 import { createReadStream } from 'node:fs';
+import { applyPlaceNames } from './palestine-places.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 
@@ -31,13 +33,13 @@ const places = cities.map((field) => {
   const country = countries.get(field[8]) ?? field[8];
   const region = regions.get(`${field[8]}.${field[10]}`);
   const name = preferredEnglish.get(field[0]) ?? anyEnglish.get(field[0]) ?? field[1];
-  return {
+  return applyPlaceNames({
     name, plainName: plain(name),
     region: region && region !== field[1] ? `${region}, ${country}` : country,
     latitude: Number(field[4]), longitude: Number(field[5]), population: Number(field[14]) || 0,
     geonamesPlainName: field[2],
-  };
-});
+  }, field);
+}).filter(Boolean);
 places.sort((left, right) => right.population - left.population);
-await writeFile(output, places.map((place) => [place.name, place.plainName, place.region, place.latitude, place.longitude, place.population, place.geonamesPlainName].join('\t')).join('\n'));
+await writeFile(output, places.map((place) => [place.name, place.plainName, place.region, place.latitude, place.longitude, place.population, place.geonamesPlainName, place.searchAliases ?? '', place.linkAliases ?? '', place.geonamesId ?? '', place.countryCode ?? ''].join('\t')).join('\n'));
 console.log(`${places.length} places, ${places.filter((place) => plain(place.name) !== place.geonamesPlainName).length} renamed to English -> ${output}`);

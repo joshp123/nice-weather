@@ -50,6 +50,7 @@ function style(theme: Theme): StyleSpecification {
     sources: {
       openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
       'city-scores': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      'palestine-label': { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [34.88, 31.7] } }] } },
       'chosen-place': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     },
     layers: [
@@ -57,6 +58,11 @@ function style(theme: Theme): StyleSpecification {
       { id: 'sea', type: 'fill', source: 'openmaptiles', 'source-layer': 'water', filter: ['!=', ['get', 'brunnel'], 'tunnel'], paint: { 'fill-color': colours.sea } },
       { id: 'state-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', minzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 4], ['!=', ['get', 'maritime'], 1]], paint: { 'line-color': colours.state, 'line-width': 0.6 } },
       { id: 'country-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1], ['!', ['has', 'claimed_by']]], paint: { 'line-color': colours.country, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.6, 6, 1.2] } },
+      {
+        id: 'palestine-label', type: 'symbol', source: 'palestine-label', minzoom: 3, maxzoom: 6,
+        layout: { 'text-field': 'Palestine', 'text-font': ['Noto Sans Regular'], 'text-size': 13 * labelScale(), 'text-letter-spacing': 0.08, 'text-padding': 10 },
+        paint: { 'text-color': colours.text, 'text-halo-color': colours.halo, 'text-halo-width': 1.5, 'text-opacity': 0.75 },
+      },
       cityLayer(colours),
       {
         id: 'chosen-place', type: 'symbol', source: 'chosen-place',
