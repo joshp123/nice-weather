@@ -1,10 +1,10 @@
-Written by AI (GPT-6.1 Sol), 2026-10-16.
+Written by AI (GPT-6.1 Sol), 2026-10-17.
 
 Refresh the daily ECMWF forecast. Leave climate and place names unchanged.
 
 1. Call this Site's `begin_forecast_refresh` MCP tool as its owner. It returns a one-hour credential, the Linux program URL, and the Site URL. Never print the credential or write it into a file, command argument, source, or report.
-2. Download the program with curl, make it executable, and run `niceweather forecast --out ./artifacts --publish <returned Site URL> --token-stdin` on the cloud Linux machine. No packages or build tools are needed. Allow the process to finish; poll running commands rather than imposing a short timeout.
+2. Download the returned program with curl, make it executable, and run `niceweather forecast --out ./artifacts --publish <returned Site URL> --token-stdin` on the cloud Linux machine. No packages or build tools are needed. Allow the process to finish; poll running commands rather than imposing a short timeout. The program reads the v6 static files from https://nice.jjpcodes.com/data/v6/ and selects the latest complete 00 UTC ECMWF run.
 3. To pass the credential privately, launch a small Python wrapper in a TTY: read it with `getpass.getpass()`, then call `subprocess.run([...program arguments...], input=credential.encode(), check=True)`. Enter the tool-returned credential through hidden stdin only. It stays in memory.
-4. Read back `/data/forecast/current.json` and `/api/place?lat=36.72&lon=-4.42`. Check the ECMWF run, 15 days and 12 months. Report the elapsed time, downloaded bytes and uploaded bytes from the program, without credentials. On failure, preserve the live forecast and report the actual error.
+4. Read back `/data/v6/forecast/current.json`: verify the completed run, its first local date, `days: 14`, and `previousRun`. Read `/data/v6/cells.bin` and the pointed-to `/data/v6/forecast/<run>/days.bin`; the day file must have `(cells.bin bytes / 4) × 14 × 15` bytes. Read back `/data/forecast/current.json` and verify the same run and its preserved legacy 15-day manifest. Check `/api/place?lat=36.72&lon=-4.42` returns a place successfully. Report elapsed time, downloaded bytes, uploaded bytes and v6 day-file size, without credentials. On failure, report the actual error; do not manually switch a pointer to incomplete data.
 
-The program embeds its land mask, time zones and GRIB2/CCSDS decoder. It downloads ECMWF IFS data, applies the existing scoring, uploads files, and switches the forecast pointer last. Its libaec license notice is at `/data/runner/LICENSE.libaec`.
+The program embeds its land mask, time zones, clear-sky model and GRIB2/CCSDS decoder. It downloads ECMWF IFS data once, writes the existing forecast plus the v6 14-day records, uploads each forecast's data before its pointer, and then removes runs retained by neither pointer. Its libaec license notice remains at `/data/runner/LICENSE.libaec`.

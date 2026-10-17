@@ -75,19 +75,21 @@ func Decode(message []byte) (Field, error) {
 		field.Name = "10v"
 	case product[9] == 6 && product[10] == 192 && product[22] == 1:
 		field.Name = "tcc"
+	case product[9] == 4 && product[10] == 7 && product[22] == 1:
+		field.Name = "ssrd"
 	case product[9] == 1 && product[10] == 193 && product[22] == 1:
 		field.Name = "tp"
 	default:
 		return field, fmt.Errorf("unsupported IFS parameter category=%d number=%d surface=%d", product[9], product[10], product[22])
 	}
-	if field.Name == "tp" {
+	if field.Name == "tp" || field.Name == "ssrd" {
 		if template != 8 || len(product) != 58 || field.StartStep != 0 || product[41] != 1 || product[46] != 1 || product[47] != 2 || product[48] != 1 {
-			return field, fmt.Errorf("IFS rain is not accumulated from run time")
+			return field, fmt.Errorf("IFS %s is not accumulated from run time", field.Name)
 		}
 		field.EndStep = int(binary.BigEndian.Uint32(product[49:53]))
 		intervalEnd := time.Date(int(binary.BigEndian.Uint16(product[34:36])), time.Month(product[36]), int(product[37]), int(product[38]), int(product[39]), int(product[40]), 0, time.UTC)
 		if !intervalEnd.Equal(field.RunTime.Add(time.Duration(field.EndStep) * time.Hour)) {
-			return field, fmt.Errorf("IFS rain interval end disagrees with step")
+			return field, fmt.Errorf("IFS %s interval end disagrees with step", field.Name)
 		}
 	} else if template != 0 || len(product) != 34 {
 		return field, fmt.Errorf("IFS %s is not instantaneous", field.Name)

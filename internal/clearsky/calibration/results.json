@@ -1,0 +1,642 @@
+{
+  "regions": [
+    [
+      "Malaga",
+      36.75,
+      -4.5,
+      "train"
+    ],
+    [
+      "Rotterdam",
+      52,
+      4.5,
+      "train"
+    ],
+    [
+      "Singapore",
+      1.25,
+      103.75,
+      "train"
+    ],
+    [
+      "Denver",
+      39.75,
+      -105,
+      "train"
+    ],
+    [
+      "CapeTown",
+      -34,
+      18.5,
+      "train"
+    ],
+    [
+      "Marrakech",
+      31.75,
+      -8,
+      "train"
+    ],
+    [
+      "London",
+      51.5,
+      0,
+      "train"
+    ],
+    [
+      "Sydney",
+      -33.75,
+      151.25,
+      "train"
+    ],
+    [
+      "SanDiego",
+      32.75,
+      -117.25,
+      "holdout"
+    ],
+    [
+      "Chania",
+      35.5,
+      24,
+      "holdout"
+    ],
+    [
+      "Bangkok",
+      13.75,
+      100.5,
+      "holdout"
+    ],
+    [
+      "Lima",
+      -12,
+      -77,
+      "holdout"
+    ],
+    [
+      "Tokyo",
+      35.75,
+      139.75,
+      "holdout"
+    ],
+    [
+      "Oslo",
+      60,
+      10.75,
+      "holdout"
+    ],
+    [
+      "Nairobi",
+      -1.25,
+      36.75,
+      "holdout"
+    ],
+    [
+      "Vancouver",
+      49.25,
+      -123,
+      "holdout"
+    ]
+  ],
+  "clearSkyAltitudeM": 0,
+  "ssrdUnits": "hour-mean W/m2 (archive J/m2 divided by 3600)",
+  "fdirReference": "hourly direct horizontal divided by 4-midpoint integrated positive solar cosine",
+  "sourceSnapshot": "TZ2KX6A24CJ5DG17T7MG",
+  "chunk": 82,
+  "start": "2021-09-20T00",
+  "end": "2022-09-18T23",
+  "fit": "Grid search minimizes training point-day sunny-count RMSE, 3-hour intervals; spatially disjoint held-out archive tiles. Nine fine points per tile. IANA local daytime 10\u201321, local calendar-day groups; incomplete boundary days excluded. Clear-sky model uses zero altitude as in deployed forecast.",
+  "mapping": {
+    "floor": 0.05,
+    "power": 2.0999999999999996
+  },
+  "results": [
+    {
+      "name": "Malaga",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.1827364554637282,
+      "countMAEHours": 0.4667891031527395,
+      "countRMSEHours": 0.8023152905984077,
+      "hourClassificationAccuracy": 0.9501478793792115,
+      "dniMAE": 40.68762788111179
+    },
+    {
+      "name": "Malaga",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.17079889807162535,
+      "countMAEHours": 0.5534129170492806,
+      "countRMSEHours": 0.9310479694386191,
+      "hourClassificationAccuracy": 0.9362136780803122,
+      "dniMAE": 52.39448761060389
+    },
+    {
+      "name": "Malaga",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.20875420875420875,
+      "countMAEHours": 0.6060606060606061,
+      "countRMSEHours": 1.0095958332701627,
+      "hourClassificationAccuracy": 0.9259993292069396,
+      "dniMAE": 59.18058070200148
+    },
+    {
+      "name": "Rotterdam",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": 0.08509335782063054,
+      "countMAEHours": 0.5785123966942148,
+      "countRMSEHours": 1.0421188183053682,
+      "hourClassificationAccuracy": 0.9323574280242786,
+      "dniMAE": 46.31589560009746
+    },
+    {
+      "name": "Rotterdam",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": 0.0731558004285277,
+      "countMAEHours": 0.6908478726660545,
+      "countRMSEHours": 1.1606495758912458,
+      "hourClassificationAccuracy": 0.904475964815476,
+      "dniMAE": 63.10685083567845
+    },
+    {
+      "name": "Rotterdam",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": 0.06397306397306397,
+      "countMAEHours": 0.7643097643097643,
+      "countRMSEHours": 1.260037750684351,
+      "hourClassificationAccuracy": 0.8896750949397904,
+      "dniMAE": 73.76311132163659
+    },
+    {
+      "name": "Singapore",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.3164983164983165,
+      "countMAEHours": 0.6140189776553413,
+      "countRMSEHours": 0.9224606106529999,
+      "hourClassificationAccuracy": 0.9281109275277805,
+      "dniMAE": 53.25404195926517
+    },
+    {
+      "name": "Singapore",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.1867156412610958,
+      "countMAEHours": 0.6954392408937864,
+      "countRMSEHours": 1.029113990056568,
+      "hourClassificationAccuracy": 0.9091586483947257,
+      "dniMAE": 66.6444484864025
+    },
+    {
+      "name": "Singapore",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.27762473217018674,
+      "countMAEHours": 0.7643097643097643,
+      "countRMSEHours": 1.100546654383932,
+      "hourClassificationAccuracy": 0.8944179868467943,
+      "dniMAE": 74.04847481664851
+    },
+    {
+      "name": "Denver",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.27823691460055094,
+      "countMAEHours": 0.7398224670951944,
+      "countRMSEHours": 1.024493424507695,
+      "hourClassificationAccuracy": 0.9093207483566492,
+      "dniMAE": 100.89868271173468
+    },
+    {
+      "name": "Denver",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.162534435261708,
+      "countMAEHours": 0.8414447505356596,
+      "countRMSEHours": 1.1415035273840826,
+      "hourClassificationAccuracy": 0.8890948929715152,
+      "dniMAE": 116.88492947561207
+    },
+    {
+      "name": "Denver",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.07131925313743495,
+      "countMAEHours": 0.9467401285583104,
+      "countRMSEHours": 1.2778875666492076,
+      "hourClassificationAccuracy": 0.8755435698634755,
+      "dniMAE": 128.17396904825478
+    },
+    {
+      "name": "CapeTown",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.4487297214569942,
+      "countMAEHours": 0.6617692072237527,
+      "countRMSEHours": 0.9671684204917838,
+      "hourClassificationAccuracy": 0.9241995281429053,
+      "dniMAE": 69.50770461104217
+    },
+    {
+      "name": "CapeTown",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.4175084175084175,
+      "countMAEHours": 0.7138047138047138,
+      "countRMSEHours": 1.0317874036851915,
+      "hourClassificationAccuracy": 0.913582743511965,
+      "dniMAE": 83.11533628899153
+    },
+    {
+      "name": "CapeTown",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.4297520661157025,
+      "countMAEHours": 0.7713498622589532,
+      "countRMSEHours": 1.0928714113017364,
+      "hourClassificationAccuracy": 0.9044489383215369,
+      "dniMAE": 91.41150791583574
+    },
+    {
+      "name": "Marrakech",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3258,
+      "countBiasHours": -0.4536525475751995,
+      "countMAEHours": 0.6758747697974218,
+      "countRMSEHours": 0.9052740903379488,
+      "hourClassificationAccuracy": 0.9276266766020864,
+      "dniMAE": 87.95649023992037
+    },
+    {
+      "name": "Marrakech",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3258,
+      "countBiasHours": -0.39993861264579494,
+      "countMAEHours": 0.7400245549416821,
+      "countRMSEHours": 0.9520421654723721,
+      "hourClassificationAccuracy": 0.9152384500745157,
+      "dniMAE": 98.14657824404259
+    },
+    {
+      "name": "Marrakech",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3258,
+      "countBiasHours": -0.2937384898710866,
+      "countMAEHours": 0.82719459791283,
+      "countRMSEHours": 1.0701313436653022,
+      "hourClassificationAccuracy": 0.904806259314456,
+      "dniMAE": 104.58360372658528
+    },
+    {
+      "name": "London",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3258,
+      "countBiasHours": -0.06292203806015961,
+      "countMAEHours": 0.6240024554941682,
+      "countRMSEHours": 1.019906229515389,
+      "hourClassificationAccuracy": 0.9173854771641637,
+      "dniMAE": 62.86234662917106
+    },
+    {
+      "name": "London",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3258,
+      "countBiasHours": -0.042971147943523635,
+      "countMAEHours": 0.7648864333947207,
+      "countRMSEHours": 1.1639668841101516,
+      "hourClassificationAccuracy": 0.8802020687996152,
+      "dniMAE": 83.17065940570706
+    },
+    {
+      "name": "London",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3258,
+      "countBiasHours": -0.060466543891958255,
+      "countMAEHours": 0.8984039287906691,
+      "countRMSEHours": 1.3378147524406208,
+      "hourClassificationAccuracy": 0.8584487439430908,
+      "dniMAE": 94.13918516929363
+    },
+    {
+      "name": "Sydney",
+      "split": "train",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.4199571472298745,
+      "countMAEHours": 0.6519742883379247,
+      "countRMSEHours": 1.1065102171821537,
+      "hourClassificationAccuracy": 0.921033158321294,
+      "dniMAE": 46.37647879589008
+    },
+    {
+      "name": "Sydney",
+      "split": "train",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.3526170798898072,
+      "countMAEHours": 0.7211509029690848,
+      "countRMSEHours": 1.192261549873091,
+      "hourClassificationAccuracy": 0.9030621234011065,
+      "dniMAE": 64.32842758317288
+    },
+    {
+      "name": "Sydney",
+      "split": "train",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.3143556779920416,
+      "countMAEHours": 0.8292011019283747,
+      "countRMSEHours": 1.3918517524821616,
+      "hourClassificationAccuracy": 0.8883681595546002,
+      "dniMAE": 75.76581483002602
+    },
+    {
+      "name": "SanDiego",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.529537802265075,
+      "countMAEHours": 0.6746250382614019,
+      "countRMSEHours": 0.8845163345046317,
+      "hourClassificationAccuracy": 0.921489036913683,
+      "dniMAE": 81.53666980820003
+    },
+    {
+      "name": "SanDiego",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.5224977043158862,
+      "countMAEHours": 0.7079889807162535,
+      "countRMSEHours": 0.9338382472644136,
+      "hourClassificationAccuracy": 0.9152095475992229,
+      "dniMAE": 89.44522263509947
+    },
+    {
+      "name": "SanDiego",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.5200489745944291,
+      "countMAEHours": 0.7337006427915519,
+      "countRMSEHours": 0.9987748846855046,
+      "hourClassificationAccuracy": 0.9118096031085207,
+      "dniMAE": 95.33920743168669
+    },
+    {
+      "name": "Chania",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.33608815426997246,
+      "countMAEHours": 0.5809611264156719,
+      "countRMSEHours": 0.8841702118795596,
+      "hourClassificationAccuracy": 0.9359153329221179,
+      "dniMAE": 60.46221754702399
+    },
+    {
+      "name": "Chania",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.3207835935108662,
+      "countMAEHours": 0.632996632996633,
+      "countRMSEHours": 0.9408590725006075,
+      "hourClassificationAccuracy": 0.9257215206311074,
+      "dniMAE": 70.06466816974262
+    },
+    {
+      "name": "Chania",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.30456075910621366,
+      "countMAEHours": 0.660238751147842,
+      "countRMSEHours": 0.9777130790849502,
+      "hourClassificationAccuracy": 0.9212089731519657,
+      "dniMAE": 74.53066111427465
+    },
+    {
+      "name": "Bangkok",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.463116008570554,
+      "countMAEHours": 0.5733088460361188,
+      "countRMSEHours": 0.9035182736894287,
+      "hourClassificationAccuracy": 0.9315998733330988,
+      "dniMAE": 51.809401266412166
+    },
+    {
+      "name": "Bangkok",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.3529231711049893,
+      "countMAEHours": 0.6363636363636364,
+      "countRMSEHours": 0.9484735533583755,
+      "hourClassificationAccuracy": 0.9178776256993069,
+      "dniMAE": 66.88271531946693
+    },
+    {
+      "name": "Bangkok",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.3948576675849403,
+      "countMAEHours": 0.7315580042852771,
+      "countRMSEHours": 1.0471001541315754,
+      "hourClassificationAccuracy": 0.9034164878083107,
+      "dniMAE": 73.67930368335391
+    },
+    {
+      "name": "Lima",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.2978267523722069,
+      "countMAEHours": 0.6033057851239669,
+      "countRMSEHours": 0.8282212344676636,
+      "hourClassificationAccuracy": 0.9259650400582665,
+      "dniMAE": 53.25062997079971
+    },
+    {
+      "name": "Lima",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.21150902969084787,
+      "countMAEHours": 0.701867156412611,
+      "countRMSEHours": 0.9222946855485633,
+      "hourClassificationAccuracy": 0.9132192279679534,
+      "dniMAE": 69.02528078025802
+    },
+    {
+      "name": "Lima",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.16192225283134373,
+      "countMAEHours": 0.8034894398530762,
+      "countRMSEHours": 1.0112619591003496,
+      "hourClassificationAccuracy": 0.9004734158776402,
+      "dniMAE": 75.53260788097364
+    },
+    {
+      "name": "Tokyo",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.08386899295990205,
+      "countMAEHours": 0.43464952555861647,
+      "countRMSEHours": 0.87196936787504,
+      "hourClassificationAccuracy": 0.9441052671495203,
+      "dniMAE": 47.97021364958757
+    },
+    {
+      "name": "Tokyo",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.11447811447811448,
+      "countMAEHours": 0.5558616467707377,
+      "countRMSEHours": 1.0362277659177503,
+      "hourClassificationAccuracy": 0.9198361836866255,
+      "dniMAE": 61.94209507343367
+    },
+    {
+      "name": "Tokyo",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.10254055708601163,
+      "countMAEHours": 0.6516681971227426,
+      "countRMSEHours": 1.2180410994657596,
+      "hourClassificationAccuracy": 0.907208676197338,
+      "dniMAE": 71.68909809608226
+    },
+    {
+      "name": "Oslo",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": 0.1968166513621059,
+      "countMAEHours": 0.8212427303336394,
+      "countRMSEHours": 1.3267745017569477,
+      "hourClassificationAccuracy": 0.8940442974751128,
+      "dniMAE": 72.34974468116349
+    },
+    {
+      "name": "Oslo",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": 0.21548821548821548,
+      "countMAEHours": 0.9292929292929293,
+      "countRMSEHours": 1.4471613919242368,
+      "hourClassificationAccuracy": 0.8640074403224139,
+      "dniMAE": 89.03490369060368
+    },
+    {
+      "name": "Oslo",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": 0.19100091827364554,
+      "countMAEHours": 1.044383226201408,
+      "countRMSEHours": 1.5871769595570882,
+      "hourClassificationAccuracy": 0.8449932830422652,
+      "dniMAE": 99.58027363812332
+    },
+    {
+      "name": "Nairobi",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.4566880930517294,
+      "countMAEHours": 0.6164677073767982,
+      "countRMSEHours": 0.9589045887923894,
+      "hourClassificationAccuracy": 0.9270451770451771,
+      "dniMAE": 62.697321046188705
+    },
+    {
+      "name": "Nairobi",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.4527089072543618,
+      "countMAEHours": 0.7441077441077442,
+      "countRMSEHours": 1.0777829844714388,
+      "hourClassificationAccuracy": 0.8977750644417312,
+      "dniMAE": 85.45615192346854
+    },
+    {
+      "name": "Nairobi",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.3875114784205693,
+      "countMAEHours": 0.8288950107131925,
+      "countRMSEHours": 1.2174126925212525,
+      "hourClassificationAccuracy": 0.8862094695428029,
+      "dniMAE": 98.5894680082035
+    },
+    {
+      "name": "Vancouver",
+      "split": "holdout",
+      "intervalHours": 1,
+      "days": 3267,
+      "countBiasHours": -0.18059381695745333,
+      "countMAEHours": 0.6636057545148454,
+      "countRMSEHours": 1.0705164686457995,
+      "hourClassificationAccuracy": 0.9206888511375371,
+      "dniMAE": 61.338401309895005
+    },
+    {
+      "name": "Vancouver",
+      "split": "holdout",
+      "intervalHours": 3,
+      "days": 3267,
+      "countBiasHours": -0.1867156412610958,
+      "countMAEHours": 0.7658402203856749,
+      "countRMSEHours": 1.2161549045084776,
+      "hourClassificationAccuracy": 0.8980380400386396,
+      "dniMAE": 73.77176243833605
+    },
+    {
+      "name": "Vancouver",
+      "split": "holdout",
+      "intervalHours": 6,
+      "days": 3267,
+      "countBiasHours": -0.17600244872972146,
+      "countMAEHours": 0.8353229262320171,
+      "countRMSEHours": 1.3672231168018016,
+      "hourClassificationAccuracy": 0.8890110256154026,
+      "dniMAE": 82.91468053781381
+    }
+  ]
+}

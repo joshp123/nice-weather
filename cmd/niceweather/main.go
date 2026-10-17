@@ -56,6 +56,7 @@ func main() {
 func runForecast(arguments []string) error {
 	flags := flag.NewFlagSet("forecast", flag.ContinueOnError)
 	out := flags.String("out", "./artifacts", "artifact directory")
+	v6Static := flags.String("v6-static", "https://nice.jjpcodes.com/data/v6", "v6 static directory or URL; empty disables v6")
 	site := flags.String("publish", "", "publish the completed forecast to this Site URL")
 	tokenStdin := flags.Bool("token-stdin", false, "read the publish token from standard input instead of NICE_WEATHER_PUBLISH_TOKEN")
 	if err := flags.Parse(arguments); err != nil {
@@ -67,7 +68,7 @@ func runForecast(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := dailyforecast.Build(ctx, *out, os.Stdout)
+	report, err := dailyforecast.BuildWithV6(ctx, *out, *v6Static, os.Stdout)
 	if err != nil {
 		return err
 	}

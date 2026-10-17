@@ -1,0 +1,30 @@
+{
+  "samples": 7776,
+  "units": "W/m2",
+  "columns": [
+    "clearGHI",
+    "clearDNI",
+    "estimatedDNI at 0.7 clearness"
+  ],
+  "maxAbsoluteError": [
+    0.4575208334431409,
+    0.5382215287363579,
+    0.2425825423489414
+  ],
+  "meanAbsoluteError": [
+    0.006644941958956168,
+    0.010859037462475336,
+    0.004894291243393248
+  ],
+  "nonMidnightMaxAbsoluteError": [
+    0.00010510653260098479,
+    0.0001798999549578184,
+    8.108294835551533e-05
+  ],
+  "midnightMaxAbsoluteError": [
+    0.4575208334431409,
+    0.5382215287363579,
+    0.2425825423489414
+  ],
+  "note": "Go correctly dates extraterrestrial irradiance to previous UTC day at midnight; original Python calibration uses hour-ending day for that factor. NOAA angle remains continuous. Differences are retained rather than hidden."
+}

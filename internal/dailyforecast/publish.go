@@ -26,6 +26,7 @@ type PublicationReport struct {
 // Publish uploads a completed forecast, switches the current pointer last, then prunes old runs.
 // The token can be the Site's expiring upload grant or its publisher secret.
 func Publish(ctx context.Context, directory, site, token string) (PublicationReport, error) {
+	directory = filepath.Clean(directory)
 	started := time.Now()
 	report := PublicationReport{}
 	base, err := url.Parse(site)
@@ -146,6 +147,54 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 	report.Files, report.Bytes = files.Load(), uploadedBytes.Load()
 	if firstError != nil {
 		return report, firstError
+	}
+
+	v6Directory := filepath.Join(filepath.Dir(filepath.Dir(directory)), "v6", "forecast", report.RunID)
+	v6DaysPath := filepath.Join(v6Directory, "days.bin")
+	if body, readErr := os.ReadFile(v6DaysPath); readErr == nil {
+		var pointer v6Pointer
+		localPointer, readErr := os.ReadFile(filepath.Join(filepath.Dir(v6Directory), "current.json"))
+		if readErr != nil {
+			return report, readErr
+		}
+		if readErr = json.Unmarshal(localPointer, &pointer); readErr != nil {
+			return report, readErr
+		}
+		if pointer.Run != report.RunID || pointer.Days != v6Days || len(body) == 0 || len(body)%(v6Days*15) != 0 {
+			return report, fmt.Errorf("invalid v6 forecast publication")
+		}
+		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint("/data/v6/forecast/current.json"), nil)
+		response, readErr := client.Do(request)
+		if readErr != nil {
+			return report, readErr
+		}
+		var previous v6Pointer
+		if response.StatusCode == http.StatusOK {
+			readErr = json.NewDecoder(response.Body).Decode(&previous)
+		} else if response.StatusCode != http.StatusNotFound {
+			readErr = fmt.Errorf("read v6 forecast: HTTP %d", response.StatusCode)
+		}
+		response.Body.Close()
+		if readErr != nil {
+			return report, readErr
+		}
+		pointer.PreviousRun = previous.Run
+		if previous.Run == pointer.Run {
+			pointer.PreviousRun = previous.PreviousRun
+		}
+		if err = upload(ctx, "v6/forecast/"+report.RunID+"/days.bin", body); err != nil {
+			return report, err
+		}
+		report.Files++
+		report.Bytes += int64(len(body))
+		encoded, _ := json.Marshal(pointer)
+		if err = upload(ctx, "v6/forecast/current.json", encoded); err != nil {
+			return report, err
+		}
+		report.Files++
+		report.Bytes += int64(len(encoded))
+	} else if !os.IsNotExist(readErr) {
+		return report, readErr
 	}
 	pointerManifest := struct {
 		Manifest

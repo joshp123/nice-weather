@@ -3,6 +3,7 @@ package dailyforecast
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,7 +30,7 @@ const (
 )
 
 var Layers = []string{"nice", "cycling", "comfort", "dry", "clear", "calm-nice", "calm-cycling"}
-var fields = []string{"2t", "2d", "tcc", "10u", "10v", "tp"}
+var fields = []string{"2t", "2d", "tcc", "10u", "10v", "tp", "ssrd"}
 
 // PointRecord is little-endian: temperature i16 at 0, dew point i16 at 2,
 // rain u16 at 4 (all tenths); wet%, cloud%, wind km/h, gust km/h at 6..9;
@@ -107,13 +108,29 @@ func (transport *forecastTransport) Do(request *http.Request) (*http.Response, e
 // Build writes a fresh forecast/<run-id> directory. A failed run is not published:
 // manifest.json is written only after every image and point file is complete.
 func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, error) {
+	return BuildWithV6(ctx, outputDirectory, "", log)
+}
+
+func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log io.Writer) (Report, error) {
 	started := time.Now()
 	if log == nil {
 		log = io.Discard
 	}
-	transport := &forecastTransport{client: &http.Client{Timeout: 2 * time.Minute}}
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.TLSClientConfig = &tls.Config{NextProtos: []string{"http/1.1"}}
+	httpTransport.Protocols = new(http.Protocols)
+	httpTransport.Protocols.SetHTTP1(true)
+	transport := &forecastTransport{client: &http.Client{Transport: httpTransport, Timeout: 2 * time.Minute}}
 	client := ifs.NewClient(transport)
-	run, err := latestRun(ctx, client)
+	var v6 *v6Forecast
+	var err error
+	if staticSource != "" {
+		v6, err = loadV6Static(ctx, staticSource)
+		if err != nil {
+			return Report{}, err
+		}
+	}
+	run, err := latestRunForCycle(ctx, client, v6 != nil)
 	if err != nil {
 		return Report{}, err
 	}
@@ -177,6 +194,9 @@ func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, 
 			if stepIndex > 0 {
 				accumulateInterval(dates, groups, land, accumulators, frames, priorRain, &adjustments, previousEnd, end)
 			}
+			if v6 != nil {
+				v6.addFrame(end, frames)
+			}
 			priorRain = frames[5]
 			previousEnd = end
 			if stepIndex%10 == 0 || stepIndex == len(steps)-1 {
@@ -217,6 +237,11 @@ func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, 
 			return report, err
 		}
 	}
+	if v6 != nil {
+		if err = v6.write(ctx, outputDirectory, run.Time, report.RunID, log); err != nil {
+			return report, err
+		}
+	}
 	encoded, _ := json.MarshalIndent(manifest, "", "  ")
 	if err = os.WriteFile(filepath.Join(report.Directory, "manifest.json"), append(encoded, '\n'), 0644); err != nil {
 		return report, err
@@ -236,14 +261,31 @@ func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, 
 		report.OutputBytes += info.Size()
 		return nil
 	})
+	if v6 != nil {
+		for _, path := range []string{filepath.Join(outputDirectory, "v6", "forecast", report.RunID, "days.bin"), filepath.Join(outputDirectory, "v6", "forecast", report.RunID, "comparison.json"), filepath.Join(outputDirectory, "v6", "forecast", "current.json")} {
+			info, statErr := os.Stat(path)
+			if statErr != nil {
+				return report, statErr
+			}
+			report.OutputFiles++
+			report.OutputBytes += info.Size()
+		}
+	}
 	report.DownloadedBytes = transport.bytes.Load()
 	report.Elapsed = time.Since(started)
 	return report, err
 }
 
 func latestRun(ctx context.Context, client *ifs.Client) (ifs.Run, error) {
+	return latestRunForCycle(ctx, client, false)
+}
+
+func latestRunForCycle(ctx context.Context, client *ifs.Client, midnightOnly bool) (ifs.Run, error) {
 	now := time.Now().UTC()
 	candidate := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()/12*12, 0, 0, 0, time.UTC)
+	if midnightOnly {
+		candidate = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	}
 	for attempt := 0; attempt < 8; attempt++ {
 		run := ifs.Run{Time: candidate}
 		messages, err := client.FetchIndex(ctx, run, 360)
@@ -272,9 +314,13 @@ func latestRun(ctx context.Context, client *ifs.Client) (ifs.Run, error) {
 				return ifs.Run{}, err
 			}
 		}
-		candidate = candidate.Add(-12 * time.Hour)
+		if midnightOnly {
+			candidate = candidate.Add(-24 * time.Hour)
+		} else {
+			candidate = candidate.Add(-12 * time.Hour)
+		}
 	}
-	return ifs.Run{}, errors.New("no complete IFS run found in the last four days")
+	return ifs.Run{}, errors.New("no complete IFS run found in the lookback window")
 }
 
 type timezoneGroup struct {
