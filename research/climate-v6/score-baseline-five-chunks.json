@@ -1,0 +1,867 @@
+{
+  "writtenBy": "AI on 2026.10.17 by model GPT-6.1 Sol",
+  "capturedAt": "2026-10-17T17:55:20.688151+00:00",
+  "meaning": "Default-taste place scores out of 100: nearest fine land point; monthly own felt offset; cell and felt-level interpolation; eight sampled real days. No map spline. publishedScore is rounded to the nearest integer.",
+  "metadata": {
+    "years": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "chunks": [
+      76,
+      78,
+      80,
+      82,
+      84
+    ],
+    "buildTime": "2026-10-17T13:42:48.141673+00:00",
+    "source": "ERA5 hourly Earthmover icechunk; fdir normalized to DNI using integrated solar cosine",
+    "N": 18667,
+    "P": 250011,
+    "daysPerMonthMinimum": [
+      155,
+      143,
+      155,
+      150,
+      155,
+      150,
+      155,
+      155,
+      122,
+      155,
+      150,
+      155
+    ],
+    "daysPerMonthMaximum": [
+      155,
+      143,
+      155,
+      150,
+      155,
+      150,
+      155,
+      155,
+      122,
+      155,
+      150,
+      155
+    ],
+    "assemblySeconds": 73.31301104114391,
+    "buildId": "20261017T134134-jpdx8r61",
+    "compactProof": [
+      {
+        "month": 1,
+        "mean_error": 0.2916025323274565,
+        "p95_error": 1.5146572843833495,
+        "p99_error": 2.8689971230076705,
+        "max_error": 6.153266135415372,
+        "above_3": 148,
+        "sample_max_error": 6.645911275678586
+      },
+      {
+        "month": 2,
+        "mean_error": 0.294288893953086,
+        "p95_error": 1.3874934685975076,
+        "p99_error": 2.3913600364994725,
+        "max_error": 6.387905363121924,
+        "above_3": 76,
+        "sample_max_error": 6.087366725782914
+      },
+      {
+        "month": 3,
+        "mean_error": 0.3080660269887725,
+        "p95_error": 1.337419175758862,
+        "p99_error": 2.449843117552046,
+        "max_error": 7.732940737424109,
+        "above_3": 95,
+        "sample_max_error": 7.757262923353203
+      },
+      {
+        "month": 4,
+        "mean_error": 0.36162764087576693,
+        "p95_error": 1.4254435486910972,
+        "p99_error": 2.730864784702781,
+        "max_error": 5.33088517324078,
+        "above_3": 138,
+        "sample_max_error": 5.374756691830182
+      },
+      {
+        "month": 5,
+        "mean_error": 0.3849835669603215,
+        "p95_error": 1.4517324147807884,
+        "p99_error": 2.4319283323178844,
+        "max_error": 4.200770309780005,
+        "above_3": 53,
+        "sample_max_error": 4.525766924950691
+      },
+      {
+        "month": 6,
+        "mean_error": 0.3768302742755515,
+        "p95_error": 1.6161145585252426,
+        "p99_error": 2.5377967595595137,
+        "max_error": 5.820188820067145,
+        "above_3": 44,
+        "sample_max_error": 5.808656971045082
+      },
+      {
+        "month": 7,
+        "mean_error": 0.36143681300730773,
+        "p95_error": 1.5332563537672605,
+        "p99_error": 2.444516564213285,
+        "max_error": 3.812497403134035,
+        "above_3": 20,
+        "sample_max_error": 4.432115799884478
+      },
+      {
+        "month": 8,
+        "mean_error": 0.4088834597347421,
+        "p95_error": 1.613816956514945,
+        "p99_error": 2.6788557082315507,
+        "max_error": 4.310637647311982,
+        "above_3": 90,
+        "sample_max_error": 4.628195337969842
+      },
+      {
+        "month": 9,
+        "mean_error": 0.43535642490124715,
+        "p95_error": 1.6691806811017924,
+        "p99_error": 2.637926660934114,
+        "max_error": 4.637728178784819,
+        "above_3": 86,
+        "sample_max_error": 4.815034851251006
+      },
+      {
+        "month": 10,
+        "mean_error": 0.38586938351312233,
+        "p95_error": 1.5342497817040128,
+        "p99_error": 2.5064577606734395,
+        "max_error": 5.322834790496998,
+        "above_3": 87,
+        "sample_max_error": 5.493841226217135
+      },
+      {
+        "month": 11,
+        "mean_error": 0.2761455708119941,
+        "p95_error": 1.2866348670027683,
+        "p99_error": 2.3419066841896625,
+        "max_error": 6.933764153393859,
+        "above_3": 67,
+        "sample_max_error": 7.08312349000294
+      },
+      {
+        "month": 12,
+        "mean_error": 0.2855892064278792,
+        "p95_error": 1.4740020978181918,
+        "p99_error": 2.5597054833893367,
+        "max_error": 7.1845620930048995,
+        "above_3": 88,
+        "sample_max_error": 7.26955547442563
+      }
+    ],
+    "incompleteChunks": [
+      {
+        "chunk": 74,
+        "tiles": 9,
+        "required": 2509
+      },
+      {
+        "chunk": 76,
+        "tiles": 2509,
+        "required": 2509
+      },
+      {
+        "chunk": 78,
+        "tiles": 2509,
+        "required": 2509
+      },
+      {
+        "chunk": 80,
+        "tiles": 2509,
+        "required": 2509
+      },
+      {
+        "chunk": 82,
+        "tiles": 2509,
+        "required": 2509
+      },
+      {
+        "chunk": 84,
+        "tiles": 2509,
+        "required": 2509
+      }
+    ]
+  },
+  "inputSha256": {
+    "cells.bin": "7170e9b9d21fd709c543242ca89c390a3303f5dcbbbf10d5b448e2ca3bb64262",
+    "climate/meta.json": "137832630fc4bd8eb08548928e57183bba0de8327fe5f5da1256c5a0d5bc6cc1",
+    "climate/scores.bin": "20c7f4d40476382486a508155fe322b5994395530ef621b1a526579faaaf228e",
+    "climate/month-01.bin": "99b9b2e252dd7f9205e5caa9a7b2a5cd914c79758d841a92183db3094eb0bad7",
+    "climate/offsets-01.png": "60b306f142ea2bb47385f8e6d74b251dfe994c8b9b3485712bd492a431805647",
+    "climate/scores-january.png": "6a8bfb709383c95462d21353d3aa671e9b4c9e228e7137c858286aa8ff97a2ea",
+    "climate/month-02.bin": "63df24db85858a361d24b36b113c83786bf5500362ff5f1529de88ad0aa75e92",
+    "climate/offsets-02.png": "0f6cb55e500957244f69d6bc2e2d4992bc4c7884c245a447b41ae729af3c04d3",
+    "climate/scores-february.png": "74549755a5220a0c59bf66ddfa6a0fe18468d91d324be573ddb31cf1b4e7c30e",
+    "climate/month-03.bin": "4773a2d5cf883f2b58e23be8e091613aadfb99ff82026aa33454beb01c2fd744",
+    "climate/offsets-03.png": "8aa65f5b04595db56b01333b154d43b99d7f33885d1a1af02b2b59ac8c107a9b",
+    "climate/scores-march.png": "fef28849687a65387234911b2e082be82849b0177b533a8e172191ba195510d6",
+    "climate/month-04.bin": "4ea28a102f9edd4318ea1fd0ed61ce0db95adfbc7dc054b39f539e2cb8e7927a",
+    "climate/offsets-04.png": "ee9c2a730118e2606077f4d612ffb11e3e8007769fbe13bc575da96b1be7dc3f",
+    "climate/scores-april.png": "6d8bf6f9d45551e50a840c5daa16638f53d60af8665345aaf0d3118498e97903",
+    "climate/month-05.bin": "800d9b4afdeb9c3ae38f3d7a9afc8d8df34fa87ec514f41c359318e4883fa1f5",
+    "climate/offsets-05.png": "aed0147ef8a803f7fda14d5354c8d3356f5f67a903de0247c8235d52f4c81c6b",
+    "climate/scores-may.png": "97d812686cb4396b977eb2fdb4eae46d1f21a23a403009d71422802a66f30ac7",
+    "climate/month-06.bin": "fd95180a100769cd8aea64cb661a32354b6c6d1529ca7e81d99b00908de1c5f7",
+    "climate/offsets-06.png": "db9ec8c24504674a8126cabaf69329cdab9e603b44d2eaeb4481882efd60e379",
+    "climate/scores-june.png": "45cca1da6d8dad23f7e495d401f40ee59b61a0a63ca2d1abe285ee68b665fe4c",
+    "climate/month-07.bin": "6a05276c620d3c4dd1985ae511a0590a721a28f0a50ca35eb3a593adb331f167",
+    "climate/offsets-07.png": "214da824e17136feadab0a65235775ac815615288955d5f5650a45d69f8f71fa",
+    "climate/scores-july.png": "40b8695a14b9c172ff27b2a843a73f1377d75ebe550607a8a5de708bcc6dc701",
+    "climate/month-08.bin": "6750412cf204a7e299f6506e1f8b4ea4a1c82ae9533e46aae996098c458070ab",
+    "climate/offsets-08.png": "6804452147d90f2fa96c681babbbdf5a76cea774a6b262e28e4f2594b221561e",
+    "climate/scores-august.png": "9a900be10fffab9b57a87fd9acb3a6d664ca42520c60a2fea7ea67320bd997ad",
+    "climate/month-09.bin": "fe7a5e32d040702f5d6531108a8771e8701e3ce7a286795a780bcad94f2d5c25",
+    "climate/offsets-09.png": "5058261c4202701c56e7ba9a5e2dc9f0a115de85889e15ffa48e73e68855ccac",
+    "climate/scores-september.png": "4c1c6808852ec8665d5a36d091c2d2f0db4f61c14e75e874b42b34c5ae32bba1",
+    "climate/month-10.bin": "83f866c334ae941103bf2dd66502607253de30f09d1a152a782b921442edab70",
+    "climate/offsets-10.png": "eff5f5b036c5279bab38a4c1f0572911190e48b9e0896a2814af24b22b0e935f",
+    "climate/scores-october.png": "9328016f40091aa6734f4202006fefe6cc125dfd01ed93f02371c533d695af2c",
+    "climate/month-11.bin": "656693908c7a913101211b32118b374bd81dd231cdd35b9780b92fcef0c8682a",
+    "climate/offsets-11.png": "727e929a59456d85e64a07b4be36cb8b06f0ebc6ae2ac353a6a0d560fba27e73",
+    "climate/scores-november.png": "da0ee0ff60acc19dc142a1ce6448c1547f1de2c0bcce44cadb99e87d18fa732b",
+    "climate/month-12.bin": "0c58e2fa718ec22bd9054314e7b96600acc79bc9f32be9c39ffe845c92ce1535",
+    "climate/offsets-12.png": "29f3bb8c25a64d58f96de14e6a215a9ab422f25db9f83d490a50b8f0ac204838",
+    "climate/scores-december.png": "64e880ba969f573c01cebb1e38fdff6b0f336bf39927abe9b69d0062ddc19c5b"
+  },
+  "scoringSourceSha256": {
+    "src/engine/default_scores.py": "c20102bdb7cf3498ec343686c4867544c8f31cac6188e4efa6d518502bc1e168",
+    "research/taste/nice_v6.py": "dbb7a825c051ce3b51c9253a00b3c85a395570f0d96c32de654991e25637ce08"
+  },
+  "places": [
+    {
+      "name": "Lisbon",
+      "latitude": 38.722,
+      "longitude": -9.139,
+      "months": [
+        {
+          "month": 1,
+          "score": 25.114767,
+          "publishedScore": 25,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": 0.0
+        },
+        {
+          "month": 2,
+          "score": 32.383958,
+          "publishedScore": 32,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 3,
+          "score": 25.191533,
+          "publishedScore": 25,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 4,
+          "score": 39.086299,
+          "publishedScore": 39,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 5,
+          "score": 62.443662,
+          "publishedScore": 62,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.2
+        },
+        {
+          "month": 6,
+          "score": 77.378107,
+          "publishedScore": 77,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.2
+        },
+        {
+          "month": 7,
+          "score": 89.182032,
+          "publishedScore": 89,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.3
+        },
+        {
+          "month": 8,
+          "score": 88.072993,
+          "publishedScore": 88,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.2
+        },
+        {
+          "month": 9,
+          "score": 87.526522,
+          "publishedScore": 88,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 10,
+          "score": 71.584925,
+          "publishedScore": 72,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 11,
+          "score": 46.234044,
+          "publishedScore": 46,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": 0.0
+        },
+        {
+          "month": 12,
+          "score": 29.656057,
+          "publishedScore": 30,
+          "fineLatitude": 38.75,
+          "fineLongitude": -9.25,
+          "feltOffsetC": 0.0
+        }
+      ]
+    },
+    {
+      "name": "Málaga",
+      "latitude": 36.721,
+      "longitude": -4.421,
+      "months": [
+        {
+          "month": 1,
+          "score": 43.15411,
+          "publishedScore": 43,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 1.2
+        },
+        {
+          "month": 2,
+          "score": 54.399752,
+          "publishedScore": 54,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 1.1
+        },
+        {
+          "month": 3,
+          "score": 46.427808,
+          "publishedScore": 46,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 1.2
+        },
+        {
+          "month": 4,
+          "score": 68.865095,
+          "publishedScore": 69,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 0.8
+        },
+        {
+          "month": 5,
+          "score": 85.303632,
+          "publishedScore": 85,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 0.4
+        },
+        {
+          "month": 6,
+          "score": 89.694963,
+          "publishedScore": 90,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 0.1
+        },
+        {
+          "month": 7,
+          "score": 70.022992,
+          "publishedScore": 70,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": -0.4
+        },
+        {
+          "month": 8,
+          "score": 65.575395,
+          "publishedScore": 66,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 0.1
+        },
+        {
+          "month": 9,
+          "score": 81.40204,
+          "publishedScore": 81,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 0.5
+        },
+        {
+          "month": 10,
+          "score": 86.062321,
+          "publishedScore": 86,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 0.8
+        },
+        {
+          "month": 11,
+          "score": 63.881389,
+          "publishedScore": 64,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 1.4
+        },
+        {
+          "month": 12,
+          "score": 48.675295,
+          "publishedScore": 49,
+          "fineLatitude": 36.75,
+          "fineLongitude": -4.5,
+          "feltOffsetC": 1.4
+        }
+      ]
+    },
+    {
+      "name": "Rotterdam",
+      "latitude": 51.923,
+      "longitude": 4.479,
+      "months": [
+        {
+          "month": 1,
+          "score": 0.063348,
+          "publishedScore": 0,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 2,
+          "score": 0.118408,
+          "publishedScore": 0,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.3
+        },
+        {
+          "month": 3,
+          "score": 1.941678,
+          "publishedScore": 2,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.4
+        },
+        {
+          "month": 4,
+          "score": 15.302944,
+          "publishedScore": 15,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.6
+        },
+        {
+          "month": 5,
+          "score": 40.037358,
+          "publishedScore": 40,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.5
+        },
+        {
+          "month": 6,
+          "score": 49.284939,
+          "publishedScore": 49,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.6
+        },
+        {
+          "month": 7,
+          "score": 63.683048,
+          "publishedScore": 64,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.7
+        },
+        {
+          "month": 8,
+          "score": 65.850558,
+          "publishedScore": 66,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.5
+        },
+        {
+          "month": 9,
+          "score": 49.795981,
+          "publishedScore": 50,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.4
+        },
+        {
+          "month": 10,
+          "score": 12.4133,
+          "publishedScore": 12,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.3
+        },
+        {
+          "month": 11,
+          "score": 1.431805,
+          "publishedScore": 1,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 12,
+          "score": 0.493288,
+          "publishedScore": 0,
+          "fineLatitude": 52.0,
+          "fineLongitude": 4.5,
+          "feltOffsetC": -0.1
+        }
+      ]
+    },
+    {
+      "name": "Tenerife south coast",
+      "latitude": 28.12,
+      "longitude": -16.73,
+      "months": [
+        {
+          "month": 1,
+          "score": 79.471087,
+          "publishedScore": 79,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.4
+        },
+        {
+          "month": 2,
+          "score": 73.766098,
+          "publishedScore": 74,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.6
+        },
+        {
+          "month": 3,
+          "score": 73.384486,
+          "publishedScore": 73,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.6
+        },
+        {
+          "month": 4,
+          "score": 81.678117,
+          "publishedScore": 82,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.6
+        },
+        {
+          "month": 5,
+          "score": 86.969128,
+          "publishedScore": 87,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.8
+        },
+        {
+          "month": 6,
+          "score": 89.094723,
+          "publishedScore": 89,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.9
+        },
+        {
+          "month": 7,
+          "score": 82.092564,
+          "publishedScore": 82,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 1.1
+        },
+        {
+          "month": 8,
+          "score": 77.523141,
+          "publishedScore": 78,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 1.0
+        },
+        {
+          "month": 9,
+          "score": 79.737351,
+          "publishedScore": 80,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.7
+        },
+        {
+          "month": 10,
+          "score": 80.2767,
+          "publishedScore": 80,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.4
+        },
+        {
+          "month": 11,
+          "score": 83.976885,
+          "publishedScore": 84,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.5
+        },
+        {
+          "month": 12,
+          "score": 83.392888,
+          "publishedScore": 83,
+          "fineLatitude": 28.0,
+          "fineLongitude": -16.75,
+          "feltOffsetC": 0.3
+        }
+      ]
+    },
+    {
+      "name": "San Diego",
+      "latitude": 32.716,
+      "longitude": -117.162,
+      "months": [
+        {
+          "month": 1,
+          "score": 72.875685,
+          "publishedScore": 73,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 3.0
+        },
+        {
+          "month": 2,
+          "score": 73.183978,
+          "publishedScore": 73,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 2.9
+        },
+        {
+          "month": 3,
+          "score": 68.063341,
+          "publishedScore": 68,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 2.4
+        },
+        {
+          "month": 4,
+          "score": 77.939228,
+          "publishedScore": 78,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 1.3
+        },
+        {
+          "month": 5,
+          "score": 84.65846,
+          "publishedScore": 85,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": -0.3
+        },
+        {
+          "month": 6,
+          "score": 93.759235,
+          "publishedScore": 94,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": -1.9
+        },
+        {
+          "month": 7,
+          "score": 90.04834,
+          "publishedScore": 90,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": -2.2
+        },
+        {
+          "month": 8,
+          "score": 88.440538,
+          "publishedScore": 88,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": -1.4
+        },
+        {
+          "month": 9,
+          "score": 87.018634,
+          "publishedScore": 87,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 0.0
+        },
+        {
+          "month": 10,
+          "score": 92.961611,
+          "publishedScore": 93,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 2.1
+        },
+        {
+          "month": 11,
+          "score": 86.349414,
+          "publishedScore": 86,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 2.6
+        },
+        {
+          "month": 12,
+          "score": 68.57984,
+          "publishedScore": 69,
+          "fineLatitude": 32.75,
+          "fineLongitude": -117.0,
+          "feltOffsetC": 3.2
+        }
+      ]
+    },
+    {
+      "name": "Cape Town",
+      "latitude": -33.925,
+      "longitude": 18.424,
+      "months": [
+        {
+          "month": 1,
+          "score": 81.524178,
+          "publishedScore": 82,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.2
+        },
+        {
+          "month": 2,
+          "score": 84.218071,
+          "publishedScore": 84,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.3
+        },
+        {
+          "month": 3,
+          "score": 87.894073,
+          "publishedScore": 88,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.2
+        },
+        {
+          "month": 4,
+          "score": 83.673675,
+          "publishedScore": 84,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.0
+        },
+        {
+          "month": 5,
+          "score": 76.985865,
+          "publishedScore": 77,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.2
+        },
+        {
+          "month": 6,
+          "score": 58.219518,
+          "publishedScore": 58,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.2
+        },
+        {
+          "month": 7,
+          "score": 51.099349,
+          "publishedScore": 51,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": 0.2
+        },
+        {
+          "month": 8,
+          "score": 47.899644,
+          "publishedScore": 48,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 9,
+          "score": 61.758709,
+          "publishedScore": 62,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": -0.1
+        },
+        {
+          "month": 10,
+          "score": 76.569018,
+          "publishedScore": 77,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": -0.3
+        },
+        {
+          "month": 11,
+          "score": 82.353081,
+          "publishedScore": 82,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": -0.2
+        },
+        {
+          "month": 12,
+          "score": 87.329705,
+          "publishedScore": 87,
+          "fineLatitude": -33.75,
+          "fineLongitude": 18.5,
+          "feltOffsetC": -0.1
+        }
+      ]
+    }
+  ]
+}
