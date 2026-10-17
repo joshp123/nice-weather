@@ -1,0 +1,72 @@
+/* Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+   All interface design values. Light is newsprint, dark is a black poster. */
+:root {
+  --font: 'Barlow', sans-serif;
+  --font-brand: 'Superclarendon', 'Rockwell', Georgia, serif;
+  --weight: 500; --weight-strong: 700;
+  --ui: 1;
+  --size-caption: calc(12px * var(--ui)); --size-small: calc(13px * var(--ui));
+  --size-body: calc(15px * var(--ui)); --size-title: calc(22px * var(--ui));
+  --size-display: calc(30px * var(--ui)); --size-wordmark: calc(80px * var(--ui));
+  --size-headline: calc(28px * var(--ui)); --brand-tracking: -.065em;
+  --space-1: calc(4px * var(--ui)); --space-2: calc(8px * var(--ui));
+  --space-3: calc(12px * var(--ui)); --space-4: calc(16px * var(--ui)); --space-5: calc(24px * var(--ui));
+  --radius-control: calc(10px * var(--ui)); --radius-panel: calc(14px * var(--ui));
+  --radius-frame: calc(18px * var(--ui)); --radius-small: calc(4px * var(--ui)); --radius-round: 999px;
+  --control: calc(36px * var(--ui)); --touch-target: 44px;
+  --edge: calc(16px * var(--ui)); --inset: calc(12px * var(--ui));
+  --masthead-height: calc(116px * var(--ui)); --footer-height: calc(48px * var(--ui)); --dock-height: 190px;
+  --panel-width: calc(390px * var(--ui)); --list-width: calc(310px * var(--ui));
+  --picker-width: calc(440px * var(--ui)); --search-width: calc(280px * var(--ui)); --toolbar-width: calc(550px * var(--ui));
+  --dial-size: calc(210px * var(--ui)); --dial-month-size: calc(12px * var(--ui)); --dial-count-size: calc(34px * var(--ui));
+  --picker-mobile-clearance: 90px; --picker-z-index: 8; --calendar-gap: var(--space-1); --calendar-cell-height: calc(48px * var(--ui));
+  --on-low-band: #fff; --on-high-band: #101820;
+  --surface: #17181b; --raised: #ffffff0f; --hover: #ffffff1f; --border: #f3f1ec22;
+  --text: #f3f1ec; --muted: #aaa69e; --faint: #928e86; --page: #0e0f11;
+  --selected-background: #f3f1ec; --selected-text: #141413; --warning: #f2c14e;
+  --shadow: 0 12px 32px #0005; --overlay: #08090ac9;
+  --band-awful: #4a122299; --band-poor: #9c4040b3; --band-fair: #6f7b8a99;
+  --band-nice: #3b9edbdc; --band-beautiful: #55c27adc; --band-perfect: #f5c542e6;
+  --nice: #3b9edb;
+  --reason-track-height: 5px; --reason-marker-size: 9px;
+}
+@media (prefers-color-scheme: light) {
+  :root { --surface: #fbf9f4; --raised: #1414130b; --hover: #14141314; --border: #14141324; --text: #141413; --muted: #5f5b53; --faint: #736e64; --page: #eeeae1; --selected-background: #141413; --selected-text: #fbf9f4; --warning: #946700; --shadow: 0 12px 32px #28201422; --overlay: #eeeae1d9; }
+}
+@media (min-width: 2560px) { :root { --ui: 1.5; --toolbar-width: 825px; } }
+@media (max-width: 720px) {
+  :root { --ui: 1; --size-wordmark: 36px; --size-headline: 15px; --size-display: 26px; --size-title: 21px; --edge: 10px; --inset: 0px; --masthead-height: 0px; --footer-height: 0px; --radius-frame: 0px; --panel-width: calc(100vw - var(--edge) * 2); --picker-width: var(--panel-width); --dock-height: 190px; }
+}
+:root { --reason-value-width: 1.5fr; --reason-marker-ring: calc(3px * var(--ui)); --radius-pill: var(--radius-round); --dial-unselected-opacity: .3; --dial-selection-width: 2.5px; --on-high-band: #000; }
+:root { font-family: var(--font); font-size: var(--size-body); font-weight: var(--weight); line-height: 1.35; font-variant-numeric: tabular-nums; color: var(--text); background: var(--page); -webkit-font-smoothing: antialiased; }
+/* Map labels, borders and selection markers share the same tuning surface. */
+:root {
+  --map-land: #363b43; --map-sea: #0e0f11; --map-state-border: #ffffff24; --map-country-border: #ffffff57;
+  --map-label: #f6f7f9; --map-label-halo: #0a0d12eb; --map-label-scale: 1;
+  --map-label-small: 12; --map-label-large: 16; --map-label-line-height: 1.35; --map-label-width: 9; --map-label-padding: 16; --map-label-halo-width: 1.5;
+  --map-state-width: .4; --map-country-width-small: .45; --map-country-width-large: .8;
+  --map-home-line-width: 2; --map-home-dash: .5; --map-home-dash-gap: 2.5; --map-home-opacity: .8; --map-home-radius: 5; --map-home-stroke: 2.5;
+  --map-chosen-size: 15; --map-chosen-offset: 1.1; --map-chosen-halo: 2;
+  --map-count-minimum-width: 24; --map-count-padding: 14; --map-count-character-width: 8; --map-count-height: 23; --map-count-font-size: 13; --map-count-stroke: .75;
+  --map-count-outline: #ffffff80; --map-count-text-low: #fff; --map-count-text-high: #000;
+  --map-ring-size: 44; --map-ring-radius: 12; --map-ring-outline-width: 9; --map-ring-stroke-width: 5; --map-ring-outline: #00000073; --map-ring-stroke: #fff;
+  --map-show-whole-world: 0; --map-world-south: -50; --map-world-north: 65;
+}
+@media (prefers-color-scheme: light) {
+  :root { --map-land: #d5d9df; --map-sea: #fbf9f4; --map-state-border: #14182017; --map-country-border: #1418203b; --map-label: #15181d; --map-label-halo: #fffffff0; --map-count-outline: #0000004d; }
+}
+@media (min-width: 2560px) { :root { --map-label-scale: 1.35; --map-show-whole-world: 1; } }
+:root {
+ --masthead-min-height: 116px;
+ --rule-width: 1px; --focus-width: 2px; --weight-brand: 900;
+ --size-micro: calc(10px * var(--ui)); --size-key: calc(11px * var(--ui));
+ --space-hair: calc(1px * var(--ui)); --space-half: calc(2px * var(--ui)); --space-tight: calc(5px * var(--ui));
+ --space-compact: calc(6px * var(--ui)); --space-row: calc(9px * var(--ui));
+ --radius-inner: calc(6px * var(--ui)); --tracking-label: .07em;
+ --phone-period-width: 185px; --key-height: 7px; --share-menu-width: 220px;
+ --swatch-width: calc(14px * var(--ui)); --swatch-height: calc(10px * var(--ui));
+ --badge-size: calc(52px * var(--ui)); --reason-label-width: calc(116px * var(--ui));
+ --slider-height: calc(20px * var(--ui)); --slider-thumb: calc(18px * var(--ui)); --slider-thumb-offset: calc(-7px * var(--ui));
+ --thumb-shadow: 0 1px 3px #0005;
+}
+:root { --dock-min-height: 190px; }

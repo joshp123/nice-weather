@@ -138,7 +138,7 @@ uniform float u_world_offset;
 in vec2 a_position;
 out vec2 v_mercator;
 void main() {
-  v_mercator = a_position;
+  v_mercator = vec2(a_position.x + u_world_offset, a_position.y);
   gl_Position = u_matrix * vec4(a_position.x + u_world_offset, a_position.y, 0.0, 1.0);
 }`;
 
@@ -154,10 +154,12 @@ uniform highp sampler2D u_grid;
 uniform float u_grid_scale;
 uniform bool u_round_scores;
 uniform vec4 u_band_colours[6];
+uniform vec4 u_land_colour;
 in vec2 v_mercator;
 out vec4 fragColour;
 ${splineFunctions}
 void main() {
+  if (v_mercator.x < 0.0 || v_mercator.x > 1.0) discard;
   float latitude = degrees(atan(sinh(3.141592653589793 * (1.0 - 2.0 * v_mercator.y))));
   if (latitude < -60.0) discard;
   vec2 cell = vec2(v_mercator.x * 1440.0, (90.0 - latitude) * 4.0);
@@ -181,7 +183,7 @@ void main() {
   }
   if (landWeight < 0.00001) discard;
   score /= landWeight;
-  float edgeWidth = max(fwidth(score) * 0.75, 0.02);
+  float edgeWidth = max(fwidth(score), 0.02);
   vec4 colour = u_band_colours[0];
   float contour = 0.0;
   float minimums[6] = float[6](${BANDS.map(band => `${band.minimum}.0`).join(',')});
@@ -190,6 +192,9 @@ void main() {
     colour = mix(colour, u_band_colours[band], smoothstep(-edgeWidth, edgeWidth, distanceToEdge));
     contour = max(contour, 1.0 - smoothstep(0.0, edgeWidth * 2.0, abs(distanceToEdge)));
   }
-  colour.rgb *= 1.0 - 0.28 * contour;
-  fragColour = colour;
+  colour.rgb *= 1.0 - 0.14 * contour;
+  float coastWidth = max(fwidth(landWeight), 0.01);
+  float landCoverage = smoothstep(0.5 - coastWidth, 0.5 + coastWidth, landWeight);
+  vec3 landComposite = colour.rgb + u_land_colour.rgb * (1.0 - colour.a);
+  fragColour = vec4(landComposite * landCoverage, landCoverage);
 }`;

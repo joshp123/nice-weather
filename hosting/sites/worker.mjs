@@ -645,6 +645,15 @@ export async function handleRequest(request, env, serveAsset) {
     return serveData(request, bucket, key);
   }
   if (url.pathname.startsWith('/outlook/')) return outlookPage(request, bucket, url);
+  if (url.pathname === '/api/home') {
+    // Cloudflare's request metadata, when Sites supplies it. Never trust client headers or cache a home.
+    const latitude = Number(request.cf?.latitude);
+    const longitude = Number(request.cf?.longitude);
+    const home = request.cf?.latitude != null && request.cf?.longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? { name: request.cf.city || 'Your area', region: request.cf.country || '', latitude, longitude, slug: null }
+      : null;
+    return new Response(JSON.stringify(home), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' } });
+  }
   if (url.pathname === '/api/place') {
     const latitude = Number(url.searchParams.get('lat'));
     const longitude = Number(url.searchParams.get('lon'));

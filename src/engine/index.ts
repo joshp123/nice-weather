@@ -18,6 +18,7 @@ export type Point = Readonly<{ latitude: number; longitude: number }>;
 /** Physical averages of the same shifted days used for the typical-day judgement. */
 export type TypicalWeather = Readonly<{
   feelsInSunAt14C: number;
+  feelsInShadeAt15C?: number;
   feelsInShadeAt21C: number;
   dewPointC: number;
   rainMmPerDay: number;
@@ -63,6 +64,8 @@ export interface WeatherEngine {
   setPeriod(period: Period): Promise<void>;
   /** Reuses loaded data. Resolves after a frame for this taste; while records load a changed taste clears the default image and waits. Before the first period, stores taste and resolves immediately. */
   setTaste(taste: Taste): Promise<RedrawTiming>;
+  /** Load the year for the dial without changing the visible map. */
+  prepareYear(): Promise<void>;
   /** Synchronous; null until data arrive or where unavailable. With the fine-place manifest, climate queries load the exact 30 arc-second pixel and replay; no overview fallback. Other periods do not select a map period. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
   /** Named-place scores in input order; NaN means pending or missing. Fine climate uses the same exact-pixel judgement as the card; the overview map is independent. */

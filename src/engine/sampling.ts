@@ -5,12 +5,12 @@ import type { Period, PointVerdict, TypicalWeather } from './index';
 import { SHIFT_LEVELS, SHIFT_MINIMUM, SHIFT_STEP } from './shaders';
 
 export type PointContribution = Readonly<{ group: number; cell: number; level: number; weight: number }>;
-type MutableTypicalWeather = { -readonly [Key in keyof TypicalWeather]: number };
+type MutableTypicalWeather = { -readonly [Key in keyof TypicalWeather]-?: number };
 type CellJudgement = { -readonly [Key in keyof DayJudgement]: DayJudgement[Key] } & { days: number[]; typical: MutableTypicalWeather };
 
-const typicalNames = ['feelsInSunAt14C', 'feelsInShadeAt21C', 'dewPointC', 'rainMmPerDay', 'wetDayShare', 'windKmh', 'sunnyShare', 'daylightHours'] as const;
+const typicalNames = ['feelsInSunAt14C', 'feelsInShadeAt15C', 'feelsInShadeAt21C', 'dewPointC', 'rainMmPerDay', 'wetDayShare', 'windKmh', 'sunnyShare', 'daylightHours'] as const;
 function emptyTypical(): MutableTypicalWeather {
-  return { feelsInSunAt14C: 0, feelsInShadeAt21C: 0, dewPointC: 0, rainMmPerDay: 0, wetDayShare: 0, windKmh: 0, sunnyShare: 0, daylightHours: 0 };
+  return { feelsInSunAt14C: 0, feelsInShadeAt15C: 0, feelsInShadeAt21C: 0, dewPointC: 0, rainMmPerDay: 0, wetDayShare: 0, windKmh: 0, sunnyShare: 0, daylightHours: 0 };
 }
 
 const partNames = ['warmth', 'evening', 'rainFactor', 'windFactor', 'humidityFactor', 'sunFactor'] as const;
@@ -67,8 +67,9 @@ function judgeCell(group: SampleGroup, cell: number, level: number, taste: Taste
     const day = decodeDay(group.records.bytes, (cell * group.records.samples + sample) * 15);
     const feltOffset = SHIFT_MINIMUM + level * SHIFT_STEP;
     const judgement = judgeDay(day, taste, feltOffset);
-    const typical: TypicalWeather = {
+    const typical: MutableTypicalWeather = {
       feelsInSunAt14C: day.feelsInSun[2] + feltOffset,
+      feelsInShadeAt15C: day.feelsInShade[1] + feltOffset,
       feelsInShadeAt21C: day.feelsInShade[3] + feltOffset,
       dewPointC: day.dewPoint, rainMmPerDay: day.rainMm,
       wetDayShare: day.rainMm >= 1 ? 1 : 0, windKmh: day.windKmh,

@@ -1,18 +1,19 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
 // The one-line answer at the top of the map: where it is nicest in the chosen period, as on Ryan Hall's map.
 import { type Period, type WeatherEngine } from '../engine';
-import { el } from './dom';
+import { button, el } from './dom';
 import { kilometresBetween } from './map';
 import { daysInPeriod, periodPhrase, type ForecastIndex } from './periods';
 import { type NamedPlace } from './places';
+import { countryFlag } from './countries';
 
 const MINIMUM_SPREAD_KM = 250;
 
 type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): number; getNorth(): number }>;
-type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number }>;
+export type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number; region?: string; slug?: string | null; population?: number }>;
 
 /** All named places in the current view compete by day counts, with room between the answers. */
-export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string })[], bounds?: ViewBounds): HeadlinePlace[] {
+export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], bounds?: ViewBounds, limit = 3): HeadlinePlace[] {
   const visible = places.filter(place => {
     if (place.slug?.startsWith('palestine/')) return false;
     if (!bounds) return true;
@@ -24,37 +25,42 @@ export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace
   const counts = engine.countPoints(visible);
   const ranked = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }))
     .filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount))
-    .sort((a, b) => b.niceDayCount - a.niceDayCount || b.perfectDayCount - a.perfectDayCount || b.score - a.score);
+    .sort((a, b) => b.niceDayCount - a.niceDayCount || b.perfectDayCount - a.perfectDayCount || (b.population ?? 0) - (a.population ?? 0));
   const chosen: HeadlinePlace[] = [];
   for (const place of ranked) {
     if (chosen.some(other => kilometresBetween(place, other) < MINIMUM_SPREAD_KM)) continue;
     chosen.push(place);
-    if (chosen.length === 3) break;
+    if (chosen.length === limit) break;
   }
   return chosen;
 }
 
 export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[]): string {
   if (nicest.length === 0) return '';
-  const phrase = periodPhrase(period, forecast);
-  if (period.kind === 'forecast-day') {
-    return `Nicest ${phrase}: ${nicest.map(place => `${place.name} (${Math.floor(place.score)})`).join(', ')}.`;
-  }
-  const days = daysInPeriod(period, forecast);
-  const list = nicest.map((place, index) => `${place.name} (${Math.round(place.niceDayCount)}${index === 0 ? ` of ${days}` : ''})`).join(', ');
-  return `Most nice days ${phrase}: ${list}.`;
+  return `Nicest ${periodPhrase(period, forecast)}: ${nicest.map(place => `${countryFlag(place)} ${place.name}`.trim()).join(', ')}.`;
 }
 
-export type Headline = Readonly<{ element: HTMLElement; set(sentence: string, note?: { text: string; warning: boolean } | null): void }>;
+export function placeSentence(period: Period, forecast: ForecastIndex | null, places: readonly HeadlinePlace[], select: (place: HeadlinePlace) => void): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  fragment.append(`Nicest ${periodPhrase(period, forecast)}: `);
+  places.slice(0, 3).forEach((place, index, list) => {
+    if (index) fragment.append(index === list.length - 1 ? ' and ' : ', ');
+    fragment.append(button('inline-place', `${countryFlag(place)} ${place.name}`.trim(), () => select(place)));
+  });
+  fragment.append('.');
+  return fragment;
+}
+
+export type Headline = Readonly<{ element: HTMLElement; set(sentence: string, note?: { text: string; warning: boolean } | null, content?: DocumentFragment): void }>;
 
 export function createHeadline(): Headline {
   const sentence = el('p', 'headline-sentence');
   const note = el('p', 'headline-note');
-  const element = el('header', 'headline panel', el('h1', 'wordmark', 'Nice!'), sentence, note);
+  const element = el('header', 'headline', el('h1', 'wordmark', 'Nice!'), el('div', 'headline-copy', sentence, note));
   return {
     element,
-    set(text, noteText = null) {
-      sentence.textContent = text;
+    set(text, noteText = null, content) {
+      sentence.replaceChildren(content ?? text);
       sentence.hidden = !text;
       note.textContent = noteText?.text ?? '';
       note.hidden = !noteText;

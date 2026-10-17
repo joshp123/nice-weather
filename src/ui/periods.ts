@@ -104,7 +104,7 @@ export function periodTitle(period: Period, forecast: ForecastIndex | null): str
       return difference === 0 ? `Today, ${long}` : difference === 1 ? `Tomorrow, ${long}` : long;
     }
     case 'month': return MONTH_NAMES[period.month - 1];
-    case 'season': return SEASON_LABEL[period.season];
+    case 'season': return SEASON_SENTENCE[period.season];
     case 'months': return `${MONTH_NAMES[period.startMonth - 1]} to ${MONTH_NAMES[period.endMonth - 1]}`;
     case 'year': return 'The whole year';
   }

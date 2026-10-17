@@ -53,8 +53,10 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private periodRequest = 0;
   private pending: PendingFrame[] = [];
   private destroyed = false;
+  private landColour: number[];
 
   constructor(private map: MapLibreMap, private options: EngineOptions) {
+    this.landColour = premultipliedRgba(`${getComputedStyle(document.documentElement).getPropertyValue('--map-land').trim()}ff`);
     const dataUrl = (options.dataUrl ?? '/data/v6').replace(/\/$/, '');
     this.source = new WeatherData(dataUrl);
     this.finePlaces = new FinePlaces(dataUrl, () => {
@@ -138,6 +140,10 @@ export class BrowserWeatherEngine implements WeatherEngine {
       for (const frame of this.pending.splice(0)) frame.reject(error as Error);
       throw error;
     }
+  }
+
+  async prepareYear(): Promise<void> {
+    await this.source.load({ kind: 'year' });
   }
 
   setTaste(taste: Taste): Promise<RedrawTiming> {
@@ -424,6 +430,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
       gl.uniform1i(gl.getUniformLocation(program, 'u_round_scores'), this.isDefaultTaste() ? 1 : 0);
       gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, input.defaultProjectionData.mainMatrix);
       gl.uniform4fv(gl.getUniformLocation(program, 'u_band_colours'), bands.flatMap(band => premultipliedRgba(band.colour)));
+      gl.uniform4fv(gl.getUniformLocation(program, 'u_land_colour'), this.landColour);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       const centreWorld = Math.floor((this.map.getCenter().lng + 180) / 360);

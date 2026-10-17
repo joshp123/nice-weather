@@ -4,9 +4,8 @@
 import type maplibregl from 'maplibre-gl';
 import type { Period, PointVerdict } from '../engine';
 import { button, el } from './dom';
-import { bandSentence, dayCountsSentence, periodPhrase, periodTitle, type ForecastIndex } from './periods';
+import { bandSentence, dayCountsSentence, periodPhrase, type ForecastIndex } from './periods';
 import type { Place } from './state';
-import { bandColour } from './timebar';
 
 export type ShareContext = Readonly<{
   map: maplibregl.Map;
@@ -29,114 +28,96 @@ export function shareText(context: ShareContext): string {
   return `Where the weather is nice ${periodPhrase(period, forecast)}. ${context.headline}`.trim();
 }
 
-/** A copy of the map as drawn right now. MapLibre keeps no drawing buffer, so the copy is taken inside a render. */
-function captureMap(map: maplibregl.Map): Promise<HTMLCanvasElement> {
-  return new Promise(resolve => {
-    map.once('render', () => {
-      const source = map.getCanvas();
-      const copy = document.createElement('canvas');
-      copy.width = source.width;
-      copy.height = source.height;
-      copy.getContext('2d')!.drawImage(source, 0, 0);
-      resolve(copy);
-    });
-    map.triggerRepaint();
-  });
+/** Copy the map after its next render so the poster includes the latest weather. */
+async function captureMap(map: maplibregl.Map): Promise<HTMLCanvasElement> {
+  if (!map.areTilesLoaded()) await new Promise<void>(resolve => { map.once('idle', () => resolve()); map.triggerRepaint(); });
+  await new Promise<void>(resolve => { map.once('render', () => requestAnimationFrame(() => resolve())); map.triggerRepaint(); });
+  const source = map.getCanvas();
+  const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height;
+  copy.getContext('2d')!.drawImage(source, 0, 0);
+  return copy;
 }
 
-function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (context.measureText(text).width <= maxWidth) return text;
-  let shortened = text;
-  while (shortened.length > 1 && context.measureText(`${shortened}…`).width > maxWidth) shortened = shortened.slice(0, -1);
-  return `${shortened.trimEnd()}…`;
-}
-
-/** The share card: the map behind, the place and its verdict in front, the link and the small print. */
+/** Capture the screen layout itself, including its type, map, key and place comparisons. */
 export async function drawShareCard(width: number, height: number, context: ShareContext): Promise<Blob> {
-  await document.fonts.load('600 40px Barlow').catch(() => undefined);
-  const [snapshot] = await Promise.all([captureMap(context.map)]);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const draw = canvas.getContext('2d')!;
-
-  // The map, cropped to the card's shape around the place (or the middle of the view).
-  const map = context.map;
-  const pixelRatio = snapshot.width / map.getContainer().clientWidth;
-  const focus = context.place ? map.project([context.place.longitude, context.place.latitude]) : { x: map.getContainer().clientWidth / 2, y: map.getContainer().clientHeight / 2 };
-  let cropWidth = snapshot.width;
-  let cropHeight = (cropWidth * height) / width;
-  if (cropHeight > snapshot.height) { cropHeight = snapshot.height; cropWidth = (cropHeight * width) / height; }
-  const cropLeft = Math.min(Math.max(focus.x * pixelRatio - cropWidth / 2, 0), snapshot.width - cropWidth);
-  const cropTop = Math.min(Math.max(focus.y * pixelRatio - cropHeight / 2, 0), snapshot.height - cropHeight);
-  draw.drawImage(snapshot, cropLeft, cropTop, cropWidth, cropHeight, 0, 0, width, height);
-
-  // A dark band along the bottom for the words, whatever the map's colours.
-  const unit = height / 630;
-  const bandHeight = 260 * unit;
-  const gradient = draw.createLinearGradient(0, height - bandHeight, 0, height);
-  gradient.addColorStop(0, 'rgba(8, 10, 14, 0)');
-  gradient.addColorStop(0.45, 'rgba(8, 10, 14, 0.78)');
-  gradient.addColorStop(1, 'rgba(8, 10, 14, 0.9)');
-  draw.fillStyle = gradient;
-  draw.fillRect(0, height - bandHeight, width, bandHeight);
-  const topGradient = draw.createLinearGradient(0, 0, 0, 90 * unit);
-  topGradient.addColorStop(0, 'rgba(8, 10, 14, 0.55)');
-  topGradient.addColorStop(1, 'rgba(8, 10, 14, 0)');
-  draw.fillStyle = topGradient;
-  draw.fillRect(0, 0, width, 90 * unit);
-
-  const margin = 48 * unit;
-  draw.textBaseline = 'alphabetic';
-  draw.fillStyle = '#ffffff';
-  draw.font = `600 ${26 * unit}px Barlow, sans-serif`;
-  draw.fillText('Nice Weather', margin, margin + 8 * unit);
-  draw.textAlign = 'right';
-  draw.font = `500 ${22 * unit}px Barlow, sans-serif`;
-  draw.fillStyle = 'rgba(255,255,255,0.85)';
-  draw.fillText(periodTitle(context.period, context.forecast), width - margin, margin + 8 * unit);
-  draw.textAlign = 'left';
-
-  const { place, verdict } = context;
-  let textLeft = margin;
-  const titleBaseline = height - 154 * unit;
-  if (place?.name && verdict) {
-    const badge = 84 * unit;
-    const badgeTop = titleBaseline - badge + 14 * unit;
-    draw.fillStyle = bandColour(verdict.meanScore);
-    draw.beginPath();
-    draw.roundRect(margin, badgeTop, badge, badge, 14 * unit);
-    draw.fill();
-    draw.fillStyle = '#ffffff';
-    draw.textAlign = 'center';
-    draw.font = `600 ${44 * unit}px Barlow, sans-serif`;
-    draw.fillText(String(Math.floor(verdict.meanScore)), margin + badge / 2, badgeTop + badge * 0.69);
-    draw.textAlign = 'left';
-    textLeft = margin + badge + 24 * unit;
-    draw.font = `600 ${54 * unit}px Barlow, sans-serif`;
-    draw.fillText(fitText(draw, place.name, width - textLeft - margin), textLeft, titleBaseline);
-    draw.font = `500 ${26 * unit}px Barlow, sans-serif`;
-    draw.fillStyle = 'rgba(255,255,255,0.92)';
-    const days = dayCountsSentence(context.period, context.forecast, verdict);
-    draw.fillText(bandSentence(context.period, verdict.band), textLeft, titleBaseline + 36 * unit);
-    if (days) {
-      draw.font = `500 ${23 * unit}px Barlow, sans-serif`;
-      draw.fillText(days, margin, titleBaseline + 74 * unit, width - 2 * margin);
+  await document.fonts.ready;
+  const mapImage = await captureMap(context.map);
+  const app = document.getElementById('app')!;
+  const bounds = app.getBoundingClientRect();
+  const clone = app.cloneNode(true) as HTMLElement;
+  const originalElements = [app, ...app.querySelectorAll('*')];
+  const cloneElements = [clone, ...clone.querySelectorAll('*')];
+  originalElements.forEach((original, index) => {
+    const target = cloneElements[index] as HTMLElement | SVGElement;
+    const style = getComputedStyle(original);
+    target.setAttribute('style', Array.from(style).map(name => `${name}:${style.getPropertyValue(name)}`).join(';'));
+    if (original instanceof HTMLCanvasElement) {
+      if (original === context.map.getCanvas()) { target.remove(); return; }
+      const bitmap = document.createElement('img');
+      bitmap.setAttribute('style', target.getAttribute('style')!);
+      bitmap.src = original === context.map.getCanvas() ? mapImage.toDataURL() : original.toDataURL();
+      bitmap.width = original.clientWidth; bitmap.height = original.clientHeight;
+      target.replaceWith(bitmap);
     }
-  } else {
-    draw.font = `600 ${46 * unit}px Barlow, sans-serif`;
-    draw.fillText(fitText(draw, `Where the weather is nice ${periodPhrase(context.period, context.forecast)}`, width - 2 * margin), margin, titleBaseline);
-    draw.font = `500 ${26 * unit}px Barlow, sans-serif`;
-    draw.fillStyle = 'rgba(255,255,255,0.92)';
-    draw.fillText(fitText(draw, context.headline, width - 2 * margin), margin, titleBaseline + 40 * unit);
+  });
+  clone.querySelector('.poster-slot')?.remove();
+  clone.style.background = 'transparent';
+  const mapClone = clone.querySelector<HTMLElement>('.map');
+  if (mapClone) mapClone.style.background = 'transparent';
+  clone.style.position = 'relative'; clone.style.width = `${bounds.width}px`; clone.style.height = `${bounds.height}px`;
+  // Fonts are embedded so the SVG is self-contained, including when Safari loads it as an image.
+  let fonts = '';
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const rule of Array.from(rules)) {
+      if (!(rule instanceof CSSFontFaceRule)) continue;
+      let text = rule.cssText;
+      const source = /url\(["']?([^"')]+)["']?\)/.exec(text);
+      if (source) {
+        const blob = await fetch(new URL(source[1], sheet.href ?? location.href)).then(response => response.blob());
+        const encoded = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsDataURL(blob); });
+        text = text.replace(source[0], `url(${encoded})`);
+      }
+      fonts += text;
+    }
   }
+  const markup = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${bounds.width}" height="${bounds.height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${fonts}</style>${markup}</div></foreignObject></svg>`;
+  const bitmap = new Image();
+  const ready = new Promise<void>((resolve, reject) => { bitmap.onload = () => resolve(); bitmap.onerror = () => reject(new Error('The poster could not be rendered')); });
+  bitmap.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  await ready;
+  const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+  const draw = canvas.getContext('2d')!;
+  draw.fillStyle = getComputedStyle(app).backgroundColor; draw.fillRect(0, 0, width, height);
+  const mapBounds = context.map.getContainer().getBoundingClientRect();
+  draw.save();
+  draw.beginPath();
+  draw.roundRect(mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height, parseFloat(getComputedStyle(context.map.getContainer()).borderRadius) * width / bounds.width); draw.clip();
+  draw.drawImage(mapImage, mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height);
+  draw.restore();
+  draw.drawImage(bitmap, 0, 0, width, height);
+  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('The poster could not be saved')), 'image/png'));
+}
 
-  draw.textAlign = 'right';
-  draw.fillStyle = '#ffffff';
-  draw.font = `600 ${20 * unit}px Barlow, sans-serif`;
-  draw.fillText(fitText(draw, context.link.replace(/^https?:\/\//, ''), width - 2 * margin), width - margin, height - margin + 10 * unit);
-
-  return new Promise((resolve, reject) => canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Could not make the image'))), 'image/png'));
+export async function renderPoster(context: ShareContext, close: () => void): Promise<HTMLElement> {
+  const blob = await drawShareCard(innerWidth, innerHeight, context);
+  const url = URL.createObjectURL(blob);
+  const preview = el('img', 'poster-preview'); preview.src = url; preview.alt = 'Your Nice Weather poster, exactly as shown on the map';
+  const dismiss = () => { URL.revokeObjectURL(url); close(); };
+  const namedPlaces = Array.from(document.querySelectorAll<HTMLElement>('#app .inline-place')).map(element => ({ element, bounds: element.getBoundingClientRect() })).filter(entry => entry.bounds.width && entry.bounds.height);
+  const artwork = el('div', 'poster-artwork', preview);
+  for (const { element, bounds } of namedPlaces) {
+    const hotspot = button('poster-place-link', '', () => { dismiss(); element.click(); }, `Open ${element.textContent}`);
+    hotspot.style.left = `${bounds.x / innerWidth * 100}%`; hotspot.style.top = `${bounds.y / innerHeight * 100}%`;
+    hotspot.style.width = `${bounds.width / innerWidth * 100}%`; hotspot.style.height = `${bounds.height / innerHeight * 100}%`;
+    artwork.append(hotspot);
+  }
+  const menu = renderShareMenu(() => context, () => Promise.resolve(blob));
+  const save = button('menu-button', 'Download image', () => download(blob, 'nice-weather.png'));
+  return el('section', 'poster-overlay', el('h2', 'poster-title', 'Your weather, as a poster.'), artwork,
+    el('div', 'poster-toolbar panel', menu, save, button('menu-button', 'Back to the map', dismiss)));
 }
 
 function download(blob: Blob, name: string): void {
@@ -150,7 +131,7 @@ function download(blob: Blob, name: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function renderShareMenu(context: () => ShareContext): HTMLElement {
+export function renderShareMenu(context: () => ShareContext, capture?: () => Promise<Blob>): HTMLElement {
   const status = el('p', 'share-status');
   status.setAttribute('role', 'status');
   const say = (text: string) => { status.textContent = text; };
@@ -174,7 +155,7 @@ export function renderShareMenu(context: () => ShareContext): HTMLElement {
   const copyImage = button('menu-button', 'Copy image', async () => {
     const current = context();
     // Safari only accepts a promise made inside the click; the same PNG downloads when the clipboard refuses.
-    const image = drawShareCard(1200, 630, current);
+    const image = capture ? capture() : drawShareCard(innerWidth, innerHeight, current);
     copyImage.disabled = true;
     say('Copying image…');
     try {
