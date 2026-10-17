@@ -77,7 +77,11 @@ func (inputs forecastPlaceInputs) judge(places []Place) error {
 			}
 			points = append(points, placenumbers.WeightedNumbers{Numbers: numbers, Weight: point.Weight})
 		}
-		place.Score = int(math.Floor(placenumbers.BlendPlaceNumbers(points).Score))
+		numbers := placenumbers.BlendPlaceNumbers(points)
+		place.Score = int(math.Floor(numbers.Score))
+		place.FloatScore = numbers.Score
+		place.NiceDayCount = numbers.NiceDayCount
+		place.PerfectDayCount = numbers.PerfectDayCount
 	}
 	return nil
 }

@@ -36,14 +36,17 @@ type Pointer struct {
 }
 
 type Place struct {
-	Name       string  `json:"name"`
-	Region     string  `json:"region"`
-	Slug       string  `json:"slug"`
-	Latitude   float64 `json:"latitude"`
-	Longitude  float64 `json:"longitude"`
-	Score      int     `json:"score"`
-	PointIndex int     `json:"pointIndex"`
-	Population int     `json:"population"`
+	Name            string  `json:"name"`
+	Region          string  `json:"region"`
+	Slug            string  `json:"slug"`
+	Latitude        float64 `json:"latitude"`
+	Longitude       float64 `json:"longitude"`
+	Score           int     `json:"score"`
+	PointIndex      int     `json:"pointIndex"`
+	Population      int     `json:"population"`
+	FloatScore      float64 `json:"floatScore"`
+	NiceDayCount    float64 `json:"niceDayCount"`
+	PerfectDayCount float64 `json:"perfectDayCount"`
 }
 
 type Outlook struct {
@@ -217,7 +220,7 @@ func readPlaces(body []byte, scores *image.Gray) ([]Place, error) {
 		if index < 0 || len(placenumbers.MapPointWeights(latitude, longitude, func(point int) bool { return scores.Pix[point] != 255 })) == 0 {
 			continue
 		}
-		places = append(places, Place{fields[0], fields[2], slug, latitude, longitude, int(scores.Pix[index]), index, population})
+		places = append(places, Place{Name: fields[0], Region: fields[2], Slug: slug, Latitude: latitude, Longitude: longitude, Score: int(scores.Pix[index]), FloatScore: float64(scores.Pix[index]), PointIndex: index, Population: population})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
@@ -317,7 +320,7 @@ func populationThreshold(region string) int {
 	if region == "world" {
 		return 300000
 	}
-	return minimumPopulation
+	return 50000
 }
 
 // The eastern edge follows the Bosporus, Marmara and Dardanelles through water.
@@ -349,16 +352,7 @@ func rankPlaces(places []Place, region string) []Place {
 			candidates = append(candidates, place)
 		}
 	}
-	sort.Slice(candidates, func(left, right int) bool {
-		a, b := candidates[left], candidates[right]
-		if a.Score != b.Score {
-			return a.Score > b.Score
-		}
-		if a.Population != b.Population {
-			return a.Population > b.Population
-		}
-		return a.Slug < b.Slug
-	})
+	sort.Slice(candidates, func(left, right int) bool { return rankedBefore(candidates[left], candidates[right]) })
 	var chosen, winningSpots []Place
 	for _, candidate := range candidates {
 		namedPlace := largestNearbyPlace(candidate, candidates)
@@ -377,13 +371,30 @@ func rankPlaces(places []Place, region string) []Place {
 			break
 		}
 	}
+	sort.Slice(chosen, func(left, right int) bool { return rankedBefore(chosen[left], chosen[right]) })
 	return chosen
+}
+
+// RankPlaces applies the production outlook rule to judged place candidates.
+func RankPlaces(places []Place, region string) []Place { return rankPlaces(places, region) }
+
+func rankedBefore(a, b Place) bool {
+	if math.Round(a.NiceDayCount) != math.Round(b.NiceDayCount) {
+		return math.Round(a.NiceDayCount) > math.Round(b.NiceDayCount)
+	}
+	if math.Round(a.PerfectDayCount) != math.Round(b.PerfectDayCount) {
+		return math.Round(a.PerfectDayCount) > math.Round(b.PerfectDayCount)
+	}
+	if a.Population != b.Population {
+		return a.Population > b.Population
+	}
+	return a.Slug < b.Slug
 }
 
 func largestNearbyPlace(winner Place, candidates []Place) Place {
 	name := winner
 	for _, candidate := range candidates {
-		if math.Abs(float64(candidate.Score-winner.Score)) > nearbyNameScoreDifference || distanceKM(winner, candidate) > nearbyNameRadiusKM {
+		if math.Abs(candidate.FloatScore-winner.FloatScore) > nearbyNameScoreDifference || distanceKM(winner, candidate) > nearbyNameRadiusKM {
 			continue
 		}
 		if candidate.Population > name.Population || candidate.Population == name.Population && candidate.Slug < name.Slug {

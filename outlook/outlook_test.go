@@ -96,6 +96,10 @@ func TestWinningSuburbUsesNearbyCityWithSimilarWeather(t *testing.T) {
 		{Name: "Too cold", Population: 2000000, Latitude: 40.85, Longitude: 14.27, Score: 92},
 		{Name: "Too far", Population: 3000000, Latitude: 42, Longitude: 14.27, Score: 98},
 	}
+	for index := range candidates {
+		candidates[index].FloatScore = float64(candidates[index].Score)
+	}
+	winner.FloatScore = float64(winner.Score)
 	if got := largestNearbyPlace(winner, candidates); got.Name != "Naples" || got.Score != 93 {
 		t.Fatalf("unexpected nearby name or city score: %+v", got)
 	}
@@ -113,9 +117,27 @@ func TestNearbyNamesKeepBothCitiesAndWinningSpotsSeparated(t *testing.T) {
 	// Synthetic positions are on the equator: use World-sized populations.
 	for index := range places {
 		places[index].Population *= 100
+		places[index].FloatScore = float64(places[index].Score)
+		places[index].NiceDayCount = float64(places[index].Score)
 	}
 	chosen := rankPlaces(places, "world")
-	if len(chosen) != 3 || chosen[0].Name != "First city" || chosen[1].Name != "Third" || chosen[2].Name != "Fourth" {
+	if len(chosen) != 3 || chosen[0].Name != "Third" || chosen[1].Name != "Fourth" || chosen[2].Name != "First city" {
 		t.Fatalf("nearby city names lost separation: %+v", chosen)
+	}
+}
+
+func TestRankingUsesWholeNiceDaysThenPerfectDaysThenPopulation(t *testing.T) {
+	places := []Place{
+		{Name: "More perfect days", Slug: "perfect", Population: 500000, Longitude: 20, NiceDayCount: 1, PerfectDayCount: 1, Score: 80, FloatScore: 80},
+		{Name: "Larger city", Slug: "large", Population: 1000000, Longitude: 40, NiceDayCount: .9999, PerfectDayCount: 0, Score: 100, FloatScore: 100},
+		{Name: "Smaller city", Slug: "small", Population: 300000, Longitude: 60, NiceDayCount: 1, PerfectDayCount: 0, Score: 99, FloatScore: 99},
+		{Name: "More nice days", Slug: "nice", Population: 300000, Longitude: 80, NiceDayCount: 2, PerfectDayCount: 0, Score: 70, FloatScore: 70},
+	}
+	chosen := rankPlaces(places, "world")
+	if len(chosen) != 3 || chosen[0].Name != "More nice days" || chosen[1].Name != "More perfect days" || chosen[2].Name != "Larger city" {
+		t.Fatalf("wrong count ranking: %+v", chosen)
+	}
+	if populationThreshold("europe") != 50000 || populationThreshold("usa") != 50000 {
+		t.Fatal("continent population floor differs")
 	}
 }
