@@ -1,6 +1,5 @@
 // Written by AI on 2026.10.16 by model claude opus 5.5.
 // The one place that turns a 0-100 score into a word and a colour.
-// Thresholds match weather.Rating in internal/weather/score.go.
 
 export type Band = Readonly<{ name: string; minimumScore: number; colour: string }>;
 
@@ -17,12 +16,3 @@ export const bands: readonly Band[] = [
   { name: 'Beautiful', minimumScore: 70, colour: '#55c27adc' },
   { name: 'Perfect', minimumScore: 85, colour: '#f5c542e6' },
 ];
-
-export function bandForScore(score: number): Band {
-  for (let index = bands.length - 1; index >= 0; index--) {
-    if (score >= bands[index].minimumScore) return bands[index];
-  }
-  return bands[0];
-}
-
-export const NICE_DAY_MINIMUM_SCORE = 55;

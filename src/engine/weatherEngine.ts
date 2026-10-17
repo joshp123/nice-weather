@@ -53,7 +53,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
   constructor(private map: MapLibreMap, private options: EngineOptions) {
     this.source = new WeatherData((options.dataUrl ?? '/data/v6').replace(/\/$/, ''));
     this.layer = {
-      id: options.layerId ?? 'weather-v6', type: 'custom', renderingMode: '2d',
+      id: 'weather-v6', type: 'custom', renderingMode: '2d',
       onAdd: (_map, context) => this.onAdd(context),
       render: (_context, input) => this.render(input),
       onRemove: () => this.destroy(),

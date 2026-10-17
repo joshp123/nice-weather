@@ -1,11 +1,15 @@
-# Research behind the product direction
+# Data preparation and scoring
 
-Written by AI on 2026.10.17 by model claude opus 5.5.
+Written by AI on 2026.10.17 by model GPT-6.1 Sol.
 
-Scripts that produced `docs/product-direction.html`. They read ERA5 downloads kept outside the repo under `/tmp/nwf-agents/round3`; the downloads are free to fetch again from Open-Meteo.
+The live product uses these tools:
 
-- `taste/v5.py`: the current nice-day rule. Daylight hours from 10:00 (to sunset, at most 20:00) count as t-shirt weather when they feel warm enough in the sun and not too hot in the shade; four limits (dew point, rain, wind, the feel at 21:00) each rule a day out. `v5_test.py` sweeps it against Josh's anchor places.
-- `taste/v3soft.py` and `v4.py`: earlier rules, kept for comparison. v3soft used soft costs, which made the humidity slider ineffective; v4 judged the evening twice.
-- `taste/export_sliders.py`: the compact day summary per place (18 bytes a day) embedded in the page; `key_hours_check.py` chose the stored hours so it matches the full hourly rule within 3 nice days a year.
-- `taste/build_direction5.py` and `direction_template.html`: build the page; `check_sliders.py`, `drag_check.py` and `shot_direction5.py` check its recount, sliders and layout in Chromium and WebKit.
-- `bay-area/`: Bay Area microclimates against NOAA stations and PRISM 800 m normals (by GPT-6.1 Sol); `analyse_v4.py` reruns it with the newer rule.
+- [`era5/`](era5/README.md) acquires hourly ERA5 data for the typical year.
+- [`climate-v6/`](climate-v6/README.md) turns those hours into representative days, temperature offsets and physical facts.
+- [`taste/nice_v6.py`](taste/nice_v6.py) defines the reference scoring curves used by the climate pipeline and [`../src/engine/default_scores.py`](../src/engine/default_scores.py). The browser implements the same rule in `src/engine/taste.ts`.
+- [`taste/fable-method-report.md`](taste/fable-method-report.md) explains the choice of graded days. [`taste/fable-results.md`](taste/fable-results.md) supplies the anchor-place scores used by the climate validator.
+- [`site/labels.py`](site/labels.py) builds the two map-label files from `places.tsv`.
+- [`site/scoring-explainer-data.mjs`](site/scoring-explainer-data.mjs) reads the published climate during the Vite build, supplying coverage dates and chart examples for `/method`.
+- [`taste/render_cards.py`](taste/render_cards.py) renders link previews with the app's share-card renderer.
+
+`fine/` is active work on finer temperature detail. The climate acquisition and fine-detail workers maintain their own instructions in those directories.

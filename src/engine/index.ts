@@ -36,14 +36,12 @@ export type PointVerdict = Readonly<{
   niceDayCount: number | null;
   sampleDays: number;
   parts: Omit<DayJudgement, 'score'>;
-  /** Always supplied by this engine; optional for existing interface consumers. */
-  typical?: TypicalWeather;
+  typical: TypicalWeather;
 }>;
 export type RedrawTiming = Readonly<{ milliseconds: number; period: Period; revision: number }>;
 export type EngineOptions = Readonly<{
-  /** Defaults to /data/v6. Override only for isolated synthetic-data debugging. */
+  /** Published weather files, normally /data/v6. */
   dataUrl?: string;
-  layerId?: string;
   /** Completed visible update, including clearing the default image if taste moves before records arrive. */
   onRedraw?: (timing: RedrawTiming) => void;
   /** Fires synchronously when current-period record loading changes. Image paint may precede completion. */

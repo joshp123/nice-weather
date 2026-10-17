@@ -18,8 +18,7 @@ import { renderTimeBar } from './ui/timebar';
 
 // Shared links and share cards always point at the live site, also when made from a local copy.
 const PUBLIC_ORIGIN = 'https://nice.jjpcodes.com';
-const parameters = new URLSearchParams(location.search);
-const dataUrl = parameters.get('data') ?? '/data/v6';
+const dataUrl = '/data/v6';
 const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 const phone = matchMedia('(max-width: 720px)');
 
@@ -265,8 +264,7 @@ function rememberView(): void {
 function updateLink(): void {
   rememberView();
   const link = buildLink(state, map.getZoom());
-  const debugData = parameters.get('data');
-  history.replaceState(null, '', debugData ? `${link}${link.includes('?') ? '&' : '?'}data=${encodeURIComponent(debugData)}` : link);
+  history.replaceState(null, '', link);
 }
 
 document.addEventListener('keydown', event => {

@@ -65,7 +65,6 @@ function row(label: string, value: string, detail: string, effectText: string | 
 
 function why(verdict: PointVerdict): HTMLElement {
   const typical = verdict.typical;
-  if (!typical) return el('p', 'muted', 'Weather figures are unavailable.');
   const parts = verdict.parts;
   return el('dl', 'why',
     row('Afternoon in sun', `${round(typical.feelsInSunAt14C)} °C feels-like`, afternoonWords(typical.feelsInSunAt14C)),

@@ -1,5 +1,5 @@
 // Written by AI on 2026.10.17 by model gpt-6.1-sol.
-import { loadGreyscaleImage } from '../weatherLayer';
+import { loadGreyscaleImage } from './greyscaleImage';
 import type { Period, Month } from './index';
 
 /** ECMWF's free forecast ends at 360 hours, so every time zone gets 14 whole local days (.agent/v6-contract.md). */
