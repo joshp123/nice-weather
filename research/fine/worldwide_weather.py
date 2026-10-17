@@ -7,6 +7,7 @@ import argparse
 import concurrent.futures
 import datetime as dt
 import json
+import os
 import pathlib
 import time
 
@@ -24,7 +25,12 @@ def main():
     parser.add_argument('--output', type=pathlib.Path, required=True)
     parser.add_argument('--workers', type=int, default=24)
     parser.add_argument('--priority-queries', type=pathlib.Path)
+    parser.add_argument('--direct-public-source', action='store_true', help='Read anonymous public S3 directly in this process, without inherited model-client proxies')
+    parser.add_argument('--max-files', type=int, help='Bound an acquisition throughput pilot; completed files remain useful')
     args = parser.parse_args()
+    if args.direct_public_source:
+        for name in ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy'):
+            os.environ.pop(name, None)
     started = time.monotonic()
     inventory = json.loads(args.inventory.read_text())
     args.output.mkdir(parents=True, exist_ok=True)
@@ -54,6 +60,8 @@ def main():
             column = int(np.floor((np.floor((query['lon']+180)*120)+.5)/30+.5))%1440
             priority.add(f'r{row//12:02d}c{((column+720)%1440)//12:03d}.npz')
     jobs.sort(key=lambda job: (job[1] not in priority, job[1], job[0]))
+    missing_before = len(jobs)
+    if args.max_files is not None: jobs = jobs[:args.max_files]
     print('Missing five-field tile-chunks:', len(jobs), flush=True)
     import icechunk
     import pcodec
@@ -113,6 +121,8 @@ def main():
                 print(json.dumps(progress), flush=True)
     field_pool.shutdown()
     timing = dict(downloaded=downloaded, bytes=byte_count, failures=failures, seconds=time.monotonic()-started,
+                  remainingTileChunks=missing_before-downloaded,
+                  route='direct anonymous public S3' if args.direct_public_source else 'inherited network environment',
                   completedUTC=dt.datetime.now(dt.timezone.utc).isoformat(), configuration=config)
     (args.output/'timing.json').write_text(json.dumps(timing, indent=2)+'\n')
     if failures: raise RuntimeError(f'{len(failures)} weather downloads failed; rerun retains complete files')
