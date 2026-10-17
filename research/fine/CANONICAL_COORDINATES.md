@@ -10,7 +10,7 @@ Hardcoded home/reference points also differ from the city catalogue. Of eighteen
 
 The Worker serves `/api/fine/labels-1.json` and `/api/fine/labels-2.json`. An active pointer with `labelsRoot` selects the versioned files; otherwise it serves the original label files. Responses expire after sixty seconds. Existing immutable `/data/v6/labels-*.json` URLs remain untouched. The actual Worker fixture passed activation and rollback for both files and checked every coordinate against the source catalogue.
 
-`CANONICAL_COORDINATES.patch` records the minimal UI changes for review. It changes the map's label-fetch URL and the eighteen hardcoded home/reference coordinates. It does not restyle the interface. Arbitrary numeric coordinates continue to select their own exact pixel; there is no city-name lookup or coordinate snapping in the place API.
+`CANONICAL_COORDINATES.patch` records the minimal data hooks: the map's label-fetch URL and the eighteen hardcoded home/reference coordinates. The interface owner has incorporated those hooks in the redesigned app. Arbitrary numeric coordinates continue to select their own exact pixel; there is no city-name lookup or coordinate snapping in the place API.
 
 Build:
 

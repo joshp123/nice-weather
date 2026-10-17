@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {handleRequest} from '../../hosting/sites/worker.mjs';
 
-export function localWorkerFixture(overlay, finePointer) {
+export function localWorkerFixture(overlay, finePointer, packagedWorkerFetch) {
   const artifacts=path.resolve('artifacts'),dist=path.resolve('dist');
   const media={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'};
   const bucket={async get(key,options) {
@@ -36,5 +36,7 @@ export function localWorkerFixture(overlay, finePointer) {
     }
     return new Response(bytes,{headers:{'Content-Type':media[path.extname(name)]??'application/octet-stream'}});
   };
-  return url=>handleRequest(new Request(url),{WEATHER:bucket},serveAsset);
+  return url=>packagedWorkerFetch
+    ? packagedWorkerFetch(new Request(url),{WEATHER:bucket})
+    : handleRequest(new Request(url),{WEATHER:bucket},serveAsset);
 }

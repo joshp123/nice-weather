@@ -5,16 +5,20 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import {gunzipSync} from 'node:zlib';
+import {pathToFileURL} from 'node:url';
 import { spawn } from 'node:child_process';
 import { localWorkerFixture } from './local_worker_fixture.mjs';
 
 const output = process.argv[2];
-const fixture = process.argv[3] ? localWorkerFixture(path.resolve(process.argv[3])) : undefined;
+const packagedWorker = process.argv[4] ? path.resolve(process.argv[4], 'worker/index.js') : undefined;
+const packagedFetch = packagedWorker ? (await import(pathToFileURL(packagedWorker).href)).default.fetch : undefined;
+const fixture = process.argv[3] ? localWorkerFixture(path.resolve(process.argv[3]), undefined, packagedFetch) : undefined;
 const localFetch = fixture ?? fetch;
 const browserEvents = [];
 let pageReads = [];
-if (!output) throw Error('Usage: node research/fine/b1_app_proof.mjs <output-folder> [read-only-data-overlay]');
+if (!output) throw Error('Usage: node research/fine/b1_app_proof.mjs <output-folder> [read-only-data-overlay] [prepared-sites-package]');
 await fs.mkdir(output, { recursive: true });
+await fs.writeFile(path.join(output,'results.json'),JSON.stringify({passes:false,status:'running'},null,2)+'\n');
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'nwf-b1-cards-'));
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new', '--no-first-run', '--no-default-browser-check',
@@ -146,8 +150,15 @@ try {
   for(const file of ['hosting/sites/worker.mjs','hosting/sites/fine-place.mjs','hosting/sites/fine-candidates.mjs','src/engine/finePlaces.ts','src/engine/weatherEngine.ts','src/ui/map.ts','src/ui/home.ts','dist/index.html']) {
     sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
   }
+  if(packagedWorker) for(const name of await fs.readdir(path.dirname(packagedWorker))) {
+    const file=path.join(path.dirname(packagedWorker),name);
+    sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
+  }
   await fs.writeFile(path.join(output,'results.json'),JSON.stringify({written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,sources,views:results},null,2));
   await send('Target.closeTarget', { targetId });
+} catch(error) {
+  await fs.writeFile(path.join(output,'results.json'),JSON.stringify({passes:false,error:error.message},null,2)+'\n');
+  throw error;
 } finally {
   await fs.writeFile(path.join(output,'browser-events.json'),JSON.stringify(browserEvents,null,2)+'\n');
   socket?.close();
