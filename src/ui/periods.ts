@@ -8,7 +8,7 @@ export type ForecastIndex = Readonly<{ run: string; firstDate: string; days: num
 export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const;
 export const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 export const SEASONS: readonly Season[] = ['Dec-Feb', 'Mar-May', 'Jun-Aug', 'Sep-Nov'];
-export const SEASON_LABEL: Record<Season, string> = { 'Dec-Feb': 'Dec–Feb', 'Mar-May': 'Mar–May', 'Jun-Aug': 'Jun–Aug', 'Sep-Nov': 'Sep–Nov' };
+export const SEASON_LABEL: Record<Season, string> = { 'Dec-Feb': 'Winter, Dec to Feb', 'Mar-May': 'Spring, Mar to May', 'Jun-Aug': 'Summer, Jun to Aug', 'Sep-Nov': 'Autumn, Sep to Nov' };
 const SEASON_SENTENCE: Record<Season, string> = { 'Dec-Feb': 'December to February', 'Mar-May': 'March to May', 'Jun-Aug': 'June to August', 'Sep-Nov': 'September to November' };
 const SEASON_DAYS: Record<Season, number> = { 'Dec-Feb': 90, 'Mar-May': 92, 'Jun-Aug': 92, 'Sep-Nov': 91 };
 const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -61,9 +61,6 @@ function daysFromToday(date: Date, today = new Date()): number {
 /** "Today", "Tomorrow", "Sun 19". */
 export function dayChipLabel(forecast: ForecastIndex, day: number): string {
   const date = forecastDate(forecast, day);
-  const difference = daysFromToday(date);
-  if (difference === 0) return 'Today';
-  if (difference === 1) return 'Tomorrow';
   return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' });
 }
 
@@ -99,7 +96,7 @@ export function periodTitle(period: Period, forecast: ForecastIndex | null): str
       return difference === 0 ? `Today, ${long}` : difference === 1 ? `Tomorrow, ${long}` : long;
     }
     case 'month': return MONTH_NAMES[period.month - 1];
-    case 'season': return SEASON_SENTENCE[period.season];
+    case 'season': return SEASON_LABEL[period.season];
     case 'year': return 'The whole year';
   }
 }

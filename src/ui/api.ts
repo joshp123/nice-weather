@@ -36,7 +36,7 @@ export async function fetchPlace(latitude: number, longitude: number): Promise<P
 export const searchPlaces = (query: string) => json<SearchResult[]>(`/api/search?q=${encodeURIComponent(query)}`);
 
 export async function resolveSlug(slug: string): Promise<Place | null> {
-  const response = await fetch(`/api/slug/${encodeURIComponent(slug)}`);
+  const response = await fetch(`/api/slug/${slug.split('/').map(encodeURIComponent).join('/')}`);
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`/api/slug/${slug}: HTTP ${response.status}`);
   const place = (await response.json()) as Omit<Place, 'slug'> & { slug?: string };

@@ -38,7 +38,7 @@ export type Headline = Readonly<{ element: HTMLElement; set(sentence: string, no
 export function createHeadline(): Headline {
   const sentence = el('p', 'headline-sentence');
   const note = el('p', 'headline-note');
-  const element = el('header', 'headline panel', el('h1', 'wordmark', 'Nice Weather'), sentence, note);
+  const element = el('header', 'headline panel', el('h1', 'wordmark', 'Nice!'), sentence, note);
   return {
     element,
     set(text, noteText = null) {

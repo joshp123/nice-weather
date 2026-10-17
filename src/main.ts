@@ -8,7 +8,7 @@ import { fetchForecastIndex, fetchPlace, resolveSlug, type PlaceDetails, type Se
 import { renderCard } from './ui/card';
 import { el } from './ui/dom';
 import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces } from './ui/headline';
-import { createMap, type CityPoint, type WeatherMap } from './ui/map';
+import { createMap, type WeatherMap } from './ui/map';
 import { DEFAULT_PERIOD, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
 import { drawShareCard, renderShareMenu, type ShareContext } from './ui/share';
@@ -25,7 +25,8 @@ const phone = matchMedia('(max-width: 720px)');
 
 const link = parseLink(new URL(location.href));
 const saved = loadSavedView();
-let state: AppState = { period: link.period ?? saved.period ?? DEFAULT_PERIOD, sliders: { ...DEFAULT_SLIDERS, ...link.sliders }, place: null };
+const restoreSavedView = location.pathname === '/' && !location.search;
+let state: AppState = { period: link.period ?? (restoreSavedView ? saved.period : null) ?? DEFAULT_PERIOD, sliders: { ...DEFAULT_SLIDERS, ...(restoreSavedView ? saved.sliders : {}), ...link.sliders }, place: null };
 let forecast: ForecastIndex | null = null;
 let details: PlaceDetails | null = null;
 let verdict: PointVerdict | null = null;
@@ -34,6 +35,8 @@ let tasteOpen = false;
 let shareOpen = false;
 let periodProblem: string | null = null;
 let placeRequest = 0;
+let weatherLoading = true;
+let remainingCitiesRequested = false;
 
 const app = document.getElementById('app')!;
 const mapContainer = el('div', 'map');
@@ -47,14 +50,24 @@ app.append(mapContainer, el('div', 'slot slot-headline', headline.element), sear
 const startCamera = link.target?.kind === 'point'
   ? { center: [link.target.longitude, link.target.latitude] as const, zoom: link.target.zoom ?? 5 }
   : saved.camera;
-const weatherMap: WeatherMap = await createMap(mapContainer, theme, startCamera);
+const weatherMap: WeatherMap = await createMap(mapContainer, theme, startCamera, dataUrl);
 const { map } = weatherMap;
-const engine: WeatherEngine = createWeatherEngine(map, { dataUrl, onRedraw: () => afterRedraw() });
+const engine: WeatherEngine = createWeatherEngine(map, {
+  dataUrl,
+  onRedraw: () => afterRedraw(),
+  onLoadingChange(loading) {
+    weatherLoading = loading;
+    labelCities();
+    if (state.place) {
+      verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
+      weatherMap.showChosenPlace({ ...state.place, score: verdict?.meanScore });
+    }
+    render();
+  },
+});
 map.addLayer(engine.layer, 'sea');
 
-const judgesOtherPeriods = engine.judgePoint.length >= 3;
-const judge = (place: Place, period: Period): PointVerdict | null =>
-  judgesOtherPeriods ? (engine.judgePoint as (latitude: number, longitude: number, period: Period) => PointVerdict | null)(place.latitude, place.longitude, period) : null;
+const judge = (place: Place, period: Period): PointVerdict | null => engine.judgePoint(place.latitude, place.longitude, period);
 
 // ---------------------------------------------------------------- what the visitor can do
 
@@ -89,11 +102,12 @@ const actions: Actions = {
     selectPlace({ name: result.name, region: result.region, latitude: result.latitude, longitude: result.longitude, slug: result.slug ?? null });
   },
   locate() {
+    headline.set(headlineText, { text: 'Finding your location… Your position is not stored.', warning: false });
     navigator.geolocation.getCurrentPosition(position => {
       const { latitude, longitude } = position.coords;
       map.flyTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 5) });
       actions.selectPoint(latitude, longitude);
-    }, () => headline.set(headlineText, { text: 'Location is not available.', warning: true }));
+    }, () => headline.set(headlineText, { text: 'Location is not available. Search for your place instead.', warning: true }), { timeout: 15000 });
   },
   closePlace() {
     placeRequest++;
@@ -121,7 +135,7 @@ function selectPlace(place: Place): void {
   state = { ...state, place };
   details = null;
   verdict = engine.judgePoint(place.latitude, place.longitude);
-  weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: place.name });
+  weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: place.name, score: verdict?.meanScore });
   if (phone.matches) tasteOpen = false;
   render();
   updateLink();
@@ -130,7 +144,7 @@ function selectPlace(place: Place): void {
     if (request !== placeRequest) return;
     details = loaded;
     state = { ...state, place: { ...place, name: loaded.name, region: loaded.region, slug: loaded.slug ?? place.slug } };
-    weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: loaded.name });
+    weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: loaded.name, score: verdict?.meanScore });
     render();
     updateLink();
   }).catch(() => {
@@ -147,10 +161,11 @@ function keepPlaceInView(place: Place): void {
   if (!phone.matches) return;
   const ease = () => requestAnimationFrame(() => {
     const sheet = cardSlot.getBoundingClientRect();
-    map.easeTo({ center: [place.longitude, place.latitude], padding: { top: 120, bottom: Math.max(0, window.innerHeight - sheet.top) + 16, left: 0, right: 0 } });
+    const top = headline.element.getBoundingClientRect().bottom + 16;
+    const targetY = (top + sheet.top) / 2;
+    map.easeTo({ center: [place.longitude, place.latitude], padding: { top: 0, bottom: 0, left: 0, right: 0 }, offset: [0, targetY - window.innerHeight / 2] });
   });
-  if (map.loaded()) ease();
-  else map.once('load', ease);
+  ease();
 }
 
 // ---------------------------------------------------------------- the engine
@@ -158,11 +173,19 @@ function keepPlaceInView(place: Place): void {
 async function applyPeriod(): Promise<void> {
   const period = state.period;
   periodProblem = null;
-  headline.set(headlineText, { text: `Loading ${periodTitle(period, forecast).toLowerCase()}…`, warning: false });
+  weatherLoading = true;
+  verdict = null;
+  headlineText = `Where is it nice? ${periodTitle(period, forecast)}.`;
+  render();
   try {
     await engine.setPeriod(period);
+    if (samePeriod(period, state.period)) {
+      weatherLoading = engine.loading;
+      afterRedraw();
+    }
   } catch (error) {
     if (!samePeriod(period, state.period)) return;
+    weatherLoading = false;
     periodProblem = `Weather data for ${periodTitle(period, forecast).toLowerCase()} is missing: ${error instanceof Error ? error.message : String(error)}`;
     render();
   }
@@ -175,17 +198,23 @@ function showProblem(error: unknown): void {
 
 /** After every redraw: numbers on the city labels, the headline, and the chosen place's verdict. */
 function afterRedraw(): void {
+  if (!remainingCitiesRequested) {
+    remainingCitiesRequested = true;
+    void weatherMap.loadRemainingCities().then(labelCities);
+  }
   periodProblem = null;
   labelCities();
-  headlineText = headlineSentence(state.period, forecast, nicestPlaces(engine));
-  if (state.place) verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
+  headlineText = headlineSentence(state.period, forecast, nicestPlaces(engine)) || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
+  if (state.place) {
+    verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
+    weatherMap.showChosenPlace({ ...state.place, score: verdict?.meanScore });
+  }
   render();
 }
 
-let labelledCities: CityPoint[] = [];
 function labelCities(): void {
-  labelledCities = weatherMap.visibleCities();
-  weatherMap.labelCities(labelledCities, engine.scorePoints(labelledCities));
+  const cities = weatherMap.visibleCities();
+  weatherMap.labelCities(cities, engine.scorePoints(cities));
 }
 
 // ---------------------------------------------------------------- the interface
@@ -195,37 +224,27 @@ tasteSlot.append(tastePanel.element);
 searchSlot.append(createSearch(actions));
 
 function shareContext(): ShareContext {
-  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, link: new URL(buildLink(state, map.getZoom()), PUBLIC_ORIGIN).href };
+  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, link: new URL(buildLink(state.place ? state : { ...state, place: { name: '', region: '', slug: null, latitude: map.getCenter().lat, longitude: map.getCenter().lng } }, map.getZoom()), PUBLIC_ORIGIN).href };
 }
 
 function render(): void {
   const tasteIsDefault = slidersAreDefault(state.sliders);
-  const note = periodProblem ? { text: periodProblem, warning: true } : isForecast(state.period) && forecast ? forecastFreshness(forecast) : null;
+  const note = periodProblem ? { text: periodProblem, warning: true } : weatherLoading ? { text: `Loading weather figures for ${periodTitle(state.period, forecast).toLowerCase()}…`, warning: false } : isForecast(state.period) && forecast ? forecastFreshness(forecast) : null;
   headline.set(headlineText, note);
 
-  const chips = barSlot.querySelector<HTMLElement>('.chips');
-  const chipsScroll = chips?.scrollLeft ?? 0;
-  const scoreFor = (period: Period) => (state.place && judgesOtherPeriods ? judge(state.place, period)?.meanScore ?? null : null);
-  const bar = renderTimeBar({ period: state.period, forecast, scoreFor, tasteOpen, tasteIsDefault, shareOpen, theme }, actions);
-  if (shareOpen) bar.append(renderShareMenu(shareContext, () => { shareOpen = false; render(); }));
+  const bar = renderTimeBar({ period: state.period, forecast, tasteOpen, tasteIsDefault, shareOpen, theme }, actions);
+  if (shareOpen) bar.append(renderShareMenu(shareContext));
   barSlot.replaceChildren(bar);
-  const newChips = bar.querySelector<HTMLElement>('.chips');
-  const selected = newChips?.querySelector<HTMLElement>('.chip.selected');
-  if (newChips && selected) {
-    newChips.scrollLeft = chipsScroll;
-    const outside = selected.offsetLeft < newChips.scrollLeft || selected.offsetLeft + selected.offsetWidth > newChips.scrollLeft + newChips.clientWidth;
-    if (outside) newChips.scrollLeft = selected.offsetLeft - newChips.clientWidth / 2 + selected.offsetWidth / 2;
-  }
 
   if (state.place) {
     const place = state.place;
-    const dayScores = forecast && judgesOtherPeriods && isForecast(state.period)
+    const dayScores = forecast && isForecast(state.period)
       ? Array.from({ length: forecast.days }, (_, day) => judge(place, { kind: 'forecast-day', day })?.meanScore ?? null) : null;
-    const monthScores = judgesOtherPeriods && !isForecast(state.period)
+    const monthScores = !isForecast(state.period)
       ? Array.from({ length: 12 }, (_, index) => judge(place, { kind: 'month', month: (index + 1) as 1 })?.meanScore ?? null) : null;
     const allNull = (scores: readonly (number | null)[] | null) => scores !== null && scores.every(score => score === null);
     cardSlot.replaceChildren(renderCard({
-      place, details, verdict, period: state.period, forecast, tasteIsDefault,
+      place, details, verdict, period: state.period, forecast, tasteIsDefault, loading: weatherLoading, problem: periodProblem,
       dayScores: allNull(dayScores) ? null : dayScores, monthScores: allNull(monthScores) ? null : monthScores,
     }, actions));
   } else {
@@ -238,7 +257,13 @@ function render(): void {
   document.title = state.place?.name ? `${state.place.name} ${isForecast(state.period) ? '' : `in ${periodTitle(state.period, forecast)} `}· Nice Weather` : 'Nice Weather';
 }
 
+function rememberView(): void {
+  const centre = map.getCenter();
+  saveView(state, { center: [centre.lng, centre.lat], zoom: map.getZoom() });
+}
+
 function updateLink(): void {
+  rememberView();
   const link = buildLink(state, map.getZoom());
   const debugData = parameters.get('data');
   history.replaceState(null, '', debugData ? `${link}${link.includes('?') ? '&' : '?'}data=${encodeURIComponent(debugData)}` : link);
@@ -255,22 +280,33 @@ document.addEventListener('keydown', event => {
 
 // The panels stack under the headline and the search box; the card must never sit under the bar.
 const measured = new ResizeObserver(() => {
+  app.style.setProperty('--search-height', `${searchSlot.offsetHeight}px`);
   app.style.setProperty('--headline-height', `${headline.element.offsetHeight}px`);
   app.style.setProperty('--bar-height', `${barSlot.offsetHeight}px`);
+  document.documentElement.style.setProperty('--bar-height', `${barSlot.getBoundingClientRect().height}px`);
+  if (state.place && phone.matches && !tasteOpen && !shareOpen) keepPlaceInView(state.place);
 });
 measured.observe(headline.element);
+measured.observe(searchSlot);
 measured.observe(barSlot);
+measured.observe(cardSlot);
 
 // ---------------------------------------------------------------- the map's events
 
-map.on('click', event => actions.selectPoint(event.lngLat.lat, event.lngLat.lng));
+map.on('click', event => {
+  const city = map.queryRenderedFeatures(event.point, { layers: ['city-labels'] })[0];
+  if (city?.geometry.type === 'Point') {
+    const [longitude, latitude] = city.geometry.coordinates;
+    actions.selectSearchResult({ name: city.properties.name, region: '', slug: city.properties.slug, latitude, longitude });
+  } else actions.selectPoint(event.lngLat.lat, event.lngLat.lng);
+});
+map.on('mouseenter', 'city-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'city-labels', () => { map.getCanvas().style.cursor = ''; });
 map.on('moveend', () => {
-  const centre = map.getCenter();
-  saveView(state.period, { center: [centre.lng, centre.lat], zoom: map.getZoom() });
-  labelCities();
+  rememberView();
   if (state.place && !state.place.slug) updateLink();
 });
-map.once('idle', labelCities);
+void weatherMap.citiesReady.then(labelCities);
 
 // ---------------------------------------------------------------- start
 
@@ -279,10 +315,13 @@ window.niceWeatherShareCard = (width: number, height: number) => drawShareCard(w
 forecast = await fetchForecastIndex(dataUrl).catch(() => null);
 if (state.period.kind === 'forecast-day' && !(forecast && upcomingForecastDays(forecast).includes(state.period.day))) state = { ...state, period: { kind: 'forecast' } };
 render();
+void engine.setTaste(tasteFromSliders(state.sliders)).catch(showProblem);
 void applyPeriod();
 
 if (link.target?.kind === 'point') {
   actions.selectPoint(link.target.latitude, link.target.longitude);
+} else if (restoreSavedView && saved.place) {
+  selectPlace(saved.place);
 } else if (link.target?.kind === 'slug') {
   const place = await resolveSlug(link.target.slug).catch(() => null);
   if (place) {

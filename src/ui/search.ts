@@ -1,8 +1,8 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
-// Find a place by name. Enter takes the first result; the arrow uses the device's location.
+// Find a place by name. Enter takes the first result; My location uses the device's location.
 import type { Actions } from './actions';
 import { searchPlaces } from './api';
-import { button, el, locateIcon, searchIcon } from './dom';
+import { button, el, searchIcon } from './dom';
 
 export function createSearch(actions: Actions): HTMLElement {
   const input = el('input', 'search-input');
@@ -11,10 +11,17 @@ export function createSearch(actions: Actions): HTMLElement {
   input.autocomplete = 'off';
   input.setAttribute('aria-label', 'Search a place');
   const results = el('ul', 'search-results');
+  const privacy = el('p', 'location-privacy', 'Your position is sent for the place name. The server does not store it.');
+  privacy.id = 'location-privacy';
+  privacy.hidden = true;
+  privacy.setAttribute('role', 'status');
   let latest = 0;
   let timer: number | undefined;
   const clear = () => results.replaceChildren();
   input.oninput = () => {
+    privacy.hidden = true;
+    locate.removeAttribute('aria-describedby');
+    latest++;
     window.clearTimeout(timer);
     const query = input.value.trim();
     if (query.length < 2) { clear(); return; }
@@ -36,7 +43,11 @@ export function createSearch(actions: Actions): HTMLElement {
   input.onblur = () => window.setTimeout(clear, 150);
   const icon = el('span', 'search-icon');
   icon.innerHTML = searchIcon;
-  const locate = button('icon-button', '', actions.locate, 'Use my location');
-  locate.innerHTML = locateIcon;
-  return el('div', 'search panel', icon, input, locate, results);
+  const locate = button('location-button', 'My location', () => {
+    privacy.hidden = false;
+    locate.setAttribute('aria-describedby', privacy.id);
+    actions.locate();
+  });
+  locate.title = 'Centres the map on you and opens your place.';
+  return el('div', 'search-wrap', el('div', 'search panel', icon, input, locate, results), privacy);
 }

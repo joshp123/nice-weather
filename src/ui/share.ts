@@ -135,15 +135,6 @@ export async function drawShareCard(width: number, height: number, context: Shar
   return new Promise((resolve, reject) => canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Could not make the image'))), 'image/png'));
 }
 
-function canShareFiles(): boolean {
-  if (typeof navigator.canShare !== 'function') return false;
-  try {
-    return navigator.canShare({ files: [new File([new Uint8Array(8)], 'nice-weather.png', { type: 'image/png' })] });
-  } catch {
-    return false;
-  }
-}
-
 function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -155,7 +146,7 @@ function download(blob: Blob, name: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function renderShareMenu(context: () => ShareContext, onDone: () => void): HTMLElement {
+export function renderShareMenu(context: () => ShareContext): HTMLElement {
   const status = el('p', 'share-status');
   status.setAttribute('role', 'status');
   const say = (text: string) => { status.textContent = text; };
@@ -165,7 +156,14 @@ export function renderShareMenu(context: () => ShareContext, onDone: () => void)
       await navigator.clipboard.writeText(context().link);
       say('Link copied.');
     } catch {
-      say(context().link);
+      const field = el('input', 'copy-link-fallback');
+      field.value = context().link;
+      field.readOnly = true;
+      field.setAttribute('aria-label', 'Link to this view');
+      status.replaceChildren('Copy this link:', field);
+      field.focus();
+      field.select();
+      if (document.execCommand('copy')) say('Link copied.');
     }
   });
 
@@ -174,6 +172,7 @@ export function renderShareMenu(context: () => ShareContext, onDone: () => void)
     // Safari only accepts a promise made inside the click; the same PNG downloads when the clipboard refuses.
     const image = drawShareCard(1200, 630, current);
     copyImage.disabled = true;
+    say('Copying image…');
     try {
       if ('ClipboardItem' in window && navigator.clipboard?.write) {
         try {
@@ -196,22 +195,19 @@ export function renderShareMenu(context: () => ShareContext, onDone: () => void)
   const post = el('a', 'menu-button', 'Post on X');
   post.target = '_blank';
   post.rel = 'noopener';
-  post.onmousedown = post.ontouchstart = () => {
-    const current = context();
-    post.href = `https://x.com/intent/tweet?${new URLSearchParams({ text: shareText(current), url: current.link })}`;
-  };
-  post.onclick = () => { if (!post.href) post.onmousedown!(new MouseEvent('mousedown')); };
+  const current = context();
+  post.href = `https://x.com/intent/tweet?${new URLSearchParams({ text: shareText(current), url: current.link })}`;
 
   const items = [copyLink, copyImage, post];
-  if (canShareFiles()) {
-    items.push(button('menu-button', 'Share…', async () => {
+  if (typeof navigator.share === 'function') {
+    items.push(button('menu-button', 'Share with another app…', async () => {
       const current = context();
       try {
-        const file = new File([await drawShareCard(1200, 630, current)], 'nice-weather.png', { type: 'image/png' });
-        await navigator.share({ files: [file], text: shareText(current), url: current.link });
-        onDone();
+        // Call in the tap: awaiting an image first loses Safari's user activation.
+        await navigator.share({ text: shareText(current), url: current.link });
+        say('Shared.');
       } catch (error) {
-        if (!(error instanceof Error && error.name === 'AbortError')) say('Could not open the share sheet.');
+        if (!(error instanceof Error && error.name === 'AbortError')) say('Could not open the share sheet. Use Copy link instead.');
       }
     }));
   }

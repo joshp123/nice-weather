@@ -2,7 +2,7 @@
 // What the visitor is looking at, and the link that reopens it.
 //   /                      the world, next 14 days
 //   /july                  the world in July
-//   /lisbon-portugal/july  a place and a period
+//   /portugal/lisbon/july  a place and a period
 //   /@38.72,-9.14,6z       any point, with the map zoom
 //   ?perfectFrom=21        a slider moved from its default
 import { DEFAULT_PERIOD, periodFromWord, periodWord, samePeriod } from './periods';
@@ -44,8 +44,9 @@ export function parseLink(url: URL): ParsedLink {
   } else if (first) {
     period = periodFromWord(first);
     if (!period) {
-      target = { kind: 'slug', slug: first };
-      period = parts[1] ? periodFromWord(parts[1]) : null;
+      const hasCountry = Boolean(parts[1] && !periodFromWord(parts[1]));
+      target = { kind: 'slug', slug: hasCountry ? `${first}/${parts[1]}` : first };
+      period = periodFromWord(parts[hasCountry ? 2 : 1] ?? '');
     }
   }
   const sliders: Partial<Record<SliderId, number>> = {};
@@ -72,19 +73,19 @@ export function buildLink(state: AppState, zoom: number): string {
 
 // The last view, kept on this device so the map reopens where it was left (Josh: "remember my last view").
 const SAVED_VIEW_KEY = 'nice-weather-view-v6';
-type SavedView = { period: string; camera: Camera };
+type SavedView = { period: string; camera: Camera; sliders?: SliderValues; place?: Place | null };
 
-export function loadSavedView(): { period: Period | null; camera: Camera | null } {
+export function loadSavedView(): { period: Period | null; camera: Camera | null; sliders?: SliderValues; place?: Place | null } {
   try {
     const saved = JSON.parse(localStorage.getItem(SAVED_VIEW_KEY) ?? 'null') as SavedView | null;
     if (!saved) return { period: null, camera: null };
-    return { period: periodFromWord(saved.period), camera: saved.camera };
+    return { period: periodFromWord(saved.period), camera: saved.camera, sliders: saved.sliders, place: saved.place };
   } catch {
     return { period: null, camera: null };
   }
 }
 
-export function saveView(period: Period, camera: Camera): void {
-  const saved: SavedView = { period: periodWord(period), camera };
-  localStorage.setItem(SAVED_VIEW_KEY, JSON.stringify(saved));
+export function saveView(state: AppState, camera: Camera): void {
+  const saved: SavedView = { period: periodWord(state.period), camera, sliders: state.sliders, place: state.place };
+  try { localStorage.setItem(SAVED_VIEW_KEY, JSON.stringify(saved)); } catch { /* Private browsing can disable storage. */ }
 }

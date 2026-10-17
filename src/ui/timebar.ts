@@ -1,18 +1,16 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
 // The bar along the bottom: when (the one control used most), what the colours mean, taste and sharing,
 // and the small print.
-import { BANDS, type Period } from '../engine';
+import { BANDS, type Month, type Period } from '../engine';
 import { bands } from '../palette';
 import type { Actions } from './actions';
 import { button, el, swatch } from './dom';
-import { MONTH_SHORT, SEASONS, SEASON_LABEL, dayChipLabel, isForecast, periodWord, samePeriod, upcomingForecastDays, type ForecastIndex } from './periods';
+import { MONTH_NAMES, SEASONS, SEASON_LABEL, dayChipLabel, isForecast, periodWord, upcomingForecastDays, type ForecastIndex } from './periods';
 
 
 export type TimeBarView = Readonly<{
   period: Period;
   forecast: ForecastIndex | null;
-  /** The chosen place's score for a period, when known, for a dot on that chip. */
-  scoreFor: (period: Period) => number | null;
   tasteOpen: boolean;
   tasteIsDefault: boolean;
   shareOpen: boolean;
@@ -37,16 +35,6 @@ export function colourOnLand(colour: string, theme: 'dark' | 'light'): string {
   return `rgb(${blended.join(', ')})`;
 }
 
-function chip(label: string, selected: boolean, score: number | null, onSelect: () => void): HTMLButtonElement {
-  const dot = el('span', 'chip-dot');
-  if (score !== null) dot.style.background = bandColour(score);
-  else dot.classList.add('empty');
-  const node = button(selected ? 'chip selected' : 'chip', '', onSelect);
-  node.append(dot, label);
-  node.setAttribute('aria-pressed', String(selected));
-  return node;
-}
-
 function segmented<T extends string>(options: readonly (readonly [T, string])[], selected: T, onSelect: (value: T) => void, label: string): HTMLElement {
   const group = el('div', 'segmented');
   group.setAttribute('role', 'radiogroup');
@@ -60,18 +48,24 @@ function segmented<T extends string>(options: readonly (readonly [T, string])[],
   return group;
 }
 
-function periodChips(view: TimeBarView, actions: Actions): HTMLElement {
-  const chips = el('div', 'chips');
-  const add = (label: string, period: Period) => chips.append(chip(label, samePeriod(view.period, period), view.scoreFor(period), () => actions.setPeriod(period)));
-  if (isForecast(view.period)) {
-    add(`All ${view.forecast?.days ?? 14} days`, { kind: 'forecast' });
-    if (view.forecast) for (const day of upcomingForecastDays(view.forecast)) add(dayChipLabel(view.forecast, day), { kind: 'forecast-day', day });
-  } else {
-    add('Year', { kind: 'year' });
-    for (const season of SEASONS) add(SEASON_LABEL[season], { kind: 'season', season });
-    for (let month = 1; month <= 12; month++) add(MONTH_SHORT[month - 1], { kind: 'month', month: month as 1 });
+function periodPicker(view: TimeBarView, actions: Actions): HTMLElement {
+  const select = el('select', 'period-select');
+  select.setAttribute('aria-label', 'Choose a day, month or season');
+  const periods: [string, Period][] = [
+    [`Next ${view.forecast?.days ?? 14} days, all days`, { kind: 'forecast' }],
+    ...(view.forecast ? upcomingForecastDays(view.forecast).map(day => [dayChipLabel(view.forecast!, day), { kind: 'forecast-day', day }] as [string, Period]) : []),
+    ['The whole typical year', { kind: 'year' }],
+    ...SEASONS.map(season => [SEASON_LABEL[season], { kind: 'season', season }] as [string, Period]),
+    ...MONTH_NAMES.map((name, index) => [name, { kind: 'month', month: (index + 1) as Month }] as [string, Period]),
+  ];
+  for (const [label, period] of periods) {
+    const option = el('option', '', label);
+    option.value = periodWord(period);
+    option.selected = option.value === periodWord(view.period);
+    select.append(option);
   }
-  return chips;
+  select.onchange = () => actions.setPeriod(periods.find(([, period]) => periodWord(period) === select.value)![1]);
+  return el('label', 'period-picker', el('span', 'period-picker-label', 'When'), select);
 }
 
 function legend(theme: 'dark' | 'light'): HTMLElement {
@@ -91,20 +85,18 @@ export function renderTimeBar(view: TimeBarView, actions: Actions): HTMLElement 
     kind => actions.setPeriod(kind === 'forecast' ? { kind: 'forecast' } : { kind: 'year' }),
     'Time',
   );
-  const taste = button(`bar-button${view.tasteOpen ? ' active' : ''}${view.tasteIsDefault ? '' : ' changed'}`, 'Taste', actions.toggleTaste);
+  const taste = button(`bar-button${view.tasteOpen ? ' active' : ''}${view.tasteIsDefault ? '' : ' changed'}`, 'Your taste', actions.toggleTaste);
   if (!view.tasteIsDefault) taste.title = 'Your taste differs from the default';
   taste.setAttribute('aria-expanded', String(view.tasteOpen));
-  const share = button(`bar-button${view.shareOpen ? ' active' : ''}`, 'Share', actions.toggleShare);
+  const share = button(`bar-button${view.shareOpen ? ' active' : ''}`, 'Share options', actions.toggleShare);
   share.setAttribute('aria-expanded', String(view.shareOpen));
-  const chips = periodChips(view, actions);
-  chips.dataset.period = periodWord(view.period);
+  const picker = periodPicker(view, actions);
 
   const method = el('a', 'small-link', 'How it works');
   method.href = '/method';
-  const built = el('span', 'small-print', `Built ${__BUILD_DATE__} · ${__BUILD_COMMIT__}`);
 
   return el('nav', 'bar panel',
-    el('div', 'bar-row bar-time', timeKind, chips, el('div', 'bar-actions', taste, share)),
-    el('div', 'bar-row bar-meta', legend(view.theme), el('div', 'small-print-row', method, built)),
+    el('div', 'bar-row bar-time', timeKind, picker, el('div', 'bar-actions', taste, share)),
+    el('div', 'bar-row bar-meta', legend(view.theme), el('div', 'small-print-row', method)),
   );
 }

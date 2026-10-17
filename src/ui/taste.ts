@@ -7,15 +7,15 @@ import type { SliderId, SliderValues } from './state';
 
 type Copy = Readonly<{ name: string; readout: (value: number) => string; hint: string }>;
 
-const degrees = (value: number) => `${value} °C`;
+const degrees = (value: number) => `${value} °C`;
 
 const COPY: Record<SliderId, Copy> = {
   perfectFrom: { name: 'Warm enough', readout: value => `from ${degrees(value)}`, hint: 'Feels-like in the sun. Hours this warm count in full; 6 °C cooler counts 40%.' },
   tooHotFrom: { name: 'Too hot', readout: value => `from ${degrees(value)}`, hint: 'Feels-like in the shade. Hotter hours count less.' },
   walkHome: { name: 'Walk home at 21:00', readout: value => `fine from ${degrees(value)}`, hint: 'Feels-like at 21:00. Counts like two hours of the day.' },
-  humidity: { name: 'Humidity', readout: value => `halves a day at ${degrees(value)} dew point`, hint: 'Dew point: 16 °C is dry, 20 muggy, 24 oppressive.' },
-  wind: { name: 'Wind', readout: value => `halves a day at ${value} km/h`, hint: 'The day’s average; gusts run higher.' },
-  rain: { name: 'Rain', readout: value => `halves a day at ${value} mm`, hint: 'Total from 10:00 to 21:00. 1 mm is a shower, 10 mm a wet afternoon.' },
+  humidity: { name: 'Humidity', readout: value => `halves a day at ${degrees(value)} dew point`, hint: 'Dew point: dry up to 13 °C, comfortable to 16, humid to 18, muggy to 21, oppressive to 24, miserable above 24.' },
+  wind: { name: 'Wind', readout: value => `halves a day at ${value} km/h`, hint: 'The day’s average; gusts run higher.' },
+  rain: { name: 'Rain', readout: value => `halves a day at ${value} mm`, hint: 'Total from 10:00 to 21:00. 1 mm is a shower, 10 mm a wet afternoon.' },
 };
 
 export type TastePanel = Readonly<{ element: HTMLElement; update(values: SliderValues): void }>;
@@ -48,7 +48,7 @@ export function createTastePanel(values: SliderValues, actions: Actions): TasteP
   }
   const reset = button('text-button', 'Reset to the default', actions.resetSliders);
   const element = el('section', 'taste panel',
-    el('header', 'card-header', el('div', '', el('h2', '', 'Your taste'), el('p', 'muted', 'The default is how Josh likes it: warm, sunny, dry and calm. Drag a slider and the whole map redraws.')), close),
+    el('header', 'card-header', el('div', '', el('h2', '', 'Your taste'), el('p', 'muted', 'The default taste is warm, sunny, dry and calm. Drag a slider and the whole map redraws.')), close),
     list,
     el('div', 'taste-foot', reset));
   return {
