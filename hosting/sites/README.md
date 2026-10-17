@@ -30,12 +30,14 @@ The publisher credential is supplied privately through the environment at use ti
 
 The typical-day update also requires regenerated `v6/climate/scores.bin`, all 133 climate score PNGs (months, consecutive runs and year), and all 15 score PNGs for the current forecast (the fortnight and its 14 days). Keep these together with the app build: older images describe average days. Visible score numbers and score-image bytes use the floor of the continuous typical-day score, so rounding cannot promote a place into the next band. Day counts round to the nearest whole day.
 
+The CPU, GPU, Worker and generators resolve score arithmetic to four decimal places before threshold comparisons and after the typical-day calculation. This prevents floating-point differences at a threshold from changing a day's band between the initial image and the loaded app.
+
 The generated files are supplied separately under `/tmp`; published climate data is not changed by local verification. To inspect that complete set without copying it into `artifacts/`, use an overlay root containing `v6/climate/` and `v6/forecast/<run>/`:
 
 ```sh
 NICE_WEATHER_GENERATED_DATA=/tmp/generated-weather-data devenv shell -- npm run serve
 ```
 
-Deployment is blocked until the forecast owner updates `internal/dailyforecast/v6_scores.go`. That future score-image writer still uses the mean and bilinear cell interpolation; it must use the same typical-day rule, selected fine point's owning cell and floored score bytes before the next daily forecast is published. This change does not edit that owner's files.
+The Go forecast writer now uses the same typical-day rule, selected fine point's owning cell and floored score bytes. Include the rebuilt `artifacts/runner/` executable and notices when publishing this update, so the next daily refresh preserves the new behaviour. The forecast verification report is [research/site/forecast-runner-proof.md](../../research/site/forecast-runner-proof.md).
 
 Link-preview PNGs live under `v6/cards/typical-day/`. Render them with `research/taste/render_cards.py --out <overlay>/v6/cards/typical-day`; its positional argument is the number of largest named places. `--periods` accepts arbitrary runs. Preview text always includes the selected place's current default-taste judgement and counts. If that exact named place and period has no new PNG, the link uses a text preview. Coordinate links also use text previews, since a nearby town's image could describe another point. Legacy mean-score PNGs are not reused.

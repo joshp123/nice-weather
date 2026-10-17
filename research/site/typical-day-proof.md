@@ -2,7 +2,7 @@ Written by AI on 2026.10.17 by model GPT-6.1 Sol.
 
 # Typical days and day counts
 
-Implemented locally; not pushed or deployed. The proposal comparison has a numerical acceptance gap, explained below. The daily forecast image writer also needs its owner's change before deployment.
+Implemented locally; not pushed or deployed. Josh accepted the proposal's point-choice differences after review. The daily forecast writer handoff is completed in [forecast-runner-proof.md](forecast-runner-proof.md).
 
 ## Product behaviour
 
@@ -89,6 +89,6 @@ No published climate files were edited. New outputs are under `/private/tmp/nwf-
 
 Regenerate after the data owner's rebuild; these outputs describe the currently available local data. `src/engine/default_scores.py <v6-folder> --images <output-folder>` writes climate images and scores only to the chosen output. Add `--forecast <run-folder>` for the forecast images. Use the existing project Python environment with NumPy and Pillow. The preview renderer accepts `--out` and `--periods`, including arbitrary runs.
 
-**Do not deploy until the forecast owner updates `internal/dailyforecast/v6_scores.go`.** It still writes mean scores with bilinear cell interpolation and nearest-integer bytes. It must use the same threshold-median rule, selected point's owning cell and floored score bytes; otherwise the next refresh replaces the correct initial images with old behaviour. This file is outside the authorised edit scope and was left alone.
+The original forecast-writer handoff is now complete: `internal/dailyforecast/v6_scores.go` uses the threshold-median rule, selected point's owning cell and floored score bytes. Josh extended edit ownership for that follow-up. See [forecast-runner-proof.md](forecast-runner-proof.md) for its fresh ECMWF run and image comparisons.
 
 Build, Worker syntax check, Python compilation and `git diff --check` passed. No paid services were used. Other workers' `research/fine` changes were left out of these commits.
