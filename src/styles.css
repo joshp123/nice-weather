@@ -227,7 +227,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .legend { gap: 7px; }
   .legend-step { font-size: 11px; gap: 4px; }
   .legend-colour { width: 12px; height: 9px; }
-  .legend-caption, .legend-from, .small-print, .small-link:not(.methodology) { display: none; }
+  .legend-caption, .legend-from, .small-print { display: none; }
   .small-print-row { font-size: 11px; }
   .share-open .slot-card { display: none; }
   .why-row { grid-template-columns: 112px 1fr auto; }

@@ -7,7 +7,6 @@ import type { Actions } from './actions';
 import { button, el, swatch } from './dom';
 import { MONTH_SHORT, SEASONS, SEASON_LABEL, dayChipLabel, isForecast, periodWord, samePeriod, upcomingForecastDays, type ForecastIndex } from './periods';
 
-export const METHODOLOGY_LINE = 'Plz read the methodology b4 posting a screenshot on Twitter pwning me';
 
 export type TimeBarView = Readonly<{
   period: Period;
@@ -102,12 +101,10 @@ export function renderTimeBar(view: TimeBarView, actions: Actions): HTMLElement 
 
   const method = el('a', 'small-link', 'How it works');
   method.href = '/method';
-  const methodology = el('a', 'small-link methodology', METHODOLOGY_LINE);
-  methodology.href = '/method';
   const built = el('span', 'small-print', `Built ${__BUILD_DATE__} · ${__BUILD_COMMIT__}`);
 
   return el('nav', 'bar panel',
     el('div', 'bar-row bar-time', timeKind, chips, el('div', 'bar-actions', taste, share)),
-    el('div', 'bar-row bar-meta', legend(view.theme), el('div', 'small-print-row', method, methodology, built)),
+    el('div', 'bar-row bar-meta', legend(view.theme), el('div', 'small-print-row', method, built)),
   );
 }

@@ -6,7 +6,7 @@ import type { Period, PointVerdict } from '../engine';
 import { button, el } from './dom';
 import { niceDaysSentence, periodPhrase, periodTitle, type ForecastIndex } from './periods';
 import type { Place } from './state';
-import { METHODOLOGY_LINE, bandColour } from './timebar';
+import { bandColour } from './timebar';
 
 export type ShareContext = Readonly<{
   map: maplibregl.Map;
@@ -127,9 +127,6 @@ export async function drawShareCard(width: number, height: number, context: Shar
     draw.fillText(fitText(draw, context.headline, width - 2 * margin), margin, titleBaseline + 40 * unit);
   }
 
-  draw.font = `500 ${18 * unit}px Barlow, sans-serif`;
-  draw.fillStyle = 'rgba(255,255,255,0.8)';
-  draw.fillText(METHODOLOGY_LINE, margin, height - margin + 10 * unit);
   draw.textAlign = 'right';
   draw.fillStyle = '#ffffff';
   draw.font = `600 ${20 * unit}px Barlow, sans-serif`;
