@@ -61,8 +61,8 @@ function loadPlaces(bucket) {
   placesPromise ??= (async () => {
     const text = await (await bucket.get('places.tsv')).text();
     const places = text.split('\n').map((line) => {
-      const [name, plainName, region, latitude, longitude, population] = line.split('\t');
-      return { name, key: normalise(plainName), slug: slugFor(plainName, region), oldSlug: oldSlugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
+      const [name, plainName, region, latitude, longitude, population, geonamesPlainName = plainName] = line.split('\t');
+      return { name, key: normalise(plainName), localKey: normalise(geonamesPlainName), slug: slugFor(plainName, region), oldSlug: oldSlugFor(geonamesPlainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
     });
     const bySlug = new Map();
     const byOldSlug = new Map();
@@ -72,9 +72,10 @@ function loadPlaces(bucket) {
     }
     const byFirstLetters = new Map();
     for (const place of places) {
-      const firstLetters = place.key.slice(0, 2);
-      if (!byFirstLetters.has(firstLetters)) byFirstLetters.set(firstLetters, []);
-      byFirstLetters.get(firstLetters).push(place);
+      for (const firstLetters of new Set([place.key.slice(0, 2), place.localKey.slice(0, 2)])) {
+        if (!byFirstLetters.has(firstLetters)) byFirstLetters.set(firstLetters, []);
+        byFirstLetters.get(firstLetters).push(place);
+      }
     }
     const byDegree = new Map();
     for (const place of places) {
@@ -164,21 +165,22 @@ async function search(bucket, query) {
   }
   const wanted = normalise(query.trim()).replace(/\s+/g, ' ');
   if (wanted.length < 2) return [];
-  const byBiggest = (left, right) => (left.key === wanted ? 0 : 1) - (right.key === wanted ? 0 : 1) || right.population - left.population;
+  const exact = (place) => (place.key === wanted || place.localKey === wanted ? 0 : 1);
+  const byBiggest = (left, right) => exact(left) - exact(right) || right.population - left.population;
   const areaTowns = (AREA_TOWNS[wanted] ?? []).map((slug) => bySlug.get(slug)).filter(Boolean);
-  let found = places.filter((place) => place.key.startsWith(wanted));
+  let found = places.filter((place) => place.key.startsWith(wanted) || place.localKey.startsWith(wanted));
   // "Málaga Spain", "san diego, california": a name, then its region or country.
   if (!found.length && /[ ,]/.test(wanted)) {
     const words = wanted.split(/[ ,]+/).filter(Boolean);
     for (let split = words.length - 1; split >= 1 && !found.length; split--) {
       const name = words.slice(0, split).join(' ');
       const where = words.slice(split).join(' ');
-      found = places.filter((place) => place.key.startsWith(name) && normalise(place.region).includes(where));
+      found = places.filter((place) => (place.key.startsWith(name) || place.localKey.startsWith(name)) && normalise(place.region).includes(where));
     }
   }
   // Another spelling of the same name ("Marrakech" for Marrakesh): close names with the same first letters.
   if (found.length < 3 && wanted.length >= 4) {
-    const close = (byFirstLetters.get(wanted.slice(0, 2)) ?? []).filter((place) => !found.includes(place) && editDistanceAtMost(place.key.slice(0, wanted.length + 1), wanted, 2));
+    const close = (byFirstLetters.get(wanted.slice(0, 2)) ?? []).filter((place) => !found.includes(place) && (editDistanceAtMost(place.key.slice(0, wanted.length + 1), wanted, 2) || editDistanceAtMost(place.localKey.slice(0, wanted.length + 1), wanted, 2)));
     found = [...found, ...close.sort(byBiggest).slice(0, 5)];
   }
   found.sort(byBiggest);
