@@ -9,7 +9,7 @@ import { renderCard } from './ui/card';
 import { button, el } from './ui/dom';
 import { countryFlag } from './ui/countries';
 import { requestHome, inferredHome, timeZoneHome, isHomeWinter, regionalComparison } from './ui/home';
-import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, type HeadlinePlace } from './ui/headline';
+import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, viewportRegion, type HeadlinePlace } from './ui/headline';
 import { createMap, type WeatherMap } from './ui/map';
 import { DEFAULT_PERIOD, daysInPeriod, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
@@ -32,6 +32,7 @@ let forecast: ForecastIndex | null = null;
 let details: PlaceDetails | null = null;
 let verdict: PointVerdict | null = null;
 let headlineText = '';
+let headlineRegion = 'the world';
 let home = timeZoneHome();
 let homeOverridden = false;
 let rankedPlaces: HeadlinePlace[] = [];
@@ -113,15 +114,15 @@ const actions: Actions = {
     selectPlace({ name: result.name, region: result.region, latitude: result.latitude, longitude: result.longitude, slug: result.slug ?? null });
   },
   locate() {
-    headline.set(headlineText, { text: 'Finding your location… Your position is not stored.', warning: false });
+    headline.set(headlineText, { text: 'Finding your location…', warning: false });
     navigator.geolocation.getCurrentPosition(position => {
       const { latitude, longitude } = position.coords;
       map.flyTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 5) });
       homeOverridden = true;
       home = { name: 'Your location', region: '', latitude, longitude, slug: null };
-      void fetchPlace(latitude, longitude).then(found => { home = found; render(); });
+      void fetchPlace(latitude, longitude).then(found => { home = { ...found, latitude, longitude }; render(); });
       actions.selectPoint(latitude, longitude);
-    }, () => headline.set(headlineText, { text: 'Location is not available. Search for your place instead.', warning: true }), { timeout: 15000 });
+    }, () => headline.set(headlineText, { text: 'Location is not available. Search for your place instead.', warning: true }), { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 });
   },
   closePlace() {
     placeRequest++;
@@ -158,7 +159,7 @@ function selectPlace(place: Place): void {
   fetchPlace(place.latitude, place.longitude).then(loaded => {
     if (request !== placeRequest) return;
     details = { ...loaded, name: place.name || loaded.name, region: place.region || loaded.region };
-    state = { ...state, place: { ...place, name: details.name, region: details.region, slug: loaded.slug ?? place.slug } };
+    state = { ...state, place: { ...place, name: details.name, region: details.region, slug: place.slug } };
     weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: details.name, score: verdict?.meanScore });
     render();
     updateLink();
@@ -190,6 +191,7 @@ async function applyPeriod(): Promise<void> {
   periodProblem = null;
   weatherLoading = true;
   verdict = null;
+  rankedPlaces = [];
   headlineText = `Where is it nice? ${periodTitle(period, forecast)}.`;
   render();
   try {
@@ -236,8 +238,9 @@ function afterRedraw(): void {
 }
 
 function updateHeadline(): void {
-  rankedPlaces = nicestPlaces(engine, weatherMap.visibleCities(), map.getZoom() <= 2 ? undefined : map.getBounds(), 8);
-  headlineText = headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3))
+  headlineRegion = viewportRegion(map.getBounds(), weatherMap.visibleCities());
+  rankedPlaces = nicestPlaces(engine, weatherMap.visibleCities(), map.getBounds(), 8);
+  headlineText = headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion)
     || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
 }
 
@@ -264,7 +267,22 @@ function togglePlaying(): void {
   render();
 }
 
+function toggleList(): void {
+  listOpen = !listOpen;
+  pickerOpen = false;
+  tasteOpen = false;
+  if (state.place) actions.closePlace();
+  else render();
+}
+
 function renderList(stretchLabel: string): void {
+  const trigger = button('list-trigger panel', `Most nice days ${listOpen ? '⌄' : '›'}`, toggleList);
+  trigger.setAttribute('aria-expanded', String(listOpen));
+  if (!listOpen) {
+    listSlot.replaceChildren(trigger);
+    weatherMap.showHomeConnection(null, null);
+    return;
+  }
   const days = daysInPeriod(state.period, forecast);
   const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', 'Most nice days'), el('span', '', `of ${days}`)));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
@@ -289,7 +307,7 @@ function renderList(stretchLabel: string): void {
     list.append(el('div', 'home-lines', homeLine, comparison, travel));
     weatherMap.showHomeConnection(home, byVan);
   } else weatherMap.showHomeConnection(null, null);
-  listSlot.replaceChildren(list);
+  listSlot.replaceChildren(list, trigger);
 }
 
 async function openPoster(): Promise<void> {
@@ -316,7 +334,7 @@ function shareContext(): ShareContext {
 function render(): void {
   const tasteIsDefault = slidersAreDefault(state.sliders);
   const note = periodProblem ? { text: periodProblem, warning: true } : weatherLoading ? { text: `Loading weather figures for ${periodTitle(state.period, forecast).toLowerCase()}…`, warning: false } : isForecast(state.period) && forecast ? forecastFreshness(forecast) : null;
-  headline.set(headlineText, note, rankedPlaces.length ? placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace) : undefined);
+  headline.set(headlineText, note, rankedPlaces.length ? placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace, headlineRegion) : undefined);
   if (!headline.element.querySelector('.masthead-links')) {
     const method = el('a', '', 'How it works'); method.href = '/method';
     const credits = el('a', '', 'Credits'); credits.href = '/method#credits';
@@ -337,10 +355,11 @@ function render(): void {
     playYear: togglePlaying,
   }, actions);
   const answer = el('div', 'dock-answer');
-  if (rankedPlaces.length) answer.append(placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace));
+  if (rankedPlaces.length) answer.append(placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace, headlineRegion));
   else answer.append(headlineText);
-  answer.append(button('list-toggle', '›', () => { listOpen = !listOpen; pickerOpen = false; tasteOpen = false; if (state.place) actions.closePlace(); render(); }, 'All places on the map'));
+  answer.append(button('list-toggle', '›', toggleList, 'Most nice days'));
   bar.insertBefore(answer, bar.querySelector('.bar-meta'));
+  headline.element.querySelector('.home-summary')?.remove();
   const comparisonCity = regionalComparison(home);
   const homeNumbers = home ? judge(home, state.period) : null;
   const comparisonNumbers = judge(comparisonCity, state.period);
@@ -349,7 +368,11 @@ function render(): void {
       button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!)), ` ${Math.round(homeNumbers.niceDayCount)}`);
     if (home.name !== comparisonCity.name) comparison.append(', ', button('inline-place', `${countryFlag(comparisonCity)} ${comparisonCity.name}`, () => actions.selectSearchResult(comparisonCity)), ` ${Math.round(comparisonNumbers.niceDayCount)}`);
     comparison.append('.');
-    bar.insertBefore(comparison, bar.querySelector('.bar-meta'));
+    if (phone.matches) bar.insertBefore(comparison, bar.querySelector('.bar-meta'));
+    else {
+      comparison.classList.add('home-summary');
+      headline.element.querySelector('.headline-copy')!.append(comparison);
+    }
   }
   barSlot.replaceChildren(bar);
   renderList(stretchLabel);
@@ -377,7 +400,7 @@ function render(): void {
   app.classList.toggle('picker-open', pickerOpen);
   app.classList.toggle('list-open', listOpen);
   app.classList.toggle('has-place', Boolean(state.place));
-  document.title = state.place?.name ? `${state.place.name} ${isForecast(state.period) ? '' : `in ${periodTitle(state.period, forecast)} `}· Nice Weather` : 'Nice Weather';
+  document.title = headlineText;
 }
 
 function rememberView(): void {

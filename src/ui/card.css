@@ -1,5 +1,7 @@
 /* Written by AI on 2026.10.18 by model GPT-6.1 Sol. */
-.physical-why .why-row { grid-template-columns: minmax(0, 1fr) minmax(0, var(--reason-value-width)); row-gap: var(--space-2); }
+.card.physical-card { gap: var(--space-2); }
+.physical-card .month-strip { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.physical-why .why-row { grid-template-columns: minmax(0, 1fr) minmax(0, var(--reason-value-width)); row-gap: var(--space-1); padding-block: var(--space-compact); }
 .physical-why .why-row dd { display: block; text-align: right; }
 .physical-why .why-detail { margin-left: var(--space-1); }
 .physical-why .why-effect { display: inline; margin-left: var(--space-1); font-size: var(--size-caption); color: var(--muted); }

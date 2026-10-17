@@ -33,7 +33,7 @@
 @media (prefers-color-scheme: light) {
   :root { --surface: #fbf9f4; --raised: #1414130b; --hover: #14141314; --border: #14141324; --text: #141413; --muted: #5f5b53; --faint: #736e64; --page: #eeeae1; --selected-background: #141413; --selected-text: #fbf9f4; --warning: #946700; --shadow: 0 12px 32px #28201422; --overlay: #eeeae1d9; }
 }
-@media (min-width: 2560px) { :root { --ui: 1.5; --toolbar-width: 825px; } }
+@media (min-width: 2560px) { :root { --ui: 1.5; --toolbar-width: 825px; --panel-width: calc(460px * var(--ui)); --picker-width: calc(480px * var(--ui)); --list-width: calc(420px * var(--ui)); } }
 @media (max-width: 720px) {
   :root { --ui: 1; --size-wordmark: 36px; --size-headline: 15px; --size-display: 26px; --size-title: 21px; --edge: 10px; --inset: 0px; --masthead-height: 0px; --footer-height: 0px; --radius-frame: 0px; --panel-width: calc(100vw - var(--edge) * 2); --picker-width: var(--panel-width); --dock-height: 190px; }
 }
@@ -41,7 +41,7 @@
 :root { font-family: var(--font); font-size: var(--size-body); font-weight: var(--weight); line-height: 1.35; font-variant-numeric: tabular-nums; color: var(--text); background: var(--page); -webkit-font-smoothing: antialiased; }
 /* Map labels, borders and selection markers share the same tuning surface. */
 :root {
-  --map-land: #363b43; --map-sea: #0e0f11; --map-state-border: #ffffff24; --map-country-border: #ffffff57;
+  --map-land: #363b43; --map-sea: #263440; --map-state-border: #ffffff24; --map-country-border: #ffffff57;
   --map-label: #f6f7f9; --map-label-halo: #0a0d12eb; --map-label-scale: 1;
   --map-label-small: 12; --map-label-large: 16; --map-label-line-height: 1.35; --map-label-width: 9; --map-label-padding: 16; --map-label-halo-width: 1.5;
   --map-state-width: .4; --map-country-width-small: .45; --map-country-width-large: .8;
@@ -55,7 +55,7 @@
 @media (prefers-color-scheme: light) {
   :root { --map-land: #d5d9df; --map-sea: #fbf9f4; --map-state-border: #14182017; --map-country-border: #1418203b; --map-label: #15181d; --map-label-halo: #fffffff0; --map-count-outline: #0000004d; }
 }
-@media (min-width: 2560px) { :root { --map-label-scale: 1.35; --map-show-whole-world: 1; } }
+@media (min-width: 2560px) { :root { --map-label-scale: 1.5; --map-show-whole-world: 1; } }
 :root {
  --masthead-min-height: 116px;
  --rule-width: 1px; --focus-width: 2px; --weight-brand: 900;
@@ -70,3 +70,5 @@
  --thumb-shadow: 0 1px 3px #0005;
 }
 :root { --dock-min-height: 190px; }
+
+:root { --poster-frame-radius: 18px; }

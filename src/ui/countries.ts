@@ -4,9 +4,13 @@ const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 const countryCodeByName = new Map(countryCodes.map(code => [countryNames.of(code)?.toLowerCase(), code]));
 for (const [name, code] of Object.entries({ 'palestine': 'PS', 'palestinian territory': 'PS', 'united states': 'US', 'united kingdom': 'GB', 'russia': 'RU', 'south korea': 'KR', 'north korea': 'KP', 'iran': 'IR', 'syria': 'SY', 'laos': 'LA', 'taiwan': 'TW', 'vietnam': 'VN', 'tanzania': 'TZ', 'bolivia': 'BO', 'venezuela': 'VE', 'moldova': 'MD', 'brunei': 'BN', 'cape verde': 'CV', 'czech republic': 'CZ', 'swaziland': 'SZ', 'ivory coast': 'CI', 'democratic republic of the congo': 'CD', 'republic of the congo': 'CG', 'réunion': 'RE', 'turkey': 'TR' })) countryCodeByName.set(name, code);
 
-export function countryFlag(place: { region?: string; slug?: string | null }): string {
+export function countryCode(place: { region?: string; slug?: string | null }): string {
   const countryName = place.region?.split(',').at(-1)?.trim().toLowerCase();
   const slugCountry = place.slug?.split('/')[0].replaceAll('-', ' ');
   const code = countryName && /^[a-z]{2}$/.test(countryName) ? countryName.toUpperCase() : countryCodeByName.get(countryName) ?? countryCodeByName.get(slugCountry);
-  return code ? Array.from(code, letter => String.fromCodePoint(127397 + letter.charCodeAt(0))).join('') : '';
+  return code ?? '';
+}
+
+export function countryFlag(place: { region?: string; slug?: string | null }): string {
+  return Array.from(countryCode(place), letter => String.fromCodePoint(127397 + letter.charCodeAt(0))).join('');
 }

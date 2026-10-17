@@ -62,6 +62,8 @@ export async function drawShareCard(width: number, height: number, context: Shar
   });
   clone.querySelector('.poster-slot')?.remove();
   clone.style.background = 'transparent';
+  const posterHeadline = clone.querySelector<HTMLElement>('.slot-headline');
+  if (posterHeadline) { posterHeadline.style.background = 'transparent'; posterHeadline.style.boxShadow = 'none'; }
   const mapClone = clone.querySelector<HTMLElement>('.map');
   if (mapClone) mapClone.style.background = 'transparent';
   clone.style.position = 'relative'; clone.style.width = `${bounds.width}px`; clone.style.height = `${bounds.height}px`;
@@ -90,14 +92,29 @@ export async function drawShareCard(width: number, height: number, context: Shar
   await ready;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const draw = canvas.getContext('2d')!;
-  draw.fillStyle = getComputedStyle(app).backgroundColor; draw.fillRect(0, 0, width, height);
+  const tokens = getComputedStyle(app);
+  draw.fillStyle = tokens.getPropertyValue('--page'); draw.fillRect(0, 0, width, height);
   const mapBounds = context.map.getContainer().getBoundingClientRect();
+  const scaleX = width / bounds.width, scaleY = height / bounds.height;
+  const measure = document.createElement('div');
+  measure.style.cssText = 'position:absolute;visibility:hidden;height:0;';
+  app.append(measure);
+  const length = (name: string) => { measure.style.width = `var(${name})`; return measure.getBoundingClientRect().width; };
+  const edge = length('--edge');
+  const masthead = length('--masthead-height');
+  const footer = length('--footer-height');
+  const radius = length('--poster-frame-radius');
+  measure.remove();
+  const frameTop = Math.max(edge, masthead);
+  const frameBottom = Math.max(edge, footer);
   draw.save();
   draw.beginPath();
-  draw.roundRect(mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height, parseFloat(getComputedStyle(context.map.getContainer()).borderRadius) * width / bounds.width); draw.clip();
-  draw.fillStyle = getComputedStyle(context.map.getContainer()).backgroundColor;
-  draw.fillRect(mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height);
-  draw.drawImage(mapImage, mapBounds.x * width / bounds.width, mapBounds.y * height / bounds.height, mapBounds.width * width / bounds.width, mapBounds.height * height / bounds.height);
+  draw.roundRect(edge * scaleX, frameTop * scaleY, (bounds.width - edge * 2) * scaleX,
+    (bounds.height - frameTop - frameBottom) * scaleY, radius * scaleX);
+  draw.clip();
+  draw.fillStyle = tokens.getPropertyValue('--map-sea');
+  draw.fillRect(0, 0, width, height);
+  draw.drawImage(mapImage, mapBounds.x * scaleX, mapBounds.y * scaleY, mapBounds.width * scaleX, mapBounds.height * scaleY);
   draw.restore();
   draw.drawImage(bitmap, 0, 0, width, height);
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('The poster could not be saved')), 'image/png'));
@@ -106,7 +123,7 @@ export async function drawShareCard(width: number, height: number, context: Shar
 export async function renderPoster(context: ShareContext, close: () => void): Promise<HTMLElement> {
   const blob = await drawShareCard(innerWidth, innerHeight, context);
   const url = URL.createObjectURL(blob);
-  const preview = el('img', 'poster-preview'); preview.src = url; preview.alt = 'Your Nice Weather poster, exactly as shown on the map';
+  const preview = el('img', 'poster-preview'); preview.src = url; preview.alt = 'Your Nice Weather poster with the current map and headline';
   const dismiss = () => { URL.revokeObjectURL(url); close(); };
   const namedPlaces = Array.from(document.querySelectorAll<HTMLElement>('#app .inline-place')).map(element => ({ element, bounds: element.getBoundingClientRect() })).filter(entry => entry.bounds.width && entry.bounds.height);
   const artwork = el('div', 'poster-artwork', preview);

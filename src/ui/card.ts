@@ -187,5 +187,5 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   const periodLine = el('p', 'card-period', isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`);
 
   const strip = isForecast(view.period) ? dayStrip(view, actions) : null;
-  return el('section', 'card panel', header, answer, periodLine, comparisons(view, actions), why(verdict, view.taste ?? DEFAULT_TASTE), strip, monthStrip(view, actions));
+  return el('section', 'card panel physical-card', header, answer, periodLine, why(verdict, view.taste ?? DEFAULT_TASTE), strip, monthStrip(view, actions), comparisons(view, actions));
 }

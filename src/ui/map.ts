@@ -60,7 +60,7 @@ function style(colours: MapDesign): StyleSpecification {
     sources: {
       openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
       'city-scores': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
-      'palestine-label': { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [34.8, 31.15] } }] } },
+      'palestine-label': { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { longitude: 34.8, latitude: 31.15 }, geometry: { type: 'Point', coordinates: [34.8, 31.15] } }] } },
       'chosen-place': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       'home-connection': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     },
@@ -82,6 +82,7 @@ function style(colours: MapDesign): StyleSpecification {
         layout: {
           'icon-image': 'chosen-place', 'icon-allow-overlap': true,
           'text-field': scoredLabel, 'text-font': ['Noto Sans Bold'], 'text-size': colours.chosenSize * colours.labelScale,
+          'text-max-width': colours.labelWidth,
           'text-anchor': 'left', 'text-offset': [colours.chosenOffset, 0], 'text-optional': true,
         },
         paint: { 'text-color': colours.text, 'text-halo-color': colours.halo, 'text-halo-width': colours.chosenHalo },
@@ -126,7 +127,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   const design = mapDesign();
   container.style.backgroundColor = design.sea;
   let cities: CityPoint[] = [];
-  const fetchLabels = (file: string) => fetch(`${dataUrl}/${file}`).then(response => {
+  const fetchLabels = (file: string) => fetch(`/api/fine/${file}`).then(response => {
     if (!response.ok) throw new Error(`City labels: HTTP ${response.status}`);
     return response.json() as Promise<[string, string, number, number, number][]>;
   });
@@ -152,6 +153,29 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   return new Promise(resolve => {
     map.once('style.load', () => {
       map.addImage('chosen-place', ringImage(design), { pixelRatio: 2 });
+      const viewportLabelFilter = (left: number, right: number, vertical: number): ExpressionSpecification => {
+        const northWest = map.unproject([left, vertical]);
+        const southEast = map.unproject([container.clientWidth - right, container.clientHeight - vertical]);
+        const west = Math.max(-180, northWest.lng), east = Math.min(180, southEast.lng);
+        return ['all', ['>', ['get', 'longitude'], west], ['<', ['get', 'longitude'], east], ['>', ['get', 'latitude'], southEast.lat], ['<', ['get', 'latitude'], northWest.lat]];
+      };
+      const keepLabelsInsideViewport = () => {
+        const zoom = map.getZoom();
+        const fontSize = (design.labelSmall + (design.labelLarge - design.labelSmall) * Math.max(0, Math.min(1, (zoom - 1) / 8))) * design.labelScale;
+        const halfWidth = fontSize * design.labelWidth / 2 + design.labelHaloWidth;
+        const halfHeight = (fontSize * design.labelLineHeight * 3 + design.countHeight * design.labelScale) / 2;
+        const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(zoom) - 1))];
+        map.setFilter('city-labels', ['all', ['>=', ['get', 'population'], minimumPopulation], viewportLabelFilter(halfWidth, halfWidth, halfHeight)]);
+        const chosenFontSize = design.chosenSize * design.labelScale;
+        const chosenOffset = chosenFontSize * design.chosenOffset;
+        map.setFilter('chosen-place', viewportLabelFilter(design.ringSize / 2, chosenOffset + chosenFontSize * design.labelWidth + design.chosenHalo, chosenFontSize * design.labelLineHeight * 2));
+        const countryFontSize = design.countFontSize * design.labelScale;
+        const countryHalfWidth = countryFontSize * design.labelWidth / 2 + design.labelHaloWidth;
+        map.setFilter('palestine-label', viewportLabelFilter(countryHalfWidth, countryHalfWidth, countryFontSize * design.labelLineHeight));
+      };
+      keepLabelsInsideViewport();
+      map.on('move', keepLabelsInsideViewport);
+      map.on('resize', keepLabelsInsideViewport);
       const countImage = (score: number, count: number): string => {
         let band = bands[0];
         for (const candidate of bands) if (score >= candidate.minimumScore) band = candidate;
@@ -196,7 +220,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         showChosenPlace(place) {
           (map.getSource('chosen-place') as GeoJSONSource).setData({
             type: 'FeatureCollection',
-            features: place ? [{ type: 'Feature', properties: { name: place.name, ...(Number.isFinite(place.score) ? { score: Math.floor(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
+            features: place ? [{ type: 'Feature', properties: { name: place.name, longitude: place.longitude, latitude: place.latitude, ...(Number.isFinite(place.score) ? { score: Math.floor(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
           });
         },
         showHomeConnection(home, destination) {
@@ -222,7 +246,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
               return {
                 type: 'Feature',
                 properties: {
-                  name: city.name, population: city.population, slug: city.slug,
+                  name: city.name, population: city.population, slug: city.slug, longitude: city.longitude, latitude: city.latitude,
                   ...(Number.isFinite(score) ? { score: Math.floor(score) } : {}),
                   ...(Number.isFinite(score) && count !== undefined && Number.isFinite(count) ? { countImage: countImage(score, count) } : {}),
                 },

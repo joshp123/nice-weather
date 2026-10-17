@@ -5,16 +5,27 @@ import { button, el } from './dom';
 import { kilometresBetween } from './map';
 import { daysInPeriod, periodPhrase, type ForecastIndex } from './periods';
 import { type NamedPlace } from './places';
-import { countryFlag } from './countries';
+import { countryCode, countryFlag } from './countries';
 
 const MINIMUM_SPREAD_KM = 250;
+const NEARBY_NAME_RADIUS_KM = 50;
+const NEARBY_NAME_SCORE_DIFFERENCE = 5;
 
 type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): number; getNorth(): number }>;
 export type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number; region?: string; slug?: string | null; population?: number }>;
 
+function mostNiceDaysFirst(a: HeadlinePlace, b: HeadlinePlace): number {
+  return b.niceDayCount - a.niceDayCount || b.perfectDayCount - a.perfectDayCount || (b.population ?? 0) - (a.population ?? 0);
+}
+
 /** All named places in the current view compete by day counts, with room between the answers. */
 export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], bounds?: ViewBounds, limit = 3): HeadlinePlace[] {
+  const region = bounds ? viewportRegion(bounds, places) : 'the world';
+  const countries = REGION_COUNTRIES[region];
   const visible = places.filter(place => {
+    const country = countryCode(place);
+    if (countries && !countries.has(country)) return false;
+    if (region === 'Europe' && ((country === 'TR' && place.longitude > 29.1) || (country === 'RU' && place.longitude > 60))) return false;
     if (place.slug?.startsWith('palestine/')) return false;
     if (!bounds) return true;
     if (place.latitude < bounds.getSouth() || place.latitude > bounds.getNorth()) return false;
@@ -23,26 +34,79 @@ export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace
   });
   const scores = engine.scorePoints(visible);
   const counts = engine.countPoints(visible);
-  const ranked = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }))
-    .filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount))
-    .sort((a, b) => b.niceDayCount - a.niceDayCount || b.perfectDayCount - a.perfectDayCount || (b.population ?? 0) - (a.population ?? 0));
+  const candidates = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }));
+  const ranked = candidates.filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount))
+    .sort(mostNiceDaysFirst);
   const chosen: HeadlinePlace[] = [];
+  const winningPoints: HeadlinePlace[] = [];
   for (const place of ranked) {
-    if (chosen.some(other => kilometresBetween(place, other) < MINIMUM_SPREAD_KM)) continue;
-    chosen.push(place);
+    if (winningPoints.some(other => kilometresBetween(place, other) < MINIMUM_SPREAD_KM)) continue;
+    let namedPlace = place;
+    for (const candidate of candidates) {
+      const population = candidate.population ?? 0;
+      const namedPopulation = namedPlace.population ?? 0;
+      if (population < namedPopulation || (population === namedPopulation && (candidate.slug ?? candidate.name) >= (namedPlace.slug ?? namedPlace.name))
+        || Math.abs(candidate.latitude - place.latitude) > .5
+        || kilometresBetween(place, candidate) > NEARBY_NAME_RADIUS_KM) continue;
+      let numberedCandidate = candidate;
+      if (!Number.isFinite(candidate.score) || !Number.isFinite(candidate.niceDayCount)) {
+        const verdict = engine.judgePoint(candidate.latitude, candidate.longitude);
+        if (!verdict) continue;
+        numberedCandidate = { ...candidate, score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount };
+      }
+      if (Math.abs(numberedCandidate.score - place.score) <= NEARBY_NAME_SCORE_DIFFERENCE) namedPlace = numberedCandidate;
+    }
+    if (chosen.some(other => kilometresBetween(namedPlace, other) < MINIMUM_SPREAD_KM)) continue;
+    winningPoints.push(place);
+    chosen.push(namedPlace);
     if (chosen.length === limit) break;
   }
-  return chosen;
+  return chosen.sort(mostNiceDaysFirst);
 }
 
-export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[]): string {
+const REGION_COUNTRIES: Record<string, ReadonlySet<string>> = Object.fromEntries(Object.entries({
+  'Europe': 'AL AD AT BY BE BA BG HR CY CZ DK EE FO FI FR DE GI GR GG VA HU IS IE IM IT JE XK LV LI LT LU MT MD MC ME NL MK NO PL PT RO RU SM RS SK SI ES SE CH UA GB TR',
+  'Africa': 'DZ AO BJ BW BF BI CV CM CF TD KM CG CD CI DJ EG GQ ER SZ ET GA GM GH GN GW KE LS LR LY MG MW ML MR MU MA YT MZ NA NE NG RE RW SH ST SN SC SL SO ZA SS SD TZ TG TN UG EH ZM ZW',
+  'the Middle East': 'AE BH EG IR IQ IL JO KW LB OM PS QA SA SY TR YE',
+  'North America': 'AG AI AW BS BB BZ BM BQ CA KY CR CU CW DM DO SV GL GD GP GT HT HN JM MQ MX MS NI PA PR BL KN LC MF PM VC SX TT TC US VG VI',
+  'South America': 'AR BO BR CL CO EC FK GF GY PY PE SR UY VE',
+  'Asia': 'AF AM AZ BH BD BT BN KH CN GE HK IN ID IR IQ IL JP JO KZ KW KG LA LB MO MY MV MN MM NP KP OM PK PS PH QA SA SG KR LK SY TW TJ TH TL TM AE UZ VN YE RU TR',
+  'Oceania': 'AS AU CK FJ PF GU KI MH FM NR NC NZ NU NF MP PW PG PN WS SB TK TO TV VU WF',
+}).map(([region, codes]) => [region, new Set(codes.split(' '))]));
+
+export function viewportRegion(bounds: ViewBounds, places: readonly (NamedPlace & { slug?: string | null; region?: string })[] = []): string {
+  const width = bounds.getEast() - bounds.getWest();
+  const height = bounds.getNorth() - bounds.getSouth();
+  if (width > 160 || height > 125) return 'the world';
+  const longitude = ((bounds.getWest() + width / 2 + 180) % 360 + 360) % 360 - 180;
+  const mercatorLatitude = (latitude: number) => Math.asinh(Math.tan(latitude * Math.PI / 180));
+  const latitude = Math.atan(Math.sinh((mercatorLatitude(bounds.getNorth()) + mercatorLatitude(bounds.getSouth())) / 2)) * 180 / Math.PI;
+  let nearest: (typeof places)[number] | undefined, nearestDistance = Infinity;
+  for (const place of places) {
+    const distance = kilometresBetween({ latitude, longitude }, place);
+    if (distance < nearestDistance) { nearest = place; nearestDistance = distance; }
+  }
+  if (!nearest) return 'the world';
+  const country = countryCode(nearest);
+  if (country === 'TR' && longitude > 29.1) return 'the Middle East';
+  if (country === 'RU' && longitude > 60) return 'Asia';
+  return Object.entries(REGION_COUNTRIES).find(([, countries]) => countries.has(country))?.[0] ?? 'the world';
+}
+
+function headlineLead(period: Period, forecast: ForecastIndex | null, region: string): string {
+  return `Nicest in ${region} ${periodPhrase(period, forecast)}: `;
+}
+
+export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[], region = 'the world'): string {
   if (nicest.length === 0) return '';
-  return `Nicest ${periodPhrase(period, forecast)}: ${nicest.map(place => `${countryFlag(place)} ${place.name}`.trim()).join(', ')}.`;
+  const names = nicest.map(place => `${countryFlag(place)} ${place.name}`.trim());
+  const last = names.pop();
+  return `${headlineLead(period, forecast, region)}${names.length ? `${names.join(', ')} and ` : ''}${last}.`;
 }
 
-export function placeSentence(period: Period, forecast: ForecastIndex | null, places: readonly HeadlinePlace[], select: (place: HeadlinePlace) => void): DocumentFragment {
+export function placeSentence(period: Period, forecast: ForecastIndex | null, places: readonly HeadlinePlace[], select: (place: HeadlinePlace) => void, region = 'the world'): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  fragment.append(`Nicest ${periodPhrase(period, forecast)}: `);
+  fragment.append(headlineLead(period, forecast, region));
   places.slice(0, 3).forEach((place, index, list) => {
     if (index) fragment.append(index === list.length - 1 ? ' and ' : ', ');
     fragment.append(button('inline-place', `${countryFlag(place)} ${place.name}`.trim(), () => select(place)));
