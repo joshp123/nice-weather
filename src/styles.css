@@ -92,7 +92,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 /* Where things sit. Left: the answer and the taste. Right: search and the place. Bottom: when. */
 .slot { position: fixed; z-index: 2; }
 .slot-headline { top: var(--edge); left: var(--edge); width: var(--panel-width); }
-.slot-taste { top: calc(var(--edge) + var(--headline-height, 64px) + var(--space-2)); left: var(--edge); width: var(--panel-width); max-height: calc(100% - var(--edge) * 2 - var(--headline-height, 64px) - var(--bar-height, 120px) - var(--footer-height) - var(--space-2) * 2 - env(safe-area-inset-bottom)); }
+.slot-taste { top: calc(var(--edge) + var(--headline-height, 64px) + var(--space-2)); left: var(--edge); width: var(--panel-width); max-height: calc(100dvh - var(--edge) * 2 - var(--headline-height, 64px) - var(--bar-height, 120px) - var(--footer-height) - var(--space-2) * 2 - env(safe-area-inset-bottom)); }
 .slot-search { z-index: 5; top: var(--edge); right: var(--edge); width: var(--panel-width); }
 .slot-card { top: calc(var(--edge) + var(--search-height, 40px) + var(--space-2)); right: var(--edge); width: var(--panel-width); max-height: calc(100% - var(--edge) * 2 - var(--search-height, 40px) - var(--bar-height, 120px) - var(--footer-height) - var(--space-2) * 2 - env(safe-area-inset-bottom)); display: flex; }
 .slot-bar { left: 50%; bottom: calc(var(--edge) + var(--footer-height) + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(1500px, calc(100% - 2 * var(--edge))); }

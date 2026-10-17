@@ -15,10 +15,11 @@
   p, li { margin: 0 0 12px; }
   a { color: inherit; }
   .muted { color: var(--muted); }
-  table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 8px 0 16px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-weight: 600; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 17px; line-height: 1.3; margin: 0 0 10px; }
+  .score-axis { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: center; margin: 32px 0; }
+  .score-axis p { font-size: 15px; line-height: 1.55; }
+  .curve-source { font-size: 13px; }
+  @media (max-width: 600px) { .score-axis { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
 </style>
 </head>
 <body>
@@ -29,52 +30,63 @@
 
 <h2>A day's score</h2>
 <p>Every day gets a score from 0 to 100, from the hourly weather between 10:00 and 21:00 local time.</p>
-<ol>
-<li><b>How warm it feels, hour by hour.</b> We use "feels like" temperature: the thermometer adjusted for humidity, wind and sunshine, by the formula Australia's weather service uses (Steadman's apparent temperature). Cool hours are judged in the sun, because that is where you would stand; hot hours are judged in the shade, because that is where you would go. Each daylight hour from 10:00 until sunset (at most until 20:00) gets a grade:
-<table>
-<tr><th>Feels, in the sun</th><td class="num">9 °C</td><td class="num">13</td><td class="num">15</td><td class="num">17</td><td class="num">19</td><td class="num">21</td><td class="num">23+</td></tr>
-<tr><th>Grade</th><td class="num">0</td><td class="num">10</td><td class="num">22</td><td class="num">40</td><td class="num">62</td><td class="num">85</td><td class="num">100</td></tr>
-</table>
-<table>
-<tr><th>Feels, in the shade</th><td class="num">28 °C or less</td><td class="num">31</td><td class="num">34</td><td class="num">37</td><td class="num">40</td><td class="num">43</td></tr>
-<tr><th>Grade</th><td class="num">100</td><td class="num">85</td><td class="num">60</td><td class="num">30</td><td class="num">10</td><td class="num">0</td></tr>
-</table>
-An hour gets the lower of the two. Cold costs more than heat: six degrees too cold scores 40, six degrees too hot scores 60.</li>
-<li><b>The walk home at 21:00.</b> Walking keeps you warm, so the bar is lower than in the day: 19 °C or more scores 100, 16 scores 90, 12 scores 65, 8 scores 30. It counts as much as two daytime hours.</li>
-<li><b>Warmth</b> is the average of the daylight hours and the walk home.</li>
-<li><b>Four things then take a share off:</b>
-<table>
-<tr><th>Rain, 10:00 to 21:00</th><td>1 mm keeps 88% of the day, 2 mm 74%, 4 mm half, 8 mm a fifth</td></tr>
-<tr><th>Wind, day's average</th><td>Nothing up to 15 km/h; 30 km/h keeps 85%, 46 km/h half</td></tr>
-<tr><th>Humidity, day's average dew point</th><td>Nothing up to 16 °C; 20 °C keeps 85%, 23 °C half, 26 °C a fifth</td></tr>
-<tr><th>Sunshine, share of daylight hours with the sun out</th><td>Full marks from 80%; a completely grey day keeps 75%</td></tr>
-</table>
-Dew point measures how much moisture the air holds; it is what makes air feel muggy, whatever the time of day. Wind already counts in how warm it feels, so its share here is for the nuisance: dust, sand, hair.</li>
-</ol>
-<p>The score is warmth multiplied by those four. The six words on the map follow it: <b>Awful</b> under 25, <b>Poor</b> from 25, <b>Fair</b> from 40, <b>Nice</b> from 55, <b>Beautiful</b> from 70, <b>Perfect</b> from 85. A month, a season or the year is the average of its days, and its nice days are the days scoring 55 or more.</p>
-<p>These numbers come from one person's taste. If yours differs, the sliders move each curve: how warm you need it, when heat starts to bother you, the walk home, humidity, wind and rain.</p>
+<p>Three temperature grades decide how much each hour counts. Four other curves decide the share of the day kept. These charts show the default taste. Move the sliders on the map to change it.</p>
+<section class="score-axis">
+<div><h3>Warmth in the sun</h3><p>How warm it feels where you would stand on a cool day. We use apparent temperature: air temperature adjusted for wind, humidity and sunlight.</p><p>Each daylight hour from 10:00 until sunset, at most until 20:00, gets a grade. At 23 °C it counts in full. At 17 °C it counts 40%; at 9 °C it counts nothing.</p></div>
+<div data-score-axis="warmth"></div>
+</section>
+<section class="score-axis">
+<div><h3>Heat in the shade</h3><p>How hot it feels where you would go on a hot day. Each hour gets the lower of its warmth and heat grades.</p><p>Up to 28 °C feels-like keeps full marks. At 34 °C it keeps 60; at 43 °C it keeps none. Dry heat feels cooler than humid heat at the same air temperature.</p></div>
+<div data-score-axis="heat"></div>
+</section>
+<section class="score-axis">
+<div><h3>The walk home at 21:00</h3><p>How warm it feels at 21:00 local time, without the sun. Walking keeps you warm, so the bar is lower: 19 °C gets full marks, 12 °C gets 65.</p><p>It counts like two daytime hours. The heat curve still applies, so an oppressively hot evening scores less. Warmth is the average of these hours and the walk home.</p></div>
+<div data-score-axis="evening"></div>
+</section>
+<section class="score-axis">
+<div><h3>Rain</h3><p>The total rain from 10:00 to 21:00, in millimetres. It reduces the share of the day kept: 1 mm keeps 88%, 4 mm keeps half, 8 mm keeps 22%.</p></div>
+<div data-score-axis="rain"></div>
+</section>
+<section class="score-axis">
+<div><h3>Wind</h3><p>The mean wind speed from 10:00 to 21:00, in km/h. Gusts run higher. Wind already affects the felt temperature; this curve covers the nuisance of wind itself.</p><p>Up to 15 km/h keeps the day in full. At 30 km/h it keeps 85%; at 46 km/h it keeps half.</p></div>
+<div data-score-axis="wind"></div>
+</section>
+<section class="score-axis">
+<div><h3>Humidity</h3><p>The mean dew point from 10:00 to 21:00, in °C. Dew point measures moisture in the air. A higher value feels muggier.</p><p>Up to 16 °C keeps the day in full. At 20 °C it keeps 85%; at 23 °C about half; at 26 °C a fifth.</p></div>
+<div data-score-axis="humidity"></div>
+</section>
+<section class="score-axis">
+<div><h3>Sunshine</h3><p>The share of daylight hours from 10:00 with strong direct sunlight. An hour counts as sunny at 300 W/m² of direct sunlight or more.</p><p>Sunshine in at least 80% of these hours keeps full marks. A completely grey day keeps 75%. Sunshine has no taste slider.</p></div>
+<div data-score-axis="sunshine"></div>
+</section>
+<p class="muted curve-source">The numbered dots are monthly means of the eight representative real days in each place's nearest 1° land square, from the published weather files. They show the conditions in that square, before the finer temperature correction. Warmth uses 14:00 in the sun; heat uses 15:00 in the shade. A curve's value at the mean is a reference, not that month's average score.</p>
+<p>The final score is warmth multiplied by the four shares kept. For example, warmth of 80 with rain keeping half becomes 40 before wind, humidity and sunshine count.</p>
+<p>The six words on the map follow the score: <b>Awful</b> under 25, <b>Poor</b> from 25, <b>Fair</b> from 40, <b>Nice</b> from 55, <b>Beautiful</b> from 70, <b>Perfect</b> from 85. A month, a season or the year is the average of its days. Nice days score at least 55.</p>
 
 <h2>Checking it against places people know</h2>
-<p>We test the scores against what people who know these places say about them. Most hold: Singapore and Bangkok are too humid for most of the year, northern Europe from November to March is grim, Cape Town and the Canary Islands are the best winter escapes, and San Francisco beats Rotterdam all year. Some do not yet; see below.</p>
+<p>Useful checks include humid Singapore and Bangkok, northern Europe in winter, and dry winter escapes such as Cape Town and the Canary Islands. The rule aims for warm, sunny, dry and calm weather. It does not measure how good a place is to visit.</p>
 
 <h2>The weather data</h2>
 <ul>
-<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses real days from __YEARS__; more years are being added.</li>
-<li><b>The next 14 days</b> come from the same centre's free forecast, refreshed every morning. Its free version has no direct sunlight, so sunshine is estimated from total solar radiation against a clear sky.</li>
-<li><b>Detail.</b> The weather is stored for squares of 1° (about 100 km). Temperature then gets finer detail on a 25 km grid: each point is shifted by how much warmer or cooler it runs than its square, month by month. Coastal towns sit near sea level but their grid square's average height includes the hills behind them, so coastal points take their temperature from the nearest mostly-land square and correct it to sea level (6.5 °C per km, at most 600 m). In tests against weather stations, this kind of correction cut coastal errors from about 3 °C to under 1 °C.</li>
+<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses these one-year spans: __YEARS__. More years are being added.</li>
+<li><b>The next 14 days</b> come from the same centre's free forecast, refreshed every morning. Its free version has no direct-sunlight field, so sunshine is estimated from total solar radiation against a clear sky.</li>
+<li><b>Detail.</b> The weather is stored for squares of 1° (about 100 km). Temperature then gets finer detail on a 25 km grid: each point is shifted by how much warmer or cooler it runs than its square, month by month. Coastal towns sit near sea level but their grid square's average height includes the hills behind them, so coastal points take their temperature from the nearest mostly-land square and correct it to sea level (6.5 °C per km, at most 600 m). This helps separate coastal towns from the hills behind them.</li>
 <li><b>Fast sliders.</b> For each square and month, eight real days represent the month's range of weather. Your browser re-scores them on its graphics chip when you move a slider.</li>
 <li><b>Place names</b> come from GeoNames; the base map from OpenFreeMap and OpenStreetMap.</li>
 </ul>
 
 <h2>Where it is wrong</h2>
 <ul>
-<li><b>A 25 km grid misses microclimates.</b> San Francisco's fog belt, a sheltered bay, a single valley: anything smaller than the grid reads like its surroundings. San Francisco in summer reads far too warm (it shows highs of 27 to 29 °C; downtown is about 19 °C), so it looks Perfect when it is cool and grey. A finer temperature correction is being tested.</li>
+<li><b>A 25 km grid misses microclimates.</b> San Francisco's fog belt, a sheltered bay, a single valley: anything smaller than the grid reads like its surroundings. San Francisco's summer coast can read too warm and too nice. A finer temperature correction is being tested.</li>
 <li><b>Fog and sea mist hide the sun</b>, and the data often misses that, so foggy coasts can read too nice.</li>
-<li><b>Drizzle.</b> ERA5 counts too many light-rain days in dry places: Málaga in January reads wet on about a quarter of days, its weather station on about a sixth.</li>
-<li><b>A few years are not a climate.</b> The typical year uses __YEAR_COUNT__ of real weather so far. One unusual month (a wet November in Málaga, a hot August in Rotterdam) still moves the average by several points; each added year steadies it.</li>
+<li><b>Drizzle.</b> ERA5 can count too many light-rain days, so dry places may read wetter than they are.</li>
+<li><b>A few years are not a climate.</b> The typical year uses __YEAR_COUNT__ of real weather so far. This is a sample of recent weather, not a standard 30-year climate average. More years reduce the influence of unusual seasons.</li>
 <li><b>The forecast's sunshine is estimated</b>, so a forecast day's sun share is rougher than the typical year's.</li>
 </ul>
+<h2 id="credits">Credits</h2>
+<p>Inspired by <a href="https://weather.theojaffee.net">Theo Jaffee’s Weather Atlas</a> (<a href="https://github.com/tjaffee99/weather">source code</a>) and <a href="https://ryanhallyall.com/nice">Ryan Hall’s Nice Weather</a>.</p>
 <p class="muted">Data: ERA5 and ECMWF open data (Copernicus, CC BY 4.0); GeoNames (CC BY 4.0); OpenFreeMap and © OpenStreetMap contributors.</p>
 </main>
+<script type="module" src="/src/method.ts"></script>
 </body>
 </html>
