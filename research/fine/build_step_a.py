@@ -216,12 +216,16 @@ def main():
         '--native-root',str(args.native_root),'--output',str(snapshot/'v6'),
         '--source-cache',str(args.source_cache/'timezones')],check=True)
     script = pathlib.Path(__file__).resolve().parents[2]/'src/engine/default_scores.py'
+    score_sources = [script,pathlib.Path(__file__).resolve().parents[1]/'taste/nice_v6.py']
+    score_source_hashes = {str(path.relative_to(script.parents[2])):file_sha256(path) for path in score_sources}
     subprocess.run([sys.executable,str(script),str(snapshot/'v6')],check=True)
     subprocess.run([sys.executable,str(script),str(snapshot/'v6'),'--images',str(snapshot/'v6/images')],check=True)
+    if score_source_hashes != {str(path.relative_to(script.parents[2])):file_sha256(path) for path in score_sources}:
+        raise ValueError('Score sources changed during generation; rerun after the concurrent edit completes')
     if args.output.exists():
         raise FileExistsError(f'Output already exists; use a new generation folder: {args.output}')
     shutil.copytree(snapshot/'v6',args.output)
-    evidence = dict(configuration=configuration,sources=source_summary,snapshot=str(snapshot),
+    evidence = dict(configuration=configuration,sources=source_summary,score_source_sha256=score_source_hashes,snapshot=str(snapshot),
         output=str(args.output),maximum_dew_cap_change_c=cap_change,
         completed_utc=dt.datetime.now(dt.timezone.utc).isoformat(),seconds=time.monotonic()-started,
         output_sha256={str(path.relative_to(args.output)):file_sha256(path)
