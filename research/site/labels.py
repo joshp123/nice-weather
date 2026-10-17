@@ -12,7 +12,7 @@ def kebab(text):
 rows = [line.rstrip('\n').split('\t') for line in open(sys.argv[1], encoding='utf-8') if line.strip()]
 rows.sort(key=lambda row: -int(row[5]))
 seen, places = set(), []
-for name, plain, region, latitude, longitude, population in rows:
+for name, plain, region, latitude, longitude, population, *_ in rows:
     slug = f"{kebab(region.split(',')[-1])}/{kebab(plain)}"
     if slug in seen: continue
     seen.add(slug)
