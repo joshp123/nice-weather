@@ -64,3 +64,28 @@ At review, the replay manifest still said `building`; the release root had no
 not be uploaded and leaves final replay size, code package and activation
 pointer pending. Those completion items and the failed rendered flow prevent
 an upload-ready claim. No additional product feature is requested.
+
+## Final data update
+
+Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+
+The completed worldwide data supersedes the partial-data status above. I read
+the final `replay-audit.json`, `tile-audit.json`, `module-parity.json` and
+`transport.json` directly in the SSD's `fine-validation/b1-worldwide` folder.
+Both audit hashes match the actual bundle manifests. Replay now says
+`complete`, uses the accepted uniform evening model and contains 397,686
+packets covering 320,420,484 supported fine pixels. The tile audit covers
+79,596 monthly tiles, with maximum sampled encoding error below 0.05 C.
+
+All 397 requested places were compared by the shared-module proof, with no
+uncompared places and zero score or day-count differences. The actual Worker
+transport comparison also passes for 397 places with zero numeric difference.
+Their recorded shared-module, decoder and transport source hashes match the
+current files. The activation report passes the real absent-pointer to active
+file to stored literal-null rollback-file sequence after cache expiry.
+
+This clears the incomplete worldwide-data finding. It does not clear upload
+readiness: `app-complete/results.json` still fails on the San Francisco phone
+flow with `feature index out of bounds`; `FINE_LABEL_QUERY.patch` remains
+unapplied, and the bundle still has no ready `RELEASE.json`. Scope approval,
+the source fix and final rendered proof remain outstanding. No new blocker found.
