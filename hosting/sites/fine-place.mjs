@@ -96,23 +96,57 @@ export function placeNumbers(packet,period,taste=DEFAULT_FINE_TASTE) {
 }
 function forecastNumbers(packet,taste) {
   const totalDays=packet.weights.reduce((sum,weight)=>sum+weight,0),shares=THRESHOLDS.map(()=>0);
+  const parts={warmth:0,evening:0,rainFactor:0,windFactor:0,humidityFactor:0,sunFactor:0};
+  const typical={feelsInSunAt14C:0,feelsInShadeAt15C:0,feelsInShadeAt21C:0,dewPointC:0,rainMmPerDay:0,wetDayShare:0,windKmh:0,sunnyShare:0,daylightHours:0};
   let singleDayScore=0;
   for(let index=0;index<packet.records.length;index++) {
     const record=packet.records[index],level=Math.max(0,Math.min(10,(packet.offsetsC[index]+15)/3)),lower=Math.min(Math.floor(level),9),upperWeight=level-lower;
-    const scoreAtShift=shift=> {
+    const atShift=shift=> {
       const sun=Array.from({length:6},(_,hour)=>[hour*2,record[hour]/3-30+shift]);
       const shade=Array.from({length:4},(_,hour)=>[hour*3+2,record[hour+6]/3-30+shift]);
       const day={sun:Array.from({length:12},(_,hour)=>curve(sun,hour)),shade:Array.from({length:12},(_,hour)=>curve(shade,hour)),dew:record[10]/3-30,rain:(record[11]/50)**2,wind:record[12]/2,sunny:record[13],daylight:Math.max(1,record[14])};
       const judgement=judgeDay(day,taste);
-      return judgement.warmth*judgement.rainFactor*judgement.windFactor*judgement.humidityFactor*judgement.sunFactor;
+      return {day,judgement,score:judgement.warmth*judgement.rainFactor*judgement.windFactor*judgement.humidityFactor*judgement.sunFactor};
     };
-    const score=canonical((1-upperWeight)*scoreAtShift(-15+lower*3)+upperWeight*scoreAtShift(-15+(lower+1)*3));
+    const low=atShift(-15+lower*3),high=atShift(-15+(lower+1)*3);
+    const score=canonical((1-upperWeight)*low.score+upperWeight*high.score);
     singleDayScore=score;
     for(let threshold=0;threshold<THRESHOLDS.length;threshold++)if(score>=THRESHOLDS[threshold])shares[threshold]+=packet.weights[index]/totalDays;
+    for(const [result,shiftWeight]of [[low,1-upperWeight],[high,upperWeight]]) {
+      const weight=packet.weights[index]/totalDays*shiftWeight,day=result.day;
+      for(const name of Object.keys(parts))parts[name]+=result.judgement[name]*weight;
+      const values={feelsInSunAt14C:day.sun[4],feelsInShadeAt15C:day.shade[5],feelsInShadeAt21C:day.shade[11],dewPointC:day.dew,rainMmPerDay:day.rain,wetDayShare:day.rain>=1?1:0,windKmh:day.wind,sunnyShare:day.sunny/day.daylight,daylightHours:day.daylight};
+      for(const name of Object.keys(typical))typical[name]+=values[name]*weight;
+    }
   }
   const score=totalDays===1?singleDayScore:typicalScore(shares),count=share=>Math.round(share*totalDays*1e9)/1e9;
-  return {score,meanScore:score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],totalDays,sampleDays:packet.records.length,niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),niceDayCount:count(shares[3]),perfectDayCount:count(shares[5]),awfulDayCount:count(1-shares[1])};
+  return {score,meanScore:score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],totalDays,sampleDays:packet.records.length,niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),niceDayCount:count(shares[3]),perfectDayCount:count(shares[5]),awfulDayCount:count(1-shares[1]),parts,typical};
 }
+/** The map's normalized 4 × 4 B-spline footprint, excluding missing land. */
+export function mapPointWeights(latitude,longitude,valid) {
+  if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||latitude<-60||latitude>90)return [];
+  const x=wrap((longitude+180)*4,1440),y=(90-latitude)*4;
+  const weights=fraction=>[(1-fraction)**3,3*fraction**3-6*fraction**2+4,-3*fraction**3+3*fraction**2+3*fraction+1,fraction**3].map(value=>value/6);
+  const horizontal=weights(x-Math.floor(x)),vertical=weights(y-Math.floor(y)),points=[];
+  let landWeight=0;
+  for(let row=0;row<4;row++)for(let column=0;column<4;column++) {
+    const index=Math.max(0,Math.min(720,Math.floor(y)+row-1))*1440+wrap(Math.floor(x)+column-1,1440);
+    if(!valid(index))continue;
+    const weight=horizontal[column]*vertical[row];points.push({index,weight});landWeight+=weight;
+  }
+  return points.map(point=>({index:point.index,weight:point.weight/landWeight}));
+}
+/** Blend complete native-point judgements using normalized map weights. */
+export function blendPlaceNumbers(points) {
+  if(!points.length)return null;
+  const average=read=>points.reduce((sum,point)=>sum+read(point.numbers)*point.weight,0);
+  const score=canonical(average(numbers=>numbers.meanScore)),first=points[0].numbers;
+  const result={score,meanScore:score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],totalDays:first.totalDays,sampleDays:first.sampleDays};
+  for(const name of ['niceDayShare','perfectDayShare','awfulDayShare','niceDayCount','perfectDayCount','awfulDayCount'])result[name]=average(numbers=>numbers[name]);
+  for(const name of ['parts','typical'])if(first[name])result[name]=Object.fromEntries(Object.keys(first[name]).map(field=>[field,average(numbers=>numbers[name][field]??0)]));
+  return result;
+}
+
 export function placeMonths(packet,taste=DEFAULT_FINE_TASTE) {
   if(packet.replay.physicalResponse)return compactPlaceMonths(packet,taste);
   return Array.from({length:12},(_,monthIndex)=> {

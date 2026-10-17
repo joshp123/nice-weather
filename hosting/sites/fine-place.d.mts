@@ -17,7 +17,7 @@ export type FineVerdict = PointVerdict & Readonly<{score:number;pixel:FinePixel;
 export type FineMonth = Readonly<{month:number;highC:number;feelsAt21C:number;dewPointC:number;wetDaysPercent:number;sunnyPercent:number;windKmh:number;score:number;niceDayShare:number}>;
 export const DEFAULT_FINE_TASTE: Taste;
 export type ForecastPlacePacket = Readonly<{source:'forecast';records:readonly (readonly number[]|Uint8Array)[];offsetsC:readonly number[];weights:readonly number[]}>;
-export type ForecastPlaceVerdict = Readonly<{score:number;meanScore:number;band:string;totalDays:number;sampleDays:number;niceDayShare:number;perfectDayShare:number;awfulDayShare:number;niceDayCount:number;perfectDayCount:number;awfulDayCount:number}>;
+export type ForecastPlaceVerdict = PointVerdict & Readonly<{score:number}>;
 export function finePixel(latitude:number,longitude:number):FinePixel;
 export function nativeFineIndex(latitude:number,longitude:number):number;
 export function placeNumbers(packet:FinePacket,period:Period,taste?:Taste):FineVerdict;
@@ -36,3 +36,6 @@ export function createFinePlaceClient(endpoint:string,fetchResponse?:typeof fetc
  enabled():Promise<boolean>;
  load(latitude:number,longitude:number):Promise<FinePacket|null>;
 };
+
+export function mapPointWeights(latitude:number,longitude:number,valid:(index:number)=>boolean):{index:number;weight:number}[];
+export function blendPlaceNumbers(points:readonly Readonly<{numbers:PointVerdict;weight:number}>[]):(PointVerdict & Readonly<{score:number}>)|null;

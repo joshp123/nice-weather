@@ -7,7 +7,7 @@
 //   PUT /__publish/<key>          the publisher uploads files (bearer token)
 //   POST /__prune                 the publisher removes forecast runs no longer current or previous
 
-import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket } from './fine-place.mjs';
+import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket, mapPointWeights, blendPlaceNumbers } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
 import { finePreviewPng } from './fine-preview.mjs';
 
@@ -407,19 +407,28 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
     });
   } else groups = period.months.map(month => ({month, samples: 8, firstDay: 0, count: 8, days: MONTH_DAYS[month - 1], key: `v6/climate/month-${String(month).padStart(2, '0')}.bin`}));
   const [ordinals, ...offsets] = await Promise.all([weatherFile(bucket, 'v6/cells.bin', decodeCellOrdinals), ...groups.map(group => monthlyOffsets(bucket, group.month))]);
-  const index = nearestFineIndex(latitude, longitude, offsets);
-  if (index === null) return null;
-  const row = Math.floor(index / FINE_WIDTH), column = index % FINE_WIDTH;
-  const cell = ordinals[clamp(Math.floor(row / 4), 0, 179) * 360 + Math.floor(column / 4)];
-  const packets = await Promise.all(groups.map(async (group, groupIndex) => {
-    const offset = (offsets[groupIndex][index] - 128) / 10;
-    const view = await readBytes(bucket, group.key, cell * group.samples * 15, group.samples * 15);
-    if (!view) throw new Error(`Weather records missing: ${group.key}`);
-    const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-    return Array.from({length: group.count}, (_, sample) => ({record: bytes.slice((group.firstDay + sample) * 15, (group.firstDay + sample + 1) * 15), offset, weight: group.days / group.count}));
+  const nearest = period.kind === 'forecast' ? null : nearestFineIndex(latitude, longitude, offsets);
+  const points = period.kind === 'forecast'
+    ? mapPointWeights(latitude, longitude, index => offsets.every(month => month[index] !== 255))
+    : nearest === null ? [] : [{index: nearest, weight: 1}];
+  if (!points.length) return null;
+  const recordsByCell = new Map();
+  const judgements = await Promise.all(points.map(async point => {
+    const row = Math.floor(point.index / FINE_WIDTH), column = point.index % FINE_WIDTH;
+    const cell = ordinals[clamp(Math.floor(row / 4), 0, 179) * 360 + Math.floor(column / 4)];
+    const packets = await Promise.all(groups.map(async (group, groupIndex) => {
+      const offset = (offsets[groupIndex][point.index] - 128) / 10;
+      const address = `${group.key}/${cell}/${group.samples}`;
+      if (!recordsByCell.has(address)) recordsByCell.set(address, readBytes(bucket, group.key, cell * group.samples * 15, group.samples * 15));
+      const view = await recordsByCell.get(address);
+      if (!view) throw new Error(`Weather records missing: ${group.key}`);
+      const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+      return Array.from({length: group.count}, (_, sample) => ({record: bytes.slice((group.firstDay + sample) * 15, (group.firstDay + sample + 1) * 15), offset, weight: group.days / group.count}));
+    }));
+    const days = packets.flat();
+    return {numbers: placeNumbers({source: 'forecast', fineIndex: point.index, records: days.map(day => day.record), offsetsC: days.map(day => day.offset), weights: days.map(day => day.weight)}, period), weight: point.weight};
   }));
-  const days = packets.flat();
-  return placeNumbers({source: 'forecast', records: days.map(day => day.record), offsetsC: days.map(day => day.offset), weights: days.map(day => day.weight)}, period);
+  return period.kind === 'forecast' ? blendPlaceNumbers(judgements) : judgements[0].numbers;
 }
 
 const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];
