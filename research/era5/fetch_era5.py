@@ -1,9 +1,11 @@
 # Written by AI on 2026.10.17 by model claude opus 5.5.
+# Updated by AI on 2026.10.17 by model GPT-6.1 Sol for concurrent reads and inline processing.
 # Downloads one ERA5 "chunk year" (8736 hours) of the six fields Nice Weather needs, for every 3° land tile
 # (12 x 12 cells of 0.25°) from the free Earthmover archive, and keeps them on the SSD in plain units.
 # Usage: fetch_era5.py <chunk index> <processes>. Resumable: finished tiles are skipped.
 import argparse, hashlib, io, os, shlex, subprocess, time, pathlib, multiprocessing as mp
 import numpy as np, icechunk, pcodec, zarr
+from concurrent.futures import ThreadPoolExecutor, as_completed
 OUT = pathlib.Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/era5')
 REMOTE = None
 HOURS = 8736
@@ -25,36 +27,73 @@ def land_tiles(group):
     return tiles
 
 PROCESS_ARCHIVE = None
-def open_process_archive(output, remote):
-    global PROCESS_ARCHIVE, OUT, REMOTE
+FIELD_WORKERS = 1
+PROCESS_ROOT = None
+PROCESS_TILE = None
+SAVE_EXECUTOR = None
+def open_process_archive(output, remote, field_workers=1, process_root=None):
+    global PROCESS_ARCHIVE, OUT, REMOTE, FIELD_WORKERS, PROCESS_ROOT, PROCESS_TILE
     OUT = pathlib.Path(output); REMOTE = remote
-    PROCESS_ARCHIVE = archive()  # once per process: opening it downloads the archive's index
+    FIELD_WORKERS = field_workers; PROCESS_ROOT = process_root
+    group = archive()
+    PROCESS_ARCHIVE = {name: group[name] for name in FIELDS}
+    if PROCESS_ROOT:
+        import sys
+        sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / 'climate-v6'))
+        from pipeline import process_tile
+        PROCESS_TILE = process_tile
+
+def read_field(item, start, rows, cols):
+    name, convert = item
+    return name, convert(PROCESS_ARCHIVE[name][start:start + HOURS, rows, cols]).astype(np.float16)
+
+def save_tile(chunk, path, arrays, started, read_seconds):
+    saving = time.monotonic()
+    tmp = path.with_suffix('.partial.npz')
+    if REMOTE:
+        buffer = io.BytesIO(); np.savez_compressed(buffer, **arrays)
+        payload = buffer.getvalue(); digest = hashlib.sha256(payload).hexdigest()
+        command = (f'cat > {shlex.quote(str(tmp))} && '
+                   f'echo {shlex.quote(digest + "  " + str(tmp))} | sha256sum -c - && '
+                   f'mv {shlex.quote(str(tmp))} {shlex.quote(str(path))}')
+        subprocess.run(['/usr/bin/ssh', '-o', 'BatchMode=yes', REMOTE, command], input=payload,
+                       stdout=subprocess.DEVNULL, check=True)
+    else:
+        np.savez_compressed(tmp, **arrays); os.replace(tmp, path)
+    saved = time.monotonic()
+    if PROCESS_TILE:
+        PROCESS_TILE((PROCESS_ROOT, chunk, path), arrays=arrays)
+    print(f'tile {path.stem}: archive={read_seconds:.3f}s queue={saving-started-read_seconds:.3f}s '
+          f'save={saved-saving:.3f}s process={time.monotonic()-saved:.3f}s '
+          f'total={time.monotonic()-started:.3f}s', flush=True)
 
 def work(args):
     chunk, tiles = args
-    group = PROCESS_ARCHIVE; start = chunk * HOURS; folder = OUT / f'chunk{chunk}'
+    start = chunk * HOURS; folder = OUT / f'chunk{chunk}'
+    readers = ThreadPoolExecutor(max_workers=FIELD_WORKERS)
+    pending = None
     for r, c in tiles:
+        started = time.monotonic()
         path = folder / f'r{r:02d}c{c:03d}.npz'
         if not REMOTE and path.exists(): continue
         rows, cols = slice(r * 12, min(r * 12 + 12, 721)), slice(c * 12, c * 12 + 12)
         for attempt in range(6):  # the connection drops now and then; a tile is worth retrying
             try:
-                arrays = {name: convert(group[name][start:start + HOURS, rows, cols]).astype(np.float16) for name, convert in FIELDS.items()}
+                arrays = dict(readers.map(lambda item: read_field(item, start, rows, cols), FIELDS.items()))
                 break
             except Exception as error:
                 if attempt == 5: raise
                 print(f'retrying r{r}c{c} after {type(error).__name__}', flush=True); time.sleep(10 * (attempt + 1))
-        tmp = path.with_suffix('.partial.npz')
-        if REMOTE:
-            buffer = io.BytesIO(); np.savez_compressed(buffer, **arrays)
-            payload = buffer.getvalue(); digest = hashlib.sha256(payload).hexdigest()
-            command = (f'cat > {shlex.quote(str(tmp))} && '
-                       f'echo {shlex.quote(digest + "  " + str(tmp))} | sha256sum -c - && '
-                       f'mv {shlex.quote(str(tmp))} {shlex.quote(str(path))}')
-            subprocess.run(['/usr/bin/ssh', '-o', 'BatchMode=yes', REMOTE, command], input=payload,
-                           stdout=subprocess.DEVNULL, check=True)
+        read_seconds = time.monotonic() - started
+        if pending:
+            pending.result()  # one pending save per reader bounds retained raw arrays
+        if SAVE_EXECUTOR:
+            pending = SAVE_EXECUTOR.submit(save_tile, chunk, path, arrays, started, read_seconds)
         else:
-            np.savez_compressed(tmp, **arrays); os.replace(tmp, path)
+            save_tile(chunk, path, arrays, started, read_seconds)
+    if pending:
+        pending.result()
+    readers.shutdown()
     return len(tiles)
 
 if __name__ == '__main__':
@@ -63,7 +102,15 @@ if __name__ == '__main__':
     parser.add_argument('--out', type=pathlib.Path, default=OUT)
     parser.add_argument('--remote', help='SSH destination; --out is then on that host. Raw tiles never touch local disk.')
     parser.add_argument('--static-out', type=pathlib.Path, help='Local directory for the four static arrays when using --remote.')
+    parser.add_argument('--field-workers', type=int, default=1, choices=range(1, 7))
+    parser.add_argument('--process-root', help='Process each verified tile from its in-memory arrays into this local data root.')
+    parser.add_argument('--tile-executor', choices=('processes', 'threads'), default='processes',
+                        help='Threads share one archive manifest cache across all tile workers.')
+    parser.add_argument('--save-workers', type=int, default=0,
+                        help='Overlap NAS saving with reads; requires threads. At most one pending save per tile worker.')
     args = parser.parse_args(); chunk, processes = args.chunk, args.processes
+    if args.save_workers and args.tile_executor != 'threads':
+        parser.error('--save-workers requires --tile-executor threads')
     OUT = args.out; REMOTE = args.remote
     group = archive(); tiles = land_tiles(group)
     folder = OUT / f'chunk{chunk}'
@@ -83,6 +130,20 @@ if __name__ == '__main__':
         np.save(static_out / 'latitude.npy', group['latitude'][:]); np.save(static_out / 'longitude.npy', group['longitude'][:])
     batches = [(chunk, tiles[i::processes * 8]) for i in range(processes * 8)]
     started = time.time(); done = 0
-    with mp.Pool(processes, initializer=open_process_archive, initargs=(str(OUT), REMOTE)) as pool:
-        for n in pool.imap_unordered(work, batches):
-            done += n; print(f'{done}/{len(tiles)} tiles, {(time.time() - started) / 60:.1f} min', flush=True)
+    def progress(n):
+        global done
+        done += n; print(f'{done}/{len(tiles)} tiles, {(time.time() - started) / 60:.1f} min', flush=True)
+    if args.tile_executor == 'threads':
+        open_process_archive(str(OUT), REMOTE, args.field_workers, args.process_root)
+        if args.save_workers:
+            SAVE_EXECUTOR = ThreadPoolExecutor(max_workers=args.save_workers)
+        with ThreadPoolExecutor(max_workers=processes) as pool:
+            for result in as_completed([pool.submit(work, batch) for batch in batches]):
+                progress(result.result())
+        if SAVE_EXECUTOR:
+            SAVE_EXECUTOR.shutdown()
+    else:
+        with mp.Pool(processes, initializer=open_process_archive,
+                     initargs=(str(OUT), REMOTE, args.field_workers, args.process_root)) as pool:
+            for n in pool.imap_unordered(work, batches):
+                progress(n)

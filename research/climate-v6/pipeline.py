@@ -1,6 +1,7 @@
 # Written by AI on 2026.10.17 by model GPT-6.1 Sol.
 import argparse, datetime as dt, importlib.util, io, json, os, pathlib, shlex, subprocess, tempfile, time, zoneinfo
 import numpy as np
+from contextlib import nullcontext
 from static import ROOT, POINT_DTYPE, build_static
 spec=importlib.util.spec_from_file_location('taste',pathlib.Path(__file__).parents[1]/'taste/nice_v6.py')
 taste=importlib.util.module_from_spec(spec); spec.loader.exec_module(taste)
@@ -59,7 +60,7 @@ def chunk_dates(chunk):
     dates=np.array([epoch.date()+dt.timedelta(days=i) for i in range(2,362)])
     return epoch,dates
 
-def process_tile(args):
+def process_tile(args, arrays=None):
     root,chunk,path,*remote=args; started=time.monotonic(); root=pathlib.Path(root)
     points=np.fromfile(root/'v6/points.bin',dtype=POINT_DTYPE,offset=4)
     zones=np.load(root/'climate-v6-work/timezones.npy')
@@ -70,9 +71,13 @@ def process_tile(args):
     p=points[selected]; latitude=90-(p['fine']//1440)*.25; longitude=-180+(p['fine']%1440)*.25
     rr=native_row[selected]%12; cc=native_column[selected]%12
     sr=(p['source']//1440)%12; sc=((p['source']%1440+720)%1440)%12
-    source = io.BytesIO(subprocess.check_output(['/usr/bin/ssh', '-o', 'BatchMode=yes', remote[0],
-        f'cat {shlex.quote(str(path))}'])) if remote else path
-    with np.load(source) as data:
+    if arrays is not None:
+        source = nullcontext(arrays)
+    else:
+        raw = io.BytesIO(subprocess.check_output(['/usr/bin/ssh', '-o', 'BatchMode=yes', remote[0],
+            f'cat {shlex.quote(str(path))}'])) if remote else path
+        source = np.load(raw)
+    with source as data:
         t=data['t2m'][:,sr,sc].astype(np.float32)+p['shift']/100
         dew=data['d2m'][:,sr,sc].astype(np.float32)+p['shift']/100
         wind=np.hypot(data['u10'][:,rr,cc].astype(np.float32),data['v10'][:,rr,cc].astype(np.float32))*3.6
