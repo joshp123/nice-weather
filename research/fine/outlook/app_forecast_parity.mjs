@@ -31,7 +31,9 @@ const bucket={async get(key,options){
 const pointer=await(await bucket.get('v6/forecast/current.json')).json(),cellBytes=await fs.readFile(path.join(values.data,'v6/cells.bin'));
 const cells={count:cellBytes.length/4,ordinals:nearestLandOrdinals(new Uint16Array(cellBytes.buffer,cellBytes.byteOffset,cellBytes.length/2))};
 const records={bytes:new Uint8Array(await(await bucket.get(`v6/forecast/${pointer.run}/days.bin`)).arrayBuffer()),samples:14};
-const queries=JSON.parse(await fs.readFile(values.queries));
+const queries=(await fs.stat(values.queries)).isDirectory()
+ ? (await Promise.all(['world','europe','usa'].map(async region=>JSON.parse(await fs.readFile(path.join(values.queries,`${region}.json`)))))).flatMap(poster=>poster.places.map(place=>({slug:place.slug,lat:place.latitude,lon:place.longitude})))
+ : JSON.parse(await fs.readFile(values.queries));
 const fields=['meanScore','niceDayCount','perfectDayCount','awfulDayCount','niceDayShare','perfectDayShare','awfulDayShare','totalDays','sampleDays',...['warmth','evening','rainFactor','windFactor','humidityFactor','sunFactor'].map(name=>`parts.${name}`),...['feelsInSunAt14C','feelsInShadeAt15C','feelsInShadeAt21C','dewPointC','rainMmPerDay','wetDayShare','windKmh','sunnyShare','daylightHours'].map(name=>`typical.${name}`)];
 const read=(object,name)=>name.split('.').reduce((value,key)=>value?.[key],object);
 const rows=[],inputs=[],expected=[],max=Object.fromEntries(fields.map(field=>[field,0]));

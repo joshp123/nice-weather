@@ -78,30 +78,11 @@ The run used the complete temperature set: 6,633 spatial tiles per month,
 Evidence is in `$SSD/fine-validation/b1-worldwide/outlook-climate/`:
 `fixtures-provenance.json`, `go-parity.json` and `native-go-parity.json`.
 
-The separate real forecast comparison passed 574 judgements exactly, and
-287 retained compact-climate judgements with unequal December–February
-calendar weights also matched exactly. These are separate from the fine
-climate comparison; the outlook weather remains the native ECMWF forecast.
-
-The real three-region rendering can be checked against independent JavaScript
-results for its nine named winners:
-
-```sh
-go run ./tools/outlook --source "$SSD" --places-source ./artifacts \
-  --static-source "$SSD/v6" --out "$SSD/fine-validation/b1-worldwide/outlook-render" \
-  --today 2026-10-17
-node research/fine/forecast_module_parity.mjs --data "$SSD" \
-  --queries "$SSD/fine-validation/b1-worldwide/outlook-render/queries.json" \
-  --output "$SSD/fine-validation/b1-worldwide/outlook-render/actual-place-js"
-node research/fine/outlook/verify_posters.mjs \
-  "$SSD/fine-validation/b1-worldwide/outlook-render/v6/forecast/20261017T0000Z/outlook" \
-  "$SSD/fine-validation/b1-worldwide/outlook-render/actual-place-js/expected.jsonl" \
-  "$SSD/fine-validation/b1-worldwide/outlook-render/poster-number-parity.json"
-```
-
-`queries.json` contains the nine rendered winners' slug, latitude and longitude
-as `{slug, lat, lon}`. All three preview PNGs were opened and inspected; none
-of their styling changed. No files were uploaded and no social posts were sent.
+The earlier nearest-point forecast conversion passed 574 judgements exactly,
+and 287 retained compact-climate judgements with unequal December–February
+calendar weights also matched exactly. These historical results predate the
+later spatial field change described below. Forecast weather remains the
+native ECMWF forecast.
 
 ## Final forecast integration, 18 October
 
@@ -140,9 +121,21 @@ within `7.11e-14`. The independent Go footprint and score calculation matched
 all 28,700 numeric fields to the same precision. Fine climate's 397-place
 coverage is separate from this older forecast mask.
 
-Fresh posters were rendered under
-`$SSD/fine-validation/b1-worldwide/outlook-refresh/spatial-render/` using the
-new `scores-typical-day-*` filenames. Their nine named winners' displayed
+To render fresh posters and verify their actual named winners:
+
+```sh
+RENDER="$SSD/fine-validation/b1-worldwide/outlook-refresh/spatial-render"
+POSTERS="$RENDER/v6/forecast/20261017T0000Z/outlook"
+go run ./tools/outlook --source "$SSD" --places-source ./artifacts \
+  --static-source "$SSD/v6" --out "$RENDER" --today 2026-10-17
+node research/fine/outlook/app_forecast_parity.mjs --data "$SSD" \
+  --queries "$POSTERS" --output "$RENDER/app-parity"
+node research/fine/outlook/verify_posters.mjs "$POSTERS" \
+  "$RENDER/app-parity/expected.jsonl" "$RENDER/poster-number-parity.json"
+```
+
+Fresh posters were rendered with these commands using the new
+`scores-typical-day-*` filenames. Their nine named winners' displayed
 scores match the actual Worker and app. All three preview images were opened
 and inspected. The changed spatial model changes the world winners to
 Tijuana, Harare and Osaka; Europe remains Sassari, Naples and Lisbon; the USA
@@ -154,6 +147,11 @@ forecast results, not current live recommendations.
 implementation. Applying the patch centralizes the existing math without
 changing those results; the interface worker owns that source file.
 
+Both 397-place fine-climate comparisons were rerun after the final Go forecast
+change, including the independent NWFP binary decoder. Each still passed all
+211,601 numeric fields, with maximum difference `2.84e-14`.
+
 The prepared Linux amd64 runner and refreshed instructions/notices remain in
 `$SSD/fine-runner-b1-20261018/`. Its manifest records exact sizes and SHA-256
-hashes. Nothing was uploaded or deployed.
+hashes of the five upload files and 28 local build inputs. Nothing was uploaded
+or deployed.
