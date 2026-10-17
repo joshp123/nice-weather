@@ -1,0 +1,2658 @@
+{
+  "written_by": "AI GPT-6.1 Sol 2026-10-17",
+  "seconds": 1.132968791993335,
+  "units": "degrees Celsius",
+  "chelsa_extent": [
+    -180.00013888885002,
+    -90.00013888885,
+    179.99985967115003,
+    83.99986041515
+  ],
+  "worldclim_headers": {
+    "San Francisco west to inland": {
+      "BYTEORDER": "I",
+      "LAYOUT": "BIL",
+      "NROWS": "3600",
+      "NCOLS": "3600",
+      "NBANDS": "1",
+      "NBITS": "16",
+      "BANDROWBYTES": "7200",
+      "TOTALROWBYTES": "7200",
+      "BANDGAPBYTES": "0",
+      "NODATA": "-9999",
+      "PIXELTYPE": "SIGNEDINT",
+      "ULXMAP": "-149.9958333333",
+      "ULYMAP": "59.99583333333",
+      "XDIM": "0.008333333333333333",
+      "YDIM": "0.008333333333333333",
+      "DatabaseName": "WorldClim",
+      "Version": "1.4",
+      "Release": "3",
+      "Created": "20060104",
+      "PROJ4": "+proj=longlat +datum=WGS84",
+      "MinX": "-150",
+      "MaxX": "-120",
+      "MinY": "30",
+      "MaxY": "60",
+      "MinValue": "26",
+      "MaxValue": "383",
+      "Variable": "Maximum temperature",
+      "month": "July",
+      "Units": "deg C * 10"
+    },
+    "Malaga coast east-west": {
+      "BYTEORDER": "I",
+      "LAYOUT": "BIL",
+      "NROWS": "3600",
+      "NCOLS": "3600",
+      "NBANDS": "1",
+      "NBITS": "16",
+      "BANDROWBYTES": "7200",
+      "TOTALROWBYTES": "7200",
+      "BANDGAPBYTES": "0",
+      "NODATA": "-9999",
+      "PIXELTYPE": "SIGNEDINT",
+      "ULXMAP": "-29.99583333333",
+      "ULYMAP": "59.99583333333",
+      "XDIM": "0.008333333333333333",
+      "YDIM": "0.008333333333333333",
+      "DatabaseName": "WorldClim",
+      "Version": "1.4",
+      "Release": "3",
+      "Created": "20060104",
+      "PROJ4": "+proj=longlat +datum=WGS84",
+      "MinX": "-30",
+      "MaxX": "0",
+      "MinY": "30",
+      "MaxY": "60",
+      "MinValue": "93",
+      "MaxValue": "459",
+      "Variable": "Maximum temperature",
+      "month": "July",
+      "Units": "deg C * 10"
+    },
+    "Lima coast to inland": {
+      "BYTEORDER": "I",
+      "LAYOUT": "BIL",
+      "NROWS": "3600",
+      "NCOLS": "3600",
+      "NBANDS": "1",
+      "NBITS": "16",
+      "BANDROWBYTES": "7200",
+      "TOTALROWBYTES": "7200",
+      "BANDGAPBYTES": "0",
+      "NODATA": "-9999",
+      "PIXELTYPE": "SIGNEDINT",
+      "ULXMAP": "-89.99583333333",
+      "ULYMAP": "-0.0041666666667",
+      "XDIM": "0.008333333333333333",
+      "YDIM": "0.008333333333333333",
+      "DatabaseName": "WorldClim",
+      "Version": "1.4",
+      "Release": "3",
+      "Created": "20060104",
+      "PROJ4": "+proj=longlat +datum=WGS84",
+      "MinX": "-90",
+      "MaxX": "-60",
+      "MinY": "-30",
+      "MaxY": "0",
+      "MinValue": "-14",
+      "MaxValue": "366",
+      "Variable": "Maximum temperature",
+      "month": "January",
+      "Units": "deg C * 10"
+    },
+    "Valparaiso coast to inland": {
+      "BYTEORDER": "I",
+      "LAYOUT": "BIL",
+      "NROWS": "3600",
+      "NCOLS": "3600",
+      "NBANDS": "1",
+      "NBITS": "16",
+      "BANDROWBYTES": "7200",
+      "TOTALROWBYTES": "7200",
+      "BANDGAPBYTES": "0",
+      "NODATA": "-9999",
+      "PIXELTYPE": "SIGNEDINT",
+      "ULXMAP": "-89.99583333333",
+      "ULYMAP": "-30.00416666667",
+      "XDIM": "0.008333333333333333",
+      "YDIM": "0.008333333333333333",
+      "DatabaseName": "WorldClim",
+      "Version": "1.4",
+      "Release": "3",
+      "Created": "20060104",
+      "PROJ4": "+proj=longlat +datum=WGS84",
+      "MinX": "-90",
+      "MaxX": "-60",
+      "MinY": "-60",
+      "MaxY": "-30",
+      "MinValue": "-33",
+      "MaxValue": "352",
+      "Variable": "Maximum temperature",
+      "month": "January",
+      "Units": "deg C * 10"
+    }
+  },
+  "worldclim_global_header": {
+    "BYTEORDER": "I",
+    "LAYOUT": "BIL",
+    "NROWS": "18000",
+    "NCOLS": "43200",
+    "NBANDS": "1",
+    "NBITS": "16",
+    "BANDROWBYTES": "86400",
+    "TOTALROWBYTES": "86400",
+    "BANDGAPBYTES": "0",
+    "NODATA": "-9999",
+    "ULXMAP": "-179.995833333333333",
+    "ULYMAP": "89.995833333333333",
+    "XDIM": "0.008333333333333333",
+    "YDIM": "0.008333333333333333",
+    "DatabaseName": "WorldClim",
+    "Version": "1.4",
+    "Release": "3",
+    "Created": "20051226",
+    "Projection": "GEOGRAPHIC",
+    "Datum": "WGS84",
+    "MinX": "-180",
+    "MaxX": "180",
+    "MinY": "-60",
+    "MaxY": "90",
+    "MinValue": "-500",
+    "MaxValue": "419",
+    "Variable": "tmax",
+    "month": "January",
+    "Units": "deg C * 10"
+  },
+  "worldclim_global_header_url": "https://geodata.ucdavis.edu/climate/worldclim/1_4/grid/cur/tmax_30s_bil.zip",
+  "worldclim_coverage_primary": "https://www.worldclim.org/data/v1.4/formats.html",
+  "coverage": [
+    {
+      "name": "McMurdo",
+      "lat": -77.85,
+      "lon": 166.67,
+      "chelsa": {
+        "exact": -25.94999999999999,
+        "mean_5x5": -25.913999999999977,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "South Pole",
+      "lat": -89.99,
+      "lon": 0,
+      "chelsa": {
+        "exact": -51.04999999999998,
+        "mean_5x5": -51.049999999999976,
+        "valid_pixels": 20,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "North Greenland",
+      "lat": 83.6,
+      "lon": -33,
+      "chelsa": {
+        "exact": 3.3500000000000227,
+        "mean_5x5": 3.3900000000000317,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Svalbard Longyearbyen",
+      "lat": 78.22,
+      "lon": 15.65,
+      "chelsa": {
+        "exact": 6.050000000000011,
+        "mean_5x5": 5.854000000000024,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Tristan da Cunha",
+      "lat": -37.105,
+      "lon": -12.277,
+      "chelsa": {
+        "exact": 5.050000000000011,
+        "mean_5x5": 6.690000000000025,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Gough",
+      "lat": -40.32,
+      "lon": -9.94,
+      "chelsa": {
+        "exact": 8.050000000000011,
+        "mean_5x5": 8.386000000000019,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Pitcairn",
+      "lat": -25.066,
+      "lon": -130.1,
+      "chelsa": {
+        "exact": 21.650000000000034,
+        "mean_5x5": 21.570000000000018,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Rapa Nui",
+      "lat": -27.15,
+      "lon": -109.42,
+      "chelsa": {
+        "exact": 19.55000000000001,
+        "mean_5x5": 19.510000000000023,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Tuvalu Funafuti",
+      "lat": -8.52,
+      "lon": 179.2,
+      "chelsa": {
+        "exact": 27.75,
+        "mean_5x5": 27.818000000000016,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Tarawa",
+      "lat": 1.45,
+      "lon": 172.98,
+      "chelsa": {
+        "exact": 27.850000000000023,
+        "mean_5x5": 27.850000000000023,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Male Maldives",
+      "lat": 4.175,
+      "lon": 73.51,
+      "chelsa": {
+        "exact": 27.850000000000023,
+        "mean_5x5": 27.93400000000004,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Diego Garcia",
+      "lat": -7.31,
+      "lon": 72.42,
+      "chelsa": {
+        "exact": 26.25,
+        "mean_5x5": 26.242000000000004,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "St Helena",
+      "lat": -15.965,
+      "lon": -5.708,
+      "chelsa": {
+        "exact": 18.650000000000034,
+        "mean_5x5": 18.858000000000025,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Socotra",
+      "lat": 12.65,
+      "lon": 54.02,
+      "chelsa": {
+        "exact": 28.450000000000045,
+        "mean_5x5": 28.390000000000036,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": null,
+        "mean_5x5": null,
+        "reason": "tile_not_in_existing_cache"
+      }
+    },
+    {
+      "name": "Funchal",
+      "lat": 32.65,
+      "lon": -16.91,
+      "chelsa": {
+        "exact": 22.75,
+        "mean_5x5": 22.69800000000001,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": 24.0,
+        "mean_5x5": 23.740909090909092,
+        "valid_pixels": 22
+      }
+    },
+    {
+      "name": "Las Palmas",
+      "lat": 28.124,
+      "lon": -15.43,
+      "chelsa": {
+        "exact": 21.25,
+        "mean_5x5": 21.306000000000022,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": 27.2,
+        "mean_5x5": 27.046666666666663,
+        "valid_pixels": 15
+      }
+    },
+    {
+      "name": "Cape Verde Praia",
+      "lat": 14.92,
+      "lon": -23.51,
+      "chelsa": {
+        "exact": 27.05000000000001,
+        "mean_5x5": 27.00200000000003,
+        "valid_pixels": 25,
+        "outside_extent": false
+      },
+      "worldclim": {
+        "exact": 29.4,
+        "mean_5x5": 29.142857142857146,
+        "valid_pixels": 21
+      }
+    }
+  ],
+  "ocean_checks": [
+    {
+      "name": "Pacific west of SF",
+      "lat": 37.75,
+      "lon": -122.6,
+      "chelsa": {
+        "exact": 16.75,
+        "mean_5x5": 16.71800000000002,
+        "valid_pixels": 25,
+        "outside_extent": false
+      }
+    },
+    {
+      "name": "Central Atlantic",
+      "lat": 0,
+      "lon": -30,
+      "chelsa": {
+        "exact": 26.05000000000001,
+        "mean_5x5": 26.050000000000008,
+        "valid_pixels": 25,
+        "outside_extent": false
+      }
+    }
+  ],
+  "transects": [
+    {
+      "name": "San Francisco west to inland",
+      "month": 7,
+      "samples": [
+        {
+          "lat": 37.75,
+          "lon": -122.52,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 18.740000000000002,
+            "valid_pixels": 5
+          },
+          "chelsa": {
+            "exact": 18.350000000000023,
+            "mean_5x5": 18.38600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.51166666666666,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 18.880000000000003,
+            "valid_pixels": 10
+          },
+          "chelsa": {
+            "exact": 18.55000000000001,
+            "mean_5x5": 18.56600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.50333333333332,
+          "worldclim": {
+            "exact": 18.7,
+            "mean_5x5": 19.013333333333332,
+            "valid_pixels": 15
+          },
+          "chelsa": {
+            "exact": 18.75,
+            "mean_5x5": 18.758000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.49499999999998,
+          "worldclim": {
+            "exact": 19.2,
+            "mean_5x5": 19.185,
+            "valid_pixels": 20
+          },
+          "chelsa": {
+            "exact": 18.950000000000045,
+            "mean_5x5": 18.954000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.48666666666664,
+          "worldclim": {
+            "exact": 19.5,
+            "mean_5x5": 19.324,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.150000000000034,
+            "mean_5x5": 19.162000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.4783333333333,
+          "worldclim": {
+            "exact": 19.9,
+            "mean_5x5": 19.584,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.350000000000023,
+            "mean_5x5": 19.374000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.46999999999996,
+          "worldclim": {
+            "exact": 20.3,
+            "mean_5x5": 19.887999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.650000000000034,
+            "mean_5x5": 19.594000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.46166666666662,
+          "worldclim": {
+            "exact": 20.3,
+            "mean_5x5": 20.156,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.850000000000023,
+            "mean_5x5": 19.810000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.45333333333328,
+          "worldclim": {
+            "exact": 21.3,
+            "mean_5x5": 20.204,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.05000000000001,
+            "mean_5x5": 20.018000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.44499999999994,
+          "worldclim": {
+            "exact": 21.5,
+            "mean_5x5": 20.131999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.25,
+            "mean_5x5": 20.210000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.4366666666666,
+          "worldclim": {
+            "exact": 19.9,
+            "mean_5x5": 20.04,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.350000000000023,
+            "mean_5x5": 20.402000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.42833333333326,
+          "worldclim": {
+            "exact": 19.6,
+            "mean_5x5": 19.880000000000003,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.55000000000001,
+            "mean_5x5": 20.59000000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.41999999999992,
+          "worldclim": {
+            "exact": 19.5,
+            "mean_5x5": 19.728,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.75,
+            "mean_5x5": 20.778000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.41166666666658,
+          "worldclim": {
+            "exact": 19.7,
+            "mean_5x5": 19.740000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.950000000000045,
+            "mean_5x5": 20.982000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.40333333333324,
+          "worldclim": {
+            "exact": 19.8,
+            "mean_5x5": 19.875999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.150000000000034,
+            "mean_5x5": 21.19000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.3949999999999,
+          "worldclim": {
+            "exact": 20.0,
+            "mean_5x5": 20.020833333333336,
+            "valid_pixels": 24
+          },
+          "chelsa": {
+            "exact": 21.450000000000045,
+            "mean_5x5": 21.40600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.38666666666656,
+          "worldclim": {
+            "exact": 20.1,
+            "mean_5x5": 20.142857142857142,
+            "valid_pixels": 21
+          },
+          "chelsa": {
+            "exact": 21.55000000000001,
+            "mean_5x5": 21.618000000000016,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.37833333333322,
+          "worldclim": {
+            "exact": 20.4,
+            "mean_5x5": 20.23125,
+            "valid_pixels": 16
+          },
+          "chelsa": {
+            "exact": 21.850000000000023,
+            "mean_5x5": 21.834000000000014,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.36999999999988,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 20.336363636363636,
+            "valid_pixels": 11
+          },
+          "chelsa": {
+            "exact": 22.05000000000001,
+            "mean_5x5": 22.04200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.36166666666654,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 20.45,
+            "valid_pixels": 6
+          },
+          "chelsa": {
+            "exact": 22.25,
+            "mean_5x5": 22.25000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.3533333333332,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 20.6,
+            "valid_pixels": 2
+          },
+          "chelsa": {
+            "exact": 22.450000000000045,
+            "mean_5x5": 22.454000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.34499999999986,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": null,
+            "valid_pixels": 0
+          },
+          "chelsa": {
+            "exact": 22.650000000000034,
+            "mean_5x5": 22.65800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.33666666666652,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": null,
+            "valid_pixels": 0
+          },
+          "chelsa": {
+            "exact": 22.850000000000023,
+            "mean_5x5": 22.862000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.32833333333318,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": null,
+            "valid_pixels": 0
+          },
+          "chelsa": {
+            "exact": 23.05000000000001,
+            "mean_5x5": 23.066000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.31999999999984,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": null,
+            "valid_pixels": 0
+          },
+          "chelsa": {
+            "exact": 23.25,
+            "mean_5x5": 23.266000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.3116666666665,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": null,
+            "valid_pixels": 0
+          },
+          "chelsa": {
+            "exact": 23.450000000000045,
+            "mean_5x5": 23.462000000000025,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.30333333333316,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.7,
+            "valid_pixels": 1
+          },
+          "chelsa": {
+            "exact": 23.650000000000034,
+            "mean_5x5": 23.658000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.29499999999982,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.7,
+            "valid_pixels": 2
+          },
+          "chelsa": {
+            "exact": 23.850000000000023,
+            "mean_5x5": 23.842000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.28666666666648,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.733333333333334,
+            "valid_pixels": 3
+          },
+          "chelsa": {
+            "exact": 24.05000000000001,
+            "mean_5x5": 24.02200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.27833333333314,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.78,
+            "valid_pixels": 5
+          },
+          "chelsa": {
+            "exact": 24.150000000000034,
+            "mean_5x5": 24.20200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.2699999999998,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.825,
+            "valid_pixels": 8
+          },
+          "chelsa": {
+            "exact": 24.350000000000023,
+            "mean_5x5": 24.37000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.26166666666646,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.908333333333335,
+            "valid_pixels": 12
+          },
+          "chelsa": {
+            "exact": 24.55000000000001,
+            "mean_5x5": 24.53000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.25333333333312,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 21.98125,
+            "valid_pixels": 16
+          },
+          "chelsa": {
+            "exact": 24.650000000000034,
+            "mean_5x5": 24.68600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.24499999999978,
+          "worldclim": {
+            "exact": 22.0,
+            "mean_5x5": 22.025,
+            "valid_pixels": 20
+          },
+          "chelsa": {
+            "exact": 24.850000000000023,
+            "mean_5x5": 24.834000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.23666666666644,
+          "worldclim": {
+            "exact": 22.1,
+            "mean_5x5": 22.086956521739133,
+            "valid_pixels": 23
+          },
+          "chelsa": {
+            "exact": 24.950000000000045,
+            "mean_5x5": 24.974000000000025,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.2283333333331,
+          "worldclim": {
+            "exact": 22.1,
+            "mean_5x5": 22.16,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.150000000000034,
+            "mean_5x5": 25.110000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.21999999999976,
+          "worldclim": {
+            "exact": 22.2,
+            "mean_5x5": 22.264,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.25,
+            "mean_5x5": 25.238000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.21166666666642,
+          "worldclim": {
+            "exact": 22.3,
+            "mean_5x5": 22.372,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.350000000000023,
+            "mean_5x5": 25.362000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.20333333333308,
+          "worldclim": {
+            "exact": 22.5,
+            "mean_5x5": 22.508000000000003,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.450000000000045,
+            "mean_5x5": 25.482000000000017,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.19499999999974,
+          "worldclim": {
+            "exact": 22.6,
+            "mean_5x5": 22.656,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.55000000000001,
+            "mean_5x5": 25.606000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.1866666666664,
+          "worldclim": {
+            "exact": 22.8,
+            "mean_5x5": 22.82,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.75,
+            "mean_5x5": 25.72600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.17833333333306,
+          "worldclim": {
+            "exact": 23.0,
+            "mean_5x5": 23.003999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.850000000000023,
+            "mean_5x5": 25.84600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.16999999999972,
+          "worldclim": {
+            "exact": 23.1,
+            "mean_5x5": 23.22,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 25.950000000000045,
+            "mean_5x5": 25.970000000000017,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.16166666666638,
+          "worldclim": {
+            "exact": 23.3,
+            "mean_5x5": 23.456,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.05000000000001,
+            "mean_5x5": 26.098000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.15333333333304,
+          "worldclim": {
+            "exact": 23.7,
+            "mean_5x5": 23.759999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.150000000000034,
+            "mean_5x5": 26.222000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.1449999999997,
+          "worldclim": {
+            "exact": 24.1,
+            "mean_5x5": 24.148,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.350000000000023,
+            "mean_5x5": 26.354000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.13666666666636,
+          "worldclim": {
+            "exact": 24.8,
+            "mean_5x5": 24.488,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.55000000000001,
+            "mean_5x5": 26.47800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.12833333333302,
+          "worldclim": {
+            "exact": 25.0,
+            "mean_5x5": 24.82,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.650000000000034,
+            "mean_5x5": 26.594000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.11999999999968,
+          "worldclim": {
+            "exact": 25.2,
+            "mean_5x5": 25.156,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.75,
+            "mean_5x5": 26.706000000000028,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.11166666666634,
+          "worldclim": {
+            "exact": 25.3,
+            "mean_5x5": 25.456,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.75,
+            "mean_5x5": 26.810000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 37.75,
+          "lon": -122.103333333333,
+          "worldclim": {
+            "exact": 26.2,
+            "mean_5x5": 25.580000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 26.950000000000045,
+            "mean_5x5": 26.894000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "Malaga coast east-west",
+      "month": 7,
+      "samples": [
+        {
+          "lat": 36.72,
+          "lon": -4.52,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.552,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.850000000000023,
+            "mean_5x5": 28.850000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.511666666666666,
+          "worldclim": {
+            "exact": 29.6,
+            "mean_5x5": 29.532,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.850000000000023,
+            "mean_5x5": 28.746000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.503333333333332,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.524,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.75,
+            "mean_5x5": 28.65800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.494999999999998,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.516000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.650000000000034,
+            "mean_5x5": 28.57800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.486666666666665,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.5,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.55000000000001,
+            "mean_5x5": 28.486000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.478333333333331,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.5,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.450000000000045,
+            "mean_5x5": 28.38600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.469999999999997,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.5,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.350000000000023,
+            "mean_5x5": 28.282000000000018,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.461666666666663,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.496,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.25,
+            "mean_5x5": 28.18600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.45333333333333,
+          "worldclim": {
+            "exact": 29.4,
+            "mean_5x5": 29.48,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.150000000000034,
+            "mean_5x5": 28.106000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.444999999999996,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.476,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 28.05000000000001,
+            "mean_5x5": 28.034000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.436666666666662,
+          "worldclim": {
+            "exact": 29.4,
+            "mean_5x5": 29.469565217391306,
+            "valid_pixels": 23
+          },
+          "chelsa": {
+            "exact": 27.950000000000045,
+            "mean_5x5": 27.954000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.428333333333328,
+          "worldclim": {
+            "exact": 29.4,
+            "mean_5x5": 29.47142857142857,
+            "valid_pixels": 21
+          },
+          "chelsa": {
+            "exact": 27.950000000000045,
+            "mean_5x5": 27.84600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.419999999999995,
+          "worldclim": {
+            "exact": 29.4,
+            "mean_5x5": 29.477777777777778,
+            "valid_pixels": 18
+          },
+          "chelsa": {
+            "exact": 27.75,
+            "mean_5x5": 27.726000000000028,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.411666666666661,
+          "worldclim": {
+            "exact": 29.5,
+            "mean_5x5": 29.506666666666668,
+            "valid_pixels": 15
+          },
+          "chelsa": {
+            "exact": 27.55000000000001,
+            "mean_5x5": 27.610000000000028,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.403333333333327,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.55,
+            "valid_pixels": 12
+          },
+          "chelsa": {
+            "exact": 27.450000000000045,
+            "mean_5x5": 27.46600000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.394999999999993,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.590909090909093,
+            "valid_pixels": 11
+          },
+          "chelsa": {
+            "exact": 27.450000000000045,
+            "mean_5x5": 27.31400000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.38666666666666,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.610000000000003,
+            "valid_pixels": 10
+          },
+          "chelsa": {
+            "exact": 27.25,
+            "mean_5x5": 27.190000000000033,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.378333333333326,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.619999999999997,
+            "valid_pixels": 10
+          },
+          "chelsa": {
+            "exact": 27.150000000000034,
+            "mean_5x5": 27.05800000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.369999999999992,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.639999999999997,
+            "valid_pixels": 10
+          },
+          "chelsa": {
+            "exact": 27.05000000000001,
+            "mean_5x5": 26.91000000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.361666666666658,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.636363636363637,
+            "valid_pixels": 11
+          },
+          "chelsa": {
+            "exact": 26.950000000000045,
+            "mean_5x5": 26.77800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.353333333333325,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 29.64166666666667,
+            "valid_pixels": 12
+          },
+          "chelsa": {
+            "exact": 26.75,
+            "mean_5x5": 26.65400000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": 36.72,
+          "lon": -4.344999999999991,
+          "worldclim": {
+            "exact": 29.6,
+            "mean_5x5": 29.661538461538463,
+            "valid_pixels": 13
+          },
+          "chelsa": {
+            "exact": 26.55000000000001,
+            "mean_5x5": 26.514000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lima coast to inland",
+      "month": 1,
+      "samples": [
+        {
+          "lat": -12.05,
+          "lon": -77.17,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 26.06666666666667,
+            "valid_pixels": 6
+          },
+          "chelsa": {
+            "exact": 22.55000000000001,
+            "mean_5x5": 22.534000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.16166666666666,
+          "worldclim": {
+            "exact": null,
+            "mean_5x5": 26.090909090909093,
+            "valid_pixels": 11
+          },
+          "chelsa": {
+            "exact": 22.650000000000034,
+            "mean_5x5": 22.642000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.15333333333332,
+          "worldclim": {
+            "exact": 26.1,
+            "mean_5x5": 26.1,
+            "valid_pixels": 16
+          },
+          "chelsa": {
+            "exact": 22.75,
+            "mean_5x5": 22.75000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.14499999999998,
+          "worldclim": {
+            "exact": 26.1,
+            "mean_5x5": 26.104761904761904,
+            "valid_pixels": 21
+          },
+          "chelsa": {
+            "exact": 22.850000000000023,
+            "mean_5x5": 22.862000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.13666666666664,
+          "worldclim": {
+            "exact": 26.1,
+            "mean_5x5": 26.116000000000003,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.950000000000045,
+            "mean_5x5": 22.974000000000025,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.1283333333333,
+          "worldclim": {
+            "exact": 26.1,
+            "mean_5x5": 26.139999999999997,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.05000000000001,
+            "mean_5x5": 23.082000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.11999999999996,
+          "worldclim": {
+            "exact": 26.2,
+            "mean_5x5": 26.156,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.150000000000034,
+            "mean_5x5": 23.18200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.11166666666662,
+          "worldclim": {
+            "exact": 26.2,
+            "mean_5x5": 26.188,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.25,
+            "mean_5x5": 23.28200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.10333333333328,
+          "worldclim": {
+            "exact": 26.2,
+            "mean_5x5": 26.227999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.350000000000023,
+            "mean_5x5": 23.37400000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.09499999999994,
+          "worldclim": {
+            "exact": 26.3,
+            "mean_5x5": 26.268,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.450000000000045,
+            "mean_5x5": 23.466000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.0866666666666,
+          "worldclim": {
+            "exact": 26.3,
+            "mean_5x5": 26.304000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.55000000000001,
+            "mean_5x5": 23.55800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.07833333333326,
+          "worldclim": {
+            "exact": 26.3,
+            "mean_5x5": 26.348000000000003,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.650000000000034,
+            "mean_5x5": 23.654000000000025,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.06999999999992,
+          "worldclim": {
+            "exact": 26.4,
+            "mean_5x5": 26.383999999999997,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.75,
+            "mean_5x5": 23.742000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.06166666666658,
+          "worldclim": {
+            "exact": 26.5,
+            "mean_5x5": 26.424,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.850000000000023,
+            "mean_5x5": 23.82200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.05333333333324,
+          "worldclim": {
+            "exact": 26.5,
+            "mean_5x5": 26.488,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.850000000000023,
+            "mean_5x5": 23.902000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.0449999999999,
+          "worldclim": {
+            "exact": 26.5,
+            "mean_5x5": 26.560000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 23.950000000000045,
+            "mean_5x5": 23.97800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.03666666666656,
+          "worldclim": {
+            "exact": 26.7,
+            "mean_5x5": 26.644,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.05000000000001,
+            "mean_5x5": 24.03400000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.02833333333322,
+          "worldclim": {
+            "exact": 26.8,
+            "mean_5x5": 26.74,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.05000000000001,
+            "mean_5x5": 24.09800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.01999999999988,
+          "worldclim": {
+            "exact": 26.8,
+            "mean_5x5": 26.856,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.150000000000034,
+            "mean_5x5": 24.15800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.01166666666654,
+          "worldclim": {
+            "exact": 27.0,
+            "mean_5x5": 26.96,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.25,
+            "mean_5x5": 24.202000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -77.0033333333332,
+          "worldclim": {
+            "exact": 27.1,
+            "mean_5x5": 27.068,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.25,
+            "mean_5x5": 24.22600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -76.99499999999986,
+          "worldclim": {
+            "exact": 27.3,
+            "mean_5x5": 27.18,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.150000000000034,
+            "mean_5x5": 24.270000000000028,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -76.98666666666652,
+          "worldclim": {
+            "exact": 27.4,
+            "mean_5x5": 27.28,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.150000000000034,
+            "mean_5x5": 24.314000000000025,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -76.97833333333318,
+          "worldclim": {
+            "exact": 27.4,
+            "mean_5x5": 27.356,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.350000000000023,
+            "mean_5x5": 24.36200000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -76.96999999999984,
+          "worldclim": {
+            "exact": 27.5,
+            "mean_5x5": 27.419999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.450000000000045,
+            "mean_5x5": 24.418000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -76.9616666666665,
+          "worldclim": {
+            "exact": 27.5,
+            "mean_5x5": 27.468,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.450000000000045,
+            "mean_5x5": 24.486000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -12.05,
+          "lon": -76.95333333333316,
+          "worldclim": {
+            "exact": 27.5,
+            "mean_5x5": 27.488,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 24.55000000000001,
+            "mean_5x5": 24.542000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "Valparaiso coast to inland",
+      "month": 1,
+      "samples": [
+        {
+          "lat": -33.05,
+          "lon": -71.67,
+          "worldclim": {
+            "exact": 23.0,
+            "mean_5x5": 22.915,
+            "valid_pixels": 20
+          },
+          "chelsa": {
+            "exact": 17.55000000000001,
+            "mean_5x5": 17.56600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.66166666666666,
+          "worldclim": {
+            "exact": 23.1,
+            "mean_5x5": 22.784,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 17.75,
+            "mean_5x5": 17.690000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.65333333333332,
+          "worldclim": {
+            "exact": 22.6,
+            "mean_5x5": 22.672,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 17.75,
+            "mean_5x5": 17.81800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.64499999999998,
+          "worldclim": {
+            "exact": 22.3,
+            "mean_5x5": 22.604166666666664,
+            "valid_pixels": 24
+          },
+          "chelsa": {
+            "exact": 17.950000000000045,
+            "mean_5x5": 17.95800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.63666666666664,
+          "worldclim": {
+            "exact": 22.7,
+            "mean_5x5": 22.575,
+            "valid_pixels": 24
+          },
+          "chelsa": {
+            "exact": 18.150000000000034,
+            "mean_5x5": 18.106000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.6283333333333,
+          "worldclim": {
+            "exact": 22.9,
+            "mean_5x5": 22.7,
+            "valid_pixels": 24
+          },
+          "chelsa": {
+            "exact": 18.25,
+            "mean_5x5": 18.270000000000028,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.61999999999996,
+          "worldclim": {
+            "exact": 23.3,
+            "mean_5x5": 22.895833333333336,
+            "valid_pixels": 24
+          },
+          "chelsa": {
+            "exact": 18.450000000000045,
+            "mean_5x5": 18.438000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.61166666666662,
+          "worldclim": {
+            "exact": 23.3,
+            "mean_5x5": 23.020833333333336,
+            "valid_pixels": 24
+          },
+          "chelsa": {
+            "exact": 18.650000000000034,
+            "mean_5x5": 18.606000000000023,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.60333333333328,
+          "worldclim": {
+            "exact": 23.3,
+            "mean_5x5": 23.080000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 18.75,
+            "mean_5x5": 18.770000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.59499999999994,
+          "worldclim": {
+            "exact": 22.9,
+            "mean_5x5": 23.096,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 18.950000000000045,
+            "mean_5x5": 18.930000000000017,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.5866666666666,
+          "worldclim": {
+            "exact": 22.9,
+            "mean_5x5": 23.052,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.05000000000001,
+            "mean_5x5": 19.09000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.57833333333326,
+          "worldclim": {
+            "exact": 22.9,
+            "mean_5x5": 22.976,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.25,
+            "mean_5x5": 19.25000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.56999999999992,
+          "worldclim": {
+            "exact": 22.7,
+            "mean_5x5": 22.968,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.450000000000045,
+            "mean_5x5": 19.414000000000016,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.56166666666658,
+          "worldclim": {
+            "exact": 22.6,
+            "mean_5x5": 22.991999999999997,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.55000000000001,
+            "mean_5x5": 19.578000000000017,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.55333333333324,
+          "worldclim": {
+            "exact": 22.8,
+            "mean_5x5": 23.02,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.75,
+            "mean_5x5": 19.742000000000022,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.5449999999999,
+          "worldclim": {
+            "exact": 23.1,
+            "mean_5x5": 23.144,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 19.950000000000045,
+            "mean_5x5": 19.906000000000017,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.53666666666656,
+          "worldclim": {
+            "exact": 23.0,
+            "mean_5x5": 23.332,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.05000000000001,
+            "mean_5x5": 20.070000000000018,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.52833333333322,
+          "worldclim": {
+            "exact": 23.3,
+            "mean_5x5": 23.46,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.25,
+            "mean_5x5": 20.23000000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.51999999999988,
+          "worldclim": {
+            "exact": 24.2,
+            "mean_5x5": 23.568,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.350000000000023,
+            "mean_5x5": 20.390000000000015,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.51166666666654,
+          "worldclim": {
+            "exact": 24.1,
+            "mean_5x5": 23.708000000000002,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.55000000000001,
+            "mean_5x5": 20.546000000000017,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.5033333333332,
+          "worldclim": {
+            "exact": 24.3,
+            "mean_5x5": 23.816,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.75,
+            "mean_5x5": 20.70200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.49499999999986,
+          "worldclim": {
+            "exact": 24.1,
+            "mean_5x5": 23.892,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 20.850000000000023,
+            "mean_5x5": 20.854000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.48666666666652,
+          "worldclim": {
+            "exact": 24.0,
+            "mean_5x5": 23.968,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.05000000000001,
+            "mean_5x5": 21.014000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.47833333333318,
+          "worldclim": {
+            "exact": 24.2,
+            "mean_5x5": 24.064,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.150000000000034,
+            "mean_5x5": 21.170000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.46999999999984,
+          "worldclim": {
+            "exact": 24.1,
+            "mean_5x5": 24.131999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.350000000000023,
+            "mean_5x5": 21.330000000000027,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.4616666666665,
+          "worldclim": {
+            "exact": 24.5,
+            "mean_5x5": 24.212,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.55000000000001,
+            "mean_5x5": 21.49800000000003,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.45333333333316,
+          "worldclim": {
+            "exact": 24.5,
+            "mean_5x5": 24.288,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.650000000000034,
+            "mean_5x5": 21.67800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.44499999999982,
+          "worldclim": {
+            "exact": 24.6,
+            "mean_5x5": 24.408,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 21.850000000000023,
+            "mean_5x5": 21.84600000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.43666666666648,
+          "worldclim": {
+            "exact": 24.6,
+            "mean_5x5": 24.512,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.05000000000001,
+            "mean_5x5": 22.018000000000026,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.42833333333314,
+          "worldclim": {
+            "exact": 24.7,
+            "mean_5x5": 24.636000000000003,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.25,
+            "mean_5x5": 22.19800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.4199999999998,
+          "worldclim": {
+            "exact": 24.9,
+            "mean_5x5": 24.747999999999998,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.350000000000023,
+            "mean_5x5": 22.37800000000001,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.41166666666646,
+          "worldclim": {
+            "exact": 25.0,
+            "mean_5x5": 24.852,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.55000000000001,
+            "mean_5x5": 22.55800000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.40333333333312,
+          "worldclim": {
+            "exact": 25.0,
+            "mean_5x5": 24.948,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.75,
+            "mean_5x5": 22.746000000000024,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        },
+        {
+          "lat": -33.05,
+          "lon": -71.39499999999978,
+          "worldclim": {
+            "exact": 25.1,
+            "mean_5x5": 25.028,
+            "valid_pixels": 25
+          },
+          "chelsa": {
+            "exact": 22.950000000000045,
+            "mean_5x5": 22.94200000000002,
+            "valid_pixels": 25,
+            "outside_extent": false
+          }
+        }
+      ]
+    }
+  ],
+  "tile_compression": [
+    {
+      "profile": "San Francisco west to inland",
+      "label": "coast",
+      "source": "WorldClim1.4",
+      "month": 7,
+      "land_fraction": 0.5588531494140625,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 21206,
+      "zlib_uint16_bytes": 26568,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/san_coast_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 37040,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/san_coast_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "San Francisco west to inland",
+      "label": "inland",
+      "source": "WorldClim1.4",
+      "month": 7,
+      "land_fraction": 0.7110443115234375,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 24008,
+      "zlib_uint16_bytes": 29905,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/san_inland_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 42738,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/san_inland_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "Malaga coast east-west",
+      "label": "coast",
+      "source": "WorldClim1.4",
+      "month": 7,
+      "land_fraction": 0.589630126953125,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 17214,
+      "zlib_uint16_bytes": 20996,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/malaga_coast_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 39091,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/malaga_coast_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "Malaga coast east-west",
+      "label": "inland",
+      "source": "WorldClim1.4",
+      "month": 7,
+      "land_fraction": 0.56634521484375,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 17343,
+      "zlib_uint16_bytes": 21041,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/malaga_inland_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 38502,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/malaga_inland_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "Lima coast to inland",
+      "label": "coast",
+      "source": "WorldClim1.4",
+      "month": 1,
+      "land_fraction": 0.4731597900390625,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 25716,
+      "zlib_uint16_bytes": 31497,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/lima_coast_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 48658,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/lima_coast_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "Lima coast to inland",
+      "label": "inland",
+      "source": "WorldClim1.4",
+      "month": 1,
+      "land_fraction": 0.5473785400390625,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 29606,
+      "zlib_uint16_bytes": 36509,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/lima_inland_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 55959,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/lima_inland_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "Valparaiso coast to inland",
+      "label": "coast",
+      "source": "WorldClim1.4",
+      "month": 1,
+      "land_fraction": 0.4992523193359375,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 25255,
+      "zlib_uint16_bytes": 28731,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/valparaiso_coast_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 44760,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/valparaiso_coast_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    },
+    {
+      "profile": "Valparaiso coast to inland",
+      "label": "inland",
+      "source": "WorldClim1.4",
+      "month": 1,
+      "land_fraction": 0.6008148193359375,
+      "pixels": 65536,
+      "raw_uint16_bytes": 131072,
+      "png_uint16_bytes": 31324,
+      "zlib_uint16_bytes": 36593,
+      "png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/valparaiso_inland_256.png",
+      "encoding": "0.1C offset+1000,65535NoData;oneanchor/one-month",
+      "png_high_low_rgb_bytes": 56559,
+      "rgb_png_path": "/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-phase1/resolution_tiles/valparaiso_inland_256_high_low_rgb.png",
+      "rgb_encoding": "Opaque RGB8;22 packed bits:high11 then low11;0.1C+1000;2047NoData"
+    }
+  ],
+  "coverage_proposal": {
+    "eligible_anchor_missing": "Keep native ERA5 with zero fine residual and explicit coverage flag; do not reuse current sea-level terrain correction.",
+    "antarctica": "WorldClim absent south of60S. CHELSA supplies tested Antarctic values but has not been station-validated there.",
+    "independent_land_mask": {
+      "source": "Natural Earth10m land v5.1.1 union minor-islands v4.1.0",
+      "licence": "public domain; derivative publication allowed; attribution optional",
+      "licence_url": "https://www.naturalearthdata.com/about/terms-of-use/",
+      "land_url": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-land/",
+      "islands_url": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-minor-islands/",
+      "advertised_download": "3.12MB land plus307.55KB minor islands; no download made",
+      "rasterization": "Union both polygon layers onto chosen temperature grid; retain partial-land coverage instead of inheriting0.25degree land mask.",
+      "limitation": "10m means1:10million map scale, not10metres. Minor islands are absent from main land layer. Northern Russia/southern Chile coastline accuracy and polar minor-island completeness are acknowledged source limitations."
+    }
+  },
+  "downloaded_bytes": 0,
+  "caveats": [
+    "5x5 windows measure local smoothing, not globally aligned coarse cells.",
+    "Representative tile sizes are empirical examples, not a global storage total.",
+    "CHELSA point checks do not establish complete worldwide land-mask coverage.",
+    "WorldClim missing-cache tiles are untested, not absent data.",
+    "Grayscale16 PNGs encode one anchor; opaque RGB8 PNGs encode both high/low for one month.",
+    "Packed RGB PNGs need raw-channel decoding with color conversion disabled.",
+    "CHELSA has values at ocean coordinates; its valid-data mask is not a land mask."
+  ]
+}

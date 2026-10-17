@@ -1,0 +1,504 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026.10.17",
+  "seconds": 188.05248708394356,
+  "compared_stations": 23,
+  "unavailable_native": [
+    "agadir"
+  ],
+  "source_grids_present": [
+    "chelsa",
+    "daymet",
+    "prism",
+    "worldclim14",
+    "worldclim21_benchmark"
+  ],
+  "residuals": {
+    "private_residual_global_c": "PRIVATE: foreign GHCN-derived fitting is not cleared for publication; fitted anchor minus2016\u20132025 native ERA5 extrema normal plus paired ERA5 extrema",
+    "us_government_residual_c": "Separate US-government-origin source-filtered fit, not blanket clearance of NOAA data; same modern-anchor formula"
+  },
+  "published_chunks": [
+    76,
+    78,
+    80,
+    82,
+    84
+  ],
+  "published_dates": [
+    "2015-09-30",
+    "2024-09-13"
+  ],
+  "live_build_time": "2026-10-17T13:42:48.141673+00:00",
+  "live_points_sha256": "dfb77be40090f8e441f219d0c604afa9837a04d318b98246c0963de78289b35d",
+  "available_normals": {
+    "selection": "Complete local24h native ERA5 dates in captured published chunks, without the station2016 lower bound; no additional historical hourly period",
+    "published_dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423",
+    "per_station": {
+      "SP000006155": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "SPE00120476": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "SPE00120215": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "PO000008522": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "PO000008535": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "SFM00068816": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "ASN00066037": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "ASN00009021": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "USW00022521": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "KE000063740": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "PEM00084628": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "NLE00152490": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "UKE00107650": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "MOM00060230": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "USW00023272": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "USW00023188": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "USW00023174": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "USW00023190": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "CI000085543": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "SPE00120512": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "GR000167460": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "USW00023169": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      },
+      "TH000048456": {
+        "days": 1800,
+        "monthly_days": [
+          155,
+          143,
+          155,
+          150,
+          155,
+          150,
+          155,
+          155,
+          122,
+          155,
+          150,
+          155
+        ],
+        "dates_sha256": "38e37fafb863591ad3f2cc1ea815ba61d2ac0c79288ad65b5d8fdd49264f5423"
+      }
+    },
+    "formula": "paired ERA5 extrema minus available-period ERA5 extrema normal plus fine-grid anchor plus available-period ERA5 mean minus source-period ERA5 mean",
+    "affine_formula": "target low plus (fine high minus fine low)/(available high minus available low) times (paired ERA5 extrema minus available low); target low is fine low plus available mean minus source-period mean",
+    "affine_caveat": "Additive and affine available-period corrections have identical full-period monthly high/low targets, but differ on paired observation subsets because affine scales the daily anomalies.",
+    "ordered_formula": "Use available-mean high/low offsets on each day; if corrected daily high <= corrected daily low, use the averaged high/low offset uniformly for all hours of that day. Same rule for every source/location, without a fitted threshold.",
+    "ordered_repair_counts": "Per-method paired-date counts in monthly_comparison.csv; all complete native days in range_inversion_audit.csv, separately for2016\u20132025 and published dates.",
+    "historical_mean": "This phase1 point experiment uses native hourly means for source-period TMEAN. A production implementation can substitute historical monthly mean ERA5 without acquiring historical global hourly extrema."
+  },
+  "published_ranges": [
+    {
+      "chunk": 76,
+      "first": "2015-09-30",
+      "last": "2016-09-23",
+      "days": 360
+    },
+    {
+      "chunk": 78,
+      "first": "2017-09-27",
+      "last": "2018-09-21",
+      "days": 360
+    },
+    {
+      "chunk": 80,
+      "first": "2019-09-25",
+      "last": "2020-09-18",
+      "days": 360
+    },
+    {
+      "chunk": 82,
+      "first": "2021-09-22",
+      "last": "2022-09-16",
+      "days": 360
+    },
+    {
+      "chunk": 84,
+      "first": "2023-09-20",
+      "last": "2024-09-13",
+      "days": 360
+    }
+  ],
+  "published_days": 1800,
+  "published_date_selection": "For each chunk: UTC epoch1940 + chunk\u00d78736h; local calendar date offsets2..361 inclusive, matching pipeline.chunk_dates",
+  "reference_periods": {
+    "raw_era5_c": "2016\u20132025, same accepted station observation dates, complete local24h ERA5 groups",
+    "product_algorithm_c": "2016\u20132025 reconstructed current source+height-shift algorithm, 24h extrema on paired station dates",
+    "product_algorithm_daytime_high_c": "2016\u20132025 reconstructed current algorithm local10:00\u201320:00 high versus observed24h TMAX; different measurement windows",
+    "published_high_c": "Actual captured live card high compared with2016\u20132025 station mean: periods differ; diagnostic context only",
+    "published_period_product_daytime_high_c": "Partial live-period current algorithm high10\u201320 versus same-date observed24h TMAX; paired subset matches dates but measurement windows differ",
+    "published_period_live_high_c": "Actual live card monthly high versus observed24h TMAX on available dates in published period; card includes all period days, observations can be sparse",
+    "published_period_raw_era5_c": "Native24h extrema versus same-date observations in actual live period"
+  },
+  "published_period_caveat": "This is not a full published-period reconstruction. Station observations are restricted to2016\u20132025; product-point histories begin2015-12-30. Any earlier published dates are excluded from the paired subset. Per-month published_period_days, observed_days, product_available_days and coverage expose missing dates. Live card values still describe the complete captured published period.",
+  "low_caveat": "TMIN is a dawn/daily-extreme diagnostic, not a validation of21:00 felt temperature",
+  "station_summary": "CSV includes strict, five_year and diagnostic cohorts; compact JSON includes strict only; per-method months report actual matched coverage"
+}

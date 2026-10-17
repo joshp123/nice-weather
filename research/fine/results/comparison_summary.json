@@ -1,0 +1,1922 @@
+{
+  "TMAX/strict/chelsa_5km_available_affine_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8408096817343018,
+    "bias_c": -1.4783823253795596,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_5km_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8582126877543756,
+    "bias_c": -1.4823086811084265,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_5km_available_ordered_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8570199946764636,
+    "bias_c": -1.4811159880305145,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_5km_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.744935280223635,
+    "bias_c": -1.4022218516089953,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_5km_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8555090540584254,
+    "bias_c": -1.4567951774297163,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_available_affine_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8292543501914797,
+    "bias_c": -1.4657059853420635,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.847414688057997,
+    "bias_c": -1.4695336811084256,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_available_ordered_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8462818202977265,
+    "bias_c": -1.468400813348155,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.735159387075849,
+    "bias_c": -1.3894468516089944,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8445936779574874,
+    "bias_c": -1.444020177429715,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/chelsa_uniform_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.8588209146414327,
+    "bias_c": -1.6434781385530726,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/daymet_available_affine_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7495341275405737,
+    "bias_c": 0.5271124588424483,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/strict/daymet_available_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8329506842496883,
+    "bias_c": 0.47360501161422547,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/strict/daymet_available_ordered_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8329506842496881,
+    "bias_c": 0.47360501161422525,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/strict/daymet_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7934585811539916,
+    "bias_c": 0.5008507003042666,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/strict/daymet_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8406759359522873,
+    "bias_c": 0.5100416097869379,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/strict/daymet_uniform_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 2.019207763169806,
+    "bias_c": -1.8763721965855662,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/strict/prism_available_affine_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5950101300510217,
+    "bias_c": -0.16083912979007428,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/strict/prism_available_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5553995277660331,
+    "bias_c": -0.11027518606182918,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/strict/prism_available_ordered_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5553995277660327,
+    "bias_c": -0.1102751860618293,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/strict/prism_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.543177436187889,
+    "bias_c": -0.09470633405443991,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/strict/prism_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5064887707340341,
+    "bias_c": -0.019770581849991142,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/strict/prism_uniform_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.9055355805106327,
+    "bias_c": -0.7547342040377615,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/strict/product_algorithm_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.0965322081337967,
+    "bias_c": -0.3115865954210868,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/product_algorithm_daytime_high_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.1208058007768695,
+    "bias_c": -0.3394640640247031,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/published_high_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.140265335927633,
+    "bias_c": -0.1446708637511136,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/published_period_live_high_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.1113306577334683,
+    "bias_c": -0.30106679579778584,
+    "raw_mae_same_months_c": 2.330211498690315,
+    "published_mae_same_months_c": 2.1113306577334683
+  },
+  "TMAX/strict/published_period_product_daytime_high_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.1119081817824985,
+    "bias_c": -0.30774312865251574,
+    "raw_mae_same_months_c": 2.330211498690315,
+    "published_mae_same_months_c": 2.1113306577334683
+  },
+  "TMAX/strict/published_period_raw_era5_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.330211498690315,
+    "bias_c": -2.148941896894174,
+    "raw_mae_same_months_c": 2.330211498690315,
+    "published_mae_same_months_c": 2.1113306577334683
+  },
+  "TMAX/strict/raw_era5_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 2.348158315974636,
+    "bias_c": -2.1691490205134905,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/us_government_residual_c": {
+    "months": 72,
+    "stations": 6,
+    "mae_c": 0.8016641253905855,
+    "bias_c": 0.1731958195084694,
+    "raw_mae_same_months_c": 2.1036299307504125,
+    "published_mae_same_months_c": 2.9178486120201796
+  },
+  "TMAX/strict/worldclim14_5km_available_affine_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.8291345001539892,
+    "bias_c": -0.12005876189475913,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_5km_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.7961348519003304,
+    "bias_c": -0.08002121459822664,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_5km_available_ordered_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.7958362311684809,
+    "bias_c": -0.07972259386637712,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_5km_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.6311203116192046,
+    "bias_c": 0.020411391386642115,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_5km_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.8173569259195362,
+    "bias_c": -0.054507710919516165,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_available_affine_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.8188593359455398,
+    "bias_c": -0.1176664719517064,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.7848371480904711,
+    "bias_c": -0.0806362443601319,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_available_ordered_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.784533350275288,
+    "bias_c": -0.08033244654494878,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.6213992164550329,
+    "bias_c": 0.019796361624737264,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_mean_anomaly_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 0.8071894785255856,
+    "bias_c": -0.05512274068142121,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/strict/worldclim14_uniform_c": {
+    "months": 160,
+    "stations": 14,
+    "mae_c": 1.5308347516701113,
+    "bias_c": -1.3368538728398716,
+    "raw_mae_same_months_c": 2.348158315974636,
+    "published_mae_same_months_c": 2.140265335927633
+  },
+  "TMAX/five_year/chelsa_5km_available_affine_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.8876605460840323,
+    "bias_c": -1.554394011504959,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_5km_available_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.9045806858185508,
+    "bias_c": -1.5589218291326203,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_5km_available_ordered_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.9034839565515052,
+    "bias_c": -1.5578250998655747,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_5km_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.7775268287272665,
+    "bias_c": -1.4623880437942645,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_5km_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.9047013873268306,
+    "bias_c": -1.5380679375533053,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_available_affine_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.8758104026906783,
+    "bias_c": -1.5415130557027095,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_available_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.8932721803506158,
+    "bias_c": -1.5457953923510102,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_available_ordered_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.8922304628699074,
+    "bias_c": -1.5447536748703015,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.7671581913499916,
+    "bias_c": -1.449261607012654,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.8932849495328645,
+    "bias_c": -1.5249415007716944,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/chelsa_uniform_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.9421481441020232,
+    "bias_c": -1.7441317982736462,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/daymet_available_affine_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7495341275405737,
+    "bias_c": 0.5271124588424483,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/five_year/daymet_available_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8329506842496883,
+    "bias_c": 0.47360501161422547,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/five_year/daymet_available_ordered_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8329506842496881,
+    "bias_c": 0.47360501161422525,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/five_year/daymet_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7934585811539916,
+    "bias_c": 0.5008507003042666,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/five_year/daymet_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8406759359522873,
+    "bias_c": 0.5100416097869379,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/five_year/daymet_uniform_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 2.019207763169806,
+    "bias_c": -1.8763721965855662,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/five_year/prism_available_affine_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5950101300510217,
+    "bias_c": -0.16083912979007428,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/five_year/prism_available_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5553995277660331,
+    "bias_c": -0.11027518606182918,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/five_year/prism_available_ordered_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5553995277660327,
+    "bias_c": -0.1102751860618293,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/five_year/prism_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.543177436187889,
+    "bias_c": -0.09470633405443991,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/five_year/prism_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5064887707340341,
+    "bias_c": -0.019770581849991142,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/five_year/prism_uniform_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.9055355805106327,
+    "bias_c": -0.7547342040377615,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/five_year/product_algorithm_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.177375161335944,
+    "bias_c": -0.49978327239672926,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/product_algorithm_daytime_high_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.2006535126700864,
+    "bias_c": -0.5263755326601066,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/published_high_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.231061409961317,
+    "bias_c": -0.3529004291961545,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/published_period_live_high_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.1893007013045187,
+    "bias_c": -0.48343067500350767,
+    "raw_mae_same_months_c": 2.4168707756026935,
+    "published_mae_same_months_c": 2.1893007013045187
+  },
+  "TMAX/five_year/published_period_product_daytime_high_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.1896151076273775,
+    "bias_c": -0.4910992653642984,
+    "raw_mae_same_months_c": 2.4168707756026935,
+    "published_mae_same_months_c": 2.1893007013045187
+  },
+  "TMAX/five_year/published_period_raw_era5_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.4168707756026935,
+    "bias_c": -2.2501860842958967,
+    "raw_mae_same_months_c": 2.4168707756026935,
+    "published_mae_same_months_c": 2.1893007013045187
+  },
+  "TMAX/five_year/raw_era5_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 2.440360331985393,
+    "bias_c": -2.2757540832854892,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/us_government_residual_c": {
+    "months": 72,
+    "stations": 6,
+    "mae_c": 0.8016641253905855,
+    "bias_c": 0.1731958195084694,
+    "raw_mae_same_months_c": 2.1036299307504125,
+    "published_mae_same_months_c": 2.9178486120201796
+  },
+  "TMAX/five_year/worldclim14_5km_available_affine_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.834898033390592,
+    "bias_c": -0.1339372461651262,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_5km_available_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.794425129961109,
+    "bias_c": -0.09471194564654745,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_5km_available_ordered_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.7941505361846958,
+    "bias_c": -0.09443735187013406,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_5km_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.6301633581483265,
+    "bias_c": 0.025911668709174007,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_5km_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.8078839914018063,
+    "bias_c": -0.07385805406723205,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_available_affine_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.8265663907998275,
+    "bias_c": -0.129834883556128,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_available_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.7851168965727328,
+    "bias_c": -0.09341542128967875,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_available_ordered_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.7848375422599209,
+    "bias_c": -0.09313606697686665,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.6231784430548352,
+    "bias_c": 0.027208193066043076,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_mean_anomaly_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 0.7996150742579439,
+    "bias_c": -0.07256152971036318,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/five_year/worldclim14_uniform_c": {
+    "months": 174,
+    "stations": 16,
+    "mae_c": 1.5278675174170755,
+    "bias_c": -1.3494942955042113,
+    "raw_mae_same_months_c": 2.440360331985393,
+    "published_mae_same_months_c": 2.231061409961317
+  },
+  "TMAX/diagnostic/chelsa_5km_available_affine_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.1050000164135714,
+    "bias_c": -1.8788367507117916,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_5km_available_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.1005607105638124,
+    "bias_c": -1.8660127891831528,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_5km_available_ordered_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.0998591264003346,
+    "bias_c": -1.865311205019675,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_5km_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.023157416181292,
+    "bias_c": -1.8033163226785143,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_5km_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.1046837511313394,
+    "bias_c": -1.858398640410669,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_available_affine_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.0932724730461465,
+    "bias_c": -1.8650870241108277,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_available_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.0886354166247663,
+    "bias_c": -1.8518363185949174,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_available_ordered_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.087969023824607,
+    "bias_c": -1.8511699257947578,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.012480420212006,
+    "bias_c": -1.7891398520902786,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.092601176954317,
+    "bias_c": -1.844222169822433,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/chelsa_uniform_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.0824277453834723,
+    "bias_c": -1.9331811084217474,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/daymet_available_affine_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7495341275405737,
+    "bias_c": 0.5271124588424483,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/diagnostic/daymet_available_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8329506842496883,
+    "bias_c": 0.47360501161422547,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/diagnostic/daymet_available_ordered_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8329506842496881,
+    "bias_c": 0.47360501161422525,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/diagnostic/daymet_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7934585811539916,
+    "bias_c": 0.5008507003042666,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/diagnostic/daymet_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8406759359522873,
+    "bias_c": 0.5100416097869379,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/diagnostic/daymet_uniform_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 2.019207763169806,
+    "bias_c": -1.8763721965855662,
+    "raw_mae_same_months_c": 2.750757855837368,
+    "published_mae_same_months_c": 2.775374303299608
+  },
+  "TMAX/diagnostic/prism_available_affine_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5950101300510217,
+    "bias_c": -0.16083912979007428,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/diagnostic/prism_available_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5553995277660331,
+    "bias_c": -0.11027518606182918,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/diagnostic/prism_available_ordered_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5553995277660327,
+    "bias_c": -0.1102751860618293,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/diagnostic/prism_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.543177436187889,
+    "bias_c": -0.09470633405443991,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/diagnostic/prism_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.5064887707340341,
+    "bias_c": -0.019770581849991142,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/diagnostic/prism_uniform_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.9055355805106327,
+    "bias_c": -0.7547342040377615,
+    "raw_mae_same_months_c": 1.7034960414223064,
+    "published_mae_same_months_c": 3.213759240794712
+  },
+  "TMAX/diagnostic/product_algorithm_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.074174754183014,
+    "bias_c": -0.30404151680780833,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/product_algorithm_daytime_high_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.096757092065496,
+    "bias_c": -0.33191230269105687,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/published_high_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.1627272603207706,
+    "bias_c": -0.24185418141398307,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/published_period_live_high_c": {
+    "months": 270,
+    "stations": 23,
+    "mae_c": 2.1498628829648005,
+    "bias_c": -0.34812499185565876,
+    "raw_mae_same_months_c": 2.377019721302677,
+    "published_mae_same_months_c": 2.1498628829648005
+  },
+  "TMAX/diagnostic/published_period_product_daytime_high_c": {
+    "months": 270,
+    "stations": 23,
+    "mae_c": 2.0222083194831533,
+    "bias_c": -0.3515452772346665,
+    "raw_mae_same_months_c": 2.377019721302677,
+    "published_mae_same_months_c": 2.1498628829648005
+  },
+  "TMAX/diagnostic/published_period_raw_era5_c": {
+    "months": 270,
+    "stations": 23,
+    "mae_c": 2.377019721302677,
+    "bias_c": -2.2525498663255967,
+    "raw_mae_same_months_c": 2.377019721302677,
+    "published_mae_same_months_c": 2.1498628829648005
+  },
+  "TMAX/diagnostic/raw_era5_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 2.3999800980429793,
+    "bias_c": -2.2776546848172563,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/us_government_residual_c": {
+    "months": 72,
+    "stations": 6,
+    "mae_c": 0.8016641253905855,
+    "bias_c": 0.1731958195084694,
+    "raw_mae_same_months_c": 2.1036299307504125,
+    "published_mae_same_months_c": 2.9178486120201796
+  },
+  "TMAX/diagnostic/worldclim14_5km_available_affine_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.8328856634552038,
+    "bias_c": -0.08114325462945453,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/worldclim14_5km_available_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.7645420672267043,
+    "bias_c": -0.06533779283204541,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/worldclim14_5km_available_ordered_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.7643664079726752,
+    "bias_c": -0.06516213357801615,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/worldclim14_5km_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.6578820484274797,
+    "bias_c": 0.0111665174658855,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/worldclim14_5km_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.7628530466169936,
+    "bias_c": -0.05772364405956147,
+    "raw_mae_same_months_c": 2.3999800980429793,
+    "published_mae_same_months_c": 2.1627272603207706
+  },
+  "TMAX/diagnostic/worldclim14_available_affine_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.8464444908393879,
+    "bias_c": -0.05246238424682155,
+    "raw_mae_same_months_c": 2.331141002056968,
+    "published_mae_same_months_c": 2.16929769410308
+  },
+  "TMAX/diagnostic/worldclim14_available_mean_anomaly_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7681022417018659,
+    "bias_c": -0.028062995279469545,
+    "raw_mae_same_months_c": 2.331141002056968,
+    "published_mae_same_months_c": 2.16929769410308
+  },
+  "TMAX/diagnostic/worldclim14_available_ordered_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7679152892002149,
+    "bias_c": -0.027876042777818272,
+    "raw_mae_same_months_c": 2.331141002056968,
+    "published_mae_same_months_c": 2.16929769410308
+  },
+  "TMAX/diagnostic/worldclim14_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.6631365608737092,
+    "bias_c": 0.043191163462959266,
+    "raw_mae_same_months_c": 2.331141002056968,
+    "published_mae_same_months_c": 2.16929769410308
+  },
+  "TMAX/diagnostic/worldclim14_mean_anomaly_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7673468244821794,
+    "bias_c": -0.019996986742117417,
+    "raw_mae_same_months_c": 2.331141002056968,
+    "published_mae_same_months_c": 2.16929769410308
+  },
+  "TMAX/diagnostic/worldclim14_uniform_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 1.5620450599821087,
+    "bias_c": -1.4298168131989806,
+    "raw_mae_same_months_c": 2.331141002056968,
+    "published_mae_same_months_c": 2.16929769410308
+  },
+  "TMIN/strict/chelsa_5km_available_affine_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0680254068286497,
+    "bias_c": 0.5562609064246488,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_5km_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0564801358919793,
+    "bias_c": 0.5644648997349827,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_5km_available_ordered_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0552874032298687,
+    "bias_c": 0.5632721670728721,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_5km_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0510182111593436,
+    "bias_c": 0.4692107920067179,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_5km_mean_anomaly_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0543348444457463,
+    "bias_c": 0.5295408222648491,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_available_affine_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0724204117116873,
+    "bias_c": 0.5669315428565229,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0607033850826408,
+    "bias_c": 0.5750898997349836,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_available_ordered_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0595705173223704,
+    "bias_c": 0.5739570319747128,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0550432111593426,
+    "bias_c": 0.4798357920067185,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_mean_anomaly_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0583247045372866,
+    "bias_c": 0.5401658222648497,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/chelsa_uniform_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0628285179867065,
+    "bias_c": 0.6960443223783604,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/daymet_available_affine_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7193087379849921,
+    "bias_c": -0.6819961275109788,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/daymet_available_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7728748374134305,
+    "bias_c": -0.7332696600798913,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/daymet_available_ordered_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7728748374134307,
+    "bias_c": -0.7332696600798914,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/daymet_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8275059650790616,
+    "bias_c": -0.7987591749721271,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/daymet_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7746309768905754,
+    "bias_c": -0.7636667631809216,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/daymet_uniform_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 1.5905154550952902,
+    "bias_c": 1.578463721917705,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/prism_available_affine_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7701087237410049,
+    "bias_c": -0.15947467912542887,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/prism_available_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.761049434023861,
+    "bias_c": -0.1315790622164905,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/prism_available_ordered_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7610494340238609,
+    "bias_c": -0.13157906221649046,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/prism_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7410806718761691,
+    "bias_c": -0.24302320989394652,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/prism_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7297930965385255,
+    "bias_c": -0.2370570819549046,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/prism_uniform_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 1.0104839223935889,
+    "bias_c": 0.4170046600893753,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/product_algorithm_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.3251916219396864,
+    "bias_c": 0.5723544636148246,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/published_period_raw_era5_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.076296890667051,
+    "bias_c": 0.16743097136588977,
+    "raw_mae_same_months_c": 1.076296890667051,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/raw_era5_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 1.0416781463727989,
+    "bias_c": 0.17282675624167798,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/us_government_residual_c": {
+    "months": 72,
+    "stations": 6,
+    "mae_c": 1.5310067134643703,
+    "bias_c": -1.0377716953109841,
+    "raw_mae_same_months_c": 1.2904201752135316,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_5km_available_affine_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 0.830678260241411,
+    "bias_c": -0.35140689696522304,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_5km_available_mean_anomaly_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 0.7997620104917417,
+    "bias_c": -0.31595630043372,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_5km_available_ordered_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 0.7994770705783819,
+    "bias_c": -0.3162549211655698,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_5km_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 0.7562198521931731,
+    "bias_c": -0.4185833653926309,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_5km_mean_anomaly_c": {
+    "months": 160,
+    "stations": 15,
+    "mae_c": 0.7967012384170061,
+    "bias_c": -0.35088037790385374,
+    "raw_mae_same_months_c": 1.0416781463727989,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_available_affine_c": {
+    "months": 157,
+    "stations": 14,
+    "mae_c": 0.8046091850885978,
+    "bias_c": -0.28832593966519277,
+    "raw_mae_same_months_c": 1.0225182606170435,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_available_mean_anomaly_c": {
+    "months": 157,
+    "stations": 14,
+    "mae_c": 0.7712583243735538,
+    "bias_c": -0.2523427559435042,
+    "raw_mae_same_months_c": 1.0225182606170435,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_available_ordered_c": {
+    "months": 157,
+    "stations": 14,
+    "mae_c": 0.7709610713832933,
+    "bias_c": -0.25265235881248027,
+    "raw_mae_same_months_c": 1.0225182606170435,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_c": {
+    "months": 157,
+    "stations": 14,
+    "mae_c": 0.720537357823417,
+    "bias_c": -0.3557260098403186,
+    "raw_mae_same_months_c": 1.0225182606170435,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_mean_anomaly_c": {
+    "months": 157,
+    "stations": 14,
+    "mae_c": 0.7681048899560746,
+    "bias_c": -0.2877822243692455,
+    "raw_mae_same_months_c": 1.0225182606170435,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/strict/worldclim14_uniform_c": {
+    "months": 157,
+    "stations": 14,
+    "mae_c": 1.2261803662331114,
+    "bias_c": 0.9996877736042987,
+    "raw_mae_same_months_c": 1.0225182606170435,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_5km_available_affine_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0486314642969483,
+    "bias_c": 0.4998582105622938,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_5km_available_mean_anomaly_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.036676141955578,
+    "bias_c": 0.5098823331336892,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_5km_available_ordered_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0355402060869012,
+    "bias_c": 0.5087463972650125,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_5km_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0298221182002132,
+    "bias_c": 0.4204527401555903,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_5km_mean_anomaly_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0333615468364288,
+    "bias_c": 0.4777974339838492,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_available_affine_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0517030033299117,
+    "bias_c": 0.5112263321558519,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_available_mean_anomaly_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0396030459466845,
+    "bias_c": 0.5212870950384522,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_available_ordered_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0385241242702363,
+    "bias_c": 0.5202081733620039,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0325602134383076,
+    "bias_c": 0.43185750206035295,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_mean_anomaly_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0360661754950384,
+    "bias_c": 0.48920219588861186,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/chelsa_uniform_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.031936602388909,
+    "bias_c": 0.6585093041863672,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/daymet_available_affine_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7193087379849921,
+    "bias_c": -0.6819961275109788,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/daymet_available_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7728748374134305,
+    "bias_c": -0.7332696600798913,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/daymet_available_ordered_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7728748374134307,
+    "bias_c": -0.7332696600798914,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/daymet_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8275059650790616,
+    "bias_c": -0.7987591749721271,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/daymet_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7746309768905754,
+    "bias_c": -0.7636667631809216,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/daymet_uniform_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 1.5905154550952902,
+    "bias_c": 1.578463721917705,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/prism_available_affine_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7701087237410049,
+    "bias_c": -0.15947467912542887,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/prism_available_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.761049434023861,
+    "bias_c": -0.1315790622164905,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/prism_available_ordered_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7610494340238609,
+    "bias_c": -0.13157906221649046,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/prism_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7410806718761691,
+    "bias_c": -0.24302320989394652,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/prism_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7297930965385255,
+    "bias_c": -0.2370570819549046,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/prism_uniform_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 1.0104839223935889,
+    "bias_c": 0.4170046600893753,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/product_algorithm_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.288064606276955,
+    "bias_c": 0.5546833672291045,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/published_period_raw_era5_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.0658281182154965,
+    "bias_c": 0.1356343397319639,
+    "raw_mae_same_months_c": 1.0658281182154965,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/raw_era5_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 1.034837486689443,
+    "bias_c": 0.14168078877848878,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/us_government_residual_c": {
+    "months": 72,
+    "stations": 6,
+    "mae_c": 1.5310067134643703,
+    "bias_c": -1.0377716953109841,
+    "raw_mae_same_months_c": 1.2904201752135316,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_5km_available_affine_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 0.8290611844613189,
+    "bias_c": -0.37261226705542566,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_5km_available_mean_anomaly_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 0.7960401492741142,
+    "bias_c": -0.33527280636171264,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_5km_available_ordered_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 0.7957687779280573,
+    "bias_c": -0.3355572070587125,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_5km_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 0.7575095944741285,
+    "bias_c": -0.4359510356164692,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_5km_mean_anomaly_c": {
+    "months": 168,
+    "stations": 16,
+    "mae_c": 0.7919490012383645,
+    "bias_c": -0.3673577055115528,
+    "raw_mae_same_months_c": 1.034837486689443,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_available_affine_c": {
+    "months": 165,
+    "stations": 15,
+    "mae_c": 0.8076159355603681,
+    "bias_c": -0.3163646050665828,
+    "raw_mae_same_months_c": 1.016482189460936,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_available_mean_anomaly_c": {
+    "months": 165,
+    "stations": 15,
+    "mae_c": 0.7721777060757032,
+    "bias_c": -0.2784216803574137,
+    "raw_mae_same_months_c": 1.016482189460936,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_available_ordered_c": {
+    "months": 165,
+    "stations": 15,
+    "mae_c": 0.7718948653516373,
+    "bias_c": -0.27871627217819706,
+    "raw_mae_same_months_c": 1.016482189460936,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_c": {
+    "months": 165,
+    "stations": 15,
+    "mae_c": 0.726907526518139,
+    "bias_c": -0.3797840014675544,
+    "raw_mae_same_months_c": 1.016482189460936,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_mean_anomaly_c": {
+    "months": 165,
+    "stations": 15,
+    "mae_c": 0.7679796543084763,
+    "bias_c": -0.31094536038646303,
+    "raw_mae_same_months_c": 1.016482189460936,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/five_year/worldclim14_uniform_c": {
+    "months": 165,
+    "stations": 15,
+    "mae_c": 1.2078257131823888,
+    "bias_c": 0.9923145795901246,
+    "raw_mae_same_months_c": 1.016482189460936,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_5km_available_affine_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.167548422017483,
+    "bias_c": 0.500019534521192,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_5km_available_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1565274571781596,
+    "bias_c": 0.5033367412051425,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_5km_available_ordered_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1555498722024493,
+    "bias_c": 0.5023591562294321,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_5km_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.147197300419727,
+    "bias_c": 0.42593955689042384,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_5km_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1576087191994244,
+    "bias_c": 0.49450717950096196,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_available_affine_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1745331511548769,
+    "bias_c": 0.5106303772688967,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_available_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1634833350064993,
+    "bias_c": 0.5141896823816136,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_available_ordered_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1626355989242703,
+    "bias_c": 0.5133419462993845,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1532204715597003,
+    "bias_c": 0.436792498066895,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.164484883094364,
+    "bias_c": 0.5053601206774327,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/chelsa_uniform_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.1914268822661847,
+    "bias_c": 0.5808337543983638,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/daymet_available_affine_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7193087379849921,
+    "bias_c": -0.6819961275109788,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/daymet_available_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7728748374134305,
+    "bias_c": -0.7332696600798913,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/daymet_available_ordered_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7728748374134307,
+    "bias_c": -0.7332696600798914,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/daymet_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.8275059650790616,
+    "bias_c": -0.7987591749721271,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/daymet_mean_anomaly_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 0.7746309768905754,
+    "bias_c": -0.7636667631809216,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/daymet_uniform_c": {
+    "months": 24,
+    "stations": 2,
+    "mae_c": 1.5905154550952902,
+    "bias_c": 1.578463721917705,
+    "raw_mae_same_months_c": 0.8223387993367318,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/prism_available_affine_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7701087237410049,
+    "bias_c": -0.15947467912542887,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/prism_available_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.761049434023861,
+    "bias_c": -0.1315790622164905,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/prism_available_ordered_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7610494340238609,
+    "bias_c": -0.13157906221649046,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/prism_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7410806718761691,
+    "bias_c": -0.24302320989394652,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/prism_mean_anomaly_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 0.7297930965385255,
+    "bias_c": -0.2370570819549046,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/prism_uniform_c": {
+    "months": 60,
+    "stations": 5,
+    "mae_c": 1.0104839223935889,
+    "bias_c": 0.4170046600893753,
+    "raw_mae_same_months_c": 1.2837717629007646,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/product_algorithm_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.4227292447716462,
+    "bias_c": 0.7748958091582403,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/published_period_raw_era5_c": {
+    "months": 270,
+    "stations": 23,
+    "mae_c": 1.3061981394963387,
+    "bias_c": 0.20487854045402804,
+    "raw_mae_same_months_c": 1.3061981394963387,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/raw_era5_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 1.2896444159077027,
+    "bias_c": 0.23636017800285491,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/us_government_residual_c": {
+    "months": 72,
+    "stations": 6,
+    "mae_c": 1.5310067134643703,
+    "bias_c": -1.0377716953109841,
+    "raw_mae_same_months_c": 1.2904201752135316,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_5km_available_affine_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.8609265300615184,
+    "bias_c": -0.43104133520111415,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_5km_available_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.8013335634642854,
+    "bias_c": -0.36124185738662884,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_5km_available_ordered_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.8011659517505444,
+    "bias_c": -0.3614175166406581,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_5km_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.770134304644235,
+    "bias_c": -0.4256722140546311,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_5km_mean_anomaly_c": {
+    "months": 272,
+    "stations": 23,
+    "mae_c": 0.7933996672071081,
+    "bias_c": -0.3700714190908093,
+    "raw_mae_same_months_c": 1.2896444159077027,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_available_affine_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.8465280944113642,
+    "bias_c": -0.3690368287424846,
+    "raw_mae_same_months_c": 1.2596566723340479,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_available_mean_anomaly_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7880546857906147,
+    "bias_c": -0.2976848865859333,
+    "raw_mae_same_months_c": 1.2596566723340479,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_available_ordered_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7878751907157268,
+    "bias_c": -0.2978718390875844,
+    "raw_mae_same_months_c": 1.2596566723340479,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7486009651249999,
+    "bias_c": -0.36287608649848097,
+    "raw_mae_same_months_c": 1.2596566723340479,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_mean_anomaly_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 0.7806346481882303,
+    "bias_c": -0.3078958850620932,
+    "raw_mae_same_months_c": 1.2596566723340479,
+    "published_mae_same_months_c": null
+  },
+  "TMIN/diagnostic/worldclim14_uniform_c": {
+    "months": 260,
+    "stations": 22,
+    "mae_c": 1.3370155380838349,
+    "bias_c": 1.110131890163459,
+    "raw_mae_same_months_c": 1.2596566723340479,
+    "published_mae_same_months_c": null
+  }
+}
