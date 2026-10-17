@@ -41,3 +41,14 @@ No endorsement by any source provider is implied.
 Land support includes Natural Earth public-domain land polygons.
 https://www.naturalearthdata.com/about/terms-of-use/
 
+Local-clock timezone lookup: contains information from timezone-boundary-builder,
+processed by timezonefinder, and © OpenStreetMap contributors, available under
+the Open Database License 1.0 (ODbL).
+https://github.com/evansiroky/timezone-boundary-builder
+https://www.openstreetmap.org/copyright
+https://opendatacommons.org/licenses/odbl/1-0/
+The machine-readable point-to-timezone lookup is supplied separately in
+timezones/lookup.npz under ODbL 1.0, with its own notices and provenance.
+This separate lookup-data licence does not replace the weather-data licence.
+timezonefinder code is MIT licensed.
+

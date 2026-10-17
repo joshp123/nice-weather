@@ -1,4 +1,4 @@
-<!-- Written by AI on 2026.10.17 by model GPT-6.1 Sol. Primary-source research, Phase 1 only. -->
+<!-- Written by AI on 2026.10.17 by model GPT-6.1 Sol. Primary-source research and Phase 2 input rights. -->
 
 # Publication rights for fine temperature inputs
 
@@ -12,6 +12,7 @@ The strongest new route is **WorldClim 1.4 historical temperature under its spec
 
 | Source | Current primary evidence | Public derived values | Anonymous access and decision |
 |---|---|---|---|
+| **Natural Earth land polygons** | [Producer terms](https://www.naturalearthdata.com/about/terms-of-use/) assign all raster/vector data versions to the public domain. | **Allow.** Modification and commercial redistribution are explicitly allowed; attribution is optional. | Anonymous official GitHub vector repository, pinned commit and SHA256 in the land-support provenance. Used only for land support where finer eligible temperature pixels do not establish land. “1:10m” means 1:10 million cartographic scale, not 10 metre resolution. |
 | **WorldClim 1.4 historical** | [Specific 1.4 download page](https://www.worldclim.org/data/v1.4/worldclim14.html) expressly assigns historical WorldClim 1.4 to **CC BY-SA 4.0**. It labels the nominal period 1960–1990. | **Allow, with ShareAlike.** Attribute Hijmans et al. (2005), link source and CC BY-SA, describe ERA5 period adjustment and any resampling/bias correction, distribute our derivative data under the same licence, add no downstream restrictions. [CC's licence](https://creativecommons.org/licenses/by-sa/4.0/) permits commercial adaptation and redistribution and makes compliant grants irrevocable. The general WorldClim about page does not erase this specific licence. | Public ZIPs linked from the version page, e.g. `https://geodata.ucdavis.edu/climate/worldclim/1_4/grid/cur/tmax_30s_bil.zip` and matching `tmin_30s_bil.zip`; also 2.5 arc-minute versions. **Candidate for published base.** Save the dated version-specific licence with build provenance. |
 | **WorldClim 2.1** | [Current general terms](https://worldclim.org/about.html): “Redistribution or commercial use is not allowed without prior permission.” | **Do not publish or bake into values.** The academic-article map exception does not cover Nice Weather. | Download is public, but download availability does not grant product rights. **Private benchmark only**, as Josh authorized. Do not confuse v2.1 with v1.4's separate grant. |
 | **CHELSA v2.1 climatologies** | [Producer dataset page](https://www.chelsa-climate.org/datasets/chelsa_climatologies), version 2.1, lists “Creative Commons Zero - No Rights Reserved (CC0 1.0)”. This is the data licence, independent of model-code GPL. | **Allow.** CC0 imposes no attribution obligation; retain dataset/model citation and provenance as good practice. No licence restriction on modifying or publishing offsets. | Public COG example: `https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/climatologies/tasmax/1981-2010/CHELSA_tasmax_01_1981-2010_V.2.1.tif`; substitute tasmin/month. Existing round3 samples prove range access. **Eligible global candidate.** |
@@ -27,6 +28,47 @@ The strongest new route is **WorldClim 1.4 historical temperature under its spec
 | **GMTED2010 elevation** | [USGS metadata](https://topotools.cr.usgs.gov/gmted_viewer/gmted2010_fgdc_metadata.html) states no access restrictions, requests acknowledgement, requires describing modifications and forbids implying USGS endorsement. | **Allow.** Use USGS credit, Danielson & Gesch (2011) citation, changes and no-endorsement notice. Appropriate simple global terrain base at 30, 15 or 7.5 arc-seconds. | [USGS global grid links](https://topotools.cr.usgs.gov/gmted_viewer/gmted2010_global_grids.php) are anonymous, unlike EarthExplorer account flow. **Preferred simple licensed DEM if another DEM is needed.** |
 | **Copernicus DEM GLO-30/GLO-90** | [Primary collection page](https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM) says worldwide free licence; [distribution entry](https://registry.opendata.aws/copernicus-dem/) links it. [GLO-30 licence text](https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resources/license/License-COPDEM-30.pdf), arts. 4–6, explicitly permits reproduction, distribution, public communication, modification and combination. | **Allow with licence-specific notices.** Preserve the appropriate DLR/Airbus/Copernicus copyright and adapted-data attribution, liability notice and subsequent-user obligations. The linked licence must accompany provenance; do not relabel the DEM itself CC0. Prefer GMTED if its resolution suffices and its simpler notice is enough. | Anonymous S3 `copernicus-dem-30m` and `copernicus-dem-90m`; no CDSE registration needed through these mirrors. AWS 30 m public coverage omits some unreleased-country tiles; GLO-90 is worldwide. **Eligible, with notices and chosen-version confirmation.** |
 | **MERIT DEM** | [Current developer page](https://global-hydrodynamics.github.io/MERIT_DEM/) offers CC BY-NC 4.0 or ODbL 1.0; ODbL permits commercial derivatives under ODbL. Original full-dataset redistribution separately needs permission. | **Conditionally allow under ODbL**, with share-alike derived-data duties; not an unrestricted CC BY source. | Developer download requires Google Form registration and email password. **Excluded by access constraints**; GMTED/Copernicus are available without this. |
+
+## Ancillary local-clock timezone lookup
+
+The [timezonefinder primary README](https://github.com/jannikmi/timezonefinder#license)
+distinguishes MIT code from its ODbL boundary data. The
+[timezone-boundary-builder producer](https://github.com/evansiroky/timezone-boundary-builder#license)
+also assigns output data to ODbL; its geometry is largely derived from
+OpenStreetMap. [OpenStreetMap's copyright page](https://www.openstreetmap.org/copyright)
+requires contributor credit and an ODbL notice.
+
+**Allow, with separate lookup-data obligations.** [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/)
+sections 4.2–4.6 permit commercial use, require source/licence notices, and
+require offering publicly used derivative databases under ODbL in machine-readable
+form. The OSM Foundation's approved
+[Produced Work guideline](https://osmfoundation.org/wiki/Licence/Community_Guidelines/Produced_Work_-_Guideline)
+permits separately licensed rendered results; its
+[Geocoding guideline](https://osmfoundation.org/wiki/Licence/Community_Guidelines/Geocoding_-_Guideline)
+distinguishes individual lookup results from systematic substantial extracts.
+
+Our classification is an inference from those terms: local-clock weather values
+are calculated weather outputs, while the globally sampled point-to-timezone
+cache can be treated as a separate derivative lookup database. We therefore
+offer that actual lookup separately under ODbL, with contributor credit, source,
+licence and modification notices. We do not rely on an insubstantial-extract
+exception for a systematic global grid. The temperature dataset keeps CC BY-SA
+4.0 and the application code keeps its own licence.
+
+Run `attach_timezones.py --native-root <native-root> --output <publication-root>`
+after weather generation. It emits `timezones/lookup.npz`, ODbL and MIT texts,
+attribution, archived primary evidence and hashes, without editing weather build
+metadata. Rehash the publication manifest afterward. The lookup contains `fine`
+quarter-degree grid IDs, `timezone_index` and Unicode `timezone_names`; it can be
+read using NumPy with `allow_pickle=False`. The exact cached lookup is preserved,
+including any recorded legacy choices, rather than silently regenerated.
+
+The attachment environment checked on 2026-10-17 has timezonefinder 9.0.0 and
+timezonefinder-data 3.2026.4 (timezone-boundary-builder 2026d). The original cached
+lookup did not record its generating package versions; the attachment manifest
+states that gap and distinguishes current installed versions from original
+generation provenance. Reproducibility of published values is provided by the
+actual lookup arrays and their input/output hashes.
 
 ## Other possible station/grid routes checked
 
