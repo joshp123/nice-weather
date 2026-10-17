@@ -7,6 +7,8 @@ For the ongoing expansion from five to twenty-five chunk years, see
 NAS; its laptop receiver assembles only complete chunks at 10, 15 and 25 years.
 It uses `assemble(root, publish=False)` to generate scores and images in the
 immutable snapshot before exchanging the complete climate directory atomically.
+Assembly retains daily reference scores after each chunk, so the number of years
+does not multiply the memory used by hourly features.
 
 Run from the repository:
 

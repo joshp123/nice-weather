@@ -138,7 +138,7 @@ def assemble(root, publish=True):
     for name in ('cells.bin','points.bin','READY-static'): os.link(output/name,snapshot/'v6'/name)
     points=np.fromfile(output/'points.bin',dtype=POINT_DTYPE,offset=4)
     N=(output/'cells.bin').stat().st_size//4; P=len(points)
-    work=root/'climate-v6-work'; selected_chunks=[]; all_records=[]; all_features=[]
+    work=root/'climate-v6-work'; selected_chunks=[]; all_records=[]; all_scores=[]
     point_monthly=np.zeros((P,12,8),np.float64); point_cell_sum=np.zeros((P,12),np.float64)
     month_days=np.zeros((P,12),dtype=int); coverage=[]; cell_covered=np.zeros(N,dtype=bool)
     expected_counts=np.bincount(points["cell"],minlength=N)
@@ -160,7 +160,7 @@ def assemble(root, publish=True):
         features=sums/np.maximum(counts,1)[:,None,None].astype(np.float32); del sums
         features[~valid,:,27]=1
         records=encode_records(features); months=np.array([d.month for d in dates])
-        selected_chunks.append(chunk); all_records.append(records); all_features.append((features,months,valid))
+        selected_chunks.append(chunk); all_records.append(records); all_scores.append((score_features(features),months,valid))
         for month in range(1,13): month_days[:,month-1]+=valid[points["cell"]]*np.sum(months==month)
         for name in sorted(expected & available):
             with np.load(folder/name) as a:
@@ -174,13 +174,14 @@ def assemble(root, publish=True):
                     cutoff=dl[:,months==month].astype(int)-1
                     point_cell_sum[ids,month-1]+=np.take_along_axis(prefix,cutoff[:,:,None],axis=2)[:,:,0].sum(1)
         print('assembled chunk',chunk,flush=True)
+        del features
     if not np.all(cell_covered): raise ValueError(f'{int((~cell_covered).sum())} cells still lack a complete tile sample; coverage={coverage}')
     proof=[]
     for month in range(1,13):
-        records=np.concatenate([r[:,m==month] for r,(_,m,_) in zip(all_records,all_features)],axis=1)
-        full=np.concatenate([score_features(f[:,m==month]) for f,m,_ in all_features],axis=1)
+        records=np.concatenate([r[:,m==month] for r,(_,m,_) in zip(all_records,all_scores)],axis=1)
+        full=np.concatenate([scores[:,m==month] for scores,m,_ in all_scores],axis=1)
         compact=score_features(decode_records(records))
-        valid_days=np.concatenate([np.repeat(valid[:,None],np.sum(m==month),axis=1) for _,m,valid in all_features],axis=1)
+        valid_days=np.concatenate([np.repeat(valid[:,None],np.sum(m==month),axis=1) for _,m,valid in all_scores],axis=1)
         count=valid_days.sum(1)
         order=np.argsort(np.where(valid_days,compact,np.inf),axis=1,kind='stable')
         ranks=np.floor((np.arange(8)[None,:]+.5)*count[:,None]/8).astype(int)
