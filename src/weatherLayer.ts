@@ -208,7 +208,7 @@ function halveGrid(values: Uint8Array, grid: Grid): { values: Uint8Array; grid: 
  * Safari colour-manages canvas pixels, which turned the sea's 255 into 254 (a
  * valid, maximal score) and shifted every land value.
  */
-async function loadGreyscaleImage(url: string): Promise<Uint8Array> {
+export async function loadGreyscaleImage(url: string): Promise<Uint8Array> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   const png = new Uint8Array(await response.arrayBuffer());

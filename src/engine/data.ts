@@ -1,0 +1,155 @@
+// Written by AI on 2026.10.17 by model gpt-6.1-sol.
+import { loadGreyscaleImage } from '../weatherLayer';
+import type { Period, Month } from './index';
+
+/** ECMWF's free forecast ends at 360 hours, so every time zone gets 14 whole local days (.agent/v6-contract.md). */
+export const FORECAST_DAYS = 14;
+
+export type Records = Readonly<{ bytes: Uint8Array; samples: number }>;
+export type SampleGroup = Readonly<{ records: Records; firstDay: number; dayCount: number; month: Month; weight: number }>;
+export type PeriodData = Readonly<{ groups: readonly SampleGroup[]; offsets: ReadonlyMap<Month, Uint8Array>; sampleDays: number }>;
+export type Cells = Readonly<{ count: number; ordinals: Uint16Array }>;
+
+const seasons = { 'Dec-Feb': [12, 1, 2], 'Mar-May': [3, 4, 5], 'Jun-Aug': [6, 7, 8], 'Sep-Nov': [9, 10, 11] } as const;
+
+export class WeatherData {
+  readonly cells: Promise<Cells>;
+  private monthlyRecords = new Map<Month, Promise<Records>>();
+  private monthlyOffsets = new Map<Month, Promise<Uint8Array>>();
+  private forecast?: Promise<{ records: Records; firstDate: string }>;
+
+  constructor(private baseUrl: string) {
+    this.cells = this.binary('cells.bin').then(bytes => {
+      if (bytes.length === 0 || bytes.length % 4 !== 0) throw new Error('v6 cells.bin has an invalid length');
+      const pairs = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
+      return { count: bytes.length / 4, ordinals: nearestLandOrdinals(pairs) };
+    });
+  }
+
+  private async binary(path: string): Promise<Uint8Array> {
+    const url = `${this.baseUrl}/${path}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  private async records(path: string, samples: number): Promise<Records> {
+    const [bytes, cells] = await Promise.all([this.binary(path), this.cells]);
+    if (bytes.length !== cells.count * samples * 15) throw new Error(`${path}: expected ${cells.count * samples * 15} bytes, got ${bytes.length}`);
+    return { bytes, samples };
+  }
+
+  private monthRecords(month: Month): Promise<Records> {
+    let request = this.monthlyRecords.get(month);
+    if (!request) {
+      request = this.records(`climate/month-${String(month).padStart(2, '0')}.bin`, 8).catch(error => {
+        this.monthlyRecords.delete(month);
+        throw error;
+      });
+      this.monthlyRecords.set(month, request);
+    }
+    return request;
+  }
+
+  private offsets(month: Month): Promise<Uint8Array> {
+    let request = this.monthlyOffsets.get(month);
+    if (!request) {
+      request = loadGreyscaleImage(`${this.baseUrl}/climate/offsets-${String(month).padStart(2, '0')}.png`).then(bytes => {
+        if (bytes.length !== 1440 * 721) throw new Error(`v6 offsets ${month}: expected the 1440 × 721 fine grid`);
+        return bytes;
+      }).catch(error => {
+        this.monthlyOffsets.delete(month);
+        throw error;
+      });
+      this.monthlyOffsets.set(month, request);
+    }
+    return request;
+  }
+
+  async load(period: Period): Promise<PeriodData> {
+    let groups: SampleGroup[];
+    if (period.kind === 'forecast' || period.kind === 'forecast-day') {
+      if (period.kind === 'forecast-day' && (!Number.isInteger(period.day) || period.day < 0 || period.day >= FORECAST_DAYS)) throw new RangeError(`Forecast day must be 0..${FORECAST_DAYS - 1}`);
+      if (!this.forecast) {
+        this.forecast = (async () => {
+          const response = await fetch(`${this.baseUrl}/forecast/current.json`, { cache: 'no-cache' });
+          if (!response.ok) throw new Error(`v6 forecast/current.json: HTTP ${response.status}`);
+          const current = await response.json() as { run: string; firstDate: string; days: number };
+          if (current.days !== FORECAST_DAYS || !/^\d{4}-\d{2}-\d{2}$/.test(current.firstDate) || !current.run) throw new Error('Invalid v6 forecast/current.json');
+          return { records: await this.records(`forecast/${encodeURIComponent(current.run)}/days.bin`, FORECAST_DAYS), firstDate: current.firstDate };
+        })().catch(error => { this.forecast = undefined; throw error; });
+      }
+      const { records, firstDate } = await this.forecast;
+      const firstDay = period.kind === 'forecast-day' ? period.day : 0;
+      const dayCount = period.kind === 'forecast-day' ? 1 : FORECAST_DAYS;
+      groups = [];
+      for (let day = firstDay; day < firstDay + dayCount; day++) {
+        const date = new Date(`${firstDate}T12:00:00Z`);
+        date.setUTCDate(date.getUTCDate() + day);
+        const month = (date.getUTCMonth() + 1) as Month;
+        const previous = groups[groups.length - 1];
+        if (previous?.month === month) groups[groups.length - 1] = { ...previous, dayCount: previous.dayCount + 1, weight: previous.weight + 1 / dayCount };
+        else groups.push({ records, firstDay: day, dayCount: 1, month, weight: 1 / dayCount });
+      }
+    } else {
+      const months: readonly Month[] = period.kind === 'month' ? [period.month]
+        : period.kind === 'season' ? seasons[period.season]
+        : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+      if (months.some(month => !Number.isInteger(month) || month < 1 || month > 12)) throw new RangeError('Month must be 1..12');
+      groups = await Promise.all(months.map(async month => ({ records: await this.monthRecords(month), firstDay: 0, dayCount: 8, month, weight: 1 / months.length })));
+    }
+    const offsets = new Map(await Promise.all(groups.map(async group => [group.month, await this.offsets(group.month)] as const)));
+    return { groups, offsets, sampleDays: groups.reduce((sum, group) => sum + group.dayCount, 0) };
+  }
+}
+
+/** Exact Euclidean nearest land in grid coordinates, with longitude wrapping. Only runs once. */
+function nearestLandOrdinals(pairs: Uint16Array): Uint16Array {
+  const count = pairs.length / 2;
+  const land = new Int32Array(360 * 180).fill(-1);
+  for (let ordinal = 0; ordinal < count; ordinal++) {
+    const row = pairs[ordinal * 2], column = pairs[ordinal * 2 + 1];
+    if (row >= 180 || column >= 360) throw new Error('v6 cells.bin contains a cell outside the world grid');
+    land[row * 360 + column] = ordinal;
+  }
+  const rowNearest = new Int32Array(360 * 180).fill(-1);
+  const rowDistance = new Float32Array(360 * 180).fill(Infinity);
+  for (let row = 0; row < 180; row++) {
+    let nearest = -1080;
+    for (let column = -360; column < 720; column++) {
+      const wrapped = (column + 360) % 360;
+      if (land[row * 360 + wrapped] >= 0) nearest = column;
+      if (column >= 0 && column < 360 && nearest !== -1080) {
+        const index = row * 360 + column;
+        rowNearest[index] = land[row * 360 + (nearest + 360) % 360];
+        rowDistance[index] = (column - nearest) ** 2;
+      }
+    }
+    nearest = 1080;
+    for (let column = 719; column >= -360; column--) {
+      const wrapped = (column + 360) % 360;
+      if (land[row * 360 + wrapped] >= 0) nearest = column;
+      if (column >= 0 && column < 360 && nearest !== 1080) {
+        const index = row * 360 + column;
+        if ((column - nearest) ** 2 < rowDistance[index]) {
+          rowNearest[index] = land[row * 360 + (nearest + 360) % 360];
+          rowDistance[index] = (column - nearest) ** 2;
+        }
+      }
+    }
+  }
+  const ordinals = new Uint16Array(360 * 180);
+  for (let row = 0; row < 180; row++) {
+    for (let column = 0; column < 360; column++) {
+      const index = row * 360 + column;
+      if (land[index] >= 0) { ordinals[index] = land[index]; continue; }
+      let distance = Infinity;
+      for (let sourceRow = 0; sourceRow < 180; sourceRow++) {
+        const candidate = sourceRow * 360 + column;
+        const squaredDistance = (row - sourceRow) ** 2 + rowDistance[candidate];
+        if (squaredDistance < distance) { distance = squaredDistance; ordinals[index] = rowNearest[candidate]; }
+      }
+    }
+  }
+  return ordinals;
+}
