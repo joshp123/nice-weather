@@ -129,7 +129,8 @@ def main():
                 adjusted_normal_high_c=float(fields['high_c'][month-1,rr,cc]+actual[0]),
                 adjusted_normal_low_c=float(fields['low_c'][month-1,rr,cc]+actual[1])))
         places[name] = dict(pixel=[row,column],centre=[latitude,longitude],months=months)
-    result = dict(files=len(jobs),compressed_bytes=byte_count,source_counts=counts.tolist(),
+    result = dict(generation=generation,manifest_sha256=hashlib.sha256((args.tiles/'manifest.json').read_bytes()).hexdigest(),
+        files=len(jobs),compressed_bytes=byte_count,source_counts=counts.tolist(),
         maximum_sample_encoding_error_c=largest_error,places=places,seconds=time.monotonic()-started)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(result,indent=2)+'\n')

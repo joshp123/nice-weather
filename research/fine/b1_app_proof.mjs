@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { localWorkerFixture } from './local_worker_fixture.mjs';
 
@@ -115,7 +116,11 @@ try {
     if(r.nativeDistinct>512)throw Error(`${name}: catalogue weather fanout returned`);
     results.push(r);console.log(JSON.stringify({...r,state:{headline:r.state.headline,card:r.state.card.slice(0,300)},afterTaste:{headline:r.afterTaste.headline,card:r.afterTaste.card.slice(0,300),url:r.afterTaste.url}}));
   }
-  await fs.writeFile(path.join(output,'results.json'),JSON.stringify(results,null,2));
+  const sources={};
+  for(const file of ['hosting/sites/worker.mjs','hosting/sites/fine-place.mjs','hosting/sites/fine-candidates.mjs','src/engine/finePlaces.ts','src/engine/weatherEngine.ts','dist/index.html']) {
+    sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
+  }
+  await fs.writeFile(path.join(output,'results.json'),JSON.stringify({written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,sources,views:results},null,2));
   await send('Target.closeTarget', { targetId });
 } finally {
   await fs.writeFile(path.join(output,'browser-events.json'),JSON.stringify(browserEvents,null,2)+'\n');
