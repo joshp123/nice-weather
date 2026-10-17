@@ -59,7 +59,7 @@ func runForecast(arguments []string) error {
 	fmt.Printf("forecast: %s; %d days; downloaded %d bytes; wrote %d files / %d bytes; %s; %s\n",
 		report.RunTime.Format(time.RFC3339), len(report.Dates), report.DownloadedBytes,
 		report.OutputFiles, report.OutputBytes, report.Elapsed.Round(time.Millisecond), report.Directory)
-	outlooks, err := outlook.Generate(ctx, *out, *placesSource, *out, time.Now())
+	outlooks, err := outlook.GenerateWithStatic(ctx, *out, *placesSource, *v6Static, *out, time.Now())
 	if err != nil {
 		return fmt.Errorf("daily outlook: %w", err)
 	}

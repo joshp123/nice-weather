@@ -1,4 +1,4 @@
-Written by AI (GPT-6.1 Sol), 2026-10-17.
+Written by AI (GPT-6.1 Sol), 2026-10-18.
 
 # Daily outlooks
 
@@ -17,8 +17,11 @@ World candidates have at least 300,000 residents in `places.tsv`; Europe and
 USA candidates have at least 10,000.
 Palestine places are excluded. Slugs and English names follow the Worker.
 The same row-major nearest land point within ±2 fine grid points supplies the
-score; sea and missing points are omitted. Rank by the published whole-number
-default score, then population, then slug. Select three at least 250 km apart.
+weather; sea and missing points are omitted. Named places are judged from the
+actual forecast `days.bin`, geometric cell and monthly felt offset by
+`internal/placenumbers.PlaceNumbers`, the Go port of the shared app/Worker
+function. The score image supplies only the painted overview. Rank by the
+floored default score, then population, then slug. Select three at least 250 km apart.
 This deliberately resolves equal displayed scores in favour of larger places.
 Name each winning spot after the largest eligible place within 50 km whose score
 is within five points. Both winning spots and the named places stay at least
@@ -57,7 +60,14 @@ go run ./tools/outlook --source ./artifacts --out /tmp/weather-outlook-check
 place names from a different root, such as the public Site when the local
 forecast folder has no place data. `--today YYYY-MM-DD` replays a publication
 date. None of these commands upload anything. The source must contain the
-corrected single-point, floored score images from the current runner.
+forecast records and score images from the current runner. `--static-source`
+selects the matching v6 static directory or URL; it defaults to
+`<places-source>/v6`. The daily runner passes its existing `--v6-static` value
+explicitly, so its named places and records use the same static grid.
+
+The shared function supports both fine typical-year climate and the existing
+compact forecast records. Outlooks remain one-day ECMWF forecasts. No ERA5
+climatology correction is applied to forecast weather.
 
 ## Posting options, checked 17 October 2026
 

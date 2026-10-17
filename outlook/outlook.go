@@ -66,6 +66,11 @@ var Regions = []Region{{"world", "World", "the world"}, {"europe", "Europe", "Eu
 // only outlook files under out/v6/forecast/<run>/outlook. Tomorrow is a UTC date;
 // the forecast records themselves describe that calendar day in each place's local time.
 func Generate(ctx context.Context, source, placesSource, out string, now time.Time) ([]Outlook, error) {
+	return GenerateWithStatic(ctx, source, placesSource, strings.TrimRight(placesSource, "/")+"/v6", out, now)
+}
+
+// GenerateWithStatic uses the same static grid as the forecast runner.
+func GenerateWithStatic(ctx context.Context, source, placesSource, staticSource, out string, now time.Time) ([]Outlook, error) {
 	read := func(name string) ([]byte, error) { return readSource(ctx, source, name) }
 	body, err := read("v6/forecast/current.json")
 	if err != nil {
@@ -108,8 +113,15 @@ func Generate(ctx context.Context, source, placesSource, out string, now time.Ti
 	if err != nil {
 		return nil, err
 	}
-	places, err := readPlaces(placeBytes, scores)
+	inputs, err := loadForecastPlaceInputs(ctx, source, staticSource, pointer, day, int(tomorrow.Month()))
 	if err != nil {
+		return nil, err
+	}
+	places, err := readPlaces(placeBytes, inputs.offsets)
+	if err != nil {
+		return nil, err
+	}
+	if err = inputs.judge(places); err != nil {
 		return nil, err
 	}
 	directory := filepath.Join(out, "v6", "forecast", pointer.Run, "outlook")

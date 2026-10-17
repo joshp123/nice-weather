@@ -1,0 +1,17 @@
+// Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+// Compare actual rendered poster manifests with independent shared-JS results.
+import fs from 'node:fs';
+import path from 'node:path';
+const [posterRoot,expectedPath,outputPath]=process.argv.slice(2);
+const expected=new Map(fs.readFileSync(expectedPath,'utf8').trim().split('\n').map(JSON.parse).map(value=>[value.id,value.numbers[0]]));
+const checks=[];
+for(const region of ['world','europe','usa']){
+ const poster=JSON.parse(fs.readFileSync(path.join(posterRoot,`${region}.json`)));
+ for(const place of poster.places){
+  const score=expected.get(`${place.slug}/tomorrow`)?.score;
+  if(!Number.isFinite(score)||Math.floor(score)!==place.score)throw new Error(`${region}/${place.name}: poster ${place.score}, shared JS ${score}`);
+  checks.push({region,name:place.name,posterScore:place.score,sharedJSScore:score});
+ }
+}
+const report={written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,checks};
+fs.writeFileSync(outputPath,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));
