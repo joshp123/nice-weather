@@ -54,8 +54,13 @@ def main():
     for filename, digest in app['sources'].items():
         if sha(pathlib.Path(filename)) != digest:
             raise ValueError(f'The real-app check used different source: {filename}')
-    if not (root/'ATTRIBUTION.txt').is_file():
-        raise ValueError('The release attribution is missing')
+    attribution = pathlib.Path(__file__).with_name('ATTRIBUTION.txt').read_text()
+    attribution += ('\nB1 named-place release: local 10:00–20:00 uses the ordered high/low '
+        'correction; local 21:00 uses the average of the monthly high and low offsets '
+        'everywhere. Native dew point is not shifted. Native weather replay uses '
+        'the containing fine pixel’s local clock. The overview map and forecast '
+        'retain their existing resolution.\n')
+    (root/'ATTRIBUTION.txt').write_text(attribution)
     components = {name: directory_size(root/name) for name in ('temperature','replay')}
     result = dict(written_by='AI, GPT-6.1 Sol, 2026.10.18', status='ready', generation=generation,
         builtUTC=dt.datetime.now(dt.timezone.utc).isoformat(), chunks=replay['chunks'],
