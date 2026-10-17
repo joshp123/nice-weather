@@ -64,6 +64,22 @@ Set `PROOF` to an SSD validation directory. The generator records unavailable
 places explicitly, consumed file hashes, all 12 months, the year and four
 seasons; unavailable places do not count as passed comparisons.
 
+The completed 18 October 2026 run loaded all 397 places (the 13 cities and
+384 seeded random land pixels), with no unavailable cases. Both the expanded
+JavaScript packet comparison and the independent Go NWFP binary decoder
+comparison passed all 211,601 numeric fields across the 17 periods and 12
+monthly fact records per place. The largest difference was `2.84e-14`;
+scores and day counts had no mismatches.
+The run used the complete temperature set: 6,633 spatial tiles per month,
+79,596 monthly files, generation `e68c86ba3e24654a499ae4ef37ad35f9`.
+Evidence is in `$SSD/fine-validation/b1-worldwide/outlook-climate/`:
+`fixtures-provenance.json`, `go-parity.json` and `native-go-parity.json`.
+
+The separate real forecast comparison passed 574 judgements exactly, and
+287 retained compact-climate judgements with unequal December–February
+calendar weights also matched exactly. These are separate from the fine
+climate comparison; the outlook weather remains the native ECMWF forecast.
+
 The real three-region rendering can be checked against independent JavaScript
 results for its nine named winners:
 
