@@ -494,6 +494,83 @@ function withPreview(html, preview) {
     .replace('</head>', `    ${tags}\n  </head>`);
 }
 
+// ---------------------------------------------------------------- daily outlooks
+
+// Written by AI on 2026.10.17 by model GPT-6.1 Sol.
+const OUTLOOK_REGIONS = {
+  world: { name: 'World', centre: '20,0,1.5z' },
+  europe: { name: 'Europe', centre: '49,15,3z' },
+  usa: { name: 'USA', centre: '39,-98,3z' },
+};
+const OUTLOOK_STYLE = `
+  :root{font-family:Barlow,system-ui,sans-serif;color:#233b38;background:#f4f5ef;font-synthesis:none}
+  *{box-sizing:border-box}body{margin:0}main{max-width:1280px;margin:auto;padding:28px 32px 48px}
+  header,nav,.actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap}header{justify-content:space-between;margin-bottom:32px}
+  a{color:inherit;text-underline-offset:4px}.brand{font-size:36px;font-weight:800;letter-spacing:-2px;text-decoration:none}.brand span{color:#b67c20}
+  nav{gap:20px;font-size:16px}nav [aria-current]{font-weight:750;text-decoration-thickness:3px}
+  .eyebrow{font-size:14px;letter-spacing:.1em;text-transform:uppercase;color:#526560;margin:0 0 12px}
+  h1{font-size:clamp(28px,4vw,46px);line-height:1.12;letter-spacing:-.025em;max-width:1000px;margin:0 0 24px;font-weight:650}
+  .poster{display:block;width:100%;height:auto;border:1px solid #dce1d7;border-radius:8px;background:#e8ede5}
+  .actions{gap:12px;margin:24px 0 16px}.actions a,.actions button{font:inherit;font-weight:600;border:1px solid #c4cec3;border-radius:6px;padding:12px 18px;background:transparent;color:inherit;text-decoration:none;cursor:pointer}
+  .actions button{background:#233b38;color:#fff;border-color:#233b38}a:focus-visible,button:focus-visible{outline:3px solid #b67c20;outline-offset:4px}
+  .note{font-size:15px;line-height:1.6;color:#526560;margin:0}.status{min-height:24px;font-size:14px}.unavailable{max-width:720px;padding:48px 0}
+  @media(max-width:600px){main{padding:20px 16px 32px}header{gap:20px;margin-bottom:28px}.brand{font-size:32px}nav{gap:16px}.actions{align-items:stretch}.actions a,.actions button{text-align:center}}
+`;
+
+async function outlookPage(request, bucket, url) {
+  const region = url.pathname.slice('/outlook/'.length);
+  const settings = OUTLOOK_REGIONS[region];
+  if (!settings) return new Response('Not found', { status: 404 });
+  const tomorrow = new Date();
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+  const current = await cachedJson(bucket, 'v6/forecast/current.json', 0);
+  const key = current ? `v6/forecast/${current.run}/outlook/${region}` : null;
+  const outlook = key ? await cachedJson(bucket, `${key}.json`, 0) : null;
+  const firstDate = current ? new Date(`${current.firstDate}T12:00:00Z`) : null;
+  if (firstDate && outlook) firstDate.setUTCDate(firstDate.getUTCDate() + outlook.day);
+  const ready = outlook && outlook.date === tomorrowDate && outlook.run === current.run
+    && firstDate?.toISOString().slice(0, 10) === outlook.date && await bucket.head(`${key}.png`);
+  const image = ready ? `${url.origin}/data/${key}.png` : null;
+  const title = `${settings.name}: tomorrow’s nice weather outlook | Nice!`;
+  const description = ready ? outlook.sentence : `Tomorrow’s nice weather outlook for ${settings.name} is being refreshed.`;
+  const navigation = Object.entries(OUTLOOK_REGIONS).map(([word, area]) => `<a href="/outlook/${word}"${word === region ? ' aria-current="page"' : ''}>${area.name}</a>`).join('');
+  const fullDate = tomorrow.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const content = ready ? `
+    <p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)} · Tomorrow</p>
+    <h1>${escapeHtml(outlook.sentence)}</h1>
+    <img class="poster" src="${escapeHtml(image)}" width="1200" height="630" alt="${escapeHtml(outlook.sentence)} Map coloured by tomorrow’s nice weather scores." />
+    <div class="actions">
+      <button id="copy-post" type="button">Copy post</button>
+      <a href="${escapeHtml(outlook.fullImage ?? image)}" download="nice-weather-${region}-${outlook.date}.png">Download image</a>
+      <a href="/@${settings.centre}/day-${outlook.day}">Explore tomorrow</a>
+    </div>
+    <p class="note">Places have at least 10,000 residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Forecast from ECMWF. Dates use UTC.</p>
+    <p class="status" id="copy-status" role="status"></p>
+    <script>
+      document.getElementById('copy-post').addEventListener('click', async () => {
+        const status = document.getElementById('copy-status');
+        try {
+          await navigator.clipboard.writeText(document.querySelector('h1').textContent + '\\n' + document.querySelector('link[rel="canonical"]').href);
+          status.textContent = 'Post copied.';
+        } catch {
+          status.textContent = 'Select the sentence above and copy this page’s address to share it.';
+        }
+      });
+    </script>` : `
+    <div class="unavailable"><p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)}</p>
+    <h1>Tomorrow’s outlook is being refreshed.</h1>
+    <p class="note">${outlook ? `The latest outlook was for ${escapeHtml(outlook.date)}. ` : ''}Please check back after the daily forecast refresh.</p>
+    <div class="actions"><a href="/">Explore the weather map</a></div></div>`;
+  const html = withPreview(`<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Nice!</title><style>${OUTLOOK_STYLE}</style></head>
+    <body><main><header><a class="brand" href="/" aria-label="Nice! weather map">Nice<span>!</span></a><nav aria-label="Outlook region">${navigation}</nav></header>${content}</main></body></html>`,
+  { title, description, image, url: `${url.origin}/outlook/${region}` });
+  return new Response(request.method === 'HEAD' ? null : html, {
+    status: ready ? 200 : 503,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...(!ready ? { 'Retry-After': '300' } : {}) },
+  });
+}
+
 // ---------------------------------------------------------------- HTTP
 
 function json(value, cacheSeconds = 0) {
@@ -505,7 +582,7 @@ const mediaTypes = { '.json': 'application/json', '.png': 'image/png', '.bin': '
 async function serveData(request, bucket, key) {
   const object = await bucket.get(key);
   if (!object) return new Response('Not found', { status: 404 });
-  const mutable = key.endsWith('current.json') || key.startsWith('runner/');
+  const mutable = key.endsWith('current.json') || key.startsWith('runner/') || key.includes('/outlook/');
   return new Response(request.method === 'HEAD' ? null : object.body, {
     headers: {
       'Content-Type': mediaTypes[key.slice(key.lastIndexOf('.'))] ?? 'application/octet-stream',
@@ -564,6 +641,7 @@ export async function handleRequest(request, env, serveAsset) {
     if (key.split('/').some((part) => !part || part === '.' || part === '..')) return new Response('Not found', { status: 404 });
     return serveData(request, bucket, key);
   }
+  if (url.pathname.startsWith('/outlook/')) return outlookPage(request, bucket, url);
   if (url.pathname === '/api/place') {
     const latitude = Number(url.searchParams.get('lat'));
     const longitude = Number(url.searchParams.get('lon'));
