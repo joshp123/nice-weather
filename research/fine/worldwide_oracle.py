@@ -106,6 +106,7 @@ def main():
             skipped.append(dict(query=query, reason='Independent original point-weather path requires original full six-field tile'))
             continue
         jobs.append((args, config, query, fine, zone))
+    jobs.sort(key=lambda job: not (args.replay/f'native/{job[3]}/{job[4]}.nwfp.gz').exists())
     results = []
     started = time.monotonic()
     with mp.get_context('spawn').Pool(args.workers) as pool:

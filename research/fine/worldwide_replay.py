@@ -336,7 +336,8 @@ def build(args):
         name, _ = item
         with np.load(args.reference_root/f"era5/chunk{config['chunks'][0]}"/name) as raw:
             full = 'd2m' in raw.files
-        return (not full, name not in priority, name)
+        ready = full or all((args.weather_cache/f'chunk{chunk}'/name).exists() for chunk in config['chunks'])
+        return (not ready, name not in priority, name)
     jobs = [(args, name, keys) for name, keys in sorted(groups.items(), key=job_order)]
     only_tiles = args.only_tiles or (json.loads(args.only_tiles_file.read_text()) if args.only_tiles_file else None)
     if only_tiles: jobs = [job for job in jobs if job[1] in only_tiles]
