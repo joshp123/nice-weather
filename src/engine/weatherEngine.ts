@@ -6,6 +6,7 @@ import { DEFAULT_TASTE, type Taste } from './taste';
 import { WeatherData, type Cells, type PeriodData, type Records, type ScoreImage } from './data';
 import { PointSampler, readFineScore, nearestLandFineIndex } from './sampling';
 import { FinePlaces } from './finePlaces';
+import { finePlaceCandidates } from '../../hosting/sites/fine-candidates.mjs';
 import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
 
 function periodKey(period: Period): string {
@@ -178,7 +179,24 @@ export class BrowserWeatherEngine implements WeatherEngine {
   }
 
   scorePoints(points: readonly Point[]): Float32Array {
-    if (this.isClimate() && this.finePlaces.enabled) return Float32Array.from(points, point => this.judgePoint(point.latitude, point.longitude)?.meanScore ?? NaN);
+    if (this.isClimate() && this.finePlaces.enabled) {
+      const candidates = this.fineCandidates(points);
+      return Float32Array.from(points, (point, index) => candidates.has(index)
+        ? this.finePlaces.judge(point.latitude, point.longitude, this.period, this.taste, true)?.meanScore ?? NaN : NaN);
+    }
+    return this.overviewScores(points);
+  }
+
+  private fineCandidates(points: readonly Point[]): Set<number> {
+    if (this.loadState || this.destroyed) return new Set();
+    const bounds = this.map.getBounds(), zoom = this.map.getZoom();
+    const minimumLabelPopulation = zoom < 2 ? 4000000 : zoom < 3 ? 1000000 : zoom < 4 ? 300000 : zoom < 5 ? 80000 : zoom < 6 ? 20000 : 0;
+    return finePlaceCandidates(points, this.overviewScores(points), {
+      west: bounds.getWest(), east: bounds.getEast(), south: bounds.getSouth(), north: bounds.getNorth(), minimumLabelPopulation,
+    });
+  }
+
+  private overviewScores(points: readonly Point[]): Float32Array {
     if (this.isDefaultTaste() && this.scoreImage && !this.destroyed) {
       const bytes = this.scoreImage.bytes;
       return Float32Array.from(points, point => {
@@ -212,8 +230,9 @@ export class BrowserWeatherEngine implements WeatherEngine {
   countPoints(points: readonly Point[]): Float32Array {
     const counts = new Float32Array(points.length * 3).fill(NaN);
     if (this.isClimate() && this.finePlaces.enabled) {
+      const candidates = this.fineCandidates(points);
       points.forEach((point, index) => {
-        const verdict = this.judgePoint(point.latitude, point.longitude);
+        const verdict = candidates.has(index) ? this.finePlaces.judge(point.latitude, point.longitude, this.period, this.taste, true) : null;
         if (verdict) counts.set([verdict.niceDayCount, verdict.perfectDayCount, verdict.awfulDayCount], index * 3);
       });
       return counts;

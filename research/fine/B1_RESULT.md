@@ -2,7 +2,7 @@ Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
 # Exact-pixel place numbers: rejected candidate
 
-Current follow-up: [B1_EVENING_RESULT.md](B1_EVENING_RESULT.md) keeps these daytime highs unchanged and evaluates the newly requested visitor-score gate with one global evening rule. This document preserves the earlier ordered-evening result.
+Historical ordered-evening result. Josh subsequently accepted the uniform evening rule and city-average score gate in [B1_EVENING_RESULT.md](B1_EVENING_RESULT.md). [UPLOAD.md](UPLOAD.md) is the current worldwide release handoff. This document preserves the earlier rejected candidate.
 
 **B1 is not proven. Do not upload or deploy this candidate. Keep today's data.**
 The exact 30 arcsecond pixels improve daytime highs at all thirteen city

@@ -2,7 +2,7 @@ Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
 # Exact-pixel temperatures with one uniform evening rule
 
-The city-average score gate passes over observed months. The every-individual-month gate fails: displayed monthly error regressions reach 15 points. This result is not cleared for upload under that stricter reading. No worldwide release bundle was prepared or activated; nothing was pushed or deployed. No station correction, per-place exception or new source was introduced.
+Josh accepted the city-average score gate and the uniform evening rule on 2026-10-18, with Rotterdam's May regression retained as a known limit. Every city improves in mean score error against today's published site. Individual monthly regressions still reach 15 points; this is not a claim that every month improves. The worldwide B1 bundle and upload instructions are tracked in [UPLOAD.md](UPLOAD.md). Nothing has been pushed or deployed. No station correction, per-place exception or new source was introduced.
 
 The 10:00–20:00 correction and all correction tile bytes remain unchanged. At 21:00 every place uses the average of its monthly high and low corrections. Native dew point remains native, capped at corrected air when calculating felt temperature. Across the thirteen places, mean 21:00 error is 1.114 °C with uniform shift, versus 1.186 °C with ordered correction and 1.218 °C with native ERA5 evening. This selects the evening rule by temperature accuracy, without optimizing it per place.
 
@@ -34,7 +34,7 @@ Valparaíso has only 60 complete observed days in June–September, so its score
 
 ## Individual-month counterexamples
 
-These displayed scores demonstrate why the candidate does not satisfy a strict +3-point limit for every month. Errors use the identically displayed station-T target.
+These displayed scores record the limits of the accepted city-average decision. Errors use the identically displayed station-T target.
 
 | Place / month | Published | Original data, new rule | 1 km | Station-T target | Error increase versus published / same-rule |
 |---|---:|---:|---:|---:|---:|
@@ -69,4 +69,4 @@ devenv shell -- node research/fine/evening_module_parity.mjs \
 
 ## Upload status
 
-There is no worldwide upload recommendation while the individual-month interpretation remains unresolved. The thirteen-place diagnostic is not a global dataset. [B1_WORLDWIDE.md](B1_WORLDWIDE.md) records the measured missing inputs and carrier work; it is a readiness inventory, not a completed bundle. The partial tiles and private diagnostic pointer must not be uploaded as a worldwide release. No production activation pointer was created or changed. B2 remains deferred.
+Josh authorized preparation of the worldwide B1 bundle after accepting the city-average result above. [UPLOAD.md](UPLOAD.md) is the release handoff; [B1_WORLDWIDE.md](B1_WORLDWIDE.md) preserves the earlier input inventory. The thirteen-place diagnostic and its private pointer are not production data. B2 remains deferred.

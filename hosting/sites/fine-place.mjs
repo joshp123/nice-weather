@@ -152,6 +152,7 @@ const parseJson=async bytes=>JSON.parse(new TextDecoder().decode(await uncompres
 /** readBytes(key) returns Uint8Array or null. An absent pointer preserves the current product. */
 export function createFinePlaceLoader(readBytes) {
   const requests=new Map();
+  let pointerExpires=0;
   const correctionTiles=new Map(),timezoneTiles=new Map(),waitingReads=[];
   let activeReads=0,maximumActiveReads=0;
   const runWaitingReads=()=> {
@@ -177,15 +178,29 @@ export function createFinePlaceLoader(readBytes) {
     cache.set(key,entry);return entry.promise;
   };
   const cached=(key,decode)=> {
-    if(!requests.has(key))requests.set(key,readBytes(key).then(bytes=>bytes===null?null:decode(bytes)).catch(error=>{requests.delete(key);throw error;}));
-    return requests.get(key);
+    if(requests.has(key)) {
+      const entry=requests.get(key);requests.delete(key);requests.set(key,entry);return entry.promise;
+    }
+    const entry={complete:false,bytes:0};
+    entry.promise=readBytes(key).then(async bytes=> {
+      const value=bytes===null?null:await decode(bytes);
+      entry.complete=true;entry.bytes=value?.byteLength??bytes?.byteLength??0;
+      let retained=[...requests.values()].filter(value=>value.complete).length;
+      for(const [address,value]of requests)if(retained>256&&value.complete){requests.delete(address);retained--;}
+      return value;
+    }).catch(error=>{requests.delete(key);throw error;});
+    requests.set(key,entry);return entry.promise;
   };
-  const pointer=()=>cached('v6/fine/current.json',parseJson);
+  const pointer=()=> {
+    const now=Date.now();
+    if(now>=pointerExpires){requests.delete('v6/fine/current.json');pointerExpires=now+60000;}
+    return cached('v6/fine/current.json',parseJson);
+  };
   const json=key=>cached(key,parseJson);
   const loader={
     enabled:async()=>Boolean(await pointer()),
     configuration:async()=>await pointer(),
-    cacheUsage:()=>({correctionBytes:[...correctionTiles.values()].reduce((sum,entry)=>sum+entry.bytes,0),timezoneBytes:[...timezoneTiles.values()].reduce((sum,entry)=>sum+entry.bytes,0),activeTileReads:activeReads,maximumActiveTileReads:maximumActiveReads,waitingTileReads:waitingReads.length}),
+    cacheUsage:()=>({correctionBytes:[...correctionTiles.values()].reduce((sum,entry)=>sum+entry.bytes,0),timezoneBytes:[...timezoneTiles.values()].reduce((sum,entry)=>sum+entry.bytes,0),replayAndMetadataBytes:[...requests.values()].reduce((sum,entry)=>sum+entry.bytes,0),activeTileReads:activeReads,maximumActiveTileReads:maximumActiveReads,waitingTileReads:waitingReads.length}),
     async load(latitude,longitude) {
       const current=await pointer();if(!current)return null;
       const pixel=finePixel(latitude,longitude),fineIndex=nativeFineIndex(90-(pixel.row+.5)/120,-180+(pixel.column+.5)/120),manifest=await json(`${current.nativeRoot}/manifest.json`);

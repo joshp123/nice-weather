@@ -8,8 +8,10 @@ Separate high/low anchors use an ERA5 period adjustment. No station validation
 values enter the published correction. All generated data stays in isolated
 SSD folders. These scripts do not overwrite `artifacts/v6`, publish, or modify
 the running home job. The opt-in B1 application hooks are documented in
-[B1_RESULT.md](B1_RESULT.md). Both Step A candidates and the exact-pixel B1
-candidate failed the station non-regression gate. **Publish none of them.**
+[B1_RESULT.md](B1_RESULT.md). Josh accepted B1's city-average score gate with
+the uniform evening correction on 2026-10-18. The Step A candidates remain
+rejected. [UPLOAD.md](UPLOAD.md) is the worldwide B1 handoff; it states whether
+the complete bundle is ready. No deployment is authorized by these scripts.
 
 The requested report is `/tmp/nwf-agents/round4/fine/PLAN.md`. Source rights and
 their primary links are retained in [LICENCES.md](LICENCES.md).
@@ -114,8 +116,8 @@ map/card consumer to remove the geographic mismatch; no place-specific
 temperature repair is applied.
 
 [PHASE2.md](PHASE2.md) records the earlier generations and their limits;
-[B1_RESULT.md](B1_RESULT.md) is the current result. The global correction build
-is incomplete and has no completion manifest. It is not an upload bundle.
+[B1_EVENING_RESULT.md](B1_EVENING_RESULT.md) records the accepted evening
+comparison. [UPLOAD.md](UPLOAD.md) supersedes earlier release-status notes.
 Step A receives `ATTRIBUTION-STEP-A.txt` as its output `ATTRIBUTION.txt`;
 the fine tiles receive `ATTRIBUTION.txt`, including the separate OSM coastline
 property and its offered ODbL masks. Both retain the separately offered timezone

@@ -1,7 +1,9 @@
 Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
-Worldwide B1 is not an uploadable bundle yet. The station score gate must pass
-first. The thirteen-place diagnostic is not worldwide coverage, and the global
+This is the pre-build inventory, retained to explain the original coverage gap.
+Josh subsequently accepted the city-average visitor-score gate and authorized
+the full worldwide build. The actual carrier build and its final measurements
+are documented in `B1_CARRIER.md`. The thirteen-place diagnostic is not worldwide coverage, and the global
 temperature reference does not contain global humidity, wind, precipitation or
 radiation. This note records the measured remaining work; it does not approve
 publication or change the map.
