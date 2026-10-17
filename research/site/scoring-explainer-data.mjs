@@ -9,7 +9,8 @@ export function scoringExplainerData(root = 'artifacts/v6') {
   const formatDate = milliseconds => new Date(milliseconds).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
   const spans = metadata.chunks.map(chunk => {
     const start = epoch + chunk * chunkHours * 3600000;
-    return `${formatDate(start)} to ${formatDate(start + chunkHours * 3600000 - 86400000)}`;
+    // research/climate-v6/pipeline.py: chunk_dates keeps local days 2 through 361.
+    return `${formatDate(start + 2 * 86400000)} to ${formatDate(start + 361 * 86400000)}`;
   });
   const cells = readFileSync(`${root}/cells.bin`);
   const months = new Map();
@@ -48,7 +49,7 @@ export function scoringExplainerData(root = 'artifacts/v6') {
     return { label: `${place.name} · ${monthName}`, value: total / 8 };
   }
   return {
-    spans, days: metadata.chunks.length * chunkHours / 24, spanCount: metadata.chunks.length,
+    spans, days: metadata.daysPerMonthMinimum.reduce((total, days) => total + days, 0), spanCount: metadata.chunks.length,
     references: {
       warmth: [reference('rotterdam', 1, 'warmth'), reference('malaga', 7, 'warmth')],
       heat: [reference('singapore', 4, 'heat'), reference('vegas', 7, 'heat')],
