@@ -7,7 +7,7 @@ export const FORECAST_DAYS = 14;
 
 export type Records = Readonly<{ bytes: Uint8Array; samples: number }>;
 export type SampleGroup = Readonly<{ records: Records; firstDay: number; dayCount: number; month: Month; weight: number }>;
-export type PeriodData = Readonly<{ groups: readonly SampleGroup[]; offsets: ReadonlyMap<Month, Uint8Array>; sampleDays: number }>;
+export type PeriodData = Readonly<{ groups: readonly SampleGroup[]; offsets: ReadonlyMap<Month, Uint8Array>; sampleDays: number; totalDays: number }>;
 export type Cells = Readonly<{ count: number; ordinals: Uint16Array }>;
 
 type ForecastIndex = Readonly<{ run: string; firstDate: string; days: number }>;
@@ -18,7 +18,11 @@ type Forecast = Readonly<{ records: Records; firstDate: string }>;
 
 const seasons = { 'Dec-Feb': [12, 1, 2], 'Mar-May': [3, 4, 5], 'Jun-Aug': [6, 7, 8], 'Sep-Nov': [9, 10, 11] } as const;
 
-function climateMonths(period: Exclude<Period, { kind: 'forecast' | 'forecast-day' }>): readonly Month[] {
+export const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+const monthShortWords = monthWords.map(word => word.slice(0, 3));
+
+export function climateMonths(period: Exclude<Period, { kind: 'forecast' | 'forecast-day' }>): readonly Month[] {
+  if (period.kind === 'months') return Array.from({ length: (period.endMonth - period.startMonth + 12) % 12 + 1 }, (_, index) => ((period.startMonth - 1 + index) % 12 + 1) as Month);
   return period.kind === 'month' ? [period.month] : period.kind === 'season' ? seasons[period.season] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 }
 
@@ -75,12 +79,14 @@ export class WeatherData {
       const index = await this.forecastIndex();
       path = `forecast/${encodeURIComponent(index.run)}/scores-${period.kind === 'forecast' ? 'all' : `day-${String(period.day).padStart(2, '0')}`}.png`;
     } else {
-      const word = period.kind === 'month' ? monthWords[period.month - 1] : period.kind === 'season' ? period.season.toLowerCase() : 'year';
+      const months = climateMonths(period);
+      const word = months.length === 12 ? 'year' : months.length === 1 ? monthWords[months[0] - 1]
+        : `${monthShortWords[months[0] - 1]}-${monthShortWords[months[months.length - 1] - 1]}`;
       path = `climate/scores-${word}.png`;
     }
     let request = this.scoreImages.get(path);
     if (!request) {
-      request = loadGreyscaleImage(`${this.baseUrl}/${path}`).then(bytes => {
+      request = loadGreyscaleImage(`${this.baseUrl}/${path}?statistic=typical-day`).then(bytes => {
         if (bytes.length !== 1440 * 721) throw new Error(`${path}: expected the 1440 × 721 fine grid`);
         return { bytes };
       }).catch(error => {
@@ -146,10 +152,10 @@ export class WeatherData {
     } else {
       const months = climateMonths(period);
       if (months.some(month => !this.loadedMonthlyRecords.has(month))) return null;
-      groups = months.map(month => ({ records: this.loadedMonthlyRecords.get(month)!, firstDay: 0, dayCount: 8, month, weight: 1 / months.length }));
+      groups = months.map(month => ({ records: this.loadedMonthlyRecords.get(month)!, firstDay: 0, dayCount: 8, month, weight: MONTH_DAYS[month - 1] / months.reduce((sum, month) => sum + MONTH_DAYS[month - 1], 0) }));
     }
     if (groups.some(group => !this.loadedOffsets.has(group.month))) return null;
-    return { groups, offsets: new Map(groups.map(group => [group.month, this.loadedOffsets.get(group.month)!])), sampleDays: groups.reduce((sum, group) => sum + group.dayCount, 0) };
+    return { groups, offsets: new Map(groups.map(group => [group.month, this.loadedOffsets.get(group.month)!])), sampleDays: groups.reduce((sum, group) => sum + group.dayCount, 0), totalDays: period.kind === 'forecast-day' ? 1 : period.kind === 'forecast' ? FORECAST_DAYS : climateMonths(period).reduce((sum, month) => sum + MONTH_DAYS[month - 1], 0) };
   }
 
   async load(period: Period): Promise<PeriodData> {
@@ -178,11 +184,11 @@ export class WeatherData {
       if (months.some(month => !Number.isInteger(month) || month < 1 || month > 12)) throw new RangeError('Month must be 1..12');
       groups = await Promise.all(months.map(async month => {
         const [records] = await Promise.all([this.monthRecords(month), this.offsets(month)]);
-        return { records, firstDay: 0, dayCount: 8, month, weight: 1 / months.length };
+        return { records, firstDay: 0, dayCount: 8, month, weight: MONTH_DAYS[month - 1] / months.reduce((sum, month) => sum + MONTH_DAYS[month - 1], 0) };
       }));
     }
     const offsets = new Map(await Promise.all(groups.map(async group => [group.month, await this.offsets(group.month)] as const)));
-    return { groups, offsets, sampleDays: groups.reduce((sum, group) => sum + group.dayCount, 0) };
+    return { groups, offsets, sampleDays: groups.reduce((sum, group) => sum + group.dayCount, 0), totalDays: period.kind === 'forecast-day' ? 1 : period.kind === 'forecast' ? FORECAST_DAYS : climateMonths(period).reduce((sum, month) => sum + MONTH_DAYS[month - 1], 0) };
   }
 }
 

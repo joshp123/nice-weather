@@ -21,25 +21,27 @@ const tomorrow = engine.judgePoint(36.72, -4.42, { kind: 'forecast-day', day: 1 
 
 ## First paint and loading
 
-For the exact default taste, the engine first loads the selected period's small score PNG, decodes it with `greyscaleImage.ts`'s manual greyscale decoder, and draws it through the same palette, rounded bands, contours and cubic B-spline as the recounted grid. It uploads bytes directly as an R8 texture; no canvas decoding or colour conversion is involved. Sea/no-data bytes (255) are omitted from the spline and the remaining weights are normalised. The GPU uses the same mask and rounds default scores at fine points before the final spline, so both sources have integer precision. Other tastes retain the full floating-point grid.
+For the exact default taste, the engine first loads the selected period's small score PNG, decodes it with `greyscaleImage.ts`'s manual greyscale decoder, and draws it through the same palette, bands, contours and cubic B-spline as the recounted grid. It uploads bytes directly as an R8 texture; no canvas decoding or colour conversion is involved. Sea/no-data bytes (255) are omitted from the spline and the remaining weights are normalised. The GPU uses the same mask and floors default scores at fine points before the final spline, so both sources have integer precision. Other tastes retain the full floating-point grid.
 
 For a cold period, only after that image frame completes do cells, day records and offsets start loading. If its records are already loaded (for example a day of a loaded forecast, or a month of a loaded year), the engine immediately draws from those records and judges points; the image loads separately without delaying the selection. All needed months and offsets start in parallel. A month never waits for a year. Forecast metadata is fetched first to pin images and records to the same run. A missing score image falls back to loading records directly; it is not cached as permanently missing. A moved taste starts with records, without waiting for an unusable default image.
 
 Image names follow the shared contract: `climate/scores-january.png` … `scores-december.png`, `scores-dec-feb.png`, `scores-mar-may.png`, `scores-jun-aug.png`, `scores-sep-nov.png`, `scores-year.png`; forecast `<run>/scores-day-00.png` … `scores-day-13.png` and `scores-all.png`. Dimensions are 1440 × 721, row 0 = 90°N, column 0 = 180°W; land is 0..100 and sea/no data is 255.
 
+Score-image requests include `?statistic=typical-day` so a returning visitor cannot reuse an immutable cached image from the previous average-day rule. Runs covering one month or all twelve reuse the corresponding month or year image.
+
 `loading` becomes true synchronously when selecting a period and false when its records and offsets are available, or when loading fails. `onLoadingChange` reports changes to that state. **Every `judgePoint` call returns null while loading, including queries for previously cached periods.** A score image can already be visible during this time. `setPeriod` still resolves only after records and a completed frame; its rejection reports record failures. The latest selection wins, and superseded responses cannot restore an older map or loading state.
 
 `setTaste` coalesces changes into the next frame and resolves after GPU completion. Before any period it stores the taste and resolves immediately. If records are still loading, moving taste clears the default image, reports the cleared frame through `onRedraw` so labels can clear too, and waits for records before resolving the taste promise. No previous period's records are used. Returning to the default can show the image again.
 
-At the default taste, `scorePoints` reads the image's nearest fine land point directly, even while records load. Image values have integer precision; verdicts retain their unrounded means. With other tastes it reads the resolved GPU grid once per completed revision and caches that readback. Repeated map moves then sample memory, with no further GPU readback. Missing points yield NaN. Consumers should refresh labels on `onRedraw` and `onLoadingChange`.
+At the default taste, `scorePoints` reads the image's nearest fine land point directly, even while records load. Image values have integer precision; verdicts retain their unrounded typical-day scores. With other tastes it reads the resolved GPU grid once per completed revision and caches that readback. Repeated map moves then sample memory, with no further GPU readback. Missing points yield NaN. Consumers should refresh labels on `onRedraw` and `onLoadingChange`.
 
 ## Point verdicts and scoring
 
-The GPU scores each 1° cell at eleven felt shifts from −15 to +15 °C in 3 °C steps. Each fine point uses its own offset, interpolation between adjacent shift levels, then bilinear interpolation between four cell centres. Sea cells use the exact nearest land cell in wrapped grid coordinates. Only the displayed map applies the final fine-grid B-spline.
+The GPU scores each 1° cell at eleven felt shifts from −15 to +15 °C in 3 °C steps. The owning cell is floor(fine row / 4), floor(fine column / 4), matching the cell used to produce its temperature offset. Each fine point uses its own offset and its owning cell, interpolating each day score between adjacent shift levels. Sea cells use the exact nearest land cell in wrapped grid coordinates. `countPoints` reads the same GPU grid once per revision and returns packed nice, perfect and awful counts for each named place. Only the displayed map applies the final fine-grid B-spline.
 
-`judgePoint` and labels select the nearest land fine point in a 5 × 5 neighbourhood centred on the rounded requested coordinates: two fine steps in each direction. Distance is measured from the requested coordinate in fine-grid units, longitude wraps, and latitude must be −60..90°. Ties take the first row then column searched. The point must be land in every month needed by the period. With no such point the verdict is null. Its score, nice-day share, parts and physical averages use that point's own offset and the same level and cell interpolation as the map, without the final spline.
+`judgePoint` and labels select the nearest land fine point in a 5 × 5 neighbourhood centred on the rounded requested coordinates: two fine steps in each direction. Distance is measured from the requested coordinate in fine-grid units, longitude wraps, and latitude must be −60..90°. Ties take the first row then column searched. The point must be land in every month needed by the period. With no such point the verdict is null. Its score, nice-day share, parts and physical averages use that point's own offset and the same level interpolation and owning cell as the map, without the final spline.
 
-A period averages daily products; multiplying its averaged parts does not reproduce the score. Climate months have equal weight, with eight representative days each. Nice-day shares describe that sample; forecast nice-day counts are interpolated expected counts. Taste changes alter judgements, not physical averages.
+Each day scores the product of its weather factors. A stretch uses the weighted median day: its band is the highest threshold reached by at least half its days. Interpolating the threshold shares where they cross one half gives a continuous value for colouring. A single forecast day keeps its score. Climate months carry their real calendar-day weights, with eight representative days each. Counts estimate nice-or-better, perfect and awful days out of the calendar length; a forecast counts its actual days. Taste changes alter judgements, not physical averages.
 
 `judgePoint(latitude, longitude, period?)` uses the current taste and only already-resolved files. Loading a season exposes its three months; a year exposes all months and seasons; a forecast exposes each of its 14 days. Queries neither fetch nor select nor redraw. Their cell judgements are cached per period and invalidated by taste changes.
 
@@ -62,12 +64,12 @@ These use exactly the weighted sample behind `meanScore`. Felt offsets apply to 
 
 ```sh
 src/engine/default_scores.py artifacts/v6
-src/engine/default_scores.py artifacts/v6 --images artifacts/v6/climate
+src/engine/default_scores.py artifacts/v6 --images /tmp/nice-typical-scores
 ```
 
-The first form writes `climate/scores.bin`: 12,458,880 bytes, twelve monthly bytes per fine point in row-major order, January–December, 255 at sea. It imports the unchanged Python reference curves, scores the same eleven shift levels and resolves the same fine points. Rounding is `floor(score + 0.5)`.
+The first form writes `climate/scores.bin`: 12,458,880 bytes, twelve monthly bytes per fine point in row-major order, January–December, 255 at sea. It imports the unchanged Python reference curves, scores the same eleven shift levels and resolves the same fine points. Integer scores use `floor(score)` so quantisation cannot cross a band threshold.
 
-The second form writes **only 17 PNGs to the specified output folder**. It retains unrounded monthly means until after averaging each season or year. Averaging bytes from `scores.bin` introduces a second rounding and does not reproduce a period verdict. Regenerate these files whenever records, offsets or the default rule change.
+The second form writes 133 PNGs and `scores.bin` to the specified output folder, including every consecutive month run, the seasons and year. It retains daily threshold shares until after weighting each period. Monthly bytes alone cannot reproduce a longer period's typical day or counts. Regenerate these files whenever records, offsets or the default rule change.
 
 ## Verification
 

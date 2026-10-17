@@ -5,7 +5,7 @@ import { BANDS, type Month, type Period } from '../engine';
 import { bands } from '../palette';
 import type { Actions } from './actions';
 import { button, el, swatch } from './dom';
-import { MONTH_NAMES, SEASONS, SEASON_LABEL, dayChipLabel, isForecast, periodWord, upcomingForecastDays, type ForecastIndex } from './periods';
+import { MONTH_NAMES, SEASONS, SEASON_LABEL, dayChipLabel, isForecast, periodFromWord, periodWord, upcomingForecastDays, type ForecastIndex } from './periods';
 
 
 export type TimeBarView = Readonly<{
@@ -50,22 +50,63 @@ function segmented<T extends string>(options: readonly (readonly [T, string])[],
 
 function periodPicker(view: TimeBarView, actions: Actions): HTMLElement {
   const select = el('select', 'period-select');
-  select.setAttribute('aria-label', 'Choose a day, month or season');
-  const periods: [string, Period][] = [
-    [`Next ${view.forecast?.days ?? 14} days, all days`, { kind: 'forecast' }],
-    ...(view.forecast ? upcomingForecastDays(view.forecast).map(day => [dayChipLabel(view.forecast!, day), { kind: 'forecast-day', day }] as [string, Period]) : []),
-    ['The whole typical year', { kind: 'year' }],
-    ...SEASONS.map(season => [SEASON_LABEL[season], { kind: 'season', season }] as [string, Period]),
-    ...MONTH_NAMES.map((name, index) => [name, { kind: 'month', month: (index + 1) as Month }] as [string, Period]),
+  select.setAttribute('aria-label', 'Choose a forecast or typical year period');
+  const choices = [
+    ['next-14-days', `Next ${view.forecast?.days ?? 14} days`], ['day', 'One forecast day'],
+    ['year', 'Whole year'], ...SEASONS.map(season => [season.toLowerCase(), SEASON_LABEL[season]]),
+    ['nov-mar', 'November to March'], ['month', 'One month'], ['months', 'Run of months'],
   ];
-  for (const [label, period] of periods) {
+  const word = periodWord(view.period);
+  const selected = view.period.kind === 'forecast-day' ? 'day' : view.period.kind === 'month' ? 'month'
+    : view.period.kind === 'months' && word !== 'nov-mar' ? 'months' : word;
+  for (const [value, label] of choices) {
     const option = el('option', '', label);
-    option.value = periodWord(period);
-    option.selected = option.value === periodWord(view.period);
+    option.value = value;
+    option.selected = value === selected;
     select.append(option);
   }
-  select.onchange = () => actions.setPeriod(periods.find(([, period]) => periodWord(period) === select.value)![1]);
-  return el('label', 'period-picker', el('span', 'period-picker-label', 'When'), select);
+  select.onchange = () => {
+    const value = select.value;
+    actions.setPeriod(value === 'day' ? { kind: 'forecast-day', day: view.forecast ? upcomingForecastDays(view.forecast)[0] ?? 0 : 0 }
+      : value === 'month' ? { kind: 'month', month: 1 }
+      : value === 'months' ? { kind: 'months', startMonth: 10, endMonth: 4 }
+      : periodFromWord(value)!);
+  };
+  const fields = el('div', 'period-fields', select);
+  const monthSelect = (month: Month, label: string, change: (month: Month) => void) => {
+    const field = el('select', 'period-select');
+    field.setAttribute('aria-label', label);
+    MONTH_NAMES.forEach((name, index) => {
+      const option = el('option', '', name);
+      option.value = String(index + 1);
+      option.selected = index + 1 === month;
+      field.append(option);
+    });
+    field.onchange = () => change(Number(field.value) as Month);
+    return field;
+  };
+  if (view.period.kind === 'month') {
+    fields.append(monthSelect(view.period.month, 'Month', month => actions.setPeriod({ kind: 'month', month })));
+  } else if (view.period.kind === 'months' && word !== 'nov-mar') {
+    const { startMonth, endMonth } = view.period;
+    fields.append(el('div', 'period-range',
+      monthSelect(startMonth, 'First month', month => actions.setPeriod({ kind: 'months', startMonth: month, endMonth })),
+      el('span', 'period-picker-label', 'to'),
+      monthSelect(endMonth, 'Last month', month => actions.setPeriod({ kind: 'months', startMonth, endMonth: month })),
+    ));
+  } else if (view.period.kind === 'forecast-day' && view.forecast) {
+    const days = el('select', 'period-select');
+    days.setAttribute('aria-label', 'Forecast day');
+    for (const day of upcomingForecastDays(view.forecast)) {
+      const option = el('option', '', dayChipLabel(view.forecast, day));
+      option.value = String(day);
+      option.selected = day === view.period.day;
+      days.append(option);
+    }
+    days.onchange = () => actions.setPeriod({ kind: 'forecast-day', day: Number(days.value) });
+    fields.append(days);
+  }
+  return el('div', 'period-picker', el('span', 'period-picker-label', 'When'), fields);
 }
 
 function legend(theme: 'dark' | 'light'): HTMLElement {

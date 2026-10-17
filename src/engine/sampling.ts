@@ -1,12 +1,12 @@
 // Written by AI on 2026.10.17 by model gpt-6.1-sol.
-import { bandOf, decodeDay, judgeDay, NICE_SCORE, type DayJudgement, type Taste } from './taste';
+import { bandOf, decodeDay, judgeDay, type DayJudgement, type Taste } from './taste';
 import type { Cells, PeriodData, SampleGroup } from './data';
 import type { Period, PointVerdict, TypicalWeather } from './index';
 import { SHIFT_LEVELS, SHIFT_MINIMUM, SHIFT_STEP } from './shaders';
 
 export type PointContribution = Readonly<{ group: number; cell: number; level: number; weight: number }>;
 type MutableTypicalWeather = { -readonly [Key in keyof TypicalWeather]: number };
-type CellJudgement = { -readonly [Key in keyof DayJudgement]: DayJudgement[Key] } & { niceDayShare: number; typical: MutableTypicalWeather };
+type CellJudgement = { -readonly [Key in keyof DayJudgement]: DayJudgement[Key] } & { days: number[]; typical: MutableTypicalWeather };
 
 const typicalNames = ['feelsInSunAt14C', 'feelsInShadeAt21C', 'dewPointC', 'rainMmPerDay', 'wetDayShare', 'windKmh', 'sunnyShare', 'daylightHours'] as const;
 function emptyTypical(): MutableTypicalWeather {
@@ -36,31 +36,22 @@ export function nearestLandFineIndex(latitude: number, longitude: number, offset
   return nearest;
 }
 
-/** The selected land point's own offset, then the map's level and cell interpolation, without its final spline. */
+/** The selected fine point's own cell and felt shift, interpolated between scoring levels. */
 export function pointContributions(latitude: number, longitude: number, cells: Cells, data: PeriodData): PointContribution[] | null {
   const fineIndex = nearestLandFineIndex(latitude, longitude, [...data.offsets.values()]);
   if (fineIndex === null) return null;
   const column = fineIndex % 1440, row = Math.floor(fineIndex / 1440);
-  const cellX = column / 4 - 0.5, cellY = row / 4 - 0.5;
-  const cellBaseX = Math.floor(cellX), cellBaseY = Math.floor(cellY);
-  const fractionX = cellX - cellBaseX, fractionY = cellY - cellBaseY;
+  const cell = cells.ordinals[clamp(Math.floor(row / 4), 0, 179) * 360 + Math.floor(column / 4)];
   const weights = new Map<number, number>();
   for (let groupIndex = 0; groupIndex < data.groups.length; groupIndex++) {
     const group = data.groups[groupIndex];
     const shift = (data.offsets.get(group.month)![fineIndex] - 128) / 10;
     const level = clamp((shift - SHIFT_MINIMUM) / SHIFT_STEP, 0, SHIFT_LEVELS - 1);
     const lower = Math.min(Math.floor(level), SHIFT_LEVELS - 2);
-    for (let cellRow = 0; cellRow < 2; cellRow++) {
-      for (let cellColumn = 0; cellColumn < 2; cellColumn++) {
-        const cell = cells.ordinals[clamp(cellBaseY + cellRow, 0, 179) * 360 + wrap(cellBaseX + cellColumn, 360)];
-        const spatialWeight = (cellColumn ? fractionX : 1 - fractionX) * (cellRow ? fractionY : 1 - fractionY) * group.weight;
-        for (let upper = 0; upper < 2; upper++) {
-          const weight = spatialWeight * (upper ? level - lower : 1 - (level - lower));
-          if (weight === 0) continue;
-          const key = (groupIndex * cells.count + cell) * SHIFT_LEVELS + lower + upper;
-          weights.set(key, (weights.get(key) ?? 0) + weight);
-        }
-      }
+    for (let upper = 0; upper < 2; upper++) {
+      const weight = group.weight * (upper ? level - lower : 1 - (level - lower));
+      if (weight === 0) continue;
+      weights.set((groupIndex * cells.count + cell) * SHIFT_LEVELS + lower + upper, weight);
     }
   }
   return Array.from(weights, ([key, weight]) => ({
@@ -71,7 +62,7 @@ export function pointContributions(latitude: number, longitude: number, cells: C
 }
 
 function judgeCell(group: SampleGroup, cell: number, level: number, taste: Taste): CellJudgement {
-  const result: CellJudgement = { score: 0, warmth: 0, evening: 0, rainFactor: 0, windFactor: 0, humidityFactor: 0, sunFactor: 0, niceDayShare: 0, typical: emptyTypical() };
+  const result: CellJudgement = { score: 0, warmth: 0, evening: 0, rainFactor: 0, windFactor: 0, humidityFactor: 0, sunFactor: 0, days: [], typical: emptyTypical() };
   for (let sample = group.firstDay; sample < group.firstDay + group.dayCount; sample++) {
     const day = decodeDay(group.records.bytes, (cell * group.records.samples + sample) * 15);
     const feltOffset = SHIFT_MINIMUM + level * SHIFT_STEP;
@@ -84,8 +75,8 @@ function judgeCell(group: SampleGroup, cell: number, level: number, taste: Taste
       sunnyShare: day.sunnyHours / day.daylightHours, daylightHours: day.daylightHours,
     };
     for (const name of typicalNames) result.typical[name] += typical[name] / group.dayCount;
+    result.days.push(judgement.score);
     result.score += judgement.score / group.dayCount;
-    result.niceDayShare += (judgement.score >= NICE_SCORE ? 1 : 0) / group.dayCount;
     for (const part of partNames) result[part] += judgement[part] / group.dayCount;
   }
   return result;
@@ -98,7 +89,8 @@ export class PointSampler {
   judge(latitude: number, longitude: number): PointVerdict | null {
     const contributions = pointContributions(latitude, longitude, this.cells, this.data);
     if (!contributions) return null;
-    let meanScore = 0, niceDayShare = 0;
+    let meanScore = 0;
+    const dayScores = this.data.groups.map(group => new Float64Array(group.dayCount));
     const typical = emptyTypical();
     const parts = { warmth: 0, evening: 0, rainFactor: 0, windFactor: 0, humidityFactor: 0, sunFactor: 0 };
     for (const contribution of contributions) {
@@ -110,13 +102,23 @@ export class PointSampler {
       }
       for (const name of typicalNames) typical[name] += judgement.typical[name] * contribution.weight;
       meanScore += judgement.score * contribution.weight;
-      niceDayShare += judgement.niceDayShare * contribution.weight;
+      for (let day = 0; day < judgement.days.length; day++) dayScores[contribution.group][day] += judgement.days[day] * contribution.weight / this.data.groups[contribution.group].weight;
       for (const part of partNames) parts[part] += judgement[part] * contribution.weight;
     }
+    const shares = [1, 0, 0, 0, 0, 0, 0];
+    const thresholds = [0, 25, 40, 55, 70, 85, 100];
+    for (let group = 0; group < dayScores.length; group++) for (const score of dayScores[group]) {
+      const weight = this.data.groups[group].weight / dayScores[group].length;
+      for (let threshold = 1; threshold < thresholds.length; threshold++) if (score >= thresholds[threshold]) shares[threshold] += weight;
+    }
+    if (this.data.totalDays > 1) meanScore = typicalDayScore(shares);
+    const niceDayShare = shares[3], perfectDayShare = shares[5], awfulDayShare = Math.max(0, 1 - shares[1]);
     return {
-      meanScore, band: bandOf(meanScore), niceDayShare,
-      niceDayCount: this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? niceDayShare * this.data.sampleDays : null,
-      sampleDays: this.data.sampleDays, parts, typical,
+      meanScore, band: bandOf(meanScore), niceDayShare, perfectDayShare, awfulDayShare,
+      niceDayCount: Math.round(niceDayShare * this.data.totalDays * 1e9) / 1e9,
+      perfectDayCount: Math.round(perfectDayShare * this.data.totalDays * 1e9) / 1e9,
+      awfulDayCount: Math.round(awfulDayShare * this.data.totalDays * 1e9) / 1e9,
+      totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
     };
   }
 }
@@ -125,4 +127,15 @@ export class PointSampler {
 export function readFineScore(values: Float32Array, latitude: number, longitude: number, offsets: readonly Uint8Array[]): number {
   const index = nearestLandFineIndex(latitude, longitude, offsets);
   return index === null ? NaN : values[index];
+}
+
+/** Threshold shares locate the median's band; interpolation keeps map colours continuous. */
+export function typicalDayScore(shares: readonly number[]): number {
+  const thresholds = [0, 25, 40, 55, 70, 85, 100];
+  for (let index = 5; index >= 0; index--) {
+    if (shares[index] < 0.5 - 1e-9) continue;
+    if (index === 5) return Math.max(85, 85 + (shares[5] - 0.5) * 30);
+    return Math.max(thresholds[index], thresholds[index] + (thresholds[index + 1] - thresholds[index]) * (shares[index] - 0.5) / (shares[index] - shares[index + 1]));
+  }
+  return 0;
 }

@@ -1,22 +1,22 @@
 # Written by AI on 2026.10.17 by model GPT-6.1 Sol.
 # Pre-renders link previews with the same share card as the app's Copy image button.
-# Writes world.png, world-<period>.png, and <country>/<city>.png under artifacts/v6/cards.
+# Writes world and place/period PNGs under --out (default /tmp/nice-weather-cards).
 # Needs the built app served with artifacts/v6 at http://127.0.0.1:5198.
 # Usage from /tmp: uv run --quiet --with playwright python -I /path/to/research/taste/render_cards.py 150
+import argparse
 import base64
 import csv
 import pathlib
 import re
-import sys
 import unicodedata
 
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-OUT = ROOT / 'artifacts/v6/cards'
+OUT = pathlib.Path('/tmp/nice-weather-cards/typical-day')
 SITE = 'http://127.0.0.1:5198'
 MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
-PERIODS = MONTHS + ['dec-feb', 'mar-may', 'jun-aug', 'sep-nov']
+PERIODS = MONTHS + ['dec-feb', 'mar-may', 'jun-aug', 'sep-nov', 'nov-mar', 'year']
 
 
 def kebab(text):
@@ -26,6 +26,8 @@ def kebab(text):
 
 def biggest_places(count):
     """Match the Worker's country/city slugs, where the biggest place owns a shared slug."""
+    if count == 0:
+        return []
     with (ROOT / 'artifacts/places.tsv').open(encoding='utf-8', newline='') as source:
         rows = sorted(csv.reader(source, delimiter='\t'), key=lambda row: -int(row[5]))
     seen, chosen = set(), []
@@ -50,7 +52,7 @@ def render(page, path, out, place_name=None):
     if not response.ok:
         raise RuntimeError(f'{path}: HTTP {response.status}')
     page.wait_for_function('typeof window.niceWeatherShareCard === "function"', timeout=60000)
-    page.wait_for_function("document.querySelector('.headline-sentence')?.textContent.startsWith('Nicest ')", timeout=120000)
+    page.wait_for_function("document.querySelector('.headline-sentence')?.textContent.startsWith('Most nice days ')", timeout=120000)
     if place_name is not None:
         page.locator('.card .score-badge').wait_for(timeout=120000)
         actual_name = page.locator('.card h2').inner_text()
@@ -69,17 +71,27 @@ def render(page, path, out, place_name=None):
 
 
 if __name__ == '__main__':
-    place_count = int(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('place_count', type=int)
+    parser.add_argument('--out', type=pathlib.Path, default=OUT)
+    parser.add_argument('--periods', nargs='+', default=PERIODS, help='Month names, month runs such as oct-apr, year, or forecast periods')
+    arguments = parser.parse_args()
+    OUT = arguments.out
+    place_count = arguments.place_count
     places = biggest_places(place_count)
     if len(places) != place_count:
         raise RuntimeError(f'Asked for {place_count} places, found {len(places)}')
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True, args=['--use-angle=metal', '--enable-gpu'])
         page = browser.new_page(viewport={'width': 1200, 'height': 630}, device_scale_factor=1, color_scheme='light')
-        render(page, '/year', OUT / 'world.png')
-        for period in PERIODS:
+        for period in arguments.periods:
             render(page, f'/{period}', OUT / f'world-{period}.png')
+            if period == 'year':
+                (OUT / 'world.png').write_bytes((OUT / 'world-year.png').read_bytes())
         for slug, name in places:
-            render(page, f'/{slug}/year', OUT / f'{slug}.png', name)
+            for period in arguments.periods:
+                render(page, f'/{slug}/{period}', OUT / slug / f'{period}.png', name)
+                if period == 'year':
+                    (OUT / f'{slug}.png').write_bytes((OUT / slug / 'year.png').read_bytes())
         browser.close()
-    print(f'Finished: {len(PERIODS) + 1} world cards and {len(places)} place cards.', flush=True)
+    print(f'Finished: {len(arguments.periods)} world cards and {len(places) * len(arguments.periods)} place cards in {OUT}.', flush=True)

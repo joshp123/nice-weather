@@ -209,28 +209,14 @@ function decodeTypicalYear(view, offset) {
   });
 }
 
-/** The nearest land point within two grid steps (about 50 km) and its typical year, or null at sea. */
+/** The same exact-coordinate, row-major nearest land point used by the browser. */
 async function nearestLandPoint(bucket, latitude, longitude) {
-  const centreRow = Math.min(FINE_HEIGHT - 1, Math.max(0, Math.round((90 - latitude) / 0.25)));
-  const centreColumn = ((Math.round((longitude + 180) / 0.25) % FINE_WIDTH) + FINE_WIDTH) % FINE_WIDTH;
-  let best = null;
-  for (let dRow = -2; dRow <= 2; dRow++) {
-    const row = centreRow + dRow;
-    if (row < 0 || row >= FINE_HEIGHT) continue;
-    const firstColumn = Math.max(0, centreColumn - 2);
-    const lastColumn = Math.min(FINE_WIDTH - 1, centreColumn + 2);
-    const view = await readBytes(bucket, FACTS_KEY, (row * FINE_WIDTH + firstColumn) * FACT_BYTES_PER_POINT, (lastColumn - firstColumn + 1) * FACT_BYTES_PER_POINT);
-    if (!view) return null;
-    for (let column = firstColumn; column <= lastColumn; column++) {
-      const offset = (column - firstColumn) * FACT_BYTES_PER_POINT;
-      let land = false;
-      for (let i = 0; i < FACT_BYTES_PER_POINT; i++) if (view.getUint8(offset + i) !== 0) { land = true; break; }
-      if (!land) continue;
-      const distance = Math.hypot(dRow, column - centreColumn);
-      if (!best || distance < best.distance) best = { distance, row, column, months: decodeTypicalYear(view, offset) };
-    }
-  }
-  return best;
+  const offsets = await Promise.all(Array.from({ length: 12 }, (_, month) => monthlyOffsets(bucket, month + 1)));
+  const index = nearestFineIndex(latitude, longitude, offsets);
+  if (index === null) return null;
+  const view = await readBytes(bucket, FACTS_KEY, index * FACT_BYTES_PER_POINT, FACT_BYTES_PER_POINT);
+  if (!view) return null;
+  return { row: Math.floor(index / FINE_WIDTH), column: index % FINE_WIDTH, months: decodeTypicalYear(view, 0) };
 }
 
 /** A place's typical year with the default taste's score for each month (null where unknown), or null at sea. */
@@ -245,14 +231,20 @@ async function typicalYearForPlace(bucket, latitude, longitude) {
 
 // App paths: /, /<period>, /<slug>, /<slug>/<period>, /@<lat>,<lon>[,<zoom>z][/<period>].
 const MONTH_WORDS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-const SEASON_MONTHS = { 'dec-feb': [12, 1, 2], 'mar-may': [3, 4, 5], 'jun-aug': [6, 7, 8], 'sep-nov': [9, 10, 11] };
-const SEASON_NAMES = { 'dec-feb': 'December to February', 'mar-may': 'March to May', 'jun-aug': 'June to August', 'sep-nov': 'September to November' };
+const MONTH_ABBREVIATIONS = MONTH_WORDS.map(word => word.slice(0, 3));
 
 function periodFromWord(word) {
-  if (word === 'next-14-days' || /^day-(?:[0-9]|1[0-3])$/.test(word)) return { word, kind: 'forecast', when: 'over the next 14 days' };
+  if (word === 'next-14-days') return { word, kind: 'forecast', when: 'over the next 14 days' };
+  if (/^day-(?:[0-9]|1[0-3])$/.test(word)) return { word, kind: 'forecast', day: Number(word.slice(4)), when: `on forecast day ${Number(word.slice(4)) + 1}` };
   const month = MONTH_WORDS.indexOf(word);
   if (month >= 0) return { word, kind: 'climate', months: [month + 1], when: `in ${word[0].toUpperCase()}${word.slice(1)}` };
-  if (SEASON_MONTHS[word]) return { word, kind: 'climate', months: SEASON_MONTHS[word], when: `from ${SEASON_NAMES[word]}` };
+  const run = word.split('-');
+  if (run.length === 2 && run.every(part => MONTH_ABBREVIATIONS.includes(part))) {
+    const start = MONTH_ABBREVIATIONS.indexOf(run[0]), end = MONTH_ABBREVIATIONS.indexOf(run[1]);
+    const months = Array.from({ length: (end - start + 12) % 12 + 1 }, (_, index) => (start + index) % 12 + 1);
+    const capitalised = index => MONTH_WORDS[index][0].toUpperCase() + MONTH_WORDS[index].slice(1);
+    return { word, kind: 'climate', months, when: `from ${capitalised(start)} to ${capitalised(end)}` };
+  }
   if (word === 'year') return { word, kind: 'climate', months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], when: 'all year' };
   return null;
 }
@@ -278,14 +270,175 @@ async function viewFromPath(bucket, pathname) {
   return { place, period };
 }
 
-// v6/climate/scores.bin: the default taste's mean day score per 0.25° point and month (12 bytes a point, 255 at sea).
-async function defaultScore(bucket, latitude, longitude, months) {
-  const point = await nearestLandPoint(bucket, latitude, longitude);
-  if (!point) return null;
-  const view = await readBytes(bucket, 'v6/climate/scores.bin', (point.row * FINE_WIDTH + point.column) * 12, 12);
-  if (!view) return null;
-  const scores = months.map((month) => view.getUint8(month - 1)).filter((score) => score !== 255);
-  return scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
+// The twelve monthly bytes cannot describe a run's distribution. Read the same
+// sampled days and fine offsets as the app for a place's default-taste preview.
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const THRESHOLDS = [0, 25, 40, 55, 70, 85, 100];
+const wrap = (value, width) => (value % width + width) % width;
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+const weatherFiles = new Map();
+function weatherFile(bucket, key, decode) {
+  if (!weatherFiles.has(key)) {
+    weatherFiles.set(key, (async () => {
+      const object = await bucket.get(key);
+      if (!object) throw new Error(`Weather file missing: ${key}`);
+      return decode(new Uint8Array(await object.arrayBuffer()));
+    })().catch(error => { weatherFiles.delete(key); throw error; }));
+  }
+  return weatherFiles.get(key);
+}
+
+async function decodeGreyscalePng(png) {
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  const width = view.getUint32(16), height = view.getUint32(20);
+  if (width !== FINE_WIDTH || height !== FINE_HEIGHT || png[24] !== 8 || png[25] !== 0 || png[28] !== 0) throw new Error('Expected a fine-grid greyscale PNG');
+  const chunks = [];
+  for (let at = 8; at < png.length;) {
+    const length = view.getUint32(at);
+    if (String.fromCharCode(...png.subarray(at + 4, at + 8)) === 'IDAT') chunks.push(png.subarray(at + 8, at + 8 + length));
+    at += length + 12;
+  }
+  const filtered = new Uint8Array(await new Response(new Blob(chunks).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+  const values = new Uint8Array(width * height);
+  for (let row = 0; row < height; row++) {
+    const filter = filtered[row * (width + 1)], source = row * (width + 1) + 1, target = row * width;
+    for (let column = 0; column < width; column++) {
+      const left = column ? values[target + column - 1] : 0, up = row ? values[target - width + column] : 0, diagonal = row && column ? values[target - width + column - 1] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = (left + up) >> 1;
+      else if (filter === 4) {
+        const estimate = left + up - diagonal;
+        const a = Math.abs(estimate - left), b = Math.abs(estimate - up), c = Math.abs(estimate - diagonal);
+        predictor = a <= b && a <= c ? left : b <= c ? up : diagonal;
+      }
+      values[target + column] = (filtered[source + column] + predictor) & 255;
+    }
+  }
+  return values;
+}
+const monthlyOffsets = (bucket, month) => weatherFile(bucket, `v6/climate/offsets-${String(month).padStart(2, '0')}.png`, decodeGreyscalePng);
+
+function decodeCellOrdinals(bytes) {
+  const pairs = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+  const land = new Int32Array(360 * 180).fill(-1);
+  for (let cell = 0; cell < pairs.length / 2; cell++) land[pairs[cell * 2] * 360 + pairs[cell * 2 + 1]] = cell;
+  const rowNearest = new Int32Array(land.length).fill(-1), rowDistance = new Float64Array(land.length).fill(Infinity);
+  for (let row = 0; row < 180; row++) {
+    let nearest = -1080;
+    for (let column = -360; column < 720; column++) {
+      if (land[row * 360 + wrap(column, 360)] >= 0) nearest = column;
+      if (column >= 0 && column < 360 && nearest !== -1080) {
+        rowNearest[row * 360 + column] = land[row * 360 + wrap(nearest, 360)];
+        rowDistance[row * 360 + column] = (column - nearest) ** 2;
+      }
+    }
+    nearest = 1080;
+    for (let column = 719; column >= -360; column--) {
+      if (land[row * 360 + wrap(column, 360)] >= 0) nearest = column;
+      if (column >= 0 && column < 360 && nearest !== 1080 && (column - nearest) ** 2 < rowDistance[row * 360 + column]) {
+        rowNearest[row * 360 + column] = land[row * 360 + wrap(nearest, 360)];
+        rowDistance[row * 360 + column] = (column - nearest) ** 2;
+      }
+    }
+  }
+  const ordinals = new Uint16Array(land.length);
+  for (let row = 0; row < 180; row++) for (let column = 0; column < 360; column++) {
+    const index = row * 360 + column;
+    if (land[index] >= 0) { ordinals[index] = land[index]; continue; }
+    let distance = Infinity;
+    for (let sourceRow = 0; sourceRow < 180; sourceRow++) {
+      const candidate = sourceRow * 360 + column, squared = (row - sourceRow) ** 2 + rowDistance[candidate];
+      if (squared < distance) { distance = squared; ordinals[index] = rowNearest[candidate]; }
+    }
+  }
+  return ordinals;
+}
+
+function nearestFineIndex(latitude, longitude, offsets) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -60 || latitude > 90) return null;
+  const x = wrap((longitude + 180) * 4, FINE_WIDTH), y = (90 - latitude) * 4;
+  const centreColumn = Math.round(x), centreRow = Math.round(y);
+  let nearest = null, distance = Infinity;
+  for (let dr = -2; dr <= 2; dr++) {
+    const row = centreRow + dr;
+    if (row < 0 || row > 600) continue;
+    for (let dc = -2; dc <= 2; dc++) {
+      const column = centreColumn + dc, index = row * FINE_WIDTH + wrap(column, FINE_WIDTH);
+      if (offsets.some(month => month[index] === 255)) continue;
+      const squared = (row - y) ** 2 + (column - x) ** 2;
+      if (squared < distance) { nearest = index; distance = squared; }
+    }
+  }
+  return nearest;
+}
+
+function curve(points, value) {
+  if (value <= points[0][0]) return points[0][1];
+  for (let i = 1; i < points.length; i++) if (value <= points[i][0]) {
+    const [x, y] = points[i - 1], [nextX, nextY] = points[i];
+    return y + (value - x) / (nextX - x) * (nextY - y);
+  }
+  return points.at(-1)[1];
+}
+const COLD = [[9,0],[11,3],[13,10],[15,22],[17,40],[19,62],[21,85],[23,100]];
+const HEAT = [[28,100],[31,85],[34,60],[37,30],[40,10],[43,0]];
+const EVENING = [[4,0],[8,30],[12,65],[16,90],[19,100]];
+const RAIN = [[0,1],[0.5,0.95],[1,0.88],[2,0.74],[4,0.5],[8,0.22],[15,0.05]];
+const WIND = [[15,1],[20,0.97],[25,0.92],[30,0.85],[40,0.65],[50,0.4],[65,0.15]];
+const HUMIDITY = [[16,1],[18,0.95],[20,0.85],[22,0.65],[24,0.4],[26,0.2],[28,0.1]];
+const SUN = [[0,0.75],[0.3,0.85],[0.6,0.95],[0.8,1]];
+function defaultDayScore(bytes, at, shift) {
+  const sun = Array.from({length: 6}, (_, i) => [i * 2, bytes[at + i] / 3 - 30 + shift]);
+  const shade = Array.from({length: 4}, (_, i) => [i * 3 + 2, bytes[at + 6 + i] / 3 - 30 + shift]);
+  const daylight = Math.max(1, bytes[at + 14]);
+  let daytime = 0;
+  for (let hour = 0; hour < daylight; hour++) daytime += Math.min(curve(COLD, curve(sun, hour)), curve(HEAT, curve(shade, hour)));
+  const evening = Math.min(curve(EVENING, shade[3][1]), curve(HEAT, shade[3][1]));
+  return (daytime + 2 * evening) / (daylight + 2)
+    * curve(RAIN, (bytes[at + 11] / 50) ** 2) * curve(WIND, bytes[at + 12] / 2)
+    * curve(HUMIDITY, bytes[at + 10] / 3 - 30) * curve(SUN, bytes[at + 13] / daylight);
+}
+
+async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
+  let groups;
+  if (period.kind === 'forecast') {
+    const current = await cachedJson(bucket, 'v6/forecast/current.json', 60);
+    if (!current) return null;
+    const days = period.day === undefined ? Array.from({length: 14}, (_, day) => day) : [period.day];
+    groups = days.map(day => {
+      const date = new Date(`${current.firstDate}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + day);
+      return {month: date.getUTCMonth() + 1, samples: 14, firstDay: day, count: 1, days: 1, key: `v6/forecast/${current.run}/days.bin`};
+    });
+  } else groups = period.months.map(month => ({month, samples: 8, firstDay: 0, count: 8, days: MONTH_DAYS[month - 1], key: `v6/climate/month-${String(month).padStart(2, '0')}.bin`}));
+  const [ordinals, ...offsets] = await Promise.all([weatherFile(bucket, 'v6/cells.bin', decodeCellOrdinals), ...groups.map(group => monthlyOffsets(bucket, group.month))]);
+  const index = nearestFineIndex(latitude, longitude, offsets);
+  if (index === null) return null;
+  const row = Math.floor(index / FINE_WIDTH), column = index % FINE_WIDTH;
+  const cell = ordinals[clamp(Math.floor(row / 4), 0, 179) * 360 + Math.floor(column / 4)];
+  const totalDays = groups.reduce((sum, group) => sum + group.days, 0), shares = THRESHOLDS.map(() => 0);
+  let singleDayScore = 0;
+  await Promise.all(groups.map(async (group, groupIndex) => {
+    const shiftLevel = clamp(((offsets[groupIndex][index] - 128) / 10 + 15) / 3, 0, 10), lower = Math.min(Math.floor(shiftLevel), 9), upperWeight = shiftLevel - lower;
+    const view = await readBytes(bucket, group.key, cell * group.samples * 15, group.samples * 15);
+    if (!view) throw new Error(`Weather records missing: ${group.key}`);
+    const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    for (let sample = group.firstDay; sample < group.firstDay + group.count; sample++) {
+      const score = (1 - upperWeight) * defaultDayScore(bytes, sample * 15, -15 + lower * 3)
+        + upperWeight * defaultDayScore(bytes, sample * 15, -15 + (lower + 1) * 3);
+      singleDayScore = score;
+      for (let threshold = 0; threshold < THRESHOLDS.length; threshold++) if (score >= THRESHOLDS[threshold]) shares[threshold] += group.days / group.count / totalDays;
+    }
+  }));
+  let score = 0;
+  if (totalDays === 1) score = singleDayScore;
+  else if (shares[5] >= 0.5 - 1e-9) score = 85 + Math.max(0, shares[5] - 0.5) * 30;
+  else for (let band = 0; band < 5; band++) if (shares[band] >= 0.5 - 1e-9 && shares[band + 1] < 0.5 - 1e-9) {
+    score = THRESHOLDS[band] + (THRESHOLDS[band + 1] - THRESHOLDS[band]) * Math.max(0, shares[band] - 0.5) / (shares[band] - shares[band + 1]); break;
+  }
+  const dayCount = share => Math.round(share * totalDays * 1e9) / 1e9;
+  return {score, totalDays, niceDayCount: dayCount(shares[3]), perfectDayCount: dayCount(shares[5]), awfulDayCount: dayCount(1 - shares[1])};
 }
 
 const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];
@@ -293,17 +446,16 @@ const bandWord = (score) => BAND_WORDS.find(([minimum]) => score >= minimum)[1];
 const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
 
 async function previewFor(bucket, origin, pathname, view) {
-  const { place, period } = view;
+  const { place } = view;
+  const period = view.period ?? (place ? { word: 'next-14-days', kind: 'forecast', when: 'over the next 14 days' } : null);
   const placeName = place ? place.name : null;
   let title = 'Nice Weather: where on earth is the weather nice?';
   let description = 'A map of the whole world coloured by how nice the weather feels, for the next 14 days or any month of a typical year. Set your own taste.';
-  if (placeName && period?.kind === 'climate') {
+  if (placeName && period) {
     title = `${placeName} ${period.when}: Nice Weather`;
-    const score = await defaultScore(bucket, place.latitude, place.longitude, period.months);
-    const months = await typicalYearForPlace(bucket, place.latitude, place.longitude);
-    const typical = months && period.months.length === 1 ? months[period.months[0] - 1] : null;
-    description = score === null ? `How nice the weather is in ${placeName} ${period.when}.` : `${placeName} ${period.when}: ${bandWord(score)}, nice score ${Math.round(score)} out of 100.`;
-    if (typical) description += ` Typical highs of ${Math.round(typical.highC)} °C, ${Math.round(typical.feelsAt21C)} °C at 21:00, sunny ${typical.sunnyPercent}% of the day, rain on ${typical.wetDaysPercent}% of days.`;
+    const judgement = await defaultPeriodJudgement(bucket, place.latitude, place.longitude, period);
+    description = judgement === null ? `How nice the weather is in ${placeName} ${period.when}.` : `${placeName} ${period.when}: ${bandWord(judgement.score)}${judgement.totalDays > 1 ? ' most days' : ''}, nice score ${Math.floor(judgement.score)} out of 100.`;
+    if (judgement && judgement.totalDays > 1) description += ` Nice or better on ${Math.round(judgement.niceDayCount)} of ${judgement.totalDays} days, perfect on ${Math.round(judgement.perfectDayCount)}, awful on ${Math.round(judgement.awfulDayCount)}.`;
   } else if (placeName) {
     title = `${placeName}: Nice Weather`;
     description = `How nice the weather will be in ${placeName} over the next 14 days, and in every month of a typical year.`;
@@ -311,9 +463,9 @@ async function previewFor(bucket, origin, pathname, view) {
     title = `Where is the weather nice ${period.when}? Nice Weather`;
   }
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
-  let image = place?.slug && place.region !== 'Palestine' ? await card(`v6/cards/${place.slug}.png`) : null;  // v6/cards/<country>/<city>.png
-  if (!image && period?.kind === 'climate') image = await card(`v6/cards/world-${period.word}.png`);
-  image ??= `${origin}/data/v6/cards/world.png`;
+  const namedPlace = place?.slug && !pathname.startsWith('/@') && !place.slug.startsWith('palestine/');
+  const image = period && (!place || namedPlace)
+    ? await card(`v6/cards/typical-day/${namedPlace ? place.slug + '/' : 'world-'}${period.word}.png`) : null;
   return { title, description, image, url: `${origin}${pathname}` };
 }
 
@@ -326,13 +478,15 @@ function withPreview(html, preview) {
     `<meta property="og:title" content="${escapeHtml(preview.title)}" />`,
     `<meta property="og:description" content="${escapeHtml(preview.description)}" />`,
     `<meta property="og:url" content="${escapeHtml(preview.url)}" />`,
-    `<meta property="og:image" content="${escapeHtml(preview.image)}" />`,
-    `<meta property="og:image:width" content="1200" />`,
-    `<meta property="og:image:height" content="630" />`,
-    `<meta name="twitter:card" content="summary_large_image" />`,
+    ...(preview.image ? [
+      `<meta property="og:image" content="${escapeHtml(preview.image)}" />`,
+      `<meta property="og:image:width" content="1200" />`,
+      `<meta property="og:image:height" content="630" />`,
+    ] : []),
+    `<meta name="twitter:card" content="${preview.image ? 'summary_large_image' : 'summary'}" />`,
     `<meta name="twitter:title" content="${escapeHtml(preview.title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(preview.description)}" />`,
-    `<meta name="twitter:image" content="${escapeHtml(preview.image)}" />`,
+    ...(preview.image ? [`<meta name="twitter:image" content="${escapeHtml(preview.image)}" />`] : []),
   ].join('\n    ');
   return html
     .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(preview.title)}</title>`)
@@ -399,6 +553,7 @@ export async function handleRequest(request, env, serveAsset) {
       : request.body;
     await bucket.put(key, body);
     memo.delete(key);
+    weatherFiles.delete(key);
     if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
   }

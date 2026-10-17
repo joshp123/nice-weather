@@ -12,9 +12,10 @@ export type Period =
   | Readonly<{ kind: 'forecast' }>
   | Readonly<{ kind: 'month'; month: Month }>
   | Readonly<{ kind: 'season'; season: Season }>
+  | Readonly<{ kind: 'months'; startMonth: Month; endMonth: Month }>
   | Readonly<{ kind: 'year' }>;
 export type Point = Readonly<{ latitude: number; longitude: number }>;
-/** Physical averages of the same shifted, spatially interpolated days as meanScore. */
+/** Physical averages of the same shifted days used for the typical-day judgement. */
 export type TypicalWeather = Readonly<{
   feelsInSunAt14C: number;
   feelsInShadeAt21C: number;
@@ -28,12 +29,18 @@ export type TypicalWeather = Readonly<{
   daylightHours: number;
 }>;
 export type PointVerdict = Readonly<{
+  /** Typical-day score; retained field name for app integration. */
   meanScore: number;
   band: BandName;
-  /** 0..1, from the same representative days and interpolation as meanScore. */
+  /** 0..1, from the same representative day scores as meanScore. */
   niceDayShare: number;
-  /** Forecast: expected count out of 1 or 14. Climate: null; samples are representative, not a calendar. */
-  niceDayCount: number | null;
+  /** Expected count from representative days, weighted by real month lengths. */
+  niceDayCount: number;
+  perfectDayShare: number;
+  awfulDayShare: number;
+  perfectDayCount: number;
+  awfulDayCount: number;
+  totalDays: number;
   sampleDays: number;
   parts: Omit<DayJudgement, 'score'>;
   typical: TypicalWeather;
@@ -60,6 +67,8 @@ export interface WeatherEngine {
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
   /** Nearest-land fine-point scores in input order; NaN means missing. Default taste reads the score image, including while records load (integer precision). Other tastes cache one GPU readback per redraw. */
   scorePoints(points: readonly Point[]): Float32Array;
+  /** Packed nice, perfect and awful day counts for each point. */
+  countPoints(points: readonly Point[]): Float32Array;
   /** Releases GPU resources. Remove the layer first, or call this before removing the map. */
   destroy(): void;
 }
@@ -71,9 +80,9 @@ export interface WeatherEngine {
  * await engine.setTaste(DEFAULT_TASTE);
  * const malaga = engine.judgePoint(36.72, -4.42);
  *
- * Climate months have equal weight (eight real representative days each).
- * Place scores use the nearest fine land point's own offset, interpolating
- * the neighbouring cells and felt-shift levels. Only the map applies the final B-spline.
+ * Climate months count their real calendar days, represented by eight sampled days each.
+ * Place scores use the nearest fine land point's own offset, using its owning cell and interpolating
+ * felt-shift levels. Only the map applies the final B-spline.
  */
 export function createWeatherEngine(map: MapLibreMap, options: EngineOptions = {}): WeatherEngine {
   return new BrowserWeatherEngine(map, options);

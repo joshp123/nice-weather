@@ -8,7 +8,7 @@ import { PointSampler, readFineScore, nearestLandFineIndex } from './sampling';
 import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
 
 function periodKey(period: Period): string {
-  return period.kind === 'month' ? `month:${period.month}` : period.kind === 'season' ? `season:${period.season}` : period.kind === 'forecast-day' ? `forecast-day:${period.day}` : period.kind;
+  return period.kind === 'months' ? `months:${period.startMonth}:${period.endMonth}` : period.kind === 'month' ? `month:${period.month}` : period.kind === 'season' ? `season:${period.season}` : period.kind === 'forecast-day' ? `forecast-day:${period.day}` : period.kind;
 }
 
 type PendingFrame = { started: number; resolve: (timing: RedrawTiming) => void; reject: (error: Error) => void };
@@ -169,16 +169,36 @@ export class BrowserWeatherEngine implements WeatherEngine {
     if (!this.data || !gl || !this.fineScores || this.gpuRevision !== this.revision || this.drawnRevision !== this.revision || this.destroyed) {
       return Float32Array.from(points, point => this.judgePoint(point.latitude, point.longitude)?.meanScore ?? NaN);
     }
-    if (this.readbackRevision !== this.drawnRevision) {
-      this.fineScoreReadback ??= new Float32Array(1440 * 721);
-      const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.framebuffer!);
-      gl.readPixels(0, 0, 1440, 721, gl.RED, gl.FLOAT, this.fineScoreReadback);
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
-      this.readbackRevision = this.drawnRevision;
-    }
+    this.readScores();
     const offsets = [...this.data!.offsets.values()];
-    return Float32Array.from(points, point => readFineScore(this.fineScoreReadback!, point.latitude, point.longitude, offsets));
+    return Float32Array.from(points, point => {
+      const index = nearestLandFineIndex(point.latitude, point.longitude, offsets);
+      return index === null ? NaN : this.fineScoreReadback![index * 4];
+    });
+  }
+
+  private readScores(): void {
+    if (this.readbackRevision === this.drawnRevision) return;
+    const gl = this.gl!;
+    this.fineScoreReadback ??= new Float32Array(1440 * 721 * 4);
+    const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.framebuffer!);
+    gl.readPixels(0, 0, 1440, 721, gl.RGBA, gl.FLOAT, this.fineScoreReadback);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+    this.readbackRevision = this.drawnRevision;
+  }
+
+  countPoints(points: readonly Point[]): Float32Array {
+    const counts = new Float32Array(points.length * 3).fill(NaN);
+    if (!this.data || !this.gl || this.gpuRevision !== this.revision || this.drawnRevision !== this.revision || this.destroyed) return counts;
+    this.readScores();
+    const offsets = [...this.data.offsets.values()];
+    points.forEach((point, ordinal) => {
+      const index = nearestLandFineIndex(point.latitude, point.longitude, offsets);
+      if (index === null) return;
+      for (let kind = 0; kind < 3; kind++) counts[ordinal * 3 + kind] = Math.round(this.fineScoreReadback![index * 4 + kind + 1] * this.data!.totalDays * 8) / 8;
+    });
+    return counts;
   }
 
   private requestFrame(): Promise<RedrawTiming> {
@@ -237,9 +257,9 @@ export class BrowserWeatherEngine implements WeatherEngine {
       this.offsets = this.texture(gl.TEXTURE_2D_ARRAY);
       gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R8UI, 1440, 721, 12);
       this.scores = this.texture(gl.TEXTURE_2D_ARRAY);
-      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA32F, CELL_TEXTURE_WIDTH, rows * SHIFT_LEVELS, 12);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA32F, CELL_TEXTURE_WIDTH, rows * SHIFT_LEVELS, 48);
       this.fineScores = this.texture(gl.TEXTURE_2D);
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, 1440, 721);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 1440, 721);
     }
     for (const [month, bytes] of data.offsets) {
       if (this.uploadedOffsets.has(month)) continue;
@@ -284,9 +304,12 @@ export class BrowserWeatherEngine implements WeatherEngine {
       gl.uniform1i(scoreUniform('u_samples'), group.records.samples);
       gl.uniform1i(scoreUniform('u_first_day'), group.firstDay);
       gl.uniform1i(scoreUniform('u_day_count'), group.dayCount);
-      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, this.scores!, 0, groupIndex);
+      for (let pack = 0; pack < 4; pack++) gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + pack, this.scores!, 0, groupIndex * 4 + pack);
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
+    for (let pack = 1; pack < 4; pack++) gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + pack, null, 0, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
     gl.viewport(0, 0, 1440, 721);
     gl.useProgram(programs.resolve);
     const resolveUniform = (name: string) => gl.getUniformLocation(programs.resolve, name);
@@ -296,6 +319,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
     gl.uniform1i(resolveUniform('u_cell_rows'), rows);
     gl.uniform1i(resolveUniform('u_month_count'), data.groups.length);
     gl.uniform1iv(resolveUniform('u_month_layers'), data.groups.map(group => group.month - 1));
+    gl.uniform1iv(resolveUniform('u_day_counts'), data.groups.map(group => group.dayCount));
+    gl.uniform1i(resolveUniform('u_single_day'), this.period.kind === 'forecast-day' ? 1 : 0);
     gl.uniform1fv(resolveUniform('u_weights'), data.groups.map(group => group.weight));
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.fineScores!, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);

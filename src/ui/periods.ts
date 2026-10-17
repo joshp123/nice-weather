@@ -1,6 +1,6 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
 // The periods a visitor can look at, their words in links, and how they are named on screen.
-import type { Month, Period, Season } from '../engine';
+import type { Month, Period, PointVerdict, Season } from '../engine';
 
 /** /data/v6/forecast/current.json */
 export type ForecastIndex = Readonly<{ run: string; firstDate: string; days: number }>;
@@ -30,6 +30,7 @@ export function periodWord(period: Period): string {
     case 'forecast-day': return `day-${period.day}`;
     case 'month': return MONTH_NAMES[period.month - 1].toLowerCase();
     case 'season': return period.season.toLowerCase();
+    case 'months': return `${MONTH_SHORT[period.startMonth - 1].toLowerCase()}-${MONTH_SHORT[period.endMonth - 1].toLowerCase()}`;
     case 'year': return 'year';
   }
 }
@@ -43,6 +44,12 @@ export function periodFromWord(word: string): Period | null {
   if (month >= 0) return { kind: 'month', month: (month + 1) as Month };
   const season = SEASONS.find(name => name.toLowerCase() === word);
   if (season) return { kind: 'season', season };
+  const run = /^([a-z]{3})-([a-z]{3})$/.exec(word);
+  if (run) {
+    const startMonth = MONTH_SHORT.findIndex(month => month.toLowerCase() === run[1]) + 1;
+    const endMonth = MONTH_SHORT.findIndex(month => month.toLowerCase() === run[2]) + 1;
+    if (startMonth && endMonth) return startMonth === endMonth ? { kind: 'month', month: startMonth as Month } : { kind: 'months', startMonth: startMonth as Month, endMonth: endMonth as Month };
+  }
   return null;
 }
 
@@ -80,6 +87,7 @@ export function periodPhrase(period: Period, forecast: ForecastIndex | null): st
     case 'forecast-day': return forecast ? dayPhrase(forecast, period.day) : 'that day';
     case 'month': return `in ${MONTH_NAMES[period.month - 1]}`;
     case 'season': return `from ${SEASON_SENTENCE[period.season]}`;
+    case 'months': return `from ${MONTH_NAMES[period.startMonth - 1]} to ${MONTH_NAMES[period.endMonth - 1]}`;
     case 'year': return 'all year';
   }
 }
@@ -97,6 +105,7 @@ export function periodTitle(period: Period, forecast: ForecastIndex | null): str
     }
     case 'month': return MONTH_NAMES[period.month - 1];
     case 'season': return SEASON_LABEL[period.season];
+    case 'months': return `${MONTH_NAMES[period.startMonth - 1]} to ${MONTH_NAMES[period.endMonth - 1]}`;
     case 'year': return 'The whole year';
   }
 }
@@ -114,26 +123,35 @@ export function daysInPeriod(period: Period, forecast: ForecastIndex | null): nu
     case 'forecast-day': return 1;
     case 'month': return MONTH_DAYS[period.month - 1];
     case 'season': return SEASON_DAYS[period.season];
+    case 'months': return monthsOfPeriod(period, forecast).reduce((days, month) => days + MONTH_DAYS[month - 1], 0);
     case 'year': return 365;
   }
 }
 
-/** "9 of 14 days nice", "about 24 nice days in a typical November", "about 250 nice days a year". */
-export function niceDaysSentence(period: Period, forecast: ForecastIndex | null, niceDayShare: number, niceDayCount: number | null): string {
+/** Counts refer to the selected stretch, including all days within its months. */
+export function dayCountsSentence(period: Period, forecast: ForecastIndex | null, verdict: PointVerdict): string {
+  if (period.kind === 'forecast-day') return '';
   const days = daysInPeriod(period, forecast);
-  switch (period.kind) {
-    case 'forecast': return `${Math.round(niceDayCount ?? niceDayShare * days)} of ${days} days nice`;
-    case 'forecast-day': return '';
-    case 'month': return `About ${Math.round(niceDayShare * days)} nice days in a typical ${MONTH_NAMES[period.month - 1]}`;
-    case 'season': return `About ${Math.round(niceDayShare * days)} of ${days} days nice, ${SEASON_SENTENCE[period.season]}`;
-    case 'year': return `About ${Math.round(niceDayShare * days)} nice days a year`;
-  }
+  return `Nice or better on ${Math.round(verdict.niceDayCount)} of ${days} days, perfect on ${Math.round(verdict.perfectDayCount)}, awful on ${Math.round(verdict.awfulDayCount)}`;
+}
+
+export function bandSentence(period: Period, band: string): string {
+  return period.kind === 'forecast-day' ? band : `${band} most days`;
 }
 
 /** The months a period draws on, for the typical numbers in the card. */
 export function monthsOfPeriod(period: Period, forecast: ForecastIndex | null): Month[] {
   switch (period.kind) {
     case 'month': return [period.month];
+    case 'months': {
+      const months: Month[] = [];
+      let month = period.startMonth;
+      while (true) {
+        months.push(month);
+        if (month === period.endMonth) return months;
+        month = (month % 12 + 1) as Month;
+      }
+    }
     case 'season': return { 'Dec-Feb': [12, 1, 2], 'Mar-May': [3, 4, 5], 'Jun-Aug': [6, 7, 8], 'Sep-Nov': [9, 10, 11] }[period.season] as Month[];
     case 'year': return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     case 'forecast':

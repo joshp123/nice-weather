@@ -1,5 +1,5 @@
 // Written by AI on 2026.10.17 by model gpt-6.1-sol.
-import { COLD_GRADE_BY_FEELS_IN_SUN, HEAT_GRADE_BY_FEELS_IN_SHADE, EVENING_GRADE_BY_FEELS_AT_21, RAIN_FACTOR_BY_MM, WIND_FACTOR_BY_KMH, HUMIDITY_FACTOR_BY_DEW_POINT, SUN_FACTOR_BY_SUNNY_SHARE, type Curve, BANDS, EVENING_WORTH_IN_HOURS, NICE_SCORE } from './taste';
+import { COLD_GRADE_BY_FEELS_IN_SUN, HEAT_GRADE_BY_FEELS_IN_SHADE, EVENING_GRADE_BY_FEELS_AT_21, RAIN_FACTOR_BY_MM, WIND_FACTOR_BY_KMH, HUMIDITY_FACTOR_BY_DEW_POINT, SUN_FACTOR_BY_SUNNY_SHARE, type Curve, BANDS, EVENING_WORTH_IN_HOURS } from './taste';
 
 export const SHIFT_MINIMUM = -15;
 export const SHIFT_STEP = 3;
@@ -32,7 +32,10 @@ uniform int u_first_day;
 uniform int u_day_count;
 uniform vec4 u_thermal_taste;
 uniform vec2 u_weather_taste;
-out vec4 result;
+layout(location=0) out vec4 days0;
+layout(location=1) out vec4 days1;
+layout(location=2) out vec4 days2;
+layout(location=3) out vec4 days3;
 ${curveFunction('cold', COLD_GRADE_BY_FEELS_IN_SUN)}
 ${curveFunction('heat', HEAT_GRADE_BY_FEELS_IN_SHADE)}
 ${curveFunction('eveningGrade', EVENING_GRADE_BY_FEELS_AT_21)}
@@ -44,10 +47,10 @@ void main() {
   ivec2 pixel = ivec2(gl_FragCoord.xy);
   int cellRow = pixel.y % u_cell_rows;
   int ordinal = cellRow * ${CELL_TEXTURE_WIDTH} + pixel.x;
-  if (ordinal >= u_cell_count) { result = vec4(0.0); return; }
+  days0=vec4(0.0);days1=vec4(0.0);days2=vec4(0.0);days3=vec4(0.0);
+  if (ordinal >= u_cell_count) return;
+  vec4 packedDays[4]=vec4[4](vec4(0.0),vec4(0.0),vec4(0.0),vec4(0.0));
   float shift = ${SHIFT_MINIMUM}.0 + float(pixel.y / u_cell_rows) * ${SHIFT_STEP}.0;
-  float scoreSum = 0.0;
-  float niceSum = 0.0;
   for (int day = 0; day < 15; day++) {
     if (day >= u_day_count) break;
     ivec2 address = ivec2(pixel.x * 4, cellRow * u_samples + u_first_day + day);
@@ -74,10 +77,10 @@ void main() {
       * wind(d.x / 2.0 - u_weather_taste.x)
       * humidity(c.z / 3.0 - 30.0 - u_thermal_taste.w)
       * sunFactor(d.y / daylight);
-    scoreSum += score;
-    niceSum += step(${NICE_SCORE}.0, score);
+    packedDays[day/4][day%4]=score;
   }
-  result = vec4(scoreSum / float(u_day_count), niceSum / float(u_day_count), 0.0, 1.0);
+
+  days0=packedDays[0];days1=packedDays[1];days2=packedDays[2];days3=packedDays[3];
 }`;
 
 export const resolveFragment = `#version 300 es
@@ -89,37 +92,44 @@ uniform highp usampler2D u_cell_ordinals;
 uniform int u_cell_rows;
 uniform int u_month_count;
 uniform int u_month_layers[15];
+uniform int u_day_counts[15];
 uniform float u_weights[15];
+uniform bool u_single_day;
 out vec4 result;
-float cellScore(ivec2 position, float shift, int layer) {
-  position.x = (position.x % 360 + 360) % 360;
-  position.y = clamp(position.y, 0, 179);
-  int ordinal = int(texelFetch(u_cell_ordinals, position, 0).r);
-  float level = clamp((shift - ${SHIFT_MINIMUM}.0) / ${SHIFT_STEP}.0, 0.0, ${SHIFT_LEVELS - 1}.0);
-  int lower = min(int(level), ${SHIFT_LEVELS - 2});
-  ivec2 address = ivec2(ordinal % ${CELL_TEXTURE_WIDTH}, ordinal / ${CELL_TEXTURE_WIDTH} + lower * u_cell_rows);
-  float a = texelFetch(u_scores, ivec3(address, layer), 0).r;
-  float b = texelFetch(u_scores, ivec3(address + ivec2(0, u_cell_rows), layer), 0).r;
-  return mix(a, b, level - float(lower));
-}
 void main() {
   ivec2 pixel = ivec2(gl_FragCoord.xy);
-  // A cell record describes the one-degree square centred at .5 degrees.
-  vec2 cell = vec2(float(pixel.x) * 0.25 - 0.5, float(pixel.y) * 0.25 - 0.5);
-  ivec2 base = ivec2(floor(cell));
-  vec2 weight = fract(cell);
-  float total = 0.0;
+  ivec2 cell = clamp(pixel / 4, ivec2(0), ivec2(359,179));
+  int ordinal = int(texelFetch(u_cell_ordinals, cell, 0).r);
+  float shares[7] = float[7](1.0,0.0,0.0,0.0,0.0,0.0,0.0);
+  float thresholds[7] = float[7](0.0,25.0,40.0,55.0,70.0,85.0,100.0);
+  float singleScore = 0.0;
   for (int month = 0; month < 15; month++) {
     if (month >= u_month_count) break;
-    int layer = u_month_layers[month];
-    float offsetByte = float(texelFetch(u_offsets, ivec3(pixel, layer), 0).r);
-    if (offsetByte == 255.0) { result = vec4(255.0, 0.0, 0.0, 1.0); return; }
-    float shift = (offsetByte - 128.0) / 10.0;
-    float north = mix(cellScore(base, shift, month), cellScore(base + ivec2(1, 0), shift, month), weight.x);
-    float south = mix(cellScore(base + ivec2(0, 1), shift, month), cellScore(base + ivec2(1, 1), shift, month), weight.x);
-    total += mix(north, south, weight.y) * u_weights[month];
+    float offsetByte = float(texelFetch(u_offsets, ivec3(pixel, u_month_layers[month]), 0).r);
+    if (offsetByte == 255.0) { result = vec4(255.0); return; }
+    float level = clamp(((offsetByte - 128.0) / 10.0 - ${SHIFT_MINIMUM}.0) / ${SHIFT_STEP}.0, 0.0, ${SHIFT_LEVELS - 1}.0);
+    int lower = min(int(level), ${SHIFT_LEVELS - 2});
+    ivec2 address = ivec2(ordinal % ${CELL_TEXTURE_WIDTH}, ordinal / ${CELL_TEXTURE_WIDTH} + lower * u_cell_rows);
+    for(int pack=0;pack<4;pack++) {
+      if(pack*4>=u_day_counts[month]) break;
+      vec4 a=texelFetch(u_scores,ivec3(address,month*4+pack),0);
+      vec4 b=texelFetch(u_scores,ivec3(address+ivec2(0,u_cell_rows),month*4+pack),0);
+      vec4 days=mix(a,b,level-float(lower));
+      for(int day=0;day<4;day++) {
+        if(pack*4+day>=u_day_counts[month]) break;
+        float score=days[day]; singleScore=score;
+        for(int threshold=1;threshold<7;threshold++) shares[threshold]+=step(thresholds[threshold],score)*u_weights[month]/float(u_day_counts[month]);
+      }
+    }
   }
-  result = vec4(total, 0.0, 0.0, 1.0);
+  float typical=0.0;
+  for(int threshold=5;threshold>=0;threshold--) {
+    if(shares[threshold]<0.5-0.000001) continue;
+    typical=threshold==5 ? 85.0+(shares[5]-0.5)*30.0 : mix(thresholds[threshold],thresholds[threshold+1],(shares[threshold]-0.5)/(shares[threshold]-shares[threshold+1]));
+    typical=max(typical,thresholds[threshold]);
+    break;
+  }
+  result=vec4(u_single_day ? singleScore : typical,shares[3],shares[5],max(0.0,1.0-shares[1]));
 }`;
 
 export const mapVertex = `#version 300 es
@@ -163,7 +173,7 @@ void main() {
       position.y = clamp(position.y, 0, 720);
       float value = texelFetch(u_grid, position, 0).r * u_grid_scale;
       if (value > 100.5) continue;
-      if (u_round_scores) value = floor(value + 0.5);
+      if (u_round_scores) value = floor(value);
       float weight = wx[column] * wy[row];
       score += value * weight;
       landWeight += weight;

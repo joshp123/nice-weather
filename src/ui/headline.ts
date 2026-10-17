@@ -1,20 +1,31 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
 // The one-line answer at the top of the map: where it is nicest in the chosen period, as on Ryan Hall's map.
-import { bandOf, type Period, type WeatherEngine } from '../engine';
+import { type Period, type WeatherEngine } from '../engine';
 import { el } from './dom';
 import { kilometresBetween } from './map';
-import { periodPhrase, type ForecastIndex } from './periods';
-import { HEADLINE_PLACES, type NamedPlace } from './places';
+import { daysInPeriod, periodPhrase, type ForecastIndex } from './periods';
+import { type NamedPlace } from './places';
 
-const MINIMUM_SPREAD_KM = 1500;
+const MINIMUM_SPREAD_KM = 250;
 
-/** The three nicest well-known places, far enough apart to be three answers rather than one coast. */
-export function nicestPlaces(engine: WeatherEngine): (NamedPlace & { score: number })[] {
-  const scores = engine.scorePoints(HEADLINE_PLACES);
-  const ranked = HEADLINE_PLACES.map((place, index) => ({ ...place, score: scores[index] }))
-    .filter(place => Number.isFinite(place.score))
-    .sort((a, b) => b.score - a.score);
-  const chosen: (NamedPlace & { score: number })[] = [];
+type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): number; getNorth(): number }>;
+type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number }>;
+
+/** All named places in the current view compete by day counts, with room between the answers. */
+export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string })[], bounds?: ViewBounds): HeadlinePlace[] {
+  const visible = places.filter(place => {
+    if (place.slug?.startsWith('palestine/')) return false;
+    if (!bounds) return true;
+    if (place.latitude < bounds.getSouth() || place.latitude > bounds.getNorth()) return false;
+    const span = bounds.getEast() - bounds.getWest();
+    return span >= 360 || ((place.longitude - bounds.getWest()) % 360 + 360) % 360 <= span;
+  });
+  const scores = engine.scorePoints(visible);
+  const counts = engine.countPoints(visible);
+  const ranked = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }))
+    .filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount))
+    .sort((a, b) => b.niceDayCount - a.niceDayCount || b.perfectDayCount - a.perfectDayCount || b.score - a.score);
+  const chosen: HeadlinePlace[] = [];
   for (const place of ranked) {
     if (chosen.some(other => kilometresBetween(place, other) < MINIMUM_SPREAD_KM)) continue;
     chosen.push(place);
@@ -23,14 +34,15 @@ export function nicestPlaces(engine: WeatherEngine): (NamedPlace & { score: numb
   return chosen;
 }
 
-export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly (NamedPlace & { score: number })[]): string {
+export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[]): string {
   if (nicest.length === 0) return '';
-  const names = nicest.map(place => place.name);
-  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-  const bands = new Set(nicest.map(place => bandOf(place.score)));
-  const allSame = bands.size === 1 ? `, all ${[...bands][0]}` : '';
   const phrase = periodPhrase(period, forecast);
-  return `Nicest ${phrase}: ${list}${allSame}.`;
+  if (period.kind === 'forecast-day') {
+    return `Nicest ${phrase}: ${nicest.map(place => `${place.name} (${Math.floor(place.score)})`).join(', ')}.`;
+  }
+  const days = daysInPeriod(period, forecast);
+  const list = nicest.map((place, index) => `${place.name} (${Math.round(place.niceDayCount)}${index === 0 ? ` of ${days}` : ''})`).join(', ');
+  return `Most nice days ${phrase}: ${list}.`;
 }
 
 export type Headline = Readonly<{ element: HTMLElement; set(sentence: string, note?: { text: string; warning: boolean } | null): void }>;

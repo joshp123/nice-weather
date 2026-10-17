@@ -2,7 +2,7 @@
 // Runs the Sites Worker on this machine: ./artifacts stands in for Sites storage
 // and ./dist for the embedded app. http://127.0.0.1:5198
 import { createServer } from 'node:http';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, extname, relative } from 'node:path';
 import { Readable } from 'node:stream';
 import { handleRequest } from './worker.mjs';
@@ -10,15 +10,29 @@ import { handleRequest } from './worker.mjs';
 const root = process.cwd();
 const artifacts = join(root, 'artifacts');
 const dist = join(root, 'dist');
+const generatedData = process.env.NICE_WEATHER_GENERATED_DATA;
+async function dataPath(key) {
+  if (generatedData) {
+    const generated = join(generatedData, key);
+    if (await stat(generated).then(info => info.isFile(), () => false)) return generated;
+  }
+  return join(artifacts, key);
+}
 
 const bucket = {
   async get(key, options) {
-    const path = join(artifacts, key);
+    const path = await dataPath(key);
     let size;
     try { size = (await stat(path)).size; } catch { return null; }
-    const bytes = await readFile(path);
     const range = options?.range;
-    const body = range ? bytes.subarray(range.offset, range.offset + range.length) : bytes;
+    let body;
+    if (range) {
+      const file = await open(path, 'r');
+      try {
+        body = Buffer.alloc(Math.min(range.length, Math.max(0, size - range.offset)));
+        await file.read(body, 0, body.length, range.offset);
+      } finally { await file.close(); }
+    } else body = await readFile(path);
     return {
       size, httpEtag: `"${size}"`, body: Readable.toWeb(Readable.from([body])),
       arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
@@ -32,7 +46,7 @@ const bucket = {
     await writeFile(path, Buffer.from(await new Response(body).arrayBuffer()));
   },
   async head(key) {
-    try { const { size } = await stat(join(artifacts, key)); return { size }; } catch { return null; }
+    try { const { size } = await stat(await dataPath(key)); return { size }; } catch { return null; }
   },
   // Local runs keep every forecast; pruning only matters for Sites storage.
   async list({ prefix }) {

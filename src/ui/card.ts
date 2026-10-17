@@ -4,7 +4,7 @@ import type { Period, PointVerdict } from '../engine';
 import type { Actions } from './actions';
 import type { PlaceDetails } from './api';
 import { button, closeIcon, el } from './dom';
-import { MONTH_NAMES, MONTH_SHORT, dayChipLabel, isForecast, niceDaysSentence, periodTitle, upcomingForecastDays, type ForecastIndex } from './periods';
+import { MONTH_NAMES, MONTH_SHORT, dayChipLabel, isForecast, bandSentence, dayCountsSentence, monthsOfPeriod, periodTitle, upcomingForecastDays, type ForecastIndex } from './periods';
 import type { Place } from './state';
 import { bandColour } from './timebar';
 
@@ -87,10 +87,10 @@ function monthStrip(view: CardView, actions: Actions): HTMLElement | null {
     if (score !== null) anyScore = true;
     const bar = el('span', 'strip-bar');
     if (score !== null) bar.style.background = bandColour(score);
-    const selected = view.period.kind === 'month' && view.period.month === month;
+    const selected = !isForecast(view.period) && monthsOfPeriod(view.period, view.forecast).includes(month);
     const cell = button(`strip-cell${selected ? ' selected' : ''}`, '', () => actions.setPeriod({ kind: 'month', month }));
     cell.append(bar, el('span', 'strip-label', MONTH_SHORT[month - 1]), el('span', 'strip-value', `${round(facts.highC)}°`));
-    cell.title = `${MONTH_NAMES[month - 1]}: ${score !== null ? `${round(score)} out of 100, ` : ''}typical high ${round(facts.highC)} °C`;
+    cell.title = `${MONTH_NAMES[month - 1]}: ${score !== null ? `${Math.floor(score)} out of 100, ` : ''}typical high ${round(facts.highC)} °C`;
     strip.append(cell);
   }
   const caption = `Month by month: typical high${anyScore ? ', coloured by score' : ''}`;
@@ -107,8 +107,8 @@ function dayStrip(view: CardView, actions: Actions): HTMLElement | null {
     const selected = view.period.kind === 'forecast-day' && view.period.day === day;
     const cell = button(`strip-cell${selected ? ' selected' : ''}`, '', () => actions.setPeriod({ kind: 'forecast-day', day }));
     const label = dayChipLabel(view.forecast, day);
-    cell.append(bar, el('span', 'strip-label', label), el('span', 'strip-value', score === null ? '' : String(round(score))));
-    cell.title = `${label}: ${score === null ? 'no score' : `${round(score)} out of 100`}`;
+    cell.append(bar, el('span', 'strip-label', label), el('span', 'strip-value', score === null ? '' : String(Math.floor(score))));
+    cell.title = `${label}: ${score === null ? 'no score' : `${Math.floor(score)} out of 100`}`;
     strip.append(cell);
   }
   return el('div', 'strip-block', el('p', 'section-label', 'Day by day: score out of 100'), strip);
@@ -125,11 +125,11 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   if (!verdict) {
     return el('section', 'card panel', header, el('p', 'muted', view.problem ?? (view.loading ? 'Loading weather for this period…' : 'No weather data for this spot.')));
   }
-  const score = el('span', 'score-badge', String(round(verdict.meanScore)));
+  const score = el('span', 'score-badge', String(Math.floor(verdict.meanScore)));
   score.style.background = bandColour(verdict.meanScore);
-  const niceDays = niceDaysSentence(view.period, view.forecast, verdict.niceDayShare, verdict.niceDayCount);
+  const niceDays = dayCountsSentence(view.period, view.forecast, verdict);
   const answer = el('div', 'verdict', score,
-    el('div', 'verdict-text', el('strong', 'band-word', verdict.band), el('p', 'verdict-days', niceDays || periodTitle(view.period, view.forecast))));
+    el('div', 'verdict-text', el('strong', 'band-word', bandSentence(view.period, verdict.band)), el('p', 'verdict-days', niceDays || periodTitle(view.period, view.forecast))));
   const periodLine = el('p', 'card-period', isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`);
 
   const strip = isForecast(view.period) ? dayStrip(view, actions) : null;

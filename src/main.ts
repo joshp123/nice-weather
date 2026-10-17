@@ -142,7 +142,7 @@ function selectPlace(place: Place): void {
   fetchPlace(place.latitude, place.longitude).then(loaded => {
     if (request !== placeRequest) return;
     details = loaded;
-    state = { ...state, place: { ...place, name: loaded.name, region: loaded.region, slug: loaded.slug ?? place.slug } };
+    state = { ...state, place: { ...place, name: loaded.name, region: loaded.region } };
     weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: loaded.name, score: verdict?.meanScore });
     render();
     updateLink();
@@ -199,16 +199,25 @@ function showProblem(error: unknown): void {
 function afterRedraw(): void {
   if (!remainingCitiesRequested) {
     remainingCitiesRequested = true;
-    void weatherMap.loadRemainingCities().then(labelCities);
+    void weatherMap.loadRemainingCities().then(() => {
+      labelCities();
+      updateHeadline();
+      render();
+    });
   }
   periodProblem = null;
   labelCities();
-  headlineText = headlineSentence(state.period, forecast, nicestPlaces(engine)) || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
+  updateHeadline();
   if (state.place) {
     verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
     weatherMap.showChosenPlace({ ...state.place, score: verdict?.meanScore });
   }
   render();
+}
+
+function updateHeadline(): void {
+  headlineText = headlineSentence(state.period, forecast, nicestPlaces(engine, weatherMap.visibleCities(), map.getZoom() <= 2 ? undefined : map.getBounds()))
+    || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
 }
 
 function labelCities(): void {
@@ -303,8 +312,15 @@ map.on('mouseleave', 'city-labels', () => { map.getCanvas().style.cursor = ''; }
 map.on('moveend', () => {
   rememberView();
   if (state.place && !state.place.slug) updateLink();
+  if (!weatherLoading) {
+    updateHeadline();
+    render();
+  }
 });
-void weatherMap.citiesReady.then(labelCities);
+void weatherMap.citiesReady.then(() => {
+  labelCities();
+  if (!weatherLoading) { updateHeadline(); render(); }
+});
 
 // ---------------------------------------------------------------- start
 

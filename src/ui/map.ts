@@ -142,7 +142,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         showChosenPlace(place) {
           (map.getSource('chosen-place') as GeoJSONSource).setData({
             type: 'FeatureCollection',
-            features: place ? [{ type: 'Feature', properties: { name: place.name, ...(Number.isFinite(place.score) ? { score: Math.round(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
+            features: place ? [{ type: 'Feature', properties: { name: place.name, ...(Number.isFinite(place.score) ? { score: Math.floor(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
           });
         },
         visibleCities() { return cities; },
@@ -151,7 +151,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
             type: 'FeatureCollection',
             features: cities.map((city, index) => ({
               type: 'Feature',
-              properties: { name: city.name, population: city.population, slug: city.slug, ...(Number.isFinite(scores[index]) ? { score: Math.round(scores[index]) } : {}) },
+              properties: { name: city.name, population: city.population, slug: city.slug, ...(Number.isFinite(scores[index]) ? { score: Math.floor(scores[index]) } : {}) },
               geometry: { type: 'Point', coordinates: [city.longitude, city.latitude] },
             })),
           });
@@ -162,10 +162,12 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   });
 }
 
-/** Rough great-circle distance, for keeping headline places apart. */
+/** Great-circle distance keeps the separation rule correct across the date line. */
 export function kilometresBetween(a: Point, b: Point): number {
   const radians = Math.PI / 180;
-  const x = (b.longitude - a.longitude) * radians * Math.cos(((a.latitude + b.latitude) / 2) * radians);
-  const y = (b.latitude - a.latitude) * radians;
-  return Math.sqrt(x * x + y * y) * 6371;
+  const latitudeDistance = (b.latitude - a.latitude) * radians;
+  const longitudeDistance = (b.longitude - a.longitude) * radians;
+  const haversine = Math.sin(latitudeDistance / 2) ** 2
+    + Math.cos(a.latitude * radians) * Math.cos(b.latitude * radians) * Math.sin(longitudeDistance / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(haversine)));
 }

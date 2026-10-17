@@ -62,7 +62,7 @@ export function buildLink(state: AppState, zoom: number): string {
   const word = samePeriod(state.period, DEFAULT_PERIOD) ? '' : periodWord(state.period);
   let path = '/';
   if (state.place?.slug) path = `/${state.place.slug}`;
-  else if (state.place) path = `/@${state.place.latitude.toFixed(2)},${state.place.longitude.toFixed(2)},${zoom.toFixed(zoom % 1 ? 1 : 0)}z`;
+  else if (state.place) path = `/@${state.place.latitude},${state.place.longitude},${zoom.toFixed(zoom % 1 ? 1 : 0)}z`;
   if (word) path = path === '/' ? `/${word}` : `${path}/${word}`;
   const query = new URLSearchParams();
   for (const slider of SLIDERS) if (state.sliders[slider.id] !== slider.default) query.set(slider.id, String(state.sliders[slider.id]));

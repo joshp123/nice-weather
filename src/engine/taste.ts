@@ -1,7 +1,7 @@
 // Written by AI on 2026.10.17 by model claude opus 5.5.
 // How Nice Weather judges a day: Fable's graded method (research/taste/nice_v6.py), ported exactly.
 // Every hour gets a warmth grade; the walk home at 21:00 counts like two hours; rain, wind, humidity and
-// sun then scale the day. A day scores 0 to 100. A period's score is the mean of its days.
+// sun then scale the day. A day scores 0 to 100. A stretch is described by its typical day and counted by its bands.
 
 export type Curve = readonly (readonly [number, number])[];
 

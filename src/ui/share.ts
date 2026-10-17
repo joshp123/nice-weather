@@ -4,7 +4,7 @@
 import type maplibregl from 'maplibre-gl';
 import type { Period, PointVerdict } from '../engine';
 import { button, el } from './dom';
-import { niceDaysSentence, periodPhrase, periodTitle, type ForecastIndex } from './periods';
+import { bandSentence, dayCountsSentence, periodPhrase, periodTitle, type ForecastIndex } from './periods';
 import type { Place } from './state';
 import { bandColour } from './timebar';
 
@@ -23,8 +23,8 @@ export type ShareContext = Readonly<{
 export function shareText(context: ShareContext): string {
   const { place, verdict, period, forecast } = context;
   if (place?.name && verdict) {
-    const days = niceDaysSentence(period, forecast, verdict.niceDayShare, verdict.niceDayCount);
-    return `${place.name} ${periodPhrase(period, forecast)}: ${verdict.band}, ${Math.round(verdict.meanScore)} out of 100.${days ? ` ${days}.` : ''}`;
+    const days = dayCountsSentence(period, forecast, verdict);
+    return `${place.name} ${periodPhrase(period, forecast)}: ${bandSentence(period, verdict.band)}, ${Math.floor(verdict.meanScore)} out of 100.${days ? ` ${days}.` : ''}`;
   }
   return `Where the weather is nice ${periodPhrase(period, forecast)}. ${context.headline}`.trim();
 }
@@ -73,7 +73,7 @@ export async function drawShareCard(width: number, height: number, context: Shar
 
   // A dark band along the bottom for the words, whatever the map's colours.
   const unit = height / 630;
-  const bandHeight = 215 * unit;
+  const bandHeight = 260 * unit;
   const gradient = draw.createLinearGradient(0, height - bandHeight, 0, height);
   gradient.addColorStop(0, 'rgba(8, 10, 14, 0)');
   gradient.addColorStop(0.45, 'rgba(8, 10, 14, 0.78)');
@@ -99,7 +99,7 @@ export async function drawShareCard(width: number, height: number, context: Shar
 
   const { place, verdict } = context;
   let textLeft = margin;
-  const titleBaseline = height - 112 * unit;
+  const titleBaseline = height - 154 * unit;
   if (place?.name && verdict) {
     const badge = 84 * unit;
     const badgeTop = titleBaseline - badge + 14 * unit;
@@ -110,15 +110,19 @@ export async function drawShareCard(width: number, height: number, context: Shar
     draw.fillStyle = '#ffffff';
     draw.textAlign = 'center';
     draw.font = `600 ${44 * unit}px Barlow, sans-serif`;
-    draw.fillText(String(Math.round(verdict.meanScore)), margin + badge / 2, badgeTop + badge * 0.69);
+    draw.fillText(String(Math.floor(verdict.meanScore)), margin + badge / 2, badgeTop + badge * 0.69);
     draw.textAlign = 'left';
     textLeft = margin + badge + 24 * unit;
     draw.font = `600 ${54 * unit}px Barlow, sans-serif`;
     draw.fillText(fitText(draw, place.name, width - textLeft - margin), textLeft, titleBaseline);
     draw.font = `500 ${26 * unit}px Barlow, sans-serif`;
     draw.fillStyle = 'rgba(255,255,255,0.92)';
-    const days = niceDaysSentence(context.period, context.forecast, verdict.niceDayShare, verdict.niceDayCount);
-    draw.fillText(fitText(draw, `${verdict.band} · ${Math.round(verdict.meanScore)} out of 100${days ? ` · ${days}` : ''}`, width - textLeft - margin), textLeft, titleBaseline + 40 * unit);
+    const days = dayCountsSentence(context.period, context.forecast, verdict);
+    draw.fillText(bandSentence(context.period, verdict.band), textLeft, titleBaseline + 36 * unit);
+    if (days) {
+      draw.font = `500 ${23 * unit}px Barlow, sans-serif`;
+      draw.fillText(days, margin, titleBaseline + 74 * unit, width - 2 * margin);
+    }
   } else {
     draw.font = `600 ${46 * unit}px Barlow, sans-serif`;
     draw.fillText(fitText(draw, `Where the weather is nice ${periodPhrase(context.period, context.forecast)}`, width - 2 * margin), margin, titleBaseline);
@@ -130,7 +134,7 @@ export async function drawShareCard(width: number, height: number, context: Shar
   draw.textAlign = 'right';
   draw.fillStyle = '#ffffff';
   draw.font = `600 ${20 * unit}px Barlow, sans-serif`;
-  draw.fillText(context.link.replace(/^https?:\/\//, ''), width - margin, height - margin + 10 * unit);
+  draw.fillText(fitText(draw, context.link.replace(/^https?:\/\//, ''), width - 2 * margin), width - margin, height - margin + 10 * unit);
 
   return new Promise((resolve, reject) => canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Could not make the image'))), 'image/png'));
 }

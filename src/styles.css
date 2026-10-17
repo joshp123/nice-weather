@@ -132,8 +132,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .bar-button.active { background: var(--selected-background); color: var(--selected-text); }
 .bar-button.changed::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); margin-right: 6px; }
 
-/* One compact period control, with every choice visible by name in the native picker. */
+/* Shortcuts and month endpoints share the same compact control. */
 .period-picker { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.period-fields { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.period-range { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
 .period-picker-label { color: var(--muted); font-size: var(--size-small); }
 .period-select { width: 100%; min-width: 0; max-width: 340px; height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--text); font: inherit; font-size: var(--size-small); cursor: pointer; }
 .location-button { flex-shrink: 0; padding: 8px; border-radius: 6px; background: var(--raised); font-size: var(--size-small); }
@@ -226,7 +228,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .bar { padding: var(--space-2); }
   .bar-time { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
   .bar-time .segmented { display: none; }
-  .period-picker { grid-column: 1 / -1; }
+  .period-picker { grid-column: 1 / -1; align-items: flex-start; }
+  .period-fields { flex-direction: column; align-items: stretch; }
+  .period-range { width: 100%; }
+  .period-picker > .period-picker-label { padding-top: 10px; }
   .period-select { max-width: none; height: 40px; }
   .period-picker-label { min-width: 32px; }
   .bar-actions { gap: 4px; grid-column: 1 / -1; }

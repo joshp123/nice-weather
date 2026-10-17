@@ -29,7 +29,7 @@ async function json<T>(url: string): Promise<T> {
 export const fetchForecastIndex = (dataUrl: string) => json<ForecastIndex>(`${dataUrl}/forecast/current.json`);
 
 export async function fetchPlace(latitude: number, longitude: number): Promise<PlaceDetails> {
-  const details = await json<Omit<PlaceDetails, 'slug'> & { slug?: string | null }>(`/api/place?lat=${latitude.toFixed(3)}&lon=${longitude.toFixed(3)}`);
+  const details = await json<Omit<PlaceDetails, 'slug'> & { slug?: string | null }>(`/api/place?lat=${latitude}&lon=${longitude}`);
   return { ...details, slug: details.slug ?? null };
 }
 
