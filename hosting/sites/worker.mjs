@@ -713,7 +713,7 @@ export async function handleRequest(request, env, serveAsset) {
     const [where, months, fineEnabled] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude), fine.enabled()]);
     const period = periodFromWord(url.searchParams.get('period') ?? 'year');
     const judgement = fineEnabled && period?.kind === 'climate' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : undefined;
-    return json({ ...where, latitude, longitude, months, ...(fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true, judgement } : {}) }, 3600);
+    return json({ ...where, latitude, longitude, months, ...(fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true, judgement } : {}) }, 60);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
   if (url.pathname.startsWith('/api/slug/')) {
