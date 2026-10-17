@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/ringsaturn/tzf"
 	"nice-weather-finder/internal/providers/ifs"
@@ -93,6 +94,12 @@ func Build(ctx context.Context, outputDirectory, staticSource string, log io.Wri
 	for day := range v6Days {
 		report.Dates = append(report.Dates, run.Time.AddDate(0, 0, day).Format("2006-01-02"))
 	}
+	rainCorrectionCells, err := readRainCorrectionCells()
+	if err != nil {
+		return report, err
+	}
+	var priorRain []float32
+	var rainAdjustments int
 	steps, _ := ifs.ForecastSteps(run)
 	for firstStepIndex := 0; firstStepIndex < len(steps); firstStepIndex += 2 {
 		if err = ctx.Err(); err != nil {
@@ -119,12 +126,22 @@ func Build(ctx context.Context, outputDirectory, staticSource string, log io.Wri
 			stepIndex := firstStepIndex + slot
 			frames := results[slot].frames
 			end := run.Time.Add(time.Duration(steps[stepIndex]) * time.Hour)
+			if priorRain != nil {
+				for _, cell := range rainCorrectionCells {
+					if frames[4][cell] < priorRain[cell] {
+						frames[4][cell] = priorRain[cell]
+						rainAdjustments++
+					}
+				}
+			}
+			priorRain = frames[4]
 			v6.addFrame(end, frames)
 			if stepIndex%10 == 0 || stepIndex == len(steps)-1 {
 				fmt.Fprintf(log, "downloaded and decoded %d/%d steps; %.1f MB received\n", stepIndex+1, len(steps), float64(transport.bytes.Load())/1e6)
 			}
 		}
 	}
+	fmt.Fprintf(log, "cumulative rain: %d negative quantization adjustments\n", rainAdjustments)
 	if err = v6.write(ctx, outputDirectory, run.Time, report.RunID, log); err != nil {
 		return report, err
 	}
