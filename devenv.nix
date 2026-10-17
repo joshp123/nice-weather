@@ -4,8 +4,6 @@
   packages = [
     pkgs.go
     pkgs.nodejs_24
-    pkgs.gdal
-    pkgs.eccodes
   ];
 
   enterShell = ''

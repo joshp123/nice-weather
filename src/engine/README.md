@@ -62,7 +62,7 @@ These use exactly the weighted sample behind `meanScore`. Felt offsets apply to 
 
 ```sh
 src/engine/default_scores.py artifacts/v6
-src/engine/default_scores.py artifacts/v6 --images /tmp/nwf-agents/v6b/engine/corrected-climate-images
+src/engine/default_scores.py artifacts/v6 --images artifacts/v6/climate
 ```
 
 The first form writes `climate/scores.bin`: 12,458,880 bytes, twelve monthly bytes per fine point in row-major order, January–December, 255 at sea. It imports the unchanged Python reference curves, scores the same eleven shift levels and resolves the same fine points. Rounding is `floor(score + 0.5)`.

@@ -43,10 +43,9 @@ export function parseLink(url: URL): ParsedLink {
     period = parts[1] ? periodFromWord(parts[1]) : null;
   } else if (first) {
     period = periodFromWord(first);
-    if (!period) {
-      const hasCountry = Boolean(parts[1] && !periodFromWord(parts[1]));
-      target = { kind: 'slug', slug: hasCountry ? `${first}/${parts[1]}` : first };
-      period = periodFromWord(parts[hasCountry ? 2 : 1] ?? '');
+    if (!period && parts[1]) {
+      target = { kind: 'slug', slug: `${first}/${parts[1]}` };
+      period = periodFromWord(parts[2] ?? '');
     }
   }
   const sliders: Partial<Record<SliderId, number>> = {};

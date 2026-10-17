@@ -32,7 +32,7 @@ npm run serve          # http://127.0.0.1:5198
 
 The scoring reference is [research/taste/nice_v6.py](research/taste/nice_v6.py), implemented in the browser by `src/engine/taste.ts` and the forecast runner by `internal/dailyforecast/v6_scores.go`. [Fable's calibration](research/taste/fable-results.md) explains the rule and its anchor places. The methodology charts use `research/site/scoring-explainer-data.mjs`. See [research/README.md](research/README.md) for the retained pipeline tools.
 
-Sources: ECMWF IFS open data (CC BY 4.0); ERA5 hourly from Copernicus, read from Earthmover's free public archive; GeoNames (CC BY 4.0); OpenFreeMap and OpenStreetMap. The [clear-sky calibration](internal/clearsky/README.md) documents the runner’s solar model. The code is MIT licensed; bundled third-party decoder and clear-sky notices remain beside their code.
+Sources: ECMWF IFS open data (CC BY 4.0); ERA5 hourly from Copernicus, read from Earthmover's free public archive; GeoNames (CC BY 4.0); OpenFreeMap and OpenStreetMap. The [clear-sky calibration](internal/clearsky/README.md) documents the runner’s solar model. Bundled third-party decoder and clear-sky notices remain beside their code.
 
 ## Daily cloud refresh
 
@@ -50,4 +50,4 @@ No packages, Go toolchain, Node, GDAL or ecCodes are needed by the daily cloud j
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o niceweather-linux-amd64 ./cmd/niceweather
 ```
 
-Upload the executable under `runner/niceweather-linux-amd64`, with `hosting/sites/refresh.md` and `internal/providers/ifsgrib/LICENSE.libaec`. [hosting/sites/README.md](hosting/sites/README.md) describes app packaging and data uploads. The local Go checks are `go build ./... && go test ./...`, inside `devenv shell`.
+Upload the executable under `runner/niceweather-linux-amd64`, with `hosting/sites/refresh.md` `internal/providers/ifsgrib/LICENSE.libaec` and `internal/clearsky/LICENSE.pvlib`. [hosting/sites/README.md](hosting/sites/README.md) describes app packaging and data uploads. The local Go checks are `go build ./... && go test ./...`, inside `devenv shell`.
