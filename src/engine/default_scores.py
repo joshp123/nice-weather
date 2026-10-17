@@ -100,11 +100,15 @@ def fine_scores(level_scores, offsets, ordinals):
     fraction = level - lower
     if level_scores.ndim == 3:
         fraction = fraction[:, None]
-    return indices, level_scores[cells, lower] * (1 - fraction) + level_scores[cells, lower + 1] * fraction
+    return indices, canonical_scores(level_scores[cells, lower] * (1 - fraction) + level_scores[cells, lower + 1] * fraction)
 
 
 MONTH_DAYS = np.array([31,28,31,30,31,30,31,31,30,31,30,31])
 THRESHOLDS = np.array([0,25,40,55,70,85,100])
+
+
+def canonical_scores(scores):
+    return np.floor(scores * 10000 + .5) / 10000
 
 
 def typical_scores(shares):
@@ -115,7 +119,7 @@ def typical_scores(shares):
         fraction = np.divide(low - .5, low - high, out=np.zeros_like(low), where=low != high)
         score = 85 + (low - .5) * 30 if threshold == 5 else THRESHOLDS[threshold] + (THRESHOLDS[threshold + 1] - THRESHOLDS[threshold]) * fraction
         result = np.where(low >= .5 - 1e-9, np.maximum(THRESHOLDS[threshold], score), result)
-    return result
+    return canonical_scores(result)
 
 
 def write_default_scores(folder, image_folder=None):

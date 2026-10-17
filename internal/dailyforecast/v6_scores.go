@@ -128,57 +128,34 @@ func v6NearestLandOrdinals(cells [][2]uint16) []int {
 }
 
 func v6FineDefaultScore(index int, offset byte, ordinals []int, levels [][11]float64) float64 {
-	cellX := float64(index%Width)/4 - .5
-	cellY := float64(index/Width)/4 - .5
-	baseX, baseY := int(math.Floor(cellX)), int(math.Floor(cellY))
-	fractionX, fractionY := cellX-float64(baseX), cellY-float64(baseY)
+	row, column := index/Width, index%Width
+	ordinal := ordinals[min(row/4, 179)*360+column/4]
 	level := max(0, min(10, ((float64(offset)-128)/10+15)/3))
 	lower := min(int(math.Floor(level)), 9)
-	fractionLevel := level - float64(lower)
-	type contribution struct {
-		key    int
-		weight float64
-	}
-	var contributions [8]contribution
-	count := 0
-	for row := range 2 {
-		for column := range 2 {
-			ordinal := ordinals[max(0, min(179, baseY+row))*360+(baseX+column+360)%360]
-			weightX, weightY := 1-fractionX, 1-fractionY
-			if column == 1 {
-				weightX = fractionX
-			}
-			if row == 1 {
-				weightY = fractionY
-			}
-			spatialWeight := weightX * weightY
-			for upper := range 2 {
-				levelWeight := 1 - fractionLevel
-				if upper == 1 {
-					levelWeight = fractionLevel
-				}
-				weight := spatialWeight * levelWeight
-				if weight == 0 {
-					continue
-				}
-				key := ordinal*11 + lower + upper
-				existing := 0
-				for existing < count && contributions[existing].key != key {
-					existing++
-				}
-				if existing == count {
-					contributions[count].key = key
-					count++
-				}
-				contributions[existing].weight += weight
-			}
+	fraction := level - float64(lower)
+	return levels[ordinal][lower]*(1-fraction) + levels[ordinal][lower+1]*fraction
+}
+
+var v6ScoreThresholds = [...]float64{0, 25, 40, 55, 70, 85, 100}
+
+func v6CanonicalScore(score float64) float64 {
+	return math.Floor(score*10000+.5) / 10000
+}
+
+func v6TypicalDayScore(thresholdCounts [7]byte, days byte) float64 {
+	for threshold := len(v6ScoreThresholds) - 2; threshold >= 0; threshold-- {
+		share := float64(thresholdCounts[threshold]) / float64(days)
+		if share < .5-1e-9 {
+			continue
 		}
+		if threshold == 5 {
+			return v6CanonicalScore(max(85, 85+(share-.5)*30))
+		}
+		nextShare := float64(thresholdCounts[threshold+1]) / float64(days)
+		lower, upper := v6ScoreThresholds[threshold], v6ScoreThresholds[threshold+1]
+		return v6CanonicalScore(max(lower, lower+(upper-lower)*(share-.5)/(share-nextShare)))
 	}
-	score := 0.0
-	for _, contribution := range contributions[:count] {
-		score += float64(levels[contribution.key/11][contribution.key%11] * contribution.weight)
-	}
-	return score
+	return 0
 }
 
 func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory string, cells [][2]uint16, records []byte, run time.Time, log io.Writer) error {
@@ -206,7 +183,7 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 	}
 	ordinals := v6NearestLandOrdinals(cells)
 	levels := make([][11]float64, len(cells))
-	sums := make([]float64, Width*Height)
+	thresholdCounts := make([][7]byte, Width*Height)
 	counts := make([]byte, Width*Height)
 	var totalBytes int64
 	writeImage := func(name string, pixels []byte) error {
@@ -234,9 +211,13 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 			if offset == 255 {
 				continue
 			}
-			score := v6FineDefaultScore(index, offset, ordinals, levels)
-			pixels[index] = byte(math.Floor(score + .5))
-			sums[index] += score
+			score := v6CanonicalScore(v6FineDefaultScore(index, offset, ordinals, levels))
+			pixels[index] = byte(math.Floor(score))
+			for threshold, minimum := range v6ScoreThresholds {
+				if score >= minimum {
+					thresholdCounts[index][threshold]++
+				}
+			}
 			counts[index]++
 		}
 		if err := writeImage(fmt.Sprintf("scores-day-%02d.png", day), pixels); err != nil {
@@ -246,7 +227,7 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 	pixels := bytes.Repeat([]byte{255}, Width*Height)
 	for index, count := range counts {
 		if count == v6Days {
-			pixels[index] = byte(math.Floor(sums[index]/v6Days + .5))
+			pixels[index] = byte(math.Floor(v6TypicalDayScore(thresholdCounts[index], count)))
 		}
 	}
 	if err := writeImage("scores-all.png", pixels); err != nil {

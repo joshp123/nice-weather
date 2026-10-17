@@ -425,8 +425,9 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
     if (!view) throw new Error(`Weather records missing: ${group.key}`);
     const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
     for (let sample = group.firstDay; sample < group.firstDay + group.count; sample++) {
-      const score = (1 - upperWeight) * defaultDayScore(bytes, sample * 15, -15 + lower * 3)
+      const interpolatedScore = (1 - upperWeight) * defaultDayScore(bytes, sample * 15, -15 + lower * 3)
         + upperWeight * defaultDayScore(bytes, sample * 15, -15 + (lower + 1) * 3);
+      const score = Math.round(interpolatedScore * 10000) / 10000;
       singleDayScore = score;
       for (let threshold = 0; threshold < THRESHOLDS.length; threshold++) if (score >= THRESHOLDS[threshold]) shares[threshold] += group.days / group.count / totalDays;
     }
@@ -438,7 +439,7 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
     score = THRESHOLDS[band] + (THRESHOLDS[band + 1] - THRESHOLDS[band]) * Math.max(0, shares[band] - 0.5) / (shares[band] - shares[band + 1]); break;
   }
   const dayCount = share => Math.round(share * totalDays * 1e9) / 1e9;
-  return {score, totalDays, niceDayCount: dayCount(shares[3]), perfectDayCount: dayCount(shares[5]), awfulDayCount: dayCount(1 - shares[1])};
+  return {score: Math.round(score * 10000) / 10000, totalDays, niceDayCount: dayCount(shares[3]), perfectDayCount: dayCount(shares[5]), awfulDayCount: dayCount(1 - shares[1])};
 }
 
 const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];

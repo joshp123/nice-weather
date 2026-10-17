@@ -107,11 +107,14 @@ export class PointSampler {
     }
     const shares = [1, 0, 0, 0, 0, 0, 0];
     const thresholds = [0, 25, 40, 55, 70, 85, 100];
-    for (let group = 0; group < dayScores.length; group++) for (const score of dayScores[group]) {
+    let singleDayScore = 0;
+    for (let group = 0; group < dayScores.length; group++) for (const interpolatedScore of dayScores[group]) {
+      const score = canonicalScore(interpolatedScore);
+      singleDayScore = score;
       const weight = this.data.groups[group].weight / dayScores[group].length;
       for (let threshold = 1; threshold < thresholds.length; threshold++) if (score >= thresholds[threshold]) shares[threshold] += weight;
     }
-    if (this.data.totalDays > 1) meanScore = typicalDayScore(shares);
+    meanScore = this.data.totalDays > 1 ? typicalDayScore(shares) : singleDayScore;
     const niceDayShare = shares[3], perfectDayShare = shares[5], awfulDayShare = Math.max(0, 1 - shares[1]);
     return {
       meanScore, band: bandOf(meanScore), niceDayShare, perfectDayShare, awfulDayShare,
@@ -129,13 +132,15 @@ export function readFineScore(values: Float32Array, latitude: number, longitude:
   return index === null ? NaN : values[index];
 }
 
+const canonicalScore = (score: number): number => Math.round(score * 10000) / 10000;
+
 /** Threshold shares locate the median's band; interpolation keeps map colours continuous. */
 export function typicalDayScore(shares: readonly number[]): number {
   const thresholds = [0, 25, 40, 55, 70, 85, 100];
   for (let index = 5; index >= 0; index--) {
     if (shares[index] < 0.5 - 1e-9) continue;
-    if (index === 5) return Math.max(85, 85 + (shares[5] - 0.5) * 30);
-    return Math.max(thresholds[index], thresholds[index] + (thresholds[index + 1] - thresholds[index]) * (shares[index] - 0.5) / (shares[index] - shares[index + 1]));
+    if (index === 5) return canonicalScore(Math.max(85, 85 + (shares[5] - 0.5) * 30));
+    return canonicalScore(Math.max(thresholds[index], thresholds[index] + (thresholds[index + 1] - thresholds[index]) * (shares[index] - 0.5) / (shares[index] - shares[index + 1])));
   }
   return 0;
 }

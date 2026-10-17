@@ -117,7 +117,7 @@ void main() {
       vec4 days=mix(a,b,level-float(lower));
       for(int day=0;day<4;day++) {
         if(pack*4+day>=u_day_counts[month]) break;
-        float score=days[day]; singleScore=score;
+        float score=floor(days[day]*10000.0+0.5)/10000.0; singleScore=score;
         for(int threshold=1;threshold<7;threshold++) shares[threshold]+=step(thresholds[threshold],score)*u_weights[month]/float(u_day_counts[month]);
       }
     }
@@ -129,7 +129,7 @@ void main() {
     typical=max(typical,thresholds[threshold]);
     break;
   }
-  result=vec4(u_single_day ? singleScore : typical,shares[3],shares[5],max(0.0,1.0-shares[1]));
+  result=vec4(u_single_day ? singleScore : floor(typical*10000.0+0.5)/10000.0,shares[3],shares[5],max(0.0,1.0-shares[1]));
 }`;
 
 export const mapVertex = `#version 300 es
