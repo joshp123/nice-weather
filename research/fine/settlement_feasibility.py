@@ -206,18 +206,18 @@ def write_report(rows,annual,metadata,output):
     def fmt(value):return '—' if value is None else f'{value:.2f}'
     lines=['Written by AI on 2026.10.17 by model GPT-6.1 Sol.','','# Uniform correction feasibility','',
         'These are private station-oracle bounds, not a fitted candidate or publication inputs. Arbitrary monthly shifts give the uniform model its best chance; feasible does not prove that one global population/coastal rule can select suitable anchors. No existing data was changed.','',
-        'Each annual budget is the current actual card monthly MAE plus0.3°C. Native air weather is shifted at every hour; native dew and wind stay fixed, with the exact corrected-air vapor cap in felt21. High compares10–20h model maxima to24h station TMAX. Sparse observations and instrument proxies are unchanged from the original comparison; SF felt21 is unavailable. Actual encoded outputs can add up to0.201°C rounding error and require their own final comparison.','',
+        'Each annual budget is the current actual card monthly MAE plus 0.3°C. Native air weather is shifted at every hour; native dew and wind stay fixed, with the exact corrected-air vapor cap in felt21. High compares10–20h model maxima to24h station TMAX. Sparse observations and instrument proxies are unchanged from the original comparison; SF felt21 is unavailable. Actual encoded outputs can add up to0.201°C rounding error and require their own final comparison.','',
         '| Place | High MAE current / A | Felt21 MAE current / A | Annual oracle high / felt21 | Status | Months failing stronger monthly rule |',
         '|---|---:|---:|---:|---|---|']
     for item in annual:
         oracle=item['oracle'];lines.append('| '+' | '.join([item['city'],fmt(item['current_high_mae_c'])+' / '+fmt(item['step_a_high_mae_c']),fmt(item['current_felt21_mae_c'])+' / '+fmt(item['step_a_felt21_mae_c']),fmt(oracle['high_mae_c'])+' / '+(fmt(oracle['felt21_mae_c']) if item['felt21_budget_c'] is not None else '—'),item['status'],','.join(map(str,item['monthly_infeasible'])) or 'none'])+' |')
-    lines+=['','The monthly interval is the set of uniform shifts that keeps each individual monthly high error and felt21 error within its current error plus0.3°C. Empty monthly intersections alone do not prove annual failure: the annual calculation permits error to move between months. All twelve-month bounds and diagnostic oracle shifts are in monthly_feasibility.csv and feasibility.json.','',
+    lines+=['','The monthly interval is the set of uniform shifts that keeps each individual monthly high error and felt21 error within its current error plus 0.3°C. Empty monthly intersections alone do not prove annual failure: the annual calculation permits error to move between months. All twelve-month bounds and diagnostic oracle shifts are in monthly_feasibility.csv and feasibility.json.','',
         '| Place / month | Shift fitting high | Shift fitting felt21 | High allowed shift | Felt21 allowed shift | Jointly feasible |',
         '|---|---:|---:|---:|---:|---|']
     for row in rows:
         if row['slug'] in ('funchal','san_diego','seville'):
             lines.append('| '+' | '.join([row['city']+f" / {row['month']}",fmt(row['high_perfect_shift_c']),fmt(row['felt21_perfect_shift_c']),fmt(row['high_allowed_shift_lower_c'])+' to '+fmt(row['high_allowed_shift_upper_c']),fmt(row['felt21_allowed_shift_lower_c'])+' to '+fmt(row['felt21_allowed_shift_upper_c']),str(row['jointly_feasible'])])+' |')
-    lines+=['',f"Independent raw replay matched actual Step A encoded high/felt21 in all156months within0.201°C; largest difference {max(q['maximum_encoded_difference_c'] for q in metadata['raw_replay_checks']):.6f}°C. Input hashes and method are retained in feasibility.json."]
+    lines+=['',f"Independent raw replay matched actual Step A encoded high/felt21 in all 156 months within 0.201°C; largest difference {max(q['maximum_encoded_difference_c'] for q in metadata['raw_replay_checks']):.6f}°C. Input hashes and method are retained in feasibility.json."]
     lines+=['','## Same-date sensitivity check','',
         'paired_monthly_feasibility.csv repeats the experiment on observed dates only, comparing against the current-algorithm replay on those same dates. It avoids mixing full-period weather means with sparse station periods; it is separate from the actual-card acceptance definition above.','',
         '| Place | Paired annual oracle high / felt21 | Current replay +0.3 budgets high / felt21 | Status |',
@@ -233,7 +233,12 @@ def evaluate_candidate(args):
     inputs=list(csv.DictReader((args.validation/'monthly_step_a.csv').open()))
     stations=read_stations(args.observations)
     with np.load(args.candidate_adjustments) as arrays:
+        if sorted(arrays['chunks'].tolist())!=sorted(metadata['step_a']['meta']['chunks']):
+            raise ValueError('Candidate shifts cover a different scored period')
         adjustments={int(fine):shift for fine,shift in zip(arrays['fine'],arrays['uniform_offset_c'])}
+        anchor_fields={int(fine):{name:arrays[name][index].copy() for name in
+            ('adjusted_high_c','adjusted_low_c','native_high_c','native_low_c','native_mean_c')}
+            for index,fine in enumerate(arrays['fine'])}
     rows=[];raw_files=set();observations_files=[]
     for query in metadata['queries']:
         slug=query['slug'];selection=metadata['selections'][slug]
@@ -269,6 +274,8 @@ def evaluate_candidate(args):
                     felt21_observation_days=original['station_hourly_felt21_days'],
                     high_coverage=original['station_instrument_high_coverage'],
                     felt21_coverage=original['station_hourly_felt21_coverage'])
+                row.update({name:float(values[month-1]) for name,values in anchor_fields[fine].items()})
+                row['native_air21_c']=float(temperature[mask,11].mean())
                 high_mask=np.array([int(date[5:7])==month and 'TMAX' in daily.get(date,{}) for date in days])
                 row['candidate_high_same_observed_dates_c']=float(temperature[high_mask,:11].max(1).mean()+delta) if high_mask.any() else None
                 felt_indices=[i for i,date in enumerate(days) if months[i]==month and hourly.get(date,{}).get('felt21') is not None]
@@ -307,6 +314,7 @@ def evaluate_candidate(args):
         writer=csv.DictWriter(stream,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
     provenance=dict(written_by='AI, GPT-6.1 Sol, 2026.10.17',definition='Fixed externally selected uniform shifts; no weight tuning; same frozen city/instrument lookup and observation coverage as original Step A. High10–20 vs station24h TMAX; native Td/wind retained, corrected-air vapor cap.',
         candidate_adjustments=dict(path=str(args.candidate_adjustments),sha256=sha256(args.candidate_adjustments)),
+        candidate_rule_summary_sha256=sha256(args.candidate_adjustments.with_name('summary.json')) if args.candidate_adjustments.with_name('summary.json').exists() else None,
         script_sha256=sha256(pathlib.Path(__file__)),comparison_sha256=sha256(args.validation/'comparison_step_a_metadata.json'),
         monthly_input_sha256=sha256(args.validation/'monthly_step_a.csv'),
         raw_weather_sha256={path:sha256(pathlib.Path(path)) for path in sorted(raw_files)},
@@ -325,10 +333,11 @@ def evaluate_candidate(args):
     for r in rows:
         if r['kind']=='city' and r['month']==7:
             lines.append('| '+' | '.join([r['city'],' / '.join(fmt(r[k]) for k in ('current_high_c','step_a_high_c','candidate_high_c','observed_high_c')),' / '.join(fmt(r[k]) for k in ('current_felt21_c','step_a_felt21_c','candidate_felt21_c','observed_felt21_c'))])+' |')
-    lines+=['','City observations are the same explicitly declared instruments/proxies, often airports away from the city. Coordinates, distances, all12months and observation counts are in monthly_candidate.csv. SF felt21 is unavailable; Valparaíso and some daily-high records are sparse. No full observed station score is inferred.']
+    lines+=['','City observations are the same explicitly declared instruments/proxies, often airports away from the city. Coordinates, distances, all 12 months and observation counts are in monthly_candidate.csv. SF felt21 is unavailable; Valparaíso and some daily-high records are sparse. No full observed station score is inferred.']
     for r in rows:
         if r['slug']=='funchal' and r['kind']=='city' and r['month']==7:
-            lines+=['',f"Funchal July, paired evenings: air21 {fmt(r['paired_model_air21_c'])} versus observed{fmt(r['paired_observed_air21_c'])}°C; native dew{fmt(r['paired_native_dew21_c'])} versus observed{fmt(r['paired_observed_dew21_c'])}°C; native wind{fmt(r['paired_native_wind21_ms'])} versus observed{fmt(r['paired_observed_wind21_ms'])}m/s. Felt bias{fmt(r['paired_felt21_bias_c'])}°C = air{fmt(r['paired_air21_bias_c'])} + vapor{fmt(r['paired_vapor_bias_c'])} + wind{fmt(r['paired_wind_bias_c'])}°C."]
+            lines+=['',f"Funchal July uses native quarter {r['point_lat']:.2f},{r['point_lon']:.2f}, {r['query_to_point_km']:.2f}km from the city query. Native 24h high/low {fmt(r['native_high_c'])}/{fmt(r['native_low_c'])}°C; population/period-adjusted anchor high/low {fmt(r['adjusted_high_c'])}/{fmt(r['adjusted_low_c'])}°C. Averaging the separate high/low differences yields a uniform shift of {fmt(r['uniform_shift_c'])}°C.",
+                '',f"Funchal July, paired evenings: native air21 {fmt(r['paired_model_air21_c']-r['uniform_shift_c'])}°C, corrected air21 {fmt(r['paired_model_air21_c'])} versus observed {fmt(r['paired_observed_air21_c'])}°C; native dew {fmt(r['paired_native_dew21_c'])} versus observed {fmt(r['paired_observed_dew21_c'])}°C; native wind {fmt(r['paired_native_wind21_ms'])} versus observed {fmt(r['paired_observed_wind21_ms'])}m/s. Felt bias {fmt(r['paired_felt21_bias_c'])}°C = air {fmt(r['paired_air21_bias_c'])} + vapor {fmt(r['paired_vapor_bias_c'])} + wind {fmt(r['paired_wind_bias_c'])}°C."]
     (output/'CANDIDATE.md').write_text('\n'.join(lines)+'\n')
 
 
