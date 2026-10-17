@@ -134,6 +134,9 @@ node research/fine/outlook/verify_posters.mjs "$POSTERS" \
   "$RENDER/app-parity/expected.jsonl" "$RENDER/poster-number-parity.json"
 ```
 
+When queries name an actual poster folder, the comparison reads its stored
+forecast day index; it does not assume tomorrow is index 1 in a retained run.
+
 Fresh posters were rendered again after the interface worker changed outlook
 ranking to favour nice days and recognised city size. The runner uses the new
 `scores-typical-day-*` filenames. The world winners are Lahore, Delhi and Tokyo;
