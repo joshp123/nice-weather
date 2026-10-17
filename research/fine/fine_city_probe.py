@@ -132,7 +132,7 @@ def predict_point(point, samples, index, native, historical, raw_root, chunks):
         weight = np.divide(weather['T']-low[:,None],width[:,None],
                            out=np.full_like(weather['T'],.5),where=width[:,None] != 0)
         corrected = weather['T']+lo[:,None]+weight*(hi-lo)[:,None]
-        repaired = high+hi <= low+lo
+        repaired = (high+hi <= low+lo) | (width == 0)
         corrected[repaired] = uniform[repaired]
         def felt(temperature):
             capped = np.minimum(weather['Td'],temperature)
@@ -156,12 +156,12 @@ def main():
     parser.add_argument('--source-cache',type=pathlib.Path,default=DATA_ROOT/'fine-sources')
     parser.add_argument('--raw-root',type=pathlib.Path,default=DATA_ROOT/'era5')
     parser.add_argument('--reference-root',type=pathlib.Path,default=DATA_ROOT/'fine-build/reference')
-    parser.add_argument('--land-support',type=pathlib.Path,default=DATA_ROOT/'fine-build/land-support',help='Completed prepared mask; provisional until actual B tiles are checked')
+    parser.add_argument('--land-support',type=pathlib.Path,default=DATA_ROOT/'fine-build/land-support-v2',help='Completed land mask used by the sampled tile generation')
     parser.add_argument('--step-a-root',type=pathlib.Path,default=DATA_ROOT/'v6-fine-step-a')
     parser.add_argument('--step-a-validation',type=pathlib.Path,default=DATA_ROOT/'fine-validation/step-a')
     parser.add_argument('--observations',type=pathlib.Path,default=PHASE1/'stations')
     parser.add_argument('--hourly-cache-root',type=pathlib.Path,default=PHASE1/'step-a-comparison')
-    parser.add_argument('--output',type=pathlib.Path,default=DATA_ROOT/'fine-validation/step-b')
+    parser.add_argument('--output',type=pathlib.Path,default=DATA_ROOT/'fine-validation/step-b/final-land-probe')
     parser.add_argument('--only',nargs='*',help='Restrict city slugs; default all thirteen')
     parser.add_argument('--tiles',type=pathlib.Path,help='Optional completed B tiles: verify every sampled offset and source')
     args = parser.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
@@ -173,6 +173,7 @@ def main():
     step_a = {(row['slug'],int(row['month'])):row for row in csv.DictReader((args.step_a_validation/'monthly_step_a.csv').open())}
     native = NativeReferences(args.raw_root,args.reference_root,chunks,args.output/'native-point-cache')
     sampler, historical = AnchorSources(args.source_cache), load_era5_mean_normals(args.source_cache)
+    land_metadata = json.loads((args.land_support/'complete.json').read_text())
     land = np.memmap(args.land_support/'land.u8',mode='r',dtype=np.uint8,shape=(21600,43200))
     points = []
     for query in queries:
@@ -248,17 +249,17 @@ def main():
     for filename,values in [('fine_city_probe.csv',rows),('fine_source_displacement.csv',source_rows)]:
         with (args.output/filename).open('w') as stream:
             writer = csv.DictWriter(stream,fieldnames=list(values[0]));writer.writeheader();writer.writerows(values)
-    tile_verification = verify_tiles(rows,args.tiles) if args.tiles else None
+    tile_verification = verify_tiles(rows,args.tiles,chunks,land_metadata['sha256']) if args.tiles else None
     weather_paths = sorted({str(path) for path in raw_files|native.inputs})
     observation_paths = [args.observations/'daily'/f"{stations[q['slug']]['station']}.dly" for q in queries]
     observation_paths += [args.hourly_cache_root/'hourly-cache'/f"{q['slug']}.npz" for q in queries]
     provenance = dict(written_by='AI, GPT-6.1 Sol, 2026.10.17',chunks=chunks,seconds=time.monotonic()-started,
-        definition='Pre-tile 30arc-second containing-pixel centre; exact source policy; nearest native quarter-degree carrier; bilinear native mean anomaly; offsets rounded to0.1C; ordered dual model uses uniform averaged offsets on nonpositive corrected daily range. Not a delivered tile/card or station fit.',
+        definition='30arc-second containing-pixel centre; exact source policy; nearest native quarter-degree carrier; bilinear native mean anomaly; offsets rounded to0.1C; ordered dual model uses uniform averaged offsets on nonpositive corrected daily range or zero native range. Not a product card or station fit; delivered-offset verification is recorded separately.',
         high_definition='Product/replay high10–20; observed instrument high24h TMAX; observed dates paired in separate columns.',
         period_dates_sha256=metadata['model_period_dates_sha256'],step_a_validation_sha256=sha256(args.step_a_validation/'comparison_step_a_metadata.json'),
         reference_points_sha256=sha256(args.reference_root/'v6/points.bin'),reference_timezones_sha256=sha256(args.reference_root/'climate-v6-work/timezones.npy'),
         prepared_land_support=dict(path=str(args.land_support),manifest_sha256=sha256(args.land_support/'complete.json'),
-            land_sha256=json.loads((args.land_support/'complete.json').read_text())['sha256'],status='Provisional prepared mask; actual delivered B tile support may differ'),
+            land_sha256=land_metadata['sha256'],status='Delivered B sample support and offsets verified' if tile_verification else 'Completed selected land mask; actual B tile verification pending'),
         script_sha256=sha256(pathlib.Path(__file__)),source_metadata_sha256={name:sha256(args.source_cache/name/'dataset.json') for name in ('prism','worldclim14','chelsa','era5_monthly')},
         delivered_tile_offset_verification=tile_verification,
         native_monthly_precision='float32, matching the global native-reference normals; exact same scored dates and prepared timezone per corner',
@@ -266,20 +267,25 @@ def main():
         raw_weather_files_sha256={name:sha256(pathlib.Path(name)) for name in weather_paths},
         outputs_sha256={name:sha256(args.output/name) for name in ('fine_city_probe.csv','fine_source_displacement.csv')})
     (args.output/'fine_city_probe_metadata.json').write_text(json.dumps(provenance,indent=2)+'\n')
-    write_report(rows,source_rows,args.output)
+    write_report(rows,source_rows,args.output,provenance)
     print(json.dumps(dict(rows=len(rows),points=len(points),seconds=provenance['seconds'])),flush=True)
 
 
-def write_report(rows,source_rows,output):
+def write_report(rows,source_rows,output,provenance):
     def fmt(value): return '—' if value is None else f'{float(value):.1f}'
+    verification = provenance['delivered_tile_offset_verification']
+    status = (f"Delivered B offsets and source/support flags were verified for {verification['points_months']} supported point-months; maximum offset difference {verification['maximum_difference_c']:.6f}°C. Unsupported declared coordinates remain diagnostic-only."
+              if verification else 'Actual B tile verification is pending; all values below are source-based model replays.')
     lines=['Written by AI on 2026.10.17 by model GPT-6.1 Sol.','','# Fine city probe','',
         'This is a model replay at actual 30 arc-second source pixels, not a delivered product card. No station fitting. Separate city and instrument rows preserve airport/proxy displacement. Full monthly results are in fine_city_probe.csv; exact-source comparisons are in fine_source_displacement.csv.','',
-        'July high is the mean daily 10–20h maximum; observed high is instrument 24h TMAX. Felt21 uses native dew/wind with the corrected-air vapor cap. Dual offsets are rounded to 0.1°C and use a uniform averaged shift whenever the corrected daily 24h range is nonpositive. Observed means use available dates; paired-date predictions are separate CSV columns. Source anchors retain their own declared historical periods; model replay adds the common ERA5 mean anomaly.','',
+        status,'',
+        'Completed land mask: '+provenance['prepared_land_support']['path']+'. Its file hash is retained in fine_city_probe_metadata.json.','',
+        'July high is the mean daily 10–20h maximum; observed high is instrument 24h TMAX. Felt21 uses native dew/wind with the corrected-air vapor cap. Dual offsets are rounded to 0.1°C and use a uniform averaged shift whenever the corrected daily 24h range is nonpositive or the native range is zero. Observed means use available dates; paired-date predictions are separate CSV columns. Source anchors retain their own declared historical periods; model replay adds the common ERA5 mean anomaly.','',
         '| Place | Query | July high current / A / fine uniform / fine dual / instrument | July felt21 current / A / fine uniform / fine dual / instrument | Repaired days |',
         '|---|---|---:|---:|---:|']
     for row in rows:
         if row['month'] != 7: continue
-        label = row['kind']+(' (unsupported in prepared mask)' if not row['prepared_mask_support'] else '')
+        label = row['kind']+(' (unsupported coordinate; diagnostic only)' if not row['prepared_mask_support'] else '')
         lines.append('| '+' | '.join([row['city'],label,
             ' / '.join(fmt(row[k]) for k in ('current_high_c','step_a_high_c','fine_uniform_high_c','fine_dual_high_c','observed_high_c')),
             ' / '.join(fmt(row[k]) for k in ('current_felt21_c','step_a_felt21_c','fine_uniform_felt21_c','fine_dual_felt21_c','observed_felt21_c')),
@@ -291,18 +297,22 @@ def write_report(rows,source_rows,output):
         if row['month']==7 and row['slug'] in ('sf','funchal','tenerife_south'):
             lines.append('| '+' | '.join([row['slug'],row['kind'],f"{row['latitude']:.5f}, {row['longitude']:.5f}",
                 row['source'],fmt(row['high_anchor_c'])+' / '+fmt(row['low_anchor_c'])])+' |')
-    funchal = next((r for r in rows if r['slug']=='funchal' and r['kind']=='instrument' and r['month']==7),None)
+    funchal_candidates = [r for r in rows if r['slug']=='funchal' and r['kind'] in ('instrument_proxy','instrument') and r['month']==7]
+    funchal = min(funchal_candidates,key=lambda row:row['kind']!='instrument_proxy') if funchal_candidates else None
     if funchal:
         lines+=['','## Funchal evening components','',
-            f"On the same {funchal['paired_evening_days']} July dates with measured air, dew and wind: fine dual air21 {fmt(funchal['paired_fine_dual_air21_c'])}°C versus observed {fmt(funchal['paired_observed_air21_c'])}°C; native dew21 {fmt(funchal['paired_native_dew21_c'])}°C versus observed {fmt(funchal['paired_observed_dew21_c'])}°C; native wind21 {fmt(funchal['paired_native_wind21_ms'])}m/s versus observed {fmt(funchal['paired_observed_wind21_ms'])}m/s.",'',
+            f"At the {funchal['kind']} pixel, on the same {funchal['paired_evening_days']} July dates with measured air, dew and wind: fine dual air21 {fmt(funchal['paired_fine_dual_air21_c'])}°C versus observed {fmt(funchal['paired_observed_air21_c'])}°C; native dew21 {fmt(funchal['paired_native_dew21_c'])}°C versus observed {fmt(funchal['paired_observed_dew21_c'])}°C; native wind21 {fmt(funchal['paired_native_wind21_ms'])}m/s versus observed {fmt(funchal['paired_observed_wind21_ms'])}m/s.",'',
             f"The felt21 bias is {fmt(funchal['paired_felt_bias_c'])}°C: air-temperature contribution {fmt(funchal['paired_temperature_bias_c'])}°C, vapor-pressure contribution {fmt(funchal['paired_vapor_felt_bias_c'])}°C, and wind contribution {fmt(funchal['paired_wind_felt_bias_c'])}°C. Contributions use the actual felt equation on the same dates; this diagnoses the retained weather fields, without fitting them."]
     proxies = [r for r in rows if r['kind']=='instrument_proxy' and r['month']==7]
     for row in proxies:
-        lines+=['',f"{row['city']}: the declared instrument coordinate is unsupported by the completed initial land mask. The instrument_proxy row is the nearest supported centre in that mask, {row['pixel_from_query_km']:.2f}km away at {row['pixel_latitude']:.5f},{row['pixel_longitude']:.5f}. This is a separate diagnostic selection, not an invented production lookup rule. The upcoming OSM-supported mask may change membership; only the optional actual-tile check establishes final B support."]
+        lines+=['',f"{row['city']}: the declared instrument coordinate is unsupported by the selected completed land mask. The instrument_proxy row is the nearest supported centre in that mask, {row['pixel_from_query_km']:.2f}km away at {row['pixel_latitude']:.5f},{row['pixel_longitude']:.5f}. This is a separate diagnostic selection, not a production lookup rule. "+('Actual B tile support was checked in this report.' if verification else 'Actual B tile support has not yet been checked.')]
     (output/'FINE_CITY_PROBE.md').write_text('\n'.join(lines)+'\n')
 
 
-def verify_tiles(rows,root):
+def verify_tiles(rows,root,chunks,land_sha256):
+    manifest = json.loads((root/'manifest.json').read_text())
+    if sorted(manifest['configuration']['chunks']) != sorted(chunks) or manifest['configuration']['land_support_sha256'] != land_sha256:
+        raise ValueError('Delivered B generation uses a different scored period or land mask')
     @functools.lru_cache(maxsize=384)
     def tile(month,row,column):
         return decode_tile(root/f'tiles/{month:02d}/{row:03d}/{column:03d}.nwf.gz')
@@ -322,7 +332,7 @@ def verify_tiles(rows,root):
             raise ValueError(f"Delivered offset differs for {row['slug']}/{row['kind']}/{row['month']}: {error}")
         errors.append(error)
     return dict(points_months=len(errors),maximum_difference_c=max(errors),unsupported_point_months=missing,
-        manifest_sha256=sha256(root/'manifest.json'))
+        root=str(root),manifest_sha256=sha256(root/'manifest.json'))
 
 
 if __name__ == '__main__': main()
