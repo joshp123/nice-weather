@@ -62,17 +62,27 @@ function loadPlaces(bucket) {
     const text = await (await bucket.get('places.tsv')).text();
     const places = text.split('\n').map((line) => {
       const [name, plainName, region, latitude, longitude, population] = line.split('\t');
-      return { name, key: normalise(plainName), slug: slugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
+      return { name, key: normalise(plainName), slug: slugFor(plainName, region), oldSlug: oldSlugFor(plainName, region), region, latitude: Number(latitude), longitude: Number(longitude), population: Number(population) };
     });
     const bySlug = new Map();
-    for (const place of [...places].sort((left, right) => right.population - left.population)) if (!bySlug.has(place.slug)) bySlug.set(place.slug, place);
+    const byOldSlug = new Map();
+    for (const place of [...places].sort((left, right) => right.population - left.population)) {
+      if (!bySlug.has(place.slug)) bySlug.set(place.slug, place);
+      if (!byOldSlug.has(place.oldSlug)) byOldSlug.set(place.oldSlug, place);
+    }
+    const byFirstLetters = new Map();
+    for (const place of places) {
+      const firstLetters = place.key.slice(0, 2);
+      if (!byFirstLetters.has(firstLetters)) byFirstLetters.set(firstLetters, []);
+      byFirstLetters.get(firstLetters).push(place);
+    }
     const byDegree = new Map();
     for (const place of places) {
       const key = `${Math.floor(place.latitude)},${Math.floor(place.longitude)}`;
       if (!byDegree.has(key)) byDegree.set(key, []);
       byDegree.get(key).push(place);
     }
-    return { places, byDegree, bySlug };
+    return { places, byDegree, bySlug, byOldSlug, byFirstLetters };
   })();
   return placesPromise;
 }
@@ -80,7 +90,11 @@ function loadPlaces(bucket) {
 const normalise = (text) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const kebab = (text) => normalise(text).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 /** "Lisbon" in "Lisbon, Portugal" -> "lisbon-portugal": the place and its country, as a readable URL path. */
-const slugFor = (plainName, region) => `${kebab(plainName)}-${kebab(region.split(',').pop() ?? '')}`.replace(/-$/, '');
+const countryOf = (region) => kebab(region.split(',').pop() ?? '');
+/** "Chania" in "Crete, Greece" -> "greece/chania": the country, then the place, as a readable URL path. */
+const slugFor = (plainName, region) => `${countryOf(region)}/${kebab(plainName)}`;
+/** The first link form, "chania-greece", which shared links may still use. */
+const oldSlugFor = (plainName, region) => `${kebab(plainName)}-${countryOf(region)}`.replace(/-$/, '');
 
 function kilometres(latitudeA, longitudeA, latitudeB, longitudeB) {
   const radians = Math.PI / 180;
@@ -114,18 +128,61 @@ async function nameForPoint(bucket, latitude, longitude) {
   return { name: `${Math.abs(latitude).toFixed(2)}° ${north}, ${Math.abs(longitude).toFixed(2)}° ${east}`, region: '' };
 }
 
-async function search(bucket, query) {
-  const { places } = await loadPlaces(bucket);
-  const wanted = normalise(query.trim());
-  if (wanted.length < 2) return [];
-  const results = [];
-  for (const place of places) {
-    if (place.key.startsWith(wanted)) results.push(place);
+// Islands and regions people search for, which the town list does not name, with the towns that stand for them.
+const AREA_TOWNS = {
+  tenerife: ['spain/adeje', 'spain/arona', 'spain/santa-cruz-de-tenerife'], 'gran canaria': ['spain/las-palmas-de-gran-canaria'], lanzarote: ['spain/arrecife'],
+  fuerteventura: ['spain/puerto-del-rosario'], 'canary islands': ['spain/arona', 'spain/las-palmas-de-gran-canaria'], canaries: ['spain/arona', 'spain/las-palmas-de-gran-canaria'],
+  mallorca: ['spain/palma'], majorca: ['spain/palma'], ibiza: ['spain/ibiza'], madeira: ['portugal/funchal'], algarve: ['portugal/faro', 'portugal/albufeira'],
+  'costa del sol': ['spain/malaga', 'spain/marbella'], crete: ['greece/chania', 'greece/heraklion'], santorini: ['greece/fira'], corfu: ['greece/kerkyra'],
+  corsica: ['france/ajaccio'], sardinia: ['italy/cagliari'], sicily: ['italy/palermo', 'italy/catania'], cyprus: ['cyprus/limassol', 'cyprus/paphos'],
+  malta: ['malta/birkirkara', 'malta/valletta'], provence: ['france/marseille', 'france/aix-en-provence'], tuscany: ['italy/florence'], amalfi: ['italy/amalfi'],
+  bali: ['indonesia/denpasar'], phuket: ['thailand/phuket'], maui: ['united-states/kahului'], oahu: ['united-states/honolulu'], hawaii: ['united-states/honolulu'],
+};
+
+const COORDINATES = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+const asResult = ({ name, region, latitude, longitude, slug }) => ({ name, region, latitude, longitude, slug });
+
+function editDistanceAtMost(left, right, limit) {
+  if (Math.abs(left.length - right.length) > limit) return false;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j++) current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1));
+    if (Math.min(...current) > limit) return false;
+    previous = current;
   }
-  // An exact name first ("Nice" the town), then the biggest places, as a map app would.
-  const exact = (place) => (place.key === wanted ? 0 : 1);
-  results.sort((left, right) => exact(left) - exact(right) || right.population - left.population);
-  return results.slice(0, 8).map(({ name, region, latitude, longitude, slug }) => ({ name, region, latitude, longitude, slug }));
+  return previous[right.length] <= limit;
+}
+
+async function search(bucket, query) {
+  const { places, bySlug, byFirstLetters } = await loadPlaces(bucket);
+  const coordinates = query.match(COORDINATES);
+  if (coordinates) {
+    const latitude = Number(coordinates[1]);
+    const longitude = Number(coordinates[2]);
+    if (Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) return [{ ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude }];
+  }
+  const wanted = normalise(query.trim()).replace(/\s+/g, ' ');
+  if (wanted.length < 2) return [];
+  const byBiggest = (left, right) => (left.key === wanted ? 0 : 1) - (right.key === wanted ? 0 : 1) || right.population - left.population;
+  const areaTowns = (AREA_TOWNS[wanted] ?? []).map((slug) => bySlug.get(slug)).filter(Boolean);
+  let found = places.filter((place) => place.key.startsWith(wanted));
+  // "Málaga Spain", "san diego, california": a name, then its region or country.
+  if (!found.length && /[ ,]/.test(wanted)) {
+    const words = wanted.split(/[ ,]+/).filter(Boolean);
+    for (let split = words.length - 1; split >= 1 && !found.length; split--) {
+      const name = words.slice(0, split).join(' ');
+      const where = words.slice(split).join(' ');
+      found = places.filter((place) => place.key.startsWith(name) && normalise(place.region).includes(where));
+    }
+  }
+  // Another spelling of the same name ("Marrakech" for Marrakesh): close names with the same first letters.
+  if (found.length < 3 && wanted.length >= 4) {
+    const close = (byFirstLetters.get(wanted.slice(0, 2)) ?? []).filter((place) => !found.includes(place) && editDistanceAtMost(place.key.slice(0, wanted.length + 1), wanted, 2));
+    found = [...found, ...close.sort(byBiggest).slice(0, 5)];
+  }
+  found.sort(byBiggest);
+  return [...areaTowns, ...found.filter((place) => !areaTowns.includes(place))].slice(0, 8).map(asResult);
 }
 
 // ---------------------------------------------------------------- a place's typical year
@@ -202,26 +259,27 @@ function periodFromWord(word) {
   return null;
 }
 
+/** What a path shows: { place, period }, { redirect } for the old link form, or null for an unknown path.
+ *  Paths: /, /<period>, /<country>/<city>[/<period>], /@<lat>,<lon>[,<zoom>z][/<period>]; old: /<city>-<country>[/<period>]. */
 async function viewFromPath(bucket, pathname) {
   const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  if (parts.length > 2) return null;
-  let place = null;
-  let period = null;
-  if (parts[0]?.startsWith('@')) {
+  if (parts.length > 3) return null;
+  if (!parts.length) return { place: null, period: null };
+  if (parts[0].startsWith('@')) {
     const [latitude, longitude] = parts[0].slice(1).split(',').map(Number);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return null;
-    place = { ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude };
-    period = parts[1] ? periodFromWord(parts[1]) : null;
-  } else if (parts[0]) {
-    period = periodFromWord(parts[0]);
-    if (!period) {
-      const { bySlug } = await loadPlaces(bucket);
-      place = bySlug.get(parts[0]) ?? null;
-      if (!place) return null;
-      period = parts[1] ? periodFromWord(parts[1]) : null;
-    }
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || parts.length > 2) return null;
+    const period = parts[1] ? periodFromWord(parts[1]) : null;
+    if (parts[1] && !period) return null;
+    return { place: { ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude }, period };
   }
-  if (parts[1] && !period) return null;
+  if (parts.length === 1 && periodFromWord(parts[0])) return { place: null, period: periodFromWord(parts[0]) };
+  const { bySlug, byOldSlug } = await loadPlaces(bucket);
+  const old = byOldSlug.get(parts[0]);
+  if (old && parts.length <= 2 && (!parts[1] || periodFromWord(parts[1]))) return { redirect: `/${old.slug}${parts[1] ? `/${parts[1]}` : ''}` };
+  const place = parts.length >= 2 ? bySlug.get(`${parts[0]}/${parts[1]}`) : null;
+  if (!place) return null;
+  const period = parts[2] ? periodFromWord(parts[2]) : null;
+  if (parts[2] && !period) return null;
   return { place, period };
 }
 
@@ -258,7 +316,7 @@ async function previewFor(bucket, origin, pathname, view) {
     title = `Where is the weather nice in ${period.title}? Nice Weather`;
   }
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
-  let image = place?.slug ? await card(`v6/cards/${place.slug}.png`) : null;
+  let image = place?.slug ? await card(`v6/cards/${place.slug}.png`) : null;  // v6/cards/<country>/<city>.png
   if (!image && period?.kind === 'climate') image = await card(`v6/cards/world-${period.word}.png`);
   image ??= `${origin}/data/v6/cards/world.png`;
   return { title, description, image, url: `${origin}${pathname}` };
@@ -373,6 +431,7 @@ export async function handleRequest(request, env, serveAsset) {
   const isAppPath = (url.pathname.startsWith('/@') || !/\.[a-z0-9]+$/i.test(url.pathname)) && !url.pathname.startsWith('/api/');
   if (isAppPath && url.pathname !== '/method') {
     const view = await viewFromPath(bucket, url.pathname);
+    if (view?.redirect) return Response.redirect(`${url.origin}${view.redirect}${url.search}`, 301);
     const page = await serveAsset('/index.html', request);
     if (request.method === 'HEAD') return page;
     const html = await page.text();

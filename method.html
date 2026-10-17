@@ -27,9 +27,6 @@
 <h1>How Nice Weather works</h1>
 <p>Nice Weather answers one question: where on earth, and when, is the weather nice? Nice here means warm enough for a t-shirt and shorts from morning until you walk home in the evening, without rain, muggy air or a gale. This page explains exactly how each day is scored, where the weather data comes from, and where we know it is wrong, so you can check it.</p>
 
-<h2>How this was made</h2>
-<p>Nice Weather was built over a few days in October 2026. Josh decided what it should do and how nice weather feels to him. AI agents did nearly all the research, code and writing: Claude Opus 5.5 planned the work and wrote this page, Claude Fable 5.1 designed the scoring method and the interface, and GPT-6.1 Sol wrote most of the data code. It was vibe-coded: people checked the results against weather stations and their own sense of places, not every line of code. Treat every number as a good estimate, not a measurement.</p>
-
 <h2>A day's score</h2>
 <p>Every day gets a score from 0 to 100, from the hourly weather between 10:00 and 21:00 local time.</p>
 <ol>
@@ -58,11 +55,11 @@ Dew point measures how much moisture the air holds; it is what makes air feel mu
 <p>These numbers come from one person's taste. If yours differs, the sliders move each curve: how warm you need it, when heat starts to bother you, the walk home, humidity, wind and rain.</p>
 
 <h2>Checking it against places people know</h2>
-<p>We scored ten years of hourly weather at 31 places and checked the results against things people actually say about them. For example: San Francisco is mild and pleasant all year, Rotterdam is not (San Francisco 54 for the year, Rotterdam 25, and San Francisco ahead every month); Singapore is too humid every month; southern Spain in November is lovely; northern Europe from November to March is grim; for a winter escape, Cape Town and the south of Tenerife beat Seville and Crete. Each of these came out as expected.</p>
+<p>We test the scores against what people who know these places say about them. Most hold: Singapore and Bangkok are too humid for most of the year, northern Europe from November to March is grim, Cape Town and the Canary Islands are the best winter escapes, and San Francisco beats Rotterdam all year. Some do not yet; see below.</p>
 
 <h2>The weather data</h2>
 <ul>
-<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses real days from September 2021 to September 2022 for now; more years are being added.</li>
+<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses real days from __YEARS__; more years are being added.</li>
 <li><b>The next 14 days</b> come from the same centre's free forecast, refreshed every morning. Its free version has no direct sunlight, so sunshine is estimated from total solar radiation against a clear sky.</li>
 <li><b>Detail.</b> The weather is stored for squares of 1° (about 100 km). Temperature then gets finer detail on a 25 km grid: each point is shifted by how much warmer or cooler it runs than its square, month by month. Coastal towns sit near sea level but their grid square's average height includes the hills behind them, so coastal points take their temperature from the nearest mostly-land square and correct it to sea level (6.5 °C per km, at most 600 m). In tests against weather stations, this kind of correction cut coastal errors from about 3 °C to under 1 °C.</li>
 <li><b>Fast sliders.</b> For each square and month, eight real days represent the month's range of weather. Your browser re-scores them on its graphics chip when you move a slider.</li>
@@ -71,10 +68,10 @@ Dew point measures how much moisture the air holds; it is what makes air feel mu
 
 <h2>Where it is wrong</h2>
 <ul>
-<li><b>A 25 km grid misses microclimates.</b> San Francisco's fog belt, a sheltered bay, a single valley: anything smaller than the grid reads like its surroundings. In the Bay Area, for example, the data reads the foggy coast about 5 °C too warm in summer.</li>
+<li><b>A 25 km grid misses microclimates.</b> San Francisco's fog belt, a sheltered bay, a single valley: anything smaller than the grid reads like its surroundings. San Francisco in summer reads far too warm (it shows highs of 27 to 29 °C; downtown is about 19 °C), so it looks Perfect when it is cool and grey. A finer temperature correction is being tested.</li>
 <li><b>Fog and sea mist hide the sun</b>, and the data often misses that, so foggy coasts can read too nice.</li>
 <li><b>Drizzle.</b> ERA5 counts too many light-rain days in dry places: Málaga in January reads wet on about a quarter of days, its weather station on about a sixth.</li>
-<li><b>A few years are not a climate.</b> The typical year uses one year of real weather for now, so an unusual month (Spain's very wet March 2022, for example) shows as typical. Each added year steadies it; three years bring a month to within about 3 points of a ten-year average.</li>
+<li><b>A few years are not a climate.</b> The typical year uses __YEAR_COUNT__ of real weather so far. One unusual month (a wet November in Málaga, a hot August in Rotterdam) still moves the average by several points; each added year steadies it.</li>
 <li><b>The forecast's sunshine is estimated</b>, so a forecast day's sun share is rougher than the typical year's.</li>
 </ul>
 <p class="muted">Data: ERA5 and ECMWF open data (Copernicus, CC BY 4.0); GeoNames (CC BY 4.0); OpenFreeMap and © OpenStreetMap contributors.</p>
