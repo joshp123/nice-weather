@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"nice-weather-finder/outlook"
 )
 
 func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
@@ -53,8 +55,8 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if report.Files != 17 {
-				t.Fatalf("uploaded files=%d, want seventeen: v6 day, fifteen score images, pointer", report.Files)
+			if report.Files != 26 {
+				t.Fatalf("uploaded files=%d, want 26: v6 day, fifteen score images, nine outlook files, pointer", report.Files)
 			}
 			if len(uploaded["/__publish/v6/forecast/"+runID+"/days.bin"]) != 14*15 {
 				t.Fatal("v6 day records were not uploaded intact")
@@ -82,6 +84,12 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 					t.Fatalf("v6 pointer was published before %s", name)
 				}
 			}
+			for _, name := range outlook.FileNames() {
+				key := "/__publish/v6/forecast/" + runID + "/" + name
+				if string(uploaded[key]) != "outlook file" || positions["PUT "+key] >= positions["PUT /__publish/v6/forecast/current.json"] {
+					t.Fatalf("outlook %s was not uploaded intact before the pointer", name)
+				}
+			}
 			if requests[len(requests)-1] != "POST /__prune" {
 				t.Fatal("cleanup was not last")
 			}
@@ -90,7 +98,7 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 }
 
 func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T) {
-	for _, failedName := range []string{"days.bin", "scores-day-06.png"} {
+	for _, failedName := range []string{"days.bin", "scores-day-06.png", "outlook/europe.png"} {
 		t.Run(failedName, func(t *testing.T) {
 			directory := publicationFixture(t, "20261016T0000Z")
 			var mutex sync.Mutex
@@ -180,6 +188,12 @@ func publicationFixture(t *testing.T, runID string) string {
 	}
 	for _, name := range v6ScoreImageNames() {
 		files[filepath.Join(v6Directory, name)] = []byte("score image")
+	}
+	for _, name := range outlook.FileNames() {
+		files[filepath.Join(v6Directory, name)] = []byte("outlook file")
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(v6Directory, name)), 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for path, body := range files {
 		if err := os.WriteFile(path, body, 0644); err != nil {

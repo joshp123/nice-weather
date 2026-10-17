@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"nice-weather-finder/outlook"
 )
 
 type PublicationReport struct {
@@ -47,6 +49,7 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		return report, fmt.Errorf("forecast directory does not match its v6 pointer")
 	}
 	paths := append([]string{"days.bin"}, v6ScoreImageNames()...)
+	paths = append(paths, outlook.FileNames()...)
 	bodies := make([][]byte, len(paths))
 	for index, name := range paths {
 		body, readErr := os.ReadFile(filepath.Join(directory, name))

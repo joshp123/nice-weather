@@ -26,7 +26,7 @@ npm run serve          # http://127.0.0.1:5198
 | Typical year | `research/climate-v6/run.sh run`, after `research/era5/fetch_era5.py <chunk> <processes>` downloads ERA5 hours | `v6/cells.bin`, `points.bin`, monthly day records, temperature offsets and place facts |
 | Default scores and map images | `uv run --with numpy --with pillow python -I src/engine/default_scores.py artifacts/v6 --images artifacts/v6/climate` | `v6/climate/scores.bin` and 133 score PNGs |
 | Preview cards | `uv run --with playwright python -I research/taste/render_cards.py 150`, with the local server running | `v6/cards/` |
-| Daily forecast | `go run ./cmd/niceweather forecast --out ./artifacts` | `v6/forecast/<run>/days.bin`, 15 score PNGs and `v6/forecast/current.json` |
+| Daily forecast and outlooks | `go run ./cmd/niceweather forecast --out ./artifacts` | `v6/forecast/<run>/days.bin`, 15 score PNGs, three outlook manifests and six posters, then `v6/forecast/current.json` |
 | Place names | `node hosting/sites/places.mjs .cache/geonames artifacts/places.tsv` | GeoNames names, regions, coordinates and search aliases |
 | Map labels | `python research/site/labels.py artifacts/places.tsv artifacts/v6` | `v6/labels-1.json` and `labels-2.json` |
 
@@ -52,8 +52,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o art
 cp hosting/sites/refresh.md artifacts/runner/refresh.md
 cp internal/providers/ifsgrib/LICENSE.libaec artifacts/runner/LICENSE.libaec
 cp internal/clearsky/LICENSE.pvlib artifacts/runner/LICENSE.pvlib
+cp outlook/assets/OFL.txt artifacts/runner/LICENSE.Barlow
 ```
 
-Upload the executable under `runner/niceweather-linux-amd64`, with `hosting/sites/refresh.md` `internal/providers/ifsgrib/LICENSE.libaec` and `internal/clearsky/LICENSE.pvlib`. [hosting/sites/README.md](hosting/sites/README.md) describes app packaging and data uploads. The local Go checks are `go build ./... && go test ./...`, inside `devenv shell`.
+Upload the executable under `runner/niceweather-linux-amd64`, with the refresh instructions and three notices from that build recipe. [hosting/sites/README.md](hosting/sites/README.md) describes app packaging and data uploads. The local Go checks are `go build ./... && go test ./...`, inside `devenv shell`.
 
 For a local check without publishing, build a native executable and run `niceweather forecast --out /tmp/weather-forecast-check`. Its fourteen daily images use each selected land point's owning weather cell and temperature correction. The fortnight image describes the typical day, using the same threshold median as the app. Score bytes are floored. The runner writes no climate scores or place facts.
+
+`/outlook/world`, `/outlook/europe` and `/outlook/usa` provide tomorrow's ready-to-post sentence, downloadable poster and dated share link. The runner makes these before publication; no social account is used. To render an existing forecast without downloading weather again, run `go run ./tools/outlook --out /tmp/weather-outlook-check`. See [outlook/README.md](outlook/README.md) for selection, styling and posting options.

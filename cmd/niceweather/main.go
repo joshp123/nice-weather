@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"nice-weather-finder/internal/dailyforecast"
+	"nice-weather-finder/outlook"
 )
 
 func main() {
@@ -39,6 +40,7 @@ func runForecast(arguments []string) error {
 	flags := flag.NewFlagSet("forecast", flag.ContinueOnError)
 	out := flags.String("out", "./artifacts", "artifact directory")
 	v6Static := flags.String("v6-static", "https://nice.jjpcodes.com/data/v6", "v6 static directory or URL")
+	placesSource := flags.String("places-source", "https://nice.jjpcodes.com/data", "place data directory or URL")
 	site := flags.String("publish", "", "publish the completed forecast to this Site URL")
 	tokenStdin := flags.Bool("token-stdin", false, "read the publish token from standard input instead of NICE_WEATHER_PUBLISH_TOKEN")
 	if err := flags.Parse(arguments); err != nil {
@@ -57,6 +59,13 @@ func runForecast(arguments []string) error {
 	fmt.Printf("forecast: %s; %d days; downloaded %d bytes; wrote %d files / %d bytes; %s; %s\n",
 		report.RunTime.Format(time.RFC3339), len(report.Dates), report.DownloadedBytes,
 		report.OutputFiles, report.OutputBytes, report.Elapsed.Round(time.Millisecond), report.Directory)
+	outlooks, err := outlook.Generate(ctx, *out, *placesSource, *out, time.Now())
+	if err != nil {
+		return fmt.Errorf("daily outlook: %w", err)
+	}
+	for _, result := range outlooks {
+		fmt.Println(result.Sentence)
+	}
 	if *site != "" {
 		return publishForecast(ctx, report.Directory, *site, token)
 	}
