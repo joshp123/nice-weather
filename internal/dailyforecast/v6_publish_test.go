@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
+func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 	for _, scenario := range []struct{ name, previousRun, previousPrevious, wantPrevious string }{
 		{"new run", "20261015T0000Z", "20261014T0000Z", "20261015T0000Z"},
 		{"same run", "20261016T0000Z", "20261015T0000Z", "20261015T0000Z"},
@@ -30,8 +30,6 @@ func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
 				defer mutex.Unlock()
 				requests = append(requests, r.Method+" "+r.URL.Path)
 				switch {
-				case r.Method == http.MethodGet && r.URL.Path == "/data/forecast/current.json":
-					json.NewEncoder(w).Encode(map[string]string{"runId": scenario.previousRun, "previousRunId": scenario.previousPrevious})
 				case r.Method == http.MethodGet && r.URL.Path == "/data/v6/forecast/current.json":
 					json.NewEncoder(w).Encode(v6Pointer{Run: scenario.previousRun, PreviousRun: scenario.previousPrevious})
 				case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/__publish/"):
@@ -41,8 +39,8 @@ func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
 					uploaded[r.URL.Path] = body
 					w.WriteHeader(http.StatusCreated)
 				case r.Method == http.MethodPost && r.URL.Path == "/__prune":
-					if uploaded["/__publish/forecast/current.json"] == nil || uploaded["/__publish/v6/forecast/current.json"] == nil {
-						t.Error("prune ran before both pointers were published")
+					if uploaded["/__publish/v6/forecast/current.json"] == nil {
+						t.Error("prune ran before the v6 pointer was published")
 					}
 					w.WriteHeader(http.StatusOK)
 				default:
@@ -55,17 +53,11 @@ func TestPublishKeepsBothForecastsAndSwitchesPointersAfterData(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if report.Files != 20 {
-				t.Fatalf("uploaded files=%d, want twenty: legacy manifest, legacy day, v6 day, fifteen score images, two pointers", report.Files)
-			}
-			if string(uploaded["/__publish/forecast/"+runID+"/day.bin"]) != "legacy forecast" {
-				t.Fatal("legacy day was not preserved")
+			if report.Files != 17 {
+				t.Fatalf("uploaded files=%d, want seventeen: v6 day, fifteen score images, pointer", report.Files)
 			}
 			if len(uploaded["/__publish/v6/forecast/"+runID+"/days.bin"]) != 14*15 {
 				t.Fatal("v6 day records were not uploaded intact")
-			}
-			if uploaded["/__publish/v6/forecast/"+runID+"/comparison.json"] != nil {
-				t.Fatal("local diagnostics were uploaded")
 			}
 			var pointer v6Pointer
 			if err = json.Unmarshal(uploaded["/__publish/v6/forecast/current.json"], &pointer); err != nil {
@@ -138,7 +130,7 @@ func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T)
 
 func TestPublishRejectsMissingV6ScoreImageBeforeSwitchingPointers(t *testing.T) {
 	directory := publicationFixture(t, "20261016T0000Z")
-	imagePath := filepath.Join(filepath.Dir(filepath.Dir(directory)), "v6", "forecast", "20261016T0000Z", "scores-all.png")
+	imagePath := filepath.Join(directory, "scores-all.png")
 	if err := os.Rename(imagePath, imagePath+".missing"); err != nil {
 		t.Fatal(err)
 	}
@@ -175,23 +167,20 @@ func TestPublishRejectsMissingV6ScoreImageBeforeSwitchingPointers(t *testing.T) 
 func publicationFixture(t *testing.T, runID string) string {
 	t.Helper()
 	root := t.TempDir()
-	directory := filepath.Join(root, "forecast", runID)
-	v6Directory := filepath.Join(root, "v6", "forecast", runID)
-	for _, path := range []string{directory, v6Directory} {
+	directory := filepath.Join(root, "v6", "forecast", runID)
+	v6Directory := directory
+	for _, path := range []string{directory} {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	files := map[string][]byte{
-		filepath.Join(directory, "manifest.json"):                []byte(`{"runId":"` + runID + `"}`),
-		filepath.Join(directory, "day.bin"):                      []byte("legacy forecast"),
 		filepath.Join(v6Directory, "days.bin"):                   make([]byte, 14*15),
 		filepath.Join(filepath.Dir(v6Directory), "current.json"): []byte(`{"run":"` + runID + `","firstDate":"2026-10-16","days":14,"previousRun":"local-state-must-not-win"}`),
 	}
 	for _, name := range v6ScoreImageNames() {
 		files[filepath.Join(v6Directory, name)] = []byte("score image")
 	}
-	files[filepath.Join(v6Directory, "comparison.json")] = []byte("local diagnostics")
 	for path, body := range files {
 		if err := os.WriteFile(path, body, 0644); err != nil {
 			t.Fatal(err)

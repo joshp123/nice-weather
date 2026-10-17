@@ -26,11 +26,9 @@ const (
 	// origin because its range endpoint remains reliable under the forecast
 	// build's bounded request pattern.
 	DefaultRoot        = "https://storage.googleapis.com/ecmwf-open-data"
-	GridDegrees        = 0.25
 	MaxIndexBytes      = 32 << 20
 	MaxIndexLineBytes  = 2 << 20
 	MaxMessageBytes    = 64 << 20
-	defaultRunLookback = 6
 	minimumBodyTimeout = 30 * time.Second
 	minimumBodyRate    = 128 << 10
 )
@@ -40,7 +38,7 @@ var (
 	// The public 0.25 degree stream publishes 10fg as a one-hour maximum at
 	// each three-hourly output time. Those two-hour gaps cannot support an
 	// honest daytime gust maximum, so gust is unavailable rather than partial.
-	surfaceFields = [...]string{"2t", "2d", "10u", "10v", "tcc", "tp", "ssrd"}
+	surfaceFields = [...]string{"2t", "2d", "10u", "10v", "tp", "ssrd"}
 	wantedFields  = func() map[string]struct{} {
 		fields := make(map[string]struct{}, len(surfaceFields))
 		for _, field := range surfaceFields {
@@ -59,10 +57,8 @@ type HTTPDoer interface {
 }
 
 type Client struct {
-	Root        string
-	HTTP        HTTPDoer
-	Now         func() time.Time
-	RunLookback int
+	Root string
+	HTTP HTTPDoer
 
 	// AttemptTimeout is for bounded tests. Production uses a size-derived limit.
 	AttemptTimeout time.Duration
@@ -79,9 +75,8 @@ type Message struct {
 	gribURL   string
 }
 
-func (m Message) Parameter() string { return m.parameter }
-func (m Message) Offset() int64     { return m.offset }
-func (m Message) Length() int64     { return m.length }
+func (m Message) Offset() int64 { return m.offset }
+func (m Message) Length() int64 { return m.length }
 
 type NotPublishedError struct{ URL string }
 
@@ -99,18 +94,13 @@ func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("IFS resource %s returned HTTP %d", e.URL, e.StatusCode)
 }
 
-func (e *HTTPStatusError) HTTPStatusCode() int     { return e.StatusCode }
-func (e *HTTPStatusError) RetryAfterValue() string { return e.RetryAfter }
-
 func NewClient(httpClient HTTPDoer) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 	return &Client{
-		Root:        DefaultRoot,
-		HTTP:        httpClient,
-		Now:         time.Now,
-		RunLookback: defaultRunLookback,
+		Root: DefaultRoot,
+		HTTP: httpClient,
 	}
 }
 
@@ -360,94 +350,6 @@ func (c *Client) FetchIndex(ctx context.Context, run Run, step int) (map[string]
 		messages[parameter] = message
 	}
 	return messages, nil
-}
-
-// DiscoverLatestCompleteWorldwide finds the newest published 12 UTC run with
-// a complete 360-hour index and a GRIB object covering all selected byte
-// ranges. The 12 UTC cycle is the only IFS long-range cycle whose horizon can
-// cover fourteen complete worldwide local dates. Explicit 00 UTC runs remain
-// valid for direct retrieval, but automatic discovery never selects them.
-// Only a 404 permits fallback; transport, status, and content errors fail
-// closed.
-func (c *Client) DiscoverLatestCompleteWorldwide(ctx context.Context) (Run, error) {
-	now := time.Now().UTC()
-	if c.Now != nil {
-		now = c.Now().UTC()
-	}
-	lookback := c.RunLookback
-	if lookback <= 0 {
-		lookback = defaultRunLookback
-	}
-	candidate := latestWorldwideCycle(now)
-	var failures []string
-	for attempt := 0; attempt < lookback; attempt++ {
-		run := Run{Time: candidate}
-		if err := c.validatePublishedLongRun(ctx, run); err == nil {
-			return run, nil
-		} else {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return Run{}, ctxErr
-			}
-			var notPublished *NotPublishedError
-			if !errors.As(err, &notPublished) {
-				return Run{}, fmt.Errorf("validate IFS run %s: %w", candidate.Format(time.RFC3339), err)
-			}
-			failures = append(failures, fmt.Sprintf("%s: %v", candidate.Format(time.RFC3339), err))
-		}
-		candidate = candidate.AddDate(0, 0, -1)
-	}
-	return Run{}, fmt.Errorf("no complete worldwide IFS 12 UTC run found in %d days: %s", lookback, strings.Join(failures, "; "))
-}
-
-func (c *Client) validatePublishedLongRun(ctx context.Context, run Run) error {
-	messages, err := c.FetchIndex(ctx, run, 360)
-	if err != nil {
-		return err
-	}
-	var minimumLength int64
-	for _, message := range messages {
-		if end := message.offset + message.length; end > minimumLength {
-			minimumLength = end
-		}
-	}
-	gribURL, err := c.GRIBURL(run, 360)
-	if err != nil {
-		return err
-	}
-	attemptCtx, cancel := context.WithTimeout(ctx, c.downloadTimeout(0))
-	defer cancel()
-	req, err := http.NewRequestWithContext(attemptCtx, http.MethodHead, gribURL, nil)
-	if err != nil {
-		return fmt.Errorf("build IFS GRIB probe: %w", err)
-	}
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := c.http().Do(req)
-	if err != nil {
-		return fmt.Errorf("probe IFS GRIB: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return &NotPublishedError{URL: gribURL}
-	}
-	if resp.StatusCode != http.StatusOK {
-		return &HTTPStatusError{URL: gribURL, StatusCode: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After")}
-	}
-	if encoding := resp.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
-		return fmt.Errorf("probe IFS GRIB: unexpected content encoding %q", encoding)
-	}
-	if resp.ContentLength < minimumLength {
-		return fmt.Errorf("probe IFS GRIB: content length %d does not cover selected byte range ending at %d", resp.ContentLength, minimumLength)
-	}
-	return nil
-}
-
-func latestWorldwideCycle(now time.Time) time.Time {
-	now = now.UTC()
-	candidate := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.UTC)
-	if candidate.After(now) {
-		candidate = candidate.AddDate(0, 0, -1)
-	}
-	return candidate
 }
 
 func (c *Client) DownloadIndexedMessage(ctx context.Context, run Run, step int, message Message, dst io.Writer) error {

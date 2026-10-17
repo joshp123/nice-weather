@@ -11,8 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -36,37 +34,50 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 	if strings.TrimSpace(token) == "" {
 		return report, fmt.Errorf("publish token is required")
 	}
-	encoded, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
+	encoded, err := os.ReadFile(filepath.Join(filepath.Dir(directory), "current.json"))
 	if err != nil {
 		return report, err
 	}
-	var manifest Manifest
-	if err = json.Unmarshal(encoded, &manifest); err != nil {
+	var pointer v6Pointer
+	if err = json.Unmarshal(encoded, &pointer); err != nil {
 		return report, err
 	}
-	report.RunID = manifest.RunID
-	if report.RunID == "" || filepath.Base(directory) != report.RunID {
-		return report, fmt.Errorf("forecast directory does not match its manifest run ID")
+	report.RunID = pointer.Run
+	if report.RunID == "" || filepath.Base(directory) != report.RunID || pointer.Days != v6Days {
+		return report, fmt.Errorf("forecast directory does not match its v6 pointer")
+	}
+	paths := append([]string{"days.bin"}, v6ScoreImageNames()...)
+	bodies := make([][]byte, len(paths))
+	for index, name := range paths {
+		body, readErr := os.ReadFile(filepath.Join(directory, name))
+		if readErr != nil {
+			return report, readErr
+		}
+		if len(body) == 0 || (name == "days.bin" && len(body)%(v6Days*15) != 0) {
+			return report, fmt.Errorf("invalid v6 forecast file %s", name)
+		}
+		bodies[index] = body
 	}
 	client := &http.Client{Timeout: 2 * time.Minute}
 	endpoint := func(path string) string { return base.ResolveReference(&url.URL{Path: path}).String() }
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint("/data/forecast/current.json"), nil)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint("/data/v6/forecast/current.json"), nil)
 	response, err := client.Do(request)
 	if err != nil {
 		return report, err
 	}
-	var current struct {
-		RunID         string  `json:"runId"`
-		PreviousRunID *string `json:"previousRunId"`
-	}
+	var previous v6Pointer
 	if response.StatusCode == http.StatusOK {
-		err = json.NewDecoder(response.Body).Decode(&current)
+		err = json.NewDecoder(response.Body).Decode(&previous)
 	} else if response.StatusCode != http.StatusNotFound {
-		err = fmt.Errorf("read current forecast: HTTP %d", response.StatusCode)
+		err = fmt.Errorf("read v6 forecast: HTTP %d", response.StatusCode)
 	}
 	response.Body.Close()
 	if err != nil {
 		return report, err
+	}
+	pointer.PreviousRun = previous.Run
+	if previous.Run == pointer.Run {
+		pointer.PreviousRun = previous.PreviousRun
 	}
 
 	upload := func(ctx context.Context, key string, body []byte) error {
@@ -97,147 +108,20 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		}
 		return nil
 	}
-	var paths []string
-	err = filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !entry.IsDir() {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return report, err
-	}
-	uploadContext, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var next, files, uploadedBytes atomic.Int64
-	var workers sync.WaitGroup
-	var firstError error
-	var errorOnce sync.Once
-	for range 12 {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for {
-				index := int(next.Add(1) - 1)
-				if index >= len(paths) || uploadContext.Err() != nil {
-					return
-				}
-				path := paths[index]
-				relative, readErr := filepath.Rel(directory, path)
-				var body []byte
-				if readErr == nil {
-					body, readErr = os.ReadFile(path)
-				}
-				if readErr == nil {
-					readErr = upload(uploadContext, "forecast/"+report.RunID+"/"+filepath.ToSlash(relative), body)
-				}
-				if readErr != nil {
-					errorOnce.Do(func() { firstError = readErr; cancel() })
-					return
-				}
-				files.Add(1)
-				uploadedBytes.Add(int64(len(body)))
-			}
-		}()
-	}
-	workers.Wait()
-	report.Files, report.Bytes = files.Load(), uploadedBytes.Load()
-	if firstError != nil {
-		return report, firstError
-	}
-
-	v6Directory := filepath.Join(filepath.Dir(filepath.Dir(directory)), "v6", "forecast", report.RunID)
-	v6DaysPath := filepath.Join(v6Directory, "days.bin")
-	if body, readErr := os.ReadFile(v6DaysPath); readErr == nil {
-		var pointer v6Pointer
-		localPointer, readErr := os.ReadFile(filepath.Join(filepath.Dir(v6Directory), "current.json"))
-		if readErr != nil {
-			return report, readErr
-		}
-		if readErr = json.Unmarshal(localPointer, &pointer); readErr != nil {
-			return report, readErr
-		}
-		if pointer.Run != report.RunID || pointer.Days != v6Days || len(body) == 0 || len(body)%(v6Days*15) != 0 {
-			return report, fmt.Errorf("invalid v6 forecast publication")
-		}
-		var scoreImages []struct {
-			name string
-			body []byte
-		}
-		for _, name := range v6ScoreImageNames() {
-			imageBody, imageErr := os.ReadFile(filepath.Join(v6Directory, name))
-			if imageErr != nil {
-				return report, imageErr
-			}
-			if len(imageBody) == 0 {
-				return report, fmt.Errorf("empty v6 score image %s", name)
-			}
-			scoreImages = append(scoreImages, struct {
-				name string
-				body []byte
-			}{name, imageBody})
-		}
-		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint("/data/v6/forecast/current.json"), nil)
-		response, readErr := client.Do(request)
-		if readErr != nil {
-			return report, readErr
-		}
-		var previous v6Pointer
-		if response.StatusCode == http.StatusOK {
-			readErr = json.NewDecoder(response.Body).Decode(&previous)
-		} else if response.StatusCode != http.StatusNotFound {
-			readErr = fmt.Errorf("read v6 forecast: HTTP %d", response.StatusCode)
-		}
-		response.Body.Close()
-		if readErr != nil {
-			return report, readErr
-		}
-		pointer.PreviousRun = previous.Run
-		if previous.Run == pointer.Run {
-			pointer.PreviousRun = previous.PreviousRun
-		}
-		if err = upload(ctx, "v6/forecast/"+report.RunID+"/days.bin", body); err != nil {
+	for index, name := range paths {
+		if err = upload(ctx, "v6/forecast/"+report.RunID+"/"+name, bodies[index]); err != nil {
 			return report, err
 		}
 		report.Files++
-		report.Bytes += int64(len(body))
-		for _, scoreImage := range scoreImages {
-			if err = upload(ctx, "v6/forecast/"+report.RunID+"/"+scoreImage.name, scoreImage.body); err != nil {
-				return report, err
-			}
-			report.Files++
-			report.Bytes += int64(len(scoreImage.body))
-		}
-		encoded, _ := json.Marshal(pointer)
-		if err = upload(ctx, "v6/forecast/current.json", encoded); err != nil {
-			return report, err
-		}
-		report.Files++
-		report.Bytes += int64(len(encoded))
-	} else if !os.IsNotExist(readErr) {
-		return report, readErr
+		report.Bytes += int64(len(bodies[index]))
 	}
-	pointerManifest := struct {
-		Manifest
-		PreviousRunID *string `json:"previousRunId"`
-	}{Manifest: manifest}
-	if current.RunID == report.RunID {
-		pointerManifest.PreviousRunID = current.PreviousRunID
-	} else if current.RunID != "" {
-		pointerManifest.PreviousRunID = &current.RunID
-	}
-	pointer, err := json.Marshal(pointerManifest)
-	if err != nil {
-		return report, err
-	}
-	if err = upload(ctx, "forecast/current.json", pointer); err != nil {
+	encoded, _ = json.Marshal(pointer)
+	if err = upload(ctx, "v6/forecast/current.json", encoded); err != nil {
 		return report, err
 	}
 	report.Files++
-	report.Bytes += int64(len(pointer))
+	report.Bytes += int64(len(encoded))
+
 	request, _ = http.NewRequestWithContext(ctx, http.MethodPost, endpoint("/__prune"), nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	pruneClient := &http.Client{Timeout: 10 * time.Minute}

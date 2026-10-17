@@ -105,14 +105,14 @@ func loadV6Static(ctx context.Context, source string) (*v6Forecast, error) {
 
 func (v *v6Forecast) addFrame(at time.Time, frames [][]float32) {
 	frame := v6Frame{at: at}
-	for f, native := range []int{0, 1, 3, 4, 5, 6} {
+	for f := range frame.fields {
 		frame.fields[f] = make([]float32, len(v.points))
 		for i, p := range v.points {
 			index := p.fine
 			if f < 2 {
 				index = p.source
 			}
-			frame.fields[f][i] = frames[native][index]
+			frame.fields[f][i] = frames[f][index]
 		}
 	}
 	v.frames = append(v.frames, frame)
@@ -164,20 +164,6 @@ func v6Encode(values [15]float64) (record [15]byte) {
 	return
 }
 
-type v6Diagnostic struct {
-	Name      string  `json:"name"`
-	Cell      int     `json:"cell"`
-	Fine      int     `json:"fine"`
-	Date      string  `json:"date"`
-	Air14     float64 `json:"air14"`
-	Dew       float64 `json:"dew"`
-	Rain      float64 `json:"rain"`
-	Wind      float64 `json:"wind"`
-	FineAir14 float64 `json:"fineAir14"`
-	FineRain  float64 `json:"fineRain"`
-	FineWind  float64 `json:"fineWind"`
-}
-
 func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, runID string, log io.Writer) error {
 	started := time.Now()
 	directory := filepath.Join(output, "v6", "forecast", runID)
@@ -212,32 +198,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 		}
 		schedules[p.location] = schedule
 	}
-	type proofPlace struct {
-		name                string
-		latitude, longitude float64
-	}
-	places := []proofPlace{{"Málaga", 36.72, -4.42}, {"Rotterdam", 51.92, 4.48}, {"Singapore", 1.29, 103.85}, {"San Diego", 32.72, -117.16}}
-	proofCell := map[int]int{}
-	proofPoint := map[int]int{}
-	for placeIndex, place := range places {
-		for cell, pair := range v.cells {
-			if int(pair[0]) == int(math.Floor(90-place.latitude)) && int(pair[1]) == int(math.Floor(place.longitude+180)) {
-				proofCell[cell] = placeIndex
-				distance := math.Inf(1)
-				for _, i := range byCell[cell] {
-					p := v.points[i]
-					lat := 90 - float64(p.fine/Width)*.25
-					lon := -180 + float64(p.fine%Width)*.25
-					d := math.Pow(lat-place.latitude, 2) + math.Pow((lon-place.longitude)*math.Cos(lat*math.Pi/180), 2)
-					if d < distance {
-						distance = d
-						proofPoint[cell] = i
-					}
-				}
-			}
-		}
-	}
-	diagnostics := make([][]v6Diagnostic, len(v.cells))
 	var next, completed atomic.Int64
 	var wg sync.WaitGroup
 	var failure error
@@ -256,8 +216,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 					continue
 				}
 				var sums [v6Days][15]float64
-				var air14 [v6Days]float64
-				var fineProof [v6Days][3]float64
 				for _, pointIndex := range byCell[cell] {
 					p := v.points[pointIndex]
 					solar, err := clearsky.New(90-float64(p.fine/Width)*.25, -180+float64(p.fine%Width)*.25, 0)
@@ -283,7 +241,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 						values[14] = v6Daylight(date, p)
 						local := schedules[p.location][day][0].at
 						values[11] = max(0, (v.sample(pointIndex, 4, local.Add(11*time.Hour))-v.sample(pointIndex, 4, local))*1000)
-						var pointAir14 float64
 						for h := 0; h < 12; h++ {
 							at := schedules[p.location][day][h].at
 							temperature := v.sample(pointIndex, 0, at) - 273.15 + p.shift
@@ -291,10 +248,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 							wind := math.Hypot(v.sample(pointIndex, 2, at), v.sample(pointIndex, 3, at))
 							values[10] += dew / 12
 							values[12] += wind * 3.6 / 12
-							if h == 4 {
-								pointAir14 = temperature
-								air14[day] += temperature
-							}
 							hourEnd := at.Add(time.Hour)
 							hourIndex := hourEnd.Sub(run) / time.Hour
 							clearNormal := 0.0
@@ -340,9 +293,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 							}
 							sums[day][field] += x
 						}
-						if pointIndex == proofPoint[cell] {
-							fineProof[day] = [3]float64{pointAir14, values[11], values[12]}
-						}
 					}
 				}
 				for day := 0; day < v6Days; day++ {
@@ -351,9 +301,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 					}
 					record := v6Encode(sums[day])
 					copy(records[(cell*v6Days+day)*15:], record[:])
-					if placeIndex, ok := proofCell[cell]; ok {
-						diagnostics[cell] = append(diagnostics[cell], v6Diagnostic{places[placeIndex].name, cell, v.points[proofPoint[cell]].fine, run.AddDate(0, 0, day).Format("2006-01-02"), air14[day] / float64(len(byCell[cell])), sums[day][10], sums[day][11], sums[day][12], fineProof[day][0], fineProof[day][1], fineProof[day][2]})
-					}
 				}
 				if n := completed.Add(1); n%2000 == 0 {
 					fmt.Fprintf(log, "v6: %d/%d cells in %s\n", n, len(v.cells), time.Since(started).Round(time.Second))
@@ -369,14 +316,6 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(directory, "days.bin"), records, 0644); err != nil {
-		return err
-	}
-	var proof []v6Diagnostic
-	for _, d := range diagnostics {
-		proof = append(proof, d...)
-	}
-	body, _ := json.MarshalIndent(proof, "", "  ")
-	if err := os.WriteFile(filepath.Join(directory, "comparison.json"), body, 0644); err != nil {
 		return err
 	}
 	if err := writeV6ScoreImages(ctx, v.staticSource, directory, v.cells, records, run, log); err != nil {
@@ -395,7 +334,7 @@ func (v *v6Forecast) write(ctx context.Context, output string, run time.Time, ru
 	if previous.Run == runID {
 		pointer.PreviousRun = previous.PreviousRun
 	}
-	body, _ = json.Marshal(pointer)
+	body, _ := json.Marshal(pointer)
 	if err := os.WriteFile(pointerPath+".partial", append(body, '\n'), 0644); err != nil {
 		return err
 	}
@@ -416,4 +355,8 @@ func maxTime(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+func finite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && math.Abs(value) < 1e15
 }

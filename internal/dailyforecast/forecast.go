@@ -1,10 +1,9 @@
-// Package dailyforecast turns one ECMWF IFS run into daily map images and point records.
+// Package dailyforecast turns one ECMWF IFS run into v6 daily records and score images.
 package dailyforecast
 
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,52 +24,9 @@ const (
 	ResolutionDegrees = 0.25
 	Width             = int(360 / ResolutionDegrees)
 	Height            = int(180/ResolutionDegrees) + 1
-	PointRecordBytes  = 17
-	noData            = 255
 )
 
-var Layers = []string{"nice", "cycling", "comfort", "dry", "clear", "calm-nice", "calm-cycling"}
-var fields = []string{"2t", "2d", "tcc", "10u", "10v", "tp", "ssrd"}
-
-// PointRecord is little-endian: temperature i16 at 0, dew point i16 at 2,
-// rain u16 at 4 (all tenths); wet%, cloud%, wind km/h, gust km/h at 6..9;
-// seven scores in Layers order at 10..16. Missing records are all 0xff.
-// Missing gust alone is 255; missing signed temperatures are -1 (0xffff).
-type PointRecord struct {
-	TemperatureTenthsC int16
-	DewPointTenthsC    int16
-	RainTenthsMM       uint16
-	WetPercent         uint8
-	CloudPercent       uint8
-	WindKPH            uint8
-	GustKPH            uint8
-	Scores             [7]uint8
-}
-
-type Grid struct {
-	Width        int     `json:"width"`
-	Height       int     `json:"height"`
-	West         float64 `json:"west"`
-	North        float64 `json:"north"`
-	Resolution   float64 `json:"resolution"`
-	Registration string  `json:"registration"`
-	RowOrder     string  `json:"rowOrder"`
-}
-
-type Manifest struct {
-	RunID            string    `json:"runId"`
-	RunTime          time.Time `json:"runTime"`
-	Grid             Grid      `json:"grid"`
-	Dates            []string  `json:"dates"`
-	Layers           []string  `json:"layers"`
-	Profiles         []string  `json:"profiles"`
-	PointRecordBytes int       `json:"pointRecordBytes"`
-	NoData           int       `json:"noData"`
-	Daytime          string    `json:"daytime"`
-	BoundaryDates    string    `json:"boundaryDates"`
-	Gust             string    `json:"gust"`
-	ValidLandCells   []int     `json:"validLandCells"`
-}
+var fields = ifs.RequiredSurfaceFields()
 
 type Report struct {
 	RunID           string
@@ -105,13 +61,8 @@ func (transport *forecastTransport) Do(request *http.Request) (*http.Response, e
 	return response, err
 }
 
-// Build writes a fresh forecast/<run-id> directory. A failed run is not published:
-// manifest.json is written only after every image and point file is complete.
-func Build(ctx context.Context, outputDirectory string, log io.Writer) (Report, error) {
-	return BuildWithV6(ctx, outputDirectory, "", log)
-}
-
-func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log io.Writer) (Report, error) {
+// Build writes a fresh v6/forecast/<run-id> directory and switches the local pointer last.
+func Build(ctx context.Context, outputDirectory, staticSource string, log io.Writer) (Report, error) {
 	started := time.Now()
 	if log == nil {
 		log = io.Discard
@@ -122,20 +73,16 @@ func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log 
 	httpTransport.Protocols.SetHTTP1(true)
 	transport := &forecastTransport{client: &http.Client{Transport: httpTransport, Timeout: 2 * time.Minute}}
 	client := ifs.NewClient(transport)
-	var v6 *v6Forecast
-	var err error
-	if staticSource != "" {
-		v6, err = loadV6Static(ctx, staticSource)
-		if err != nil {
-			return Report{}, err
-		}
+	v6, err := loadV6Static(ctx, staticSource)
+	if err != nil {
+		return Report{}, err
 	}
-	run, err := latestRunForCycle(ctx, client, v6 != nil)
+	run, err := latestRun(ctx, client)
 	if err != nil {
 		return Report{}, err
 	}
 	report := Report{RunID: run.Time.Format("20060102T1504Z"), RunTime: run.Time}
-	report.Directory = filepath.Join(outputDirectory, "forecast", report.RunID)
+	report.Directory = filepath.Join(outputDirectory, "v6", "forecast", report.RunID)
 	if err = os.MkdirAll(filepath.Dir(report.Directory), 0755); err != nil {
 		return report, err
 	}
@@ -143,29 +90,10 @@ func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log 
 		return report, fmt.Errorf("create fresh run directory (choose a fresh --out when rerunning): %w", err)
 	}
 	fmt.Fprintf(log, "IFS run %s; grid %dx%d at %.2f°\n", run.Time.Format(time.RFC3339), Width, Height, ResolutionDegrees)
-	land, err := landCells()
-	if err != nil {
-		return report, err
-	}
-	groups, err := timezoneGroups(land)
-	if err != nil {
-		return report, err
-	}
-	fmt.Fprintf(log, "land cells %d; civil time zones %d\n", len(land), len(groups))
-	date := time.Date(run.Time.Year(), run.Time.Month(), run.Time.Day(), 0, 0, 0, 0, time.UTC)
-	dates := make([]time.Time, 15)
-	for day := range dates {
-		dates[day] = date.AddDate(0, 0, day)
-		report.Dates = append(report.Dates, dates[day].Format("2006-01-02"))
-	}
-	accumulators := make([][]dayAccumulator, len(dates))
-	for day := range dates {
-		accumulators[day] = make([]dayAccumulator, len(land))
+	for day := range v6Days {
+		report.Dates = append(report.Dates, run.Time.AddDate(0, 0, day).Format("2006-01-02"))
 	}
 	steps, _ := ifs.ForecastSteps(run)
-	var priorRain []float32
-	var previousEnd time.Time
-	adjustments := rainAdjustments{}
 	for firstStepIndex := 0; firstStepIndex < len(steps); firstStepIndex += 2 {
 		if err = ctx.Err(); err != nil {
 			return report, err
@@ -191,61 +119,16 @@ func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log 
 			stepIndex := firstStepIndex + slot
 			frames := results[slot].frames
 			end := run.Time.Add(time.Duration(steps[stepIndex]) * time.Hour)
-			if stepIndex > 0 {
-				accumulateInterval(dates, groups, land, accumulators, frames, priorRain, &adjustments, previousEnd, end)
-			}
-			if v6 != nil {
-				v6.addFrame(end, frames)
-			}
-			priorRain = frames[5]
-			previousEnd = end
+			v6.addFrame(end, frames)
 			if stepIndex%10 == 0 || stepIndex == len(steps)-1 {
 				fmt.Fprintf(log, "downloaded and decoded %d/%d steps; %.1f MB received\n", stepIndex+1, len(steps), float64(transport.bytes.Load())/1e6)
 			}
 		}
 	}
-	fmt.Fprintf(log, "cumulative rain: %d negative adjustments; largest deficit %.6f mm\n", adjustments.count, adjustments.largestDeficitMM)
-	manifest := Manifest{RunID: report.RunID, RunTime: run.Time, Grid: Grid{Width, Height, -180, 90, ResolutionDegrees, "grid-point", "north-to-south"}, Dates: report.Dates, Layers: Layers, Profiles: []string{"nice", "cycling"}, PointRecordBytes: PointRecordBytes, NoData: noData, Daytime: "10:00–20:00 IANA civil local time; requires the complete 10-hour window", BoundaryDates: "Cells without a complete daytime window at run boundaries are missing.", Gust: "Unavailable: IFS open-data gusts cover only one hour per 3/6-hour output interval, not a complete daytime maximum."}
-	counts := [2][]byte{make([]byte, Width*Height), make([]byte, Width*Height)}
-	completeDays := make([]byte, Width*Height)
-	for profile := range counts {
-		for cell := range counts[profile] {
-			counts[profile][cell] = noData
-		}
-	}
-	for day := range dates {
-		valid, writeErr := writeDay(report.Directory, report.Dates[day], land, accumulators[day], counts, completeDays)
-		if writeErr != nil {
-			return report, writeErr
-		}
-		manifest.ValidLandCells = append(manifest.ValidLandCells, valid)
-		fmt.Fprintf(log, "%s: %d/%d land cells with complete daytime\n", report.Dates[day], valid, len(land))
-		accumulators[day] = nil
-	}
-	// A partial run-boundary day is missing, never silently counted as bad weather.
-	for _, cell := range land {
-		if completeDays[cell] == 0 {
-			counts[0][cell] = noData
-			counts[1][cell] = noData
-		}
-	}
-	if err = os.Mkdir(filepath.Join(report.Directory, "fortnight"), 0755); err != nil {
+	if err = v6.write(ctx, outputDirectory, run.Time, report.RunID, log); err != nil {
 		return report, err
 	}
-	for profile, name := range manifest.Profiles {
-		if err = writePNG(filepath.Join(report.Directory, "fortnight", name+".png"), counts[profile]); err != nil {
-			return report, err
-		}
-	}
-	if v6 != nil {
-		if err = v6.write(ctx, outputDirectory, run.Time, report.RunID, log); err != nil {
-			return report, err
-		}
-	}
-	encoded, _ := json.MarshalIndent(manifest, "", "  ")
-	if err = os.WriteFile(filepath.Join(report.Directory, "manifest.json"), append(encoded, '\n'), 0644); err != nil {
-		return report, err
-	}
+
 	err = filepath.WalkDir(report.Directory, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -261,36 +144,21 @@ func BuildWithV6(ctx context.Context, outputDirectory, staticSource string, log 
 		report.OutputBytes += info.Size()
 		return nil
 	})
-	if v6 != nil {
-		v6Directory := filepath.Join(outputDirectory, "v6", "forecast", report.RunID)
-		paths := []string{filepath.Join(v6Directory, "days.bin"), filepath.Join(v6Directory, "comparison.json"), filepath.Join(filepath.Dir(v6Directory), "current.json")}
-		for _, name := range v6ScoreImageNames() {
-			paths = append(paths, filepath.Join(v6Directory, name))
-		}
-		for _, path := range paths {
-			info, statErr := os.Stat(path)
-			if statErr != nil {
-				return report, statErr
-			}
-			report.OutputFiles++
-			report.OutputBytes += info.Size()
-		}
+	pointerInfo, statErr := os.Stat(filepath.Join(filepath.Dir(report.Directory), "current.json"))
+	if statErr != nil {
+		return report, statErr
 	}
+	report.OutputFiles++
+	report.OutputBytes += pointerInfo.Size()
+
 	report.DownloadedBytes = transport.bytes.Load()
 	report.Elapsed = time.Since(started)
 	return report, err
 }
 
 func latestRun(ctx context.Context, client *ifs.Client) (ifs.Run, error) {
-	return latestRunForCycle(ctx, client, false)
-}
-
-func latestRunForCycle(ctx context.Context, client *ifs.Client, midnightOnly bool) (ifs.Run, error) {
 	now := time.Now().UTC()
-	candidate := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()/12*12, 0, 0, 0, time.UTC)
-	if midnightOnly {
-		candidate = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	}
+	candidate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	for attempt := 0; attempt < 8; attempt++ {
 		run := ifs.Run{Time: candidate}
 		messages, err := client.FetchIndex(ctx, run, 360)
@@ -319,11 +187,7 @@ func latestRunForCycle(ctx context.Context, client *ifs.Client, midnightOnly boo
 				return ifs.Run{}, err
 			}
 		}
-		if midnightOnly {
-			candidate = candidate.Add(-24 * time.Hour)
-		} else {
-			candidate = candidate.Add(-12 * time.Hour)
-		}
+		candidate = candidate.Add(-24 * time.Hour)
 	}
 	return ifs.Run{}, errors.New("no complete IFS run found in the lookback window")
 }

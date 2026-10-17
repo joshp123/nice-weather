@@ -2,11 +2,7 @@ module nice-weather-finder
 
 go 1.25.0
 
-require (
-	github.com/klauspost/compress v1.18.4
-	github.com/ringsaturn/tzf v1.2.0
-	github.com/tetratelabs/wazero v1.10.1
-)
+require github.com/ringsaturn/tzf v1.2.0
 
 require (
 	github.com/paulmach/orb v0.13.0 // indirect

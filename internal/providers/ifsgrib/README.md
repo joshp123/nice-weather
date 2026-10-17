@@ -10,10 +10,4 @@ Verification performed on 2026-10-16 used the six fields `2t`, `2d`, `tcc`, `10u
 https://storage.googleapis.com/ecmwf-open-data/20261016/00z/ifs/0p25/oper/20261016000000-<step>h-oper-fc.grib2
 ```
 
-All 31,147,200 values across the 30 messages were exactly equal to ecCodes doubles, with zero tolerance and zero differences. This includes constant initial rain (zero bits), 8-bit cloud, 12-bit temperatures and wind, and 16-bit rain. The development command runs ecCodes independently and compares every sample:
-
-```
-go run ./cmd/compare-ifs-grib path/to/*.grib2
-```
-
-The previous ecCodes-repack/GDAL pipeline was also run for the six step-3 fields. All 6,229,440 float32 values matched the new decoder's float32 conversion in the same cell order, with zero differences. Scoring and point serialization are unchanged.
+All 31,147,200 values across the 30 messages were exactly equal to ecCodes doubles, with zero tolerance and zero differences. This includes constant initial rain (zero bits), 8-bit cloud, 12-bit temperatures and wind, and 16-bit rain.

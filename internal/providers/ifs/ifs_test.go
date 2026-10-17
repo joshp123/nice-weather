@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +30,7 @@ func TestForecastStepsUseOnlyCompleteLongRangeCycles(t *testing.T) {
 func TestRequiredFieldsReturnCopyAndExcludeSparseGust(t *testing.T) {
 	fields := RequiredSurfaceFields()
 	fields[0] = "changed"
-	if got := RequiredSurfaceFields(); len(got) != 7 || got[6] != "ssrd" {
+	if got := RequiredSurfaceFields(); len(got) != 6 || got[5] != "ssrd" {
 		t.Fatalf("fields = %v", got)
 	}
 }
@@ -76,7 +75,7 @@ func TestParseIndexRequiresEverySelectedField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 7 || messages["ssrd"].Length() != 20 {
+	if len(messages) != 6 || messages["ssrd"].Length() != 20 {
 		t.Fatalf("messages = %v", messages)
 	}
 
@@ -122,166 +121,6 @@ func TestFetchIndexBindsSelectedRowsToRequestedRunAndStep(t *testing.T) {
 				t.Fatalf("error = %v", err)
 			}
 		})
-	}
-}
-
-func TestDiscoverLatestCompleteWorldwideUsesOnlyTwelveUTC(t *testing.T) {
-	var paths []string
-	client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
-		paths = append(paths, request.URL.Path)
-		if strings.Contains(request.URL.Path, "/20260719/12z/") {
-			return response(http.StatusNotFound, "", nil), nil
-		}
-		if request.Method == http.MethodHead {
-			resp := response(http.StatusOK, "", nil)
-			resp.ContentLength = 200
-			return resp, nil
-		}
-		return response(http.StatusOK, completeIndex(Run{Time: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}, 360, 0, 20), nil), nil
-	}))
-	client.Root = "https://example.test"
-	client.Now = func() time.Time { return time.Date(2026, 7, 19, 18, 0, 0, 0, time.UTC) }
-	run, err := client.DiscoverLatestCompleteWorldwide(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	if !run.Time.Equal(want) {
-		t.Fatalf("run = %s", run.Time)
-	}
-	if len(paths) != 3 || !strings.Contains(paths[0], "/20260719/12z/") || !strings.Contains(paths[1], "/20260718/12z/") || !strings.Contains(paths[2], "/20260718/12z/") {
-		t.Fatalf("paths = %v", paths)
-	}
-	for _, path := range paths {
-		if strings.Contains(path, "/00z/") || strings.Contains(path, "/06z/") || strings.Contains(path, "/18z/") {
-			t.Fatalf("non-worldwide cycle probed: %s", path)
-		}
-	}
-}
-
-func TestLatestWorldwideCycleHandlesPublicationBoundaryAndCalendarRollover(t *testing.T) {
-	tests := []struct {
-		name string
-		now  time.Time
-		want time.Time
-	}{
-		{name: "before publication", now: time.Date(2027, 1, 1, 11, 59, 59, 0, time.UTC), want: time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)},
-		{name: "at publication", now: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC), want: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)},
-		{name: "after publication", now: time.Date(2027, 1, 2, 3, 0, 0, 0, time.FixedZone("UTC+14", 14*60*60)), want: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := latestWorldwideCycle(test.now); !got.Equal(test.want) {
-				t.Fatalf("latest cycle = %s, want %s", got, test.want)
-			}
-		})
-	}
-}
-
-func TestDiscoveryStopsAfterTheConfiguredTwelveUTCLookback(t *testing.T) {
-	var paths []string
-	client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
-		paths = append(paths, request.URL.Path)
-		return response(http.StatusNotFound, "", nil), nil
-	}))
-	client.Root = "https://example.test"
-	client.Now = func() time.Time { return time.Date(2026, 7, 19, 11, 0, 0, 0, time.UTC) }
-	client.RunLookback = 3
-	_, err := client.DiscoverLatestCompleteWorldwide(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "in 3 days") {
-		t.Fatalf("bounded discovery error = %v", err)
-	}
-	wantDates := []string{"/20260718/12z/", "/20260717/12z/", "/20260716/12z/"}
-	if len(paths) != len(wantDates) {
-		t.Fatalf("requests = %v", paths)
-	}
-	for index, want := range wantDates {
-		if !strings.Contains(paths[index], want) {
-			t.Fatalf("request %d = %s, want %s", index, paths[index], want)
-		}
-	}
-}
-
-func TestDiscoveryFailsClosedOnFatalIndexErrors(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		do   doerFunc
-	}{
-		{name: "forbidden", do: statusDoer(http.StatusForbidden)},
-		{name: "rate limited", do: statusDoer(http.StatusTooManyRequests)},
-		{name: "server error", do: statusDoer(http.StatusInternalServerError)},
-		{name: "transport", do: func(*http.Request) (*http.Response, error) { return nil, errors.New("network down") }},
-		{name: "malformed", do: func(*http.Request) (*http.Response, error) { return response(http.StatusOK, "{", nil), nil }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			requests := 0
-			client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
-				requests++
-				return test.do(request)
-			}))
-			client.Root = "https://example.test"
-			client.Now = func() time.Time { return runAt(12).Time }
-			if _, err := client.DiscoverLatestCompleteWorldwide(context.Background()); err == nil {
-				t.Fatal("expected error")
-			}
-			if requests != 1 {
-				t.Fatalf("fatal failure made %d requests", requests)
-			}
-		})
-	}
-}
-
-func TestDiscoveryRequiresGRIBCoveringSelectedRanges(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		status    int
-		length    int64
-		wantCalls int
-	}{
-		{name: "missing falls back", status: http.StatusNotFound, length: -1, wantCalls: 4},
-		{name: "short fails closed", status: http.StatusOK, length: 139, wantCalls: 2},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			calls := 0
-			client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
-				calls++
-				if request.Method == http.MethodGet {
-					run := runAt(12)
-					if strings.Contains(request.URL.Path, "/20260718/") {
-						run.Time = run.Time.AddDate(0, 0, -1)
-					}
-					return response(http.StatusOK, completeIndex(run, 360, 0, 20), nil), nil
-				}
-				resp := response(test.status, "", nil)
-				resp.ContentLength = test.length
-				return resp, nil
-			}))
-			client.Root = "https://example.test"
-			client.Now = func() time.Time { return runAt(12).Time }
-			client.RunLookback = 2
-			if _, err := client.DiscoverLatestCompleteWorldwide(context.Background()); err == nil {
-				t.Fatal("expected error")
-			}
-			if calls != test.wantCalls {
-				t.Fatalf("calls = %d, want %d", calls, test.wantCalls)
-			}
-		})
-	}
-}
-
-func TestDiscoveryPreservesTypedHeadStatus(t *testing.T) {
-	client := NewClient(doerFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Method == http.MethodGet {
-			return response(http.StatusOK, completeIndex(runAt(12), 360, 0, 20), nil), nil
-		}
-		return response(http.StatusServiceUnavailable, "", http.Header{"Retry-After": {"11"}}), nil
-	}))
-	client.Root = "https://example.test"
-	client.Now = func() time.Time { return runAt(12).Time }
-	_, err := client.DiscoverLatestCompleteWorldwide(context.Background())
-	var status *HTTPStatusError
-	if !errors.As(err, &status) || status.StatusCode != http.StatusServiceUnavailable || status.RetryAfter != "11" {
-		t.Fatalf("status error = %#v (%v)", status, err)
 	}
 }
 
@@ -498,39 +337,6 @@ func TestDownloadPreservesDestinationForInvalidGRIB2Envelope(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestLiveOpenDataCanary(t *testing.T) {
-	if os.Getenv("NICEWEATHER_LIVE_IFS") != "1" {
-		t.Skip("set NICEWEATHER_LIVE_IFS=1 for the bounded ECMWF open-data canary")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	client := NewClient(&http.Client{Timeout: 90 * time.Second})
-	run, err := client.DiscoverLatestCompleteWorldwide(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	messages, err := client.FetchIndex(ctx, run, 360)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var totalBytes int64
-	for _, field := range RequiredSurfaceFields() {
-		message := messages[field]
-		if message.Length() <= 0 {
-			t.Fatalf("field %s is absent", field)
-		}
-		var body bytes.Buffer
-		if err := client.DownloadIndexedMessage(ctx, run, 360, message, &body); err != nil {
-			t.Fatalf("download %s: %v", field, err)
-		}
-		if body.Len() != int(message.Length()) {
-			t.Fatalf("%s bytes = %d, want %d", field, body.Len(), message.Length())
-		}
-		totalBytes += message.Length()
-	}
-	t.Logf("run=%s step=360 fields=%v exact_range_bytes=%d", run.Time.Format(time.RFC3339), RequiredSurfaceFields(), totalBytes)
 }
 
 func completeIndex(run Run, step int, start, length int64) string {

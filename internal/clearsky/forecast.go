@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const radians = math.Pi / 180
+
 // ForecastHour reuses NOAA solar geometry across all forecast points.
 type ForecastHour struct {
 	ending  time.Time
