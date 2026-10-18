@@ -7,9 +7,9 @@ import {parseArgs} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {createFinePlaceLoader,placeNumbers} from '../../hosting/sites/fine-place.mjs';
 import {fitNamedSunshine,sunshineCoordinateKey} from './named_correction.mjs';
-const {values}=parseArgs({options:{targets:{type:'string'},normal:{type:'string'},native:{type:'string'},tiles:{type:'string'},output:{type:'string'},python:{type:'string'}}});
+const {values}=parseArgs({options:{targets:{type:'string'},normal:{type:'string'},native:{type:'string'},tiles:{type:'string'},output:{type:'string'},python:{type:'string'},'goes-root':{type:'string'}}});
 for(const key of ['targets','normal','native','tiles','output','python'])if(!values[key])throw Error(`Missing --${key}`);
-const targets=JSON.parse(await fs.readFile(values.targets)),normal=JSON.parse(await fs.readFile(path.join(values.normal,'summary.json')));
+const targets=JSON.parse(await fs.readFile(values.targets)),normal=JSON.parse(await fs.readFile(values['goes-root']?values.normal:path.join(values.normal,'summary.json')));
 const indexed=new Map(targets.records.map(place=>[sunshineCoordinateKey(place.latitude,place.longitude),place]));
 const manifest=JSON.parse(await fs.readFile(path.join(values.native,'manifest.json')));
 const loader=createFinePlaceLoader(async key=>{
@@ -20,7 +20,7 @@ const loader=createFinePlaceLoader(async key=>{
 const inputs=[];
 for(const control of normal.places){
   const place=control.place,packet=await loader.load(place.latitude,place.longitude);if(!packet)throw Error('Missing replay '+place.slug);
-  inputs.push({place,packet,query:{slug:place.slug,raw:path.join(values.normal,place.slug.replace('/','-')+'-2005-2023.json'),timezone:packet.replay.targetTimezone,dates:packet.replay.dates}});
+  inputs.push({place,packet,query:{slug:place.slug,raw:path.join(values.normal,place.slug.replace('/','-')+'-2005-2023.json'),...(values['goes-root']?{goesRoot:values['goes-root'],latitude:place.latitude,longitude:place.longitude}:{}),timezone:packet.replay.targetTimezone,dates:packet.replay.dates}});
 }
 const days=JSON.parse(execFileSync(values.python,[fileURLToPath(new URL('./named_satellite_days.py',import.meta.url))],{input:JSON.stringify(inputs.map(row=>row.query)),maxBuffer:10*1024*1024}));
 const result=[],fields=['score','niceDayCount','perfectDayCount'];
@@ -33,7 +33,7 @@ for(const input of inputs){
   const radiationWarmthOnly={...after,sunshine:after.sunshine.map(month=>month?{...month,sunnyShareOffset:0}:null)};
   const additive={...sunFactorOnly,replay:{...sunFactorOnly.replay,sunC:Array.from(sunFactorOnly.replay.sunC)}};
   const additiveTargets=[];
-  for(let month=0;month<12;month++)for(let hour=0;hour<12;hour++){
+  for(let month=0;!values['goes-root']&&month<12;month++)for(let hour=0;hour<12;hour++){
     const indices=packet.replay.selectedIndices.filter(index=>Number(packet.replay.dates[index].slice(5,7))===month+1);
     const native=indices.map(index=>{
       const at=index*12+hour,air=packet.replay.airC[at],dew=Math.min(air,packet.replay.dewC[at]),vapour=6.105*Math.exp(17.27*dew/(237.7+dew));
@@ -63,11 +63,12 @@ for(const input of inputs){
       reference.replay.sunC[at]=packet.replay.shadeC[at]+.105*hourly[hour]/(wind+10);
     }
   }
-  const periods=[{kind:'year'},...Array.from({length:12},(_,month)=>({kind:'month',month:month+1}))];
-  const scenarios=Object.fromEntries(Object.entries({before,after,reference,sunFactorOnly,radiationWarmthOnly,additive}).map(([name,packet])=>[name,periods.map(period=>placeNumbers(packet,period))]));
-  const errors=Object.fromEntries(['before','after','additive'].map(name=>[name,Object.fromEntries(fields.map(field=>[field,scenarios[name].slice(1).reduce((sum,row,index)=>sum+Math.abs(row[field]-scenarios.reference[index+1][field]),0)/12]))]));
-  result.push({place,retainedSamples:selected.length,excludedSamples:packet.replay.selectedIndices.length-selected.length,retainedDates:selected.map(index=>packet.replay.dates[index]),excludedDates:packet.replay.selectedIndices.filter(index=>!satellite.days[index]).map(index=>packet.replay.dates[index]),scenarios,monthlyMeanAbsoluteErrors:errors,additiveTargets});
+  const monthlyRetainedSamples=Array.from({length:12},(_,month)=>selected.filter(index=>Number(packet.replay.dates[index].slice(5,7))===month+1).length),availableMonths=monthlyRetainedSamples.flatMap((count,index)=>count?[index+1]:[]);
+  const periods=[{months:availableMonths},...Array.from({length:12},(_,month)=>monthlyRetainedSamples[month]?{kind:'month',month:month+1}:null)];
+  const scenarios=Object.fromEntries(Object.entries({before,after,reference,sunFactorOnly,radiationWarmthOnly,...(!values['goes-root']?{additive}:{})}).map(([name,packet])=>[name,periods.map(period=>period?placeNumbers(packet,period):null)]));
+  const errors=Object.fromEntries(['before','after',...(!values['goes-root']?['additive']:[])].map(name=>[name,Object.fromEntries(fields.map(field=>[field,availableMonths.reduce((sum,month)=>sum+Math.abs(scenarios[name][month][field]-scenarios.reference[month][field]),0)/availableMonths.length]))]));
+  result.push({place,retainedSamples:selected.length,excludedSamples:packet.replay.selectedIndices.length-selected.length,monthlyRetainedSamples,availableMonths,annualCoversAllMonths:availableMonths.length===12,retainedDates:selected.map(index=>packet.replay.dates[index]),excludedDates:packet.replay.selectedIndices.filter(index=>!satellite.days[index]).map(index=>packet.replay.dates[index]),scenarios,monthlyMeanAbsoluteErrors:errors,additiveTargets});
 }
-const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',purpose:'Radiation diagnostic, not a full observed-day weather validation. At each retained ERA5 representative date, substitute exact-date satellite DNI and its sunny-hour threshold while keeping temperature anchors, native shade weather, humidity, rain and wind. Missing satellite2024dates are excluded identically from all scenarios; remaining samples are reweighted within month through the shared function. The satellite day-by-day cloud and weather relationship can differ from ERA5 and cannot be reconstructed by a monthly correction.',places:result};
+const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',purpose:'Radiation diagnostic, not a full observed-day weather validation. At each retained ERA5 representative date, substitute exact-date satellite DNI and its sunny-hour threshold while keeping temperature anchors, native shade weather, humidity, rain and wind. Unavailable satellite dates are excluded identically from all scenarios; remaining samples are reweighted within month through the shared function. Annual aggregates cover only months with retained samples; the monthly sample counts are explicit. The satellite day-by-day cloud and weather relationship can differ from ERA5 and cannot be reconstructed by a monthly correction.',places:result};
 await fs.writeFile(values.output,JSON.stringify(report,null,2)+'\n');
-console.log(JSON.stringify(result.map(row=>({name:row.place.validationName,samples:row.retainedSamples,annual:Object.fromEntries(Object.entries(row.scenarios).map(([name,values])=>[name,fields.map(field=>values[0][field])])),monthlyMeanAbsoluteErrors:row.monthlyMeanAbsoluteErrors})),null,2));
+console.log(JSON.stringify(result.map(row=>({name:row.place.validationName,samples:row.retainedSamples,availableMonths:row.availableMonths,aggregateDays:row.scenarios.before[0].totalDays,aggregate:Object.fromEntries(Object.entries(row.scenarios).map(([name,values])=>[name,fields.map(field=>values[0][field])])),monthlyMeanAbsoluteErrors:row.monthlyMeanAbsoluteErrors})),null,2));

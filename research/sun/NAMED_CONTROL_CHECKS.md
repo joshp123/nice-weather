@@ -25,6 +25,23 @@ Evidence: SSD `sun/named-validation/goes-two-year-normal.json`, `goes-{tmy,tdy}-
 
 Iquique also has long-period TMY coverage at the northern domain's southern edge. Against its cached 2022/2024 full-disc observations, the final TMY improves monthly sunshine error from 32.77 to 15.64 percentage points and direct-radiation error from 235.2 to 113.7 W/m². That large remaining difference limits confidence in its exact monthly correction. Antofagasta and Valparaíso fall outside that TMY domain and use the two full-disc years themselves. Independent integration reproduces their fitted monthly means; this is a transport/calculation check, not withheld validation of a two-year climatology. Evidence: SSD `sun/named-validation/goes-six-final-accuracy.json` and `goes-six-two-year-normal.json`.
 
+## Americas: exact-date score and count diagnostic
+
+The cached complete GOES 2022/2024 arrays also allow an exact-date radiation substitution on the ERA5 representative days. This exposes additional count regressions despite improved monthly satellite means. All scenarios use identical available dates and the shared place function. There are only 25–33 samples per city, some months have one or two, and **all cities lack October–December samples**: the currently assembled native chunks selected those months in other years. Aggregates therefore cover January–September's 273 days, not a whole year. They cannot be presented as annual observed-weather validation.
+
+| Monthly mean absolute error | Score before → after | Nice days before → after | Perfect days before → after |
+| --- | --- | --- | --- |
+| Lima | 21.39 → 10.42 | 8.56 → 2.78 | 9.89 → 6.22 |
+| Antofagasta | 6.78 → 4.28 | 3.78 → 2.56 | 0.67 → 2.11 |
+| Iquique | 10.42 → 7.06 | 5.78 → 3.67 | 1.33 → 1.89 |
+| Valparaíso | 1.57 → 1.48 | 0.89 → 0.89 | 1.11 → 0.00 |
+| San Francisco | 4.08 → 7.14 | 1.11 → 3.44 | 1.89 → 3.67 |
+| San Diego | 2.75 → 5.00 | 1.67 → 3.22 | 2.67 → 4.44 |
+
+San Francisco's January–September nice-day count moves 190 → 169 against an exact-date reference of 200; its perfect count moves 86 → 71 against 82. San Diego's nice count moves 245 → 231 against 245; its perfect count moves 148 → 121 against 125. The aggregate score moves closer at both cities, but monthly score errors and threshold counts do not. Antofagasta and Iquique also have worse aggregate score errors despite closer monthly scores. These results do **not** support the requested universal no-regression gate for places that are right today.
+
+This diagnostic retains the accepted temperature anchors and native rain, humidity and wind. Exact-date cloud and weather relationships can differ from the native ERA5 sequence; monthly mean matching cannot restore them. Two observed years and different 2 km/4 km source pixels add uncertainty. No source-specific or city-specific exception was fitted in response, and no new network data were acquired for this diagnostic. Evidence: SSD `sun/named-validation/goes-six-exact-day-diagnostic.json`. Rerun `named_day_diagnostic.mjs` with `--normal` pointing to `goes-six-two-year-normal.json` and `--goes-root` pointing to the cached GOES directory.
+
 ## Rotterdam: the remaining count regression
 
 The exact-date radiation diagnostic substitutes satellite radiation on the retained ERA5 sample dates, while retaining the accepted temperature anchors and ERA5 rain, humidity and wind. All scenarios exclude the same seventeen samples from 2024, beyond SARAH-3's available period. Seventy-nine samples remain; they are reweighted within each month. This is a radiation diagnostic, not a complete observed-weather reference.
