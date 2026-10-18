@@ -54,22 +54,26 @@ export type EngineOptions = Readonly<{
   dataUrl?: string;
   /** Completed visible update, including clearing the default image if taste moves before records arrive. */
   onRedraw?: (timing: RedrawTiming) => void;
-  /** Fires synchronously when current-period record loading changes. Image paint may precede completion. */
+  /** Reports current-period map or selected-place loading. Default views do not load day records. */
   onLoadingChange?: (loading: boolean) => void;
 }>;
 export interface WeatherEngine {
   /** Add once with map.addLayer(engine.layer, 'sea'), after the style loads. WebGL2 required. */
   readonly layer: CustomLayerInterface;
-  /** Current period or exact-place data are loading. Overview-map records can finish before place data. */
+  /** Current-period map or requested Worker place facts are loading. */
   readonly loading: boolean;
-  /** Cold period: paints its default score image, then loads records/offsets in the background. Cached records draw immediately without waiting for an image. Resolves after records and a frame; rejects on record failure. Latest call wins. */
+  /** Default taste loads only its precomputed map image; other tastes load the needed records. Resolves after a completed map frame. Latest call wins. */
   setPeriod(period: Period): Promise<void>;
-  /** Reuses loaded data. Resolves after a frame for this taste; while records load a changed taste clears the default image and waits. Before the first period, stores taste and resolves immediately. */
+  /** Loads records on demand for a changed taste, then resolves after its frame. Resetting to default uses the image. Before the first period, stores taste and resolves immediately. */
   setTaste(taste: Taste): Promise<RedrawTiming>;
-  /** Load the year for the dial without changing the visible map. */
+  /** Default dials use named data; a changed taste loads year records without selecting a period. */
   prepareYear(): Promise<void>;
-  /** Synchronous; null until overview records arrive or where unavailable. At the default taste, a loaded named-place catalogue supplies that place's precomputed days; other points and tastes use the 25 km model. Other periods do not select a map period. */
+  /** Prefetch current-period records without changing the visible default map or taste. */
+  prepareTaste(): Promise<void>;
+  /** Synchronous; default named climate cards load compact facts, other current-period cards load Worker judgements. Named numbers supply other-period dials. Changed tastes use loaded overview records. Returns null while pending or unavailable. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
+  /** A named place's requested day records or card facts have not arrived yet. */
+  pointLoading(latitude: number, longitude: number, period?: Period): boolean;
   /** Scores in input order; named default-taste values are the same as the card. Other points and tastes use the 25 km field; NaN means pending or missing. */
   scorePoints(points: readonly Point[], scope?: 'all'): Float32Array;
   /** Packed nice, perfect and awful day counts for each point. */

@@ -391,7 +391,7 @@ function render(): void {
       place, details, verdict, taste: tasteFromSliders(state.sliders),
       stretchLabel: `of ${stretchLabel}`,
       homeComparison: home ? { place: home, verdict: judge(home, state.period) } : undefined,
-      regionalComparison: { place: regionalComparison(home), verdict: judge(regionalComparison(home), state.period) }, period: state.period, forecast, tasteIsDefault, loading: weatherLoading, problem: periodProblem,
+      regionalComparison: { place: regionalComparison(home), verdict: judge(regionalComparison(home), state.period) }, period: state.period, forecast, tasteIsDefault, loading: weatherLoading || engine.pointLoading(place.latitude, place.longitude), problem: periodProblem,
       dayScores: allNull(dayScores) ? null : dayScores, monthScores: allNull(monthScores) ? null : monthScores,
     }, actions));
   } else {
@@ -465,6 +465,7 @@ map.on('moveend', () => {
   rememberView();
   if (state.place && !state.place.slug) updateLink();
   if (!weatherLoading) {
+    labelCities();
     updateHeadline();
     render();
   }
