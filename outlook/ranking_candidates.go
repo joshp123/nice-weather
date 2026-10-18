@@ -47,5 +47,12 @@ func ForecastCandidates(ctx context.Context, source, placesSource, staticSource 
 	if err = inputs.judge(places); err != nil {
 		return nil, "", err
 	}
+	named, err := loadNamedForecast(ctx, source, pointer.Run)
+	if err != nil {
+		return nil, "", err
+	}
+	if named != nil {
+		named.apply(places, day)
+	}
 	return places, tomorrow.Format("2006-01-02"), nil
 }

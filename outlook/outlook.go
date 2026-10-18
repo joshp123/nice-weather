@@ -128,6 +128,13 @@ func GenerateWithStatic(ctx context.Context, source, placesSource, staticSource,
 	if err = inputs.judge(places); err != nil {
 		return nil, err
 	}
+	named, err := loadNamedForecast(ctx, source, pointer.Run)
+	if err != nil {
+		return nil, err
+	}
+	if named != nil {
+		named.apply(places, day)
+	}
 	directory := filepath.Join(out, "v6", "forecast", pointer.Run, "outlook")
 	if err = os.MkdirAll(directory, 0755); err != nil {
 		return nil, err

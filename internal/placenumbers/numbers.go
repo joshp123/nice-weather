@@ -222,7 +222,7 @@ func PlaceNumbers(p Packet, period Period, taste *Taste) (Numbers, error) {
 			left, right := decodedForecastDay(record, -15+lower*3), decodedForecastDay(record, -15+(lower+1)*3)
 			a, pa := judge(left, t)
 			b, pb := judge(right, t)
-			score := canonical(a*(1-fraction) + b*fraction)
+			score := canonical(float64(a*(1-fraction)) + float64(b*fraction))
 			parts := map[string]float64{}
 			for k, v := range pa {
 				parts[k] = v*(1-fraction) + pb[k]*fraction

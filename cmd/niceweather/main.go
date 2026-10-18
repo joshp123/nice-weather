@@ -27,6 +27,8 @@ func main() {
 		err = runForecast(os.Args[2:])
 	case "publish":
 		err = runPublish(os.Args[2:])
+	case "named-forecast":
+		err = runNamedForecast(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q; use forecast or publish", os.Args[1])
 	}
@@ -59,6 +61,11 @@ func runForecast(arguments []string) error {
 	fmt.Printf("forecast: %s; %d days; downloaded %d bytes; wrote %d files / %d bytes; %s; %s\n",
 		report.RunTime.Format(time.RFC3339), len(report.Dates), report.DownloadedBytes,
 		report.OutputFiles, report.OutputBytes, report.Elapsed.Round(time.Millisecond), report.Directory)
+	namedFile, namedBytes, err := outlook.BuildNamedForecast(ctx, *out, *placesSource, *v6Static, *out)
+	if err != nil {
+		return fmt.Errorf("named forecast: %w", err)
+	}
+	fmt.Printf("named forecast: %d bytes; %s\n", namedBytes, namedFile)
 	outlooks, err := outlook.GenerateWithStatic(ctx, *out, *placesSource, *v6Static, *out, time.Now())
 	if err != nil {
 		return fmt.Errorf("daily outlook: %w", err)
@@ -119,5 +126,24 @@ func publishForecast(ctx context.Context, directory, site, token string) error {
 	}
 
 	fmt.Printf("published: %s; %d files / %d bytes; %s\n", report.RunID, report.Files, report.Bytes, report.Elapsed.Round(time.Millisecond))
+	return nil
+}
+
+func runNamedForecast(arguments []string) error {
+	flags := flag.NewFlagSet("named-forecast", flag.ContinueOnError)
+	source := flags.String("source", "./artifacts", "completed forecast artifact root")
+	places := flags.String("places-source", "https://nice.jjpcodes.com/data", "place catalogue root")
+	static := flags.String("v6-static", "https://nice.jjpcodes.com/data/v6", "v6 static root")
+	out := flags.String("out", "./artifacts", "output artifact root")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	filename, bytes, err := outlook.BuildNamedForecast(ctx, *source, *places, *static, *out)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("named forecast: %d bytes; %s\n", bytes, filename)
 	return nil
 }

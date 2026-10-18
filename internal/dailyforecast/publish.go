@@ -50,6 +50,11 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 	}
 	paths := append([]string{"days.bin"}, v6ScoreImageNames()...)
 	paths = append(paths, outlook.FileNames()...)
+	if _, statErr := os.Stat(filepath.Join(directory, "named.bin.gz")); statErr == nil {
+		paths = append(paths, "named.bin.gz")
+	} else if !os.IsNotExist(statErr) {
+		return report, statErr
+	}
 	bodies := make([][]byte, len(paths))
 	for index, name := range paths {
 		body, readErr := os.ReadFile(filepath.Join(directory, name))

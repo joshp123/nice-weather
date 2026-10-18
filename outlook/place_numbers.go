@@ -52,32 +52,42 @@ func loadForecastPlaceInputs(ctx context.Context, source, staticSource string, p
 	}
 	return forecastPlaceInputs{records: records, offsets: offsets, ordinals: placenumbers.CellOrdinals(pairs), days: pointer.Days, day: day}, nil
 }
+func (inputs forecastPlaceInputs) numbers(latitude, longitude float64, cached map[int]placenumbers.Numbers) (placenumbers.Numbers, bool, error) {
+	footprint := placenumbers.MapPointWeights(latitude, longitude, func(index int) bool { return inputs.offsets.Pix[index] != 255 })
+	if len(footprint) == 0 {
+		return placenumbers.Numbers{}, false, nil
+	}
+	points := make([]placenumbers.WeightedNumbers, 0, len(footprint))
+	for _, point := range footprint {
+		numbers, found := cached[point.Index]
+		if !found {
+			row, column := point.Index/gridWidth, point.Index%gridWidth
+			cell := inputs.ordinals[min(row/4, 179)*360+column/4]
+			at := (cell*inputs.days + inputs.day) * 15
+			packet := placenumbers.Packet{Source: "forecast", Records: [][]byte{inputs.records[at : at+15]}, OffsetsC: []float64{(float64(inputs.offsets.Pix[point.Index]) - 128) / 10}, Weights: []float64{1}}
+			var err error
+			numbers, err = placenumbers.PlaceNumbers(packet, placenumbers.Period{TotalDays: 1}, nil)
+			if err != nil {
+				return placenumbers.Numbers{}, false, err
+			}
+			cached[point.Index] = numbers
+		}
+		points = append(points, placenumbers.WeightedNumbers{Numbers: numbers, Weight: point.Weight})
+	}
+	return placenumbers.BlendPlaceNumbers(points), true, nil
+}
+
 func (inputs forecastPlaceInputs) judge(places []Place) error {
 	cached := make(map[int]placenumbers.Numbers)
 	for i := range places {
 		place := &places[i]
-		footprint := placenumbers.MapPointWeights(place.Latitude, place.Longitude, func(index int) bool { return inputs.offsets.Pix[index] != 255 })
-		if len(footprint) == 0 {
+		numbers, available, err := inputs.numbers(place.Latitude, place.Longitude, cached)
+		if err != nil {
+			return err
+		}
+		if !available {
 			return fmt.Errorf("forecast place %s has no map footprint", place.Name)
 		}
-		points := make([]placenumbers.WeightedNumbers, 0, len(footprint))
-		for _, point := range footprint {
-			numbers, found := cached[point.Index]
-			if !found {
-				row, column := point.Index/gridWidth, point.Index%gridWidth
-				cell := inputs.ordinals[min(row/4, 179)*360+column/4]
-				at := (cell*inputs.days + inputs.day) * 15
-				packet := placenumbers.Packet{Source: "forecast", Records: [][]byte{inputs.records[at : at+15]}, OffsetsC: []float64{(float64(inputs.offsets.Pix[point.Index]) - 128) / 10}, Weights: []float64{1}}
-				var err error
-				numbers, err = placenumbers.PlaceNumbers(packet, placenumbers.Period{TotalDays: 1}, nil)
-				if err != nil {
-					return err
-				}
-				cached[point.Index] = numbers
-			}
-			points = append(points, placenumbers.WeightedNumbers{Numbers: numbers, Weight: point.Weight})
-		}
-		numbers := placenumbers.BlendPlaceNumbers(points)
 		place.Score = int(math.Floor(numbers.Score))
 		place.FloatScore = numbers.Score
 		place.NiceDayCount = numbers.NiceDayCount
