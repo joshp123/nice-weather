@@ -1,0 +1,131 @@
+[
+  {
+    "viewport": [
+      390,
+      844
+    ],
+    "frames": [
+      {
+        "stage": "before",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-before-390x844-light.png",
+        "coloured": 82273,
+        "total": 329160
+      },
+      {
+        "stage": "0.1",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-0.1-390x844-light.png",
+        "coloured": 82273,
+        "total": 329160,
+        "seconds": 0.18256016611121595
+      },
+      {
+        "stage": "0.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-0.5-390x844-light.png",
+        "coloured": 82273,
+        "total": 329160,
+        "seconds": 0.5371616659685969
+      },
+      {
+        "stage": "1.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-1.5-390x844-light.png",
+        "coloured": 82273,
+        "total": 329160,
+        "seconds": 1.5323781250044703
+      },
+      {
+        "stage": "4.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-4.5-390x844-light.png",
+        "coloured": 83139,
+        "total": 329160,
+        "seconds": 4.532944208011031
+      }
+    ],
+    "errors": []
+  },
+  {
+    "viewport": [
+      1512,
+      982
+    ],
+    "frames": [
+      {
+        "stage": "before",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-before-1512x982-light.png",
+        "coloured": 530846,
+        "total": 1484784
+      },
+      {
+        "stage": "0.1",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-0.1-1512x982-light.png",
+        "coloured": 530846,
+        "total": 1484784,
+        "seconds": 0.38693870906718075
+      },
+      {
+        "stage": "0.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-0.5-1512x982-light.png",
+        "coloured": 530846,
+        "total": 1484784,
+        "seconds": 0.6224474590271711
+      },
+      {
+        "stage": "1.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-1.5-1512x982-light.png",
+        "coloured": 530846,
+        "total": 1484784,
+        "seconds": 1.6048870000522584
+      },
+      {
+        "stage": "4.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-4.5-1512x982-light.png",
+        "coloured": 524439,
+        "total": 1484784,
+        "seconds": 4.625041958875954
+      }
+    ],
+    "errors": []
+  },
+  {
+    "viewport": [
+      3840,
+      1080
+    ],
+    "frames": [
+      {
+        "stage": "before",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-before-3840x1080-light.png",
+        "coloured": 877855,
+        "total": 4147200
+      },
+      {
+        "stage": "0.1",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-0.1-3840x1080-light.png",
+        "coloured": 877855,
+        "total": 4147200,
+        "seconds": 0.6303672499489039
+      },
+      {
+        "stage": "0.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-0.5-3840x1080-light.png",
+        "coloured": 877855,
+        "total": 4147200,
+        "seconds": 0.8556685000658035
+      },
+      {
+        "stage": "1.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-1.5-3840x1080-light.png",
+        "coloured": 877855,
+        "total": 4147200,
+        "seconds": 1.7198915409389883
+      },
+      {
+        "stage": "4.5",
+        "path": "/tmp/nwf-agents/round5/cold-fixes/taste-4.5-3840x1080-light.png",
+        "coloured": 861561,
+        "total": 4147200,
+        "seconds": 5.648993332870305
+      }
+    ],
+    "errors": []
+  }
+]

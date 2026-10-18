@@ -17,7 +17,7 @@
   --edge: calc(16px * var(--ui)); --inset: calc(12px * var(--ui));
   --masthead-height: calc(116px * var(--ui)); --footer-height: calc(48px * var(--ui)); --dock-height: 190px;
   --panel-width: calc(390px * var(--ui)); --list-width: calc(310px * var(--ui));
-  --picker-width: calc(440px * var(--ui)); --search-width: calc(280px * var(--ui)); --toolbar-width: calc(550px * var(--ui));
+  --picker-width: calc(440px * var(--ui)); --search-width: calc(280px * var(--ui)); --toolbar-width: calc(550px * var(--ui)); --headline-max-width: calc(900px * var(--ui)); --phone-sheet-height: 50dvh;
   --dial-size: calc(210px * var(--ui)); --dial-month-size: calc(12px * var(--ui)); --dial-count-size: calc(34px * var(--ui));
   --picker-mobile-clearance: 90px; --picker-z-index: 8; --calendar-gap: var(--space-1); --calendar-cell-height: calc(48px * var(--ui));
   --on-low-band: #fff; --on-high-band: #101820;
@@ -50,7 +50,7 @@
   --map-count-minimum-width: 24; --map-count-padding: 14; --map-count-character-width: 8; --map-count-height: 23; --map-count-font-size: 13; --map-count-stroke: .75;
   --map-count-outline: #ffffff80; --map-count-text-low: #fff; --map-count-text-high: #000;
   --map-ring-size: 44; --map-ring-radius: 12; --map-ring-outline-width: 9; --map-ring-stroke-width: 5; --map-ring-outline: #00000073; --map-ring-stroke: #fff;
-  --map-show-whole-world: 0; --map-wide-longitude: 5; --map-wide-latitude: 12; --map-wide-zoom: 2.5;
+  --map-band-edge-pixels: 1.75; --map-show-whole-world: 0; --map-wide-longitude: 5; --map-wide-latitude: 12; --map-wide-zoom: 2.5;
 }
 @media (prefers-color-scheme: light) {
   :root { --map-land: #d5d9df; --map-sea: #fbf9f4; --map-state-border: #14182017; --map-country-border: #1418203b; --map-label: #15181d; --map-label-halo: #fffffff0; --map-count-outline: #0000004d; }

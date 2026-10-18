@@ -155,6 +155,7 @@ uniform float u_grid_scale;
 uniform bool u_round_scores;
 uniform vec4 u_band_colours[6];
 uniform vec4 u_land_colour;
+uniform float u_edge_pixels;
 in vec2 v_mercator;
 out vec4 fragColour;
 ${splineFunctions}
@@ -183,7 +184,7 @@ void main() {
   }
   if (landWeight < 0.00001) discard;
   score /= landWeight;
-  float edgeWidth = max(fwidth(score), 0.02);
+  float edgeWidth = max(fwidth(score) * u_edge_pixels, 0.02);
   vec4 colour = u_band_colours[0];
   float contour = 0.0;
   float minimums[6] = float[6](${BANDS.map(band => `${band.minimum}.0`).join(',')});

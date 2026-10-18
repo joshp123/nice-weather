@@ -27,6 +27,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private scoreImage?: ScoreImage;
   private imageTexture?: WebGLTexture;
   private uploadedImage?: ScoreImage;
+  private displayedGrid?: { texture: WebGLTexture; scale: number; round: boolean };
   private gpuRevision = -1;
   private recordRequest?: Promise<{ cells: Cells; data: PeriodData }>;
   private yearRequested = false;
@@ -56,8 +57,10 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private pending: PendingFrame[] = [];
   private destroyed = false;
   private landColour: number[];
+  private edgePixels: number;
 
   constructor(private map: MapLibreMap, private options: EngineOptions) {
+    this.edgePixels = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--map-band-edge-pixels'));
     this.landColour = premultipliedRgba(`${getComputedStyle(document.documentElement).getPropertyValue('--map-land').trim()}ff`);
     const dataUrl = (options.dataUrl ?? '/data/v6').replace(/\/$/, '');
     this.source = new WeatherData(dataUrl);
@@ -270,14 +273,13 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   countPoints(points: readonly Point[], scope?: 'all'): Float32Array {
     const counts = new Float32Array(points.length * 3).fill(NaN);
-    const visible = this.isDefaultTaste() ? this.namedPointIndices(points, scope) : [];
+    const visible = this.namedPointIndices(points, scope);
     if (this.isDefaultTaste()) this.namedPlaces.prepare(visible.map(index => points[index]), this.period);
-    if (this.data && this.gl && this.gpuRevision === this.revision && this.drawnRevision === this.revision && !this.destroyed) {
-      this.readScores();
-      points.forEach((point, ordinal) => {
-        for (let kind = 0; kind < 3; kind++) counts[ordinal * 3 + kind] = readMapPoint(this.fineScoreReadback!, point.latitude, point.longitude, 4, kind + 1) * this.data!.totalDays;
-      });
-    }
+    if (this.sampler && !this.destroyed) visible.forEach(ordinal => {
+      const point = points[ordinal];
+      const verdict = this.sampler!.judge(point.latitude, point.longitude);
+      if (verdict) counts.set([verdict.niceDayCount, verdict.perfectDayCount, verdict.awfulDayCount], ordinal * 3);
+    });
     if (this.isDefaultTaste()) visible.forEach(index => {
       const point = points[index];
       const named = this.namedPlaces.numbers(point.latitude, point.longitude, this.period);
@@ -422,21 +424,15 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private render(input: CustomRenderMethodInput): void {
     if (!this.gl || !this.programs || !this.quad || this.destroyed) return;
     const image = this.isDefaultTaste() && !this.data ? this.scoreImage : undefined;
-    if (!image && (!this.cells || !this.data)) {
-      // Notify labels when a moved taste clears an already-painted image. Taste promises still wait for records.
-      if (this.scoreImage && this.drawnRevision !== this.revision) {
-        this.drawnRevision = this.revision;
-        this.completeFrame([], this.revision, this.period, this.pending[this.pending.length - 1]?.started ?? performance.now());
-      }
-      return;
-    }
+    const ready = Boolean(image || this.cells && this.data);
+    if (!ready && !this.displayedGrid) return;
     const gl = this.gl;
     const framebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT) as Int32Array;
     const states = [gl.BLEND, gl.DEPTH_TEST, gl.STENCIL_TEST, gl.SCISSOR_TEST].map(capability => [capability, gl.isEnabled(capability)] as const);
     gl.bindVertexArray(this.quad);
     for (const [capability] of states) gl.disable(capability);
-    const needsRecount = this.drawnRevision !== this.revision;
+    const needsRecount = ready && this.drawnRevision !== this.revision;
     try {
       if (this.data && this.gpuRevision !== this.revision) {
         this.recount();
@@ -458,12 +454,15 @@ export class BrowserWeatherEngine implements WeatherEngine {
       if (states.find(([capability]) => capability === gl.DEPTH_TEST)?.[1]) gl.enable(gl.DEPTH_TEST);
       const program = this.programs.map;
       gl.useProgram(program);
-      this.bindTexture(program, 'u_grid', 0, gl.TEXTURE_2D, image ? this.imageTexture! : this.fineScores!);
-      gl.uniform1f(gl.getUniformLocation(program, 'u_grid_scale'), image ? 255 : 1);
-      gl.uniform1i(gl.getUniformLocation(program, 'u_round_scores'), image ? 1 : 0);
+      if (ready) this.displayedGrid = { texture: image ? this.imageTexture! : this.fineScores!, scale: image ? 255 : 1, round: Boolean(image) };
+      const grid = this.displayedGrid!;
+      this.bindTexture(program, 'u_grid', 0, gl.TEXTURE_2D, grid.texture);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_grid_scale'), grid.scale);
+      gl.uniform1i(gl.getUniformLocation(program, 'u_round_scores'), grid.round ? 1 : 0);
       gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, input.defaultProjectionData.mainMatrix);
       gl.uniform4fv(gl.getUniformLocation(program, 'u_band_colours'), bands.flatMap(band => premultipliedRgba(band.colour)));
       gl.uniform4fv(gl.getUniformLocation(program, 'u_land_colour'), this.landColour);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_edge_pixels'), this.edgePixels);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       const centreWorld = Math.floor((this.map.getCenter().lng + 180) / 360);

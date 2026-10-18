@@ -58,7 +58,8 @@ function style(colours: MapDesign): StyleSpecification {
     version: 8,
     glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
     sources: {
-      openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
+      'world-map': { type: 'vector', url: 'https://tiles.openfreemap.org/planet', maxzoom: 1 },
+      openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet', minzoom: 3 },
       'city-scores': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       'palestine-label': { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { longitude: 34.8, latitude: 31.15 }, geometry: { type: 'Point', coordinates: [34.8, 31.15] } }] } },
       'chosen-place': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -66,9 +67,11 @@ function style(colours: MapDesign): StyleSpecification {
     },
     layers: [
       { id: 'sea-background', type: 'background', paint: { 'background-color': colours.sea } },
-      { id: 'sea', type: 'fill', source: 'openmaptiles', 'source-layer': 'water', filter: ['!=', ['get', 'brunnel'], 'tunnel'], paint: { 'fill-color': colours.sea } },
+      { id: 'sea', type: 'fill', source: 'world-map', 'source-layer': 'water', maxzoom: 3, filter: ['!=', ['get', 'brunnel'], 'tunnel'], paint: { 'fill-color': colours.sea } },
+      { id: 'detailed-sea', type: 'fill', source: 'openmaptiles', 'source-layer': 'water', minzoom: 3, filter: ['!=', ['get', 'brunnel'], 'tunnel'], paint: { 'fill-color': colours.sea } },
       { id: 'state-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', minzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 4], ['!=', ['get', 'maritime'], 1]], paint: { 'line-color': colours.state, 'line-width': colours.stateWidth } },
-      { id: 'country-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1], ['!', ['has', 'claimed_by']]], paint: { 'line-color': colours.country, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, colours.countryWidthSmall, 6, colours.countryWidthLarge] } },
+      { id: 'world-borders', type: 'line', source: 'world-map', 'source-layer': 'boundary', maxzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1], ['!', ['has', 'claimed_by']]], paint: { 'line-color': colours.country, 'line-width': colours.countryWidthSmall } },
+      { id: 'country-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', minzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1], ['!', ['has', 'claimed_by']]], paint: { 'line-color': colours.country, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, colours.countryWidthSmall, 6, colours.countryWidthLarge] } },
       { id: 'home-connection', type: 'line', source: 'home-connection', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round' }, paint: { 'line-color': colours.text, 'line-width': colours.homeLineWidth, 'line-dasharray': [colours.homeDash, colours.homeDashGap], 'line-opacity': colours.homeOpacity } },
       { id: 'home-dot', type: 'circle', source: 'home-connection', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': colours.homeRadius, 'circle-color': colours.sea, 'circle-stroke-color': colours.text, 'circle-stroke-width': colours.homeStroke } },
       {
@@ -119,6 +122,7 @@ export type WeatherMap = Readonly<{
   /** All loaded cities, independent of basemap tile requests. */
   visibleCities(): CityPoint[];
   labelCandidates(): CityPoint[];
+  labelledPlaces(): (CityPoint & { displayedNumber?: number })[];
   /** Colours nice-day counts by band; single-day views use the day's score. */
   labelCities(cities: readonly CityPoint[], scores: ArrayLike<number>, niceCounts?: ArrayLike<number>): void;
 }>;
@@ -233,6 +237,20 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
           });
         },
         visibleCities() { return cities; },
+        labelledPlaces() {
+          const seen = new Set<string>();
+          return map.queryRenderedFeatures({ layers: ['city-labels', 'chosen-place'] }).flatMap(feature => {
+            const properties = feature.properties;
+            const slug = properties.slug as string | undefined;
+            const city = cities.find(candidate => slug ? candidate.slug === slug : candidate.name === properties.name && candidate.latitude === properties.latitude && candidate.longitude === properties.longitude);
+            if (!city || seen.has(city.slug)) return [];
+            const screenPoint = map.project([city.longitude, city.latitude]);
+            const coveringElement = document.elementFromPoint(screenPoint.x, screenPoint.y);
+            if (coveringElement && !container.contains(coveringElement)) return [];
+            seen.add(city.slug);
+            return [{ ...city, displayedNumber: Number.isFinite(properties.displayedNumber) ? properties.displayedNumber : undefined }];
+          });
+        },
         labelCandidates() {
           const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(map.getZoom()) - 1))];
           return cities.filter(city => city.population >= minimumPopulation);
@@ -248,7 +266,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
                 properties: {
                   name: city.name, population: city.population, slug: city.slug, longitude: city.longitude, latitude: city.latitude,
                   ...(Number.isFinite(score) ? { score: Math.floor(score) } : {}),
-                  ...(Number.isFinite(score) && count !== undefined && Number.isFinite(count) ? { countImage: countImage(score, count) } : {}),
+                  ...(Number.isFinite(score) && count !== undefined && Number.isFinite(count) ? { countImage: countImage(score, count), displayedNumber: Math.round(count) } : {}),
                 },
                 geometry: { type: 'Point', coordinates: [city.longitude, city.latitude] },
               };
