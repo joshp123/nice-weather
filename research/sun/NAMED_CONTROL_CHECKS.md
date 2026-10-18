@@ -23,6 +23,8 @@ The two observed years are a stability check, not a long-term normal or an indep
 
 Evidence: SSD `sun/named-validation/goes-two-year-normal.json`, `goes-{tmy,tdy}-final-two-year-accuracy.json`, and `goes-typical-integration-proof.json`. Rerun with `named_goes_validation.py`, `named_source_validation.mjs`, and `named_goes_typical_proof.py`. This comparison concerns the satellite inputs; it does not replace the final fourteen-place score/count comparison.
 
+Iquique also has long-period TMY coverage at the northern domain's southern edge. Against its cached 2022/2024 full-disc observations, the final TMY improves monthly sunshine error from 32.77 to 15.64 percentage points and direct-radiation error from 235.2 to 113.7 W/m². That large remaining difference limits confidence in its exact monthly correction. Antofagasta and Valparaíso fall outside that TMY domain and use the two full-disc years themselves. Independent integration reproduces their fitted monthly means; this is a transport/calculation check, not withheld validation of a two-year climatology. Evidence: SSD `sun/named-validation/goes-six-final-accuracy.json` and `goes-six-two-year-normal.json`.
+
 ## Rotterdam: the remaining count regression
 
 The exact-date radiation diagnostic substitutes satellite radiation on the retained ERA5 sample dates, while retaining the accepted temperature anchors and ERA5 rain, humidity and wind. All scenarios exclude the same seventeen samples from 2024, beyond SARAH-3's available period. Seventy-nine samples remain; they are reweighted within each month. This is a radiation diagnostic, not a complete observed-weather reference.

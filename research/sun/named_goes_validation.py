@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 from era5_measurement import pipeline
 
-ZONES={'peru/lima':'America/Lima','united-states/san-francisco':'America/Los_Angeles','united-states/san-diego':'America/Los_Angeles'}
+ZONES={'peru/lima':'America/Lima','united-states/san-francisco':'America/Los_Angeles','united-states/san-diego':'America/Los_Angeles','chile/antofagasta':'America/Santiago','chile/iquique':'America/Santiago','chile/valparaiso':'America/Santiago'}
 
 def measure(place, root, years):
     results=[]; inputs=[]
