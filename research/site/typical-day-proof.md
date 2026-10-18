@@ -1,6 +1,109 @@
-Written by AI on 2026.10.17 by model GPT-6.1 Sol.
+Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
-# Typical days and day counts
+# Default views without day-record downloads
+
+Completed locally on 18 October. Not deployed or pushed. This section supersedes the earlier background-record-loading and point-sampling descriptions below.
+
+## What changed
+
+The default taste draws only the selected precomputed score PNG. It no longer fetches `cells.bin`, monthly day records, forecast `days.bin`, temperature-offset images or fine replay packets. Compact named-place scores and facts supply labels, rankings, counts and calendars. The Worker supplies the current-period forecast and unnamed card judgements. Its unnamed climate judgement and compact monthly score bytes now use the same normalised spatial footprint as the browser. Unnamed forecast cards receive all fourteen daily judgements in that one response.
+
+Opening Your taste starts record loading while preserving the default image. The first changed taste waits for those records and its GPU frame. Later slider moves reuse them. A calendar requested by a place card or time picker is remembered but its year records are deferred until Your taste opens or the taste changes. Reset restores the authoritative default image. Changing periods while requests are in flight preserves the latest choice.
+
+The generator now covers all 144 start/length choices: twelve single months and 132 runs of two to twelve months. It also writes the canonical `year` image: **145 PNGs, 13,605,385 bytes (13.61 MB)**. All 133 previously generated images are byte-identical. The twelve added full-year rotations are byte-identical to `year`. Monthly `scores.bin` remains 12,458,880 bytes with the same format. The point and scoring rule is unchanged.
+
+The named-place worker's commits landed before the final build; the final baseline for integration is `a298e8f`. Their named transport code is preserved. The before build was frozen while that work was landing and already used compact point requests, rather than the former 11 MB catalogue transfer. The figures isolate the additional saving from this work.
+
+## Cold visit measurements
+
+Headless Playwright WebKit, fresh context for every route, empty browser cache, light mode, 390 × 844 and 1512 × 982. No network or CPU throttling. These are local laptop measurements at phone and laptop viewport sizes, not physical phone timings. Local static JS/CSS are served uncompressed; production compression and internet latency will change the totals and timings. External basemap requests are included.
+
+The final app was built and served with the current named-data fixture and generated images:
+
+```sh
+devenv shell -- npm run build
+NICE_WEATHER_GENERATED_DATA=/private/tmp/nwf-default-record-free/data devenv shell -- npm run serve
+```
+
+Bytes are HTTP(S) response body sizes, excluding internal blob worker creation, headers and request bodies. MB means 1,000,000 bytes. First paint is WebKit's first contentful paint; weather paint is the first completed weather frame. Settled is the last recorded resource response or weather/named-answer refresh after network idle. Each cell is before → after. The complete request ledgers retain individual URLs, statuses, byte sizes and resource timings.
+
+| Width | Route | Requests | MB | First paint, ms | Weather paint, ms | Settled, ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| 390 | `/nov-mar` | 38 → 25 | 15.115 → 2.945 | 162 → 146 | 269 → 285 | 594 → 436 |
+| 390 | `/year` | 52 → 25 | 32.061 → 2.966 | 85 → 83 | 222 → 202 | 523 → 358 |
+| 390 | `/july` | 30 → 25 | 5.468 → 2.958 | 90 → 90 | 215 → 186 | 371 → 517 |
+| 390 | `/` | 32 → 29 | 7.171 → 3.000 | 77 → 81 | 222 → 210 | 333 → 481 |
+| 1512 | `/nov-mar` | 38 → 25 | 15.115 → 2.946 | 80 → 88 | 226 → 214 | 408 → 289 |
+| 1512 | `/year` | 52 → 25 | 32.062 → 2.966 | 82 → 88 | 239 → 213 | 564 → 672 |
+| 1512 | `/july` | 30 → 25 | 5.468 → 2.958 | 81 → 84 | 215 → 191 | 352 → 332 |
+| 1512 | `/` | 32 → 29 | 7.177 → 3.005 | 81 → 82 | 226 → 240 | 336 → 452 |
+
+Raw day-record requests fell from 5 / 12 / 1 / 1 to **zero on every route and viewport**. Their removed body payloads were 11,200,275 / 26,880,660 / 2,240,055 / 3,920,085 bytes respectively, in route order. The remaining selected climate image is only 76,424 bytes for November to March, 97,027 for year and 89,310 for July. No cells or offset grids are fetched at default either.
+
+Settled times include the compact facts arriving from the Worker and vary between runs; several did not improve in this final pass. Forecast weather still paints near a quarter second without the 3.92 MB browser day-record download. These local measurements do not claim every timing improved.
+
+Evidence: `/private/tmp/nwf-default-record-free/before/results.json` and `final/results.json`. Screenshots: `before/` and `final/`, named `390-nov-mar.png`, `1512-year.png`, `390-july.png`, `1512-forecast.png` and the other route/viewport combinations. Screenshots were opened and inspected; controls, colours, labels and headlines remained readable and unchanged, without horizontal overflow.
+
+The repeatable check is [`check_default_records.py`](check_default_records.py):
+
+```sh
+# With Playwright installed and the built app served on port 5198:
+python research/site/check_default_records.py /tmp/nwf-default-record-free after
+```
+
+## Taste and card checks
+
+A second visitor pass blocked all raw-record, cells, offset and fine-replay browser requests. San Francisco's July, whole year, November to March, fourteen-day forecast and one forecast day still showed their complete cards, counts, calendars, labels and headlines. Both laptop light and phone dark passed with zero blocked requests attempted and no JavaScript errors. Changing taste then fetched the forecast records; reset reproduced the original card exactly. The custom climate calendar retains all twelve scored months after the deferred year loads.
+
+Evidence: `/private/tmp/nwf-default-engine-proof/flows.json`, `laptop-july.png`, `phone-nov-mar.png`, `laptop-forecast.png`, `phone-day.png`, `calendar-after.json` and `calendar-after.png`. The independently held-request checks also cover a period switch and reset during downloads, prefetch without altering the default map, and a failed download followed by retry: `races.json` in that directory.
+
+Measured actual UI input-to-update times, including the first record download. Eight later moves were measured per case. The card case requests the complete year for its calendar; the no-card case needs only the five selected months. The prefetch case waits for records after opening Your taste before moving a slider.
+
+| Viewport | November to March case | First input, ms | Later median / maximum, ms | Raw records |
+| --- | --- | --- | --- | --- |
+| laptop | immediate-card | 1457 | 120 / 154 | 12 files, 26.88 MB |
+| laptop | prefetched-card | 1652 | 108 / 118 | 12 files, 26.88 MB |
+| laptop | immediate-no-card | 370 | 53 / 134 | 5 files, 11.20 MB |
+| phone | immediate-card | 1119 | 122 / 248 | 12 files, 26.88 MB |
+| phone | prefetched-card | 1799 | 119 / 142 | 12 files, 26.88 MB |
+| phone | immediate-no-card | 256 | 49 / 56 | 5 files, 11.20 MB |
+
+Opening Your taste starts prefetching without changing the default map. Prefetch removes the download wait but does not remove the first GPU and full-calendar scoring cost: a first changed-taste card update still took 1.12–1.80 seconds. Later input-to-update maxima were 154 ms laptop and 248 ms phone viewport. Records arrived 58–254 ms after opening the controls in these local cases. Evidence: `/private/tmp/nwf-default-engine-proof/taste-timings.json`.
+
+The independent review found and then verified the fix for unnamed forecast calendars. At `31.12345, 10.23456`, one compact Worker response supplies all fourteen daily verdicts; aggregate-to-day selection reuses them, and a cold day URL also has the scored calendar and card strip. No raw record requests or page errors occurred. Screenshots were inspected. Evidence: `/tmp/nwf-record-free-cold/recheck.md`, `recheck.json` and `recheck-aggregate-calendar.png`. No material findings remain in that focused recheck.
+
+## Image upload and release steps
+
+Generated files are under `/private/tmp/nwf-default-record-free/data/v6/climate`. A clean upload folder contains **only the 145 PNGs**, with no named data, forecast records, offsets or `scores.bin`:
+
+`/private/tmp/nwf-default-record-free/upload/v6/climate`
+
+Upload these images before releasing the app. Default views deliberately report a missing image instead of silently downloading day records. The year, season and existing month URLs retain their names.
+
+```sh
+# Operator step, not run during this task. Supply the existing publish token
+# through NICE_WEATHER_PUBLISH_TOKEN without printing it.
+devenv shell -- node hosting/sites/publish.mjs files \
+  /private/tmp/nwf-default-record-free/upload \
+  https://nice.jjpcodes.com v6/climate
+```
+
+The publisher accepts the PNGs as they are and gzip-compresses their upload. Afterwards build and deploy the app and Worker through the existing Sites flow. No published climate data was changed by this task.
+
+To regenerate after the data owner's rebuild, use the same generator and put outputs in a scratch folder, then copy only `scores-typical-day-*.png` into a clean upload tree:
+
+```sh
+devenv shell -- src/engine/default_scores.py artifacts/v6 \
+  --images /tmp/nwf-default-record-free-regenerated/v6/climate
+```
+
+The generator requires NumPy and Pillow, declared in its script metadata. The generated images here used the current local `artifacts/v6` records and offsets and completed in 19.1 seconds. `images.json` in the evidence directory records coverage, byte counts and exact equality of every existing image and full-year alias.
+
+Build, Worker syntax and whitespace checks passed. No paid services were used. No deployment or push was performed.
+
+---
+
+# Earlier typical-day implementation evidence
 
 Implemented locally; not pushed or deployed. Josh accepted the proposal's point-choice differences after review. The daily forecast writer handoff is completed in [forecast-runner-proof.md](forecast-runner-proof.md).
 
