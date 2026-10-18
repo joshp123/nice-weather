@@ -93,7 +93,7 @@ async def measure(browser, base, view, output, settle_ms, fixture=None, referenc
     if fixture:
         fixture.reads = []
         await page.route('http://127.0.0.1:5198/**',fixture.route)
-    errors, requests, pending, tasks = [], [], set(), []
+    errors, cancelled_map_requests, requests, pending, tasks = [], [], [], set(), []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.on('request', lambda request: pending.add(request))
     async def finished(request):
@@ -101,10 +101,15 @@ async def measure(browser, base, view, output, settle_ms, fixture=None, referenc
         response = await request.response()
         try: sizes = await request.sizes()
         except Exception as error: sizes = {'error':str(error)}
-        requests.append({'url':request.url,'method':request.method,'status':response.status if response else None,'sizes':sizes,'timing':request.timing})
+        row = {'url':request.url,'method':request.method,'status':response.status if response else None,'sizes':sizes,'timing':request.timing}
+        if response and request.url.endswith('/api/named'): row['body'] = await response.json()
+        requests.append(row)
     async def failed(request):
         pending.discard(request)
-        errors.append(f'{request.url}: {request.failure}')
+        if request.url.startswith('https://tiles.openfreemap.org/') and request.failure=='cancelled':
+            cancelled_map_requests.append(request.url)
+        else:
+            errors.append(f'{request.url}: {request.failure}')
     page.on('requestfinished', lambda request: tasks.append(asyncio.create_task(finished(request))))
     page.on('requestfailed', lambda request: tasks.append(asyncio.create_task(failed(request))))
     began = time.monotonic()
@@ -128,7 +133,7 @@ async def measure(browser, base, view, output, settle_ms, fixture=None, referenc
     proof = state['proof']
     ranked_headlines = [r for r in proof['headlines'] if r['value'].startswith('Nicest ')]
     scored_labels = [r for r in proof['labels'] if any(isinstance(f.get('score'),(int,float)) for f in r['value'])]
-    result = {'name':name,'pathname':pathname,'viewport':[width,height], 'requests':requests,'requestCount':len(requests),'responseBodyBytes':body(requests),'namedRequests':named_requests,'namedResponseBodyBytes':body(named_requests),'errors':errors,'elapsedSeconds':time.monotonic()-began,'state':state,
+    result = {'name':name,'pathname':pathname,'viewport':[width,height], 'requests':requests,'requestCount':len(requests),'responseBodyBytes':body(requests),'namedRequests':named_requests,'namedResponseBodyBytes':body(named_requests),'errors':errors,'cancelledMapRequests':cancelled_map_requests,'elapsedSeconds':time.monotonic()-began,'state':state,
       'headlineFirstMs':proof['headlines'][0]['ms'] if proof['headlines'] else None,'headlineSettledMs':proof['headlines'][-1]['ms'] if proof['headlines'] else None,
       'labelsFirstMs':proof['labels'][0]['ms'] if proof['labels'] else None,'labelsSettledMs':proof['labels'][-1]['ms'] if proof['labels'] else None,
       'rankedHeadlineFirstMs':ranked_headlines[0]['ms'] if ranked_headlines else None,'scoredLabelsFirstMs':scored_labels[0]['ms'] if scored_labels else None,
