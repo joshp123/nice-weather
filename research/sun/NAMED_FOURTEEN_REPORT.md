@@ -1,6 +1,8 @@
 <!-- Written by AI on 2026.10.18 by model GPT-6.1 Sol. -->
 # Satellite sunshine for named places
 
+A separate [all-day sensitivity check](NAMED_ALL_DAY_SENSITIVITY.md) expands the radiation reference to 1,543 native days for SARAH and 516 for GOES. It changes several conclusions from the small exact-selected-date diagnostics below. It still leaves San Francisco count and Málaga monthly-score regressions, so the no-regression gate remains unestablished.
+
 Canonical fourteen-place local proof. Worldwide acquisition is incomplete; nothing has been published. Rotterdam count-regression decision is pending.
 
 **The no-regression gate is not established.** The additional cached GOES exact-date diagnostic worsens monthly scores and nice-day counts at San Francisco and San Diego, despite improving their monthly sunshine/radiation means. Only January–September has matching representative dates; this is a sparse diagnostic, not a complete observed year. It nevertheless prevents an unconditional claim that all currently correct places improve. [Exact figures and limits](NAMED_CONTROL_CHECKS.md#americas-exact-date-score-and-count-diagnostic).
@@ -184,7 +186,7 @@ Exact named point: 51.92250, 4.47917. Source: PVGIS-SARAH3 TMY normalized to2005
 
 These six cities were separately downloaded as complete 2005–2023 SARAH-3 hourly series at their exact named coordinates. Both sunny share and direct-radiation warmth targets were checked. SARAH-3 is independent of ERA5; this full-series check uses the same satellite product as the compact profile source, so it does not establish an independent satellite retrieval error. No city-specific exception is used.
 
-| Place | Monthly sunshine error before (pp) | After (pp) | Hourly DNI error before (W/m²) | After (W/m²) |
+| Place | Published-card sunshine error before (pp) | After (pp) | Eight-sample DNI error before (W/m²) | After (W/m²) |
 | --- | --- | --- | --- | --- |
 | Swakopmund | 13.85 | 3.59 | 105.4 | 1.6 |
 | Tenerife south (Arona) | 29.45 | 4.02 | 192.8 | 0.6 |
@@ -193,9 +195,11 @@ These six cities were separately downloaded as complete 2005–2023 SARAH-3 hour
 | Cape Town | 14.39 | 2.78 | 65.5 | 0.8 |
 | Rotterdam | 13.73 | 3.98 | 76.4 | 0.4 |
 
+The sunshine baseline in this table is the **published monthly card fact** (`before.months[].sunnyPercent`) from SSD `sun/named-validation/final-fourteen-comparison/comparison.json`. The DNI baseline is the **mean of eight retained native days** (`months[].nativeDni`) from SSD `sun/named-validation/production-sarah-normalized-accuracy.json`. The latter JSON also reports eight-sample sunshine errors, which differ from the published-card baseline shown here. Both after columns use the satellite target.
+
 Raw TMY months failed Seville: a selected February was substantially cloudier than the 19-year normal. The common normalization scales each month/hour of every TMY day to the full-period satellite DNI profile, then recomputes sunny hours. This retains daily variation while avoiding the wrong monthly mean.
 
-The exact-date radiation diagnostic also exposes a remaining limitation: Rotterdam's annual nice-day error increases from 3 to 10 days, despite its monthly score error improving from 6.17 to 2.07 points. Seville's monthly score error increases by 0.11 points while its annual mean is unchanged. These diagnostics omit unavailable 2024 satellite dates identically in all scenarios. They do not justify an unconditional no-regression claim. [Control checks and the Arona/airport distinction](NAMED_CONTROL_CHECKS.md).
+The exact-date radiation diagnostic also exposes a remaining limitation: Rotterdam's annual nice-day error increases from 3 to 10 days, despite its monthly score error improving from 6.17 to 2.07 points. Seville's monthly score error increases by 0.11 points while its annual typical-day score is unchanged. These diagnostics omit unavailable 2024 satellite dates identically in all scenarios. They do not justify an unconditional no-regression claim. [Control checks and the Arona/airport distinction](NAMED_CONTROL_CHECKS.md).
 
 ## World ranking, with one fixed ranking rule
 

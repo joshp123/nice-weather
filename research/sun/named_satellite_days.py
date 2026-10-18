@@ -1,5 +1,5 @@
 # Written by AI on 2026.10.18 by model GPT-6.1 Sol.
-"""Read exact-date SARAH DNI for the native replay's retained representative days."""
+"""Read cached exact-date SARAH/GOES DNI for the requested native replay days."""
 import datetime as dt
 import json
 from pathlib import Path

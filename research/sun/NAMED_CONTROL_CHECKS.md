@@ -1,6 +1,8 @@
 <!-- Written by AI on 2026.10.18 by model GPT-6.1 Sol. -->
 # Named sunshine: control limits
 
+A separate [all-day sensitivity check](NAMED_ALL_DAY_SENSITIVITY.md) expands the radiation reference to 1,543 native days for SARAH and 516 for GOES. It changes several conclusions from the small exact-selected-date diagnostics below. It still leaves San Francisco count and Málaga monthly-score regressions, so the no-regression gate remains unestablished.
+
 The monthly satellite means improve all six European and African controls against their complete 2005–2023 SARAH-3 series. That does **not** prove every sampled day's score or nice-day count improves. A monthly correction cannot recover the observed relationship between cloud and the other weather on a particular day.
 
 ## Americas: one typical-year choice
@@ -48,13 +50,13 @@ The exact-date radiation diagnostic substitutes satellite radiation on the retai
 
 | Annual diagnostic | Before | Monthly correction | Exact-date satellite reference |
 | --- | --- | --- | --- |
-| Mean score | 19.7 | 19.2 | 18.5 |
+| Typical-day score | 19.7 | 19.2 | 18.5 |
 | Nice days | 79 | 66 | 76 |
 | Perfect days | 34 | 34 | 29 |
 
 Monthly score error improves from 6.17 to 2.07 points, but annual nice-day error increases from 3 to 10 days. Applying only the sunny-share correction gives 84 nice days; only the radiation warmth correction gives 71; both give 66. The largest differences are May (12 → 6, reference 12) and September (20 → 15, reference 20). A retained day's warmth can cross the nice threshold even when its actual satellite radiation was brighter than the monthly correction implies. This is a real limitation of applying a monthly correction to eight representative days, not evidence that the monthly radiation mean is wrong.
 
-Seville's annual mean score is unchanged, while monthly score error increases slightly, 1.04 → 1.15 points. Its perfect-day count moves closer to the exact-date reference. These limitations must accompany any claim that controls improve; an unconditional no-regression claim is unsupported.
+Seville's annual typical-day score is unchanged, while monthly score error increases slightly, 1.04 → 1.15 points. Its perfect-day count moves closer to the exact-date reference. These limitations must accompany any claim that controls improve; an unconditional no-regression claim is unsupported. Diagnostic `score` and the historical API field `meanScore` both use the app's typical-day rule; they are not arithmetic means of daily scores.
 
 An offline universal alternative fitted a clipped additive DNI shift, preserving native zero radiation. It did not broadly improve the six controls: Rotterdam was unchanged, while Swakopmund's monthly score error and perfect-day error increased. The production multiplicative rule was retained. Evidence: SSD `sun/named-validation/additive-day-diagnostic.json`; rerun with `named_day_diagnostic.mjs`.
 
