@@ -6,16 +6,18 @@ The existing file format can reduce the full 18.54 GB carrier to **3.98 GB for e
 
 No data was copied into a release, sealed, uploaded or activated for this measurement. All sizes are decimal bytes of actual existing files, before HTTP transfer compression of text. Source: `v6-fine-b1-20261018` on the SSD, generation `e68c86ba3e24654a499ae4ef37ad35f9`.
 
+These are incremental fine-data assets. They exclude the existing 25 km/forecast data, app code, preview images and outlook runner. No activation pointer was prepared. They do not represent total Site storage.
+
 ## File unions
 
-The catalogue inputs are 15,000 label rows and 170,550 place-list rows. They overlap. All named places together contain 170,513 distinct coordinates and 169,013 distinct 1 km pixels. Of these, 168,982 pixels / 170,482 coordinates have valid correction, timezone and native replay support. The remaining 31 pixels lack support even in the full worldwide release; all 15,000 label rows have support.
+The catalogue inputs are 15,000 label rows and 170,550 place-list rows. They overlap. All named places together contain 170,513 distinct coordinates and 169,012 distinct 1 km pixels. Of these, 168,981 pixels / 170,482 coordinates have valid correction, timezone and native replay support. The remaining 31 pixels lack support even in the full worldwide release; all 15,000 label rows have support.
 
 Each row below keeps all timezone variants of every native ERA5 point hosting an included supported place, the twelve current correction tiles containing those places, their timezone maps, and the same 37 runtime/catalogue/licence/provenance files described below. A 0.25° native point can also serve unnamed nearby pixels where the corresponding correction tile is present; the measured subset is not a strict named-coordinate whitelist.
 
 | Included places | Supported distinct 1 km pixels | Own native points | Files | Bytes |
 | --- | ---: | ---: | ---: | ---: |
-| All labels and all place-list entries | 168,982 | 49,512 | 94,246 | 3,976,394,622 |
-| All labels; place list ≥10,000 population | 44,807 | 23,427 | 57,144 | 2,530,854,794 |
+| All labels and all place-list entries | 168,981 | 49,512 | 94,246 | 3,976,394,622 |
+| All labels; place list ≥10,000 population | 44,805 | 23,427 | 57,144 | 2,530,854,794 |
 | All labels; place list ≥50,000 population | 15,149 | 10,156 | 35,611 | 1,657,197,246 |
 | All labels alone | 14,952 | 10,048 | 35,487 | 1,651,962,426 |
 | Both catalogues ≥50,000 population | 12,332 | 8,497 | 32,233 | 1,514,560,221 |
@@ -44,7 +46,7 @@ The 37-file tier includes the existing replay manifest; all four label files; ro
 
 Keeping every unchanged ancillary file instead adds 52 files / 136,267,412 bytes to each row. For all labels plus places ≥50,000 that is 35,663 files / 1,793,464,658 bytes. This includes the 66,836,586-byte native normals, full-world packet/tile indexes, source overviews and audit inventories. They are unnecessary for these runtime reads. The full-world inventories and counts must not be presented as evidence that a future subset is complete: a publishable subset would need its own manifest, filtered inventories/checksums and audit. Those have not been generated or sealed here. The tables are exact unions of current assets, not a ready upload package; future replacement metadata will add its measured size.
 
-The smallest possible temperature payload alone would be much smaller than the current 256 ×256 tiles: 24 signed 16-bit monthly high/low offsets require **727,152 bytes** for the 15,149 supported fine pixels in the all-labels-plus-50,000 option, or **8,111,136 bytes** for all 168,982 supported named pixels. These are arithmetic payload sizes, not a built format or complete package: they exclude point addresses, source/support fields, metadata/indexes, clocks, replay and compression. This would require a consumer format change. No such change was made.
+The smallest possible temperature payload alone would be much smaller than the current 256 ×256 tiles: 24 signed 16-bit monthly high/low offsets require **727,152 bytes** for the 15,149 supported fine pixels in the all-labels-plus-50,000 option, or **8,111,088 bytes** for all 168,981 supported named pixels. These are arithmetic payload sizes, not a built format or complete package: they exclude point addresses, source/support fields, metadata/indexes, clocks, replay and compression. This would require a consumer format change. No such change was made.
 
 ## Actual missing-point behaviour
 
@@ -60,7 +62,7 @@ The sparse response still advertises `fineReplay: true` and `resolutionArcSecond
 
 ## Reproduce
 
-The measurement uses Python's standard library and the actual compressed files. It checks each candidate pixel's correction support and target timezone, joins the existing replay inventory, stats every required correction tile and writes per-option file lists with byte sizes. It does not approximate size from a sample.
+The measurement uses Python's standard library and the actual compressed files. It checks each candidate pixel's correction support and target timezone, joins the existing replay inventory, stats every required correction tile and writes per-option file lists with byte sizes. It does not approximate size from a sample. The Worker proof also compares all 185,550 catalogue-row pixel/native addresses with the production JavaScript `finePixel` and `nativeFineIndex` exports; every address agrees. This preserves the actual wrap arithmetic at longitudes exactly on grid boundaries.
 
 ```sh
 python3 research/fine/measure_named_subset.py \

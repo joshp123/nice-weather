@@ -17,7 +17,8 @@ import struct
 def address(latitude, longitude):
     # Match finePixel/nativeFineIndex: native address uses containing 1 km centre.
     row = min(21599, math.floor((90-latitude)*120))
-    column = math.floor(((longitude+180) % 360)*120)
+    # Preserve wrap's actual floating-point operations at catalogue grid edges.
+    column = math.floor((((longitude+180) % 360+360) % 360)*120)
     fine = min(720, max(0, math.floor((row+.5)/30+.5)))*1440 + math.floor((column+.5)/30+.5) % 1440
     return row, column, fine
 
@@ -121,6 +122,7 @@ def main():
     output = {'written_by': 'AI, GPT-6.1 Sol, 2026.10.18', 'measuredUTC': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'release': str(release), 'generation': manifest['generation'], 'sourceCatalogues': {'labels': len(labels), 'places': len(places)},
         'catalogueSha256': {'places': hashlib.sha256(args.places.read_bytes()).hexdigest(), **{f'labels-{level}': hashlib.sha256((release/f'labels/labels-{level}.json').read_bytes()).hexdigest() for level in [1, 2]}},
+        'catalogueAddressSha256': hashlib.sha256(''.join(','.join(map(str, address(latitude, longitude)))+'\n' for _, latitude, longitude, _ in label_points+places).encode()).hexdigest(),
         'runtimeAndNotices': size(runtime_and_notices), 'runtimeAndNoticesFiles': sorted(runtime_and_notices), 'unchangedAncillary': size(ancillary),
         'notes': ['No release built, sealed, uploaded or activated. Exact union of current compressed payload files; every candidate pixel checked against actual source/support and clock maps.',
                   'Runtime reads replay manifest, target zone map, own-native clock packet and twelve correction tiles. Normals and packet/tile indexes are not read.',
