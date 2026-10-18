@@ -155,6 +155,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .headline-note { margin-top: var(--space-2); }
 .inline-place { display: inline; font-weight: var(--weight-strong); text-align: inherit; }
 .inline-place:hover { text-decoration: underline; text-underline-offset: var(--space-1); }
+.place-run { white-space: nowrap; }
 .slot-search { top: calc(var(--masthead-height) / 2 - var(--control) / 2); right: calc(var(--edge) + var(--space-2) + var(--control) * 6.4); width: var(--search-width); }
 .search { height: var(--control); padding-left: var(--space-3); }
 .search-toggle { display: none; }

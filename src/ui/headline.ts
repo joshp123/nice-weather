@@ -63,11 +63,14 @@ export function headlineSentence(period: Period, forecast: ForecastIndex | null,
 export function placeSentence(period: Period, forecast: ForecastIndex | null, places: readonly HeadlinePlace[], select: (place: HeadlinePlace) => void, region = 'the world'): DocumentFragment {
   const fragment = document.createDocumentFragment();
   fragment.append(headlineLead(period, forecast, region));
+  // Each name keeps its following punctuation on the same line ("Cairo," never wraps to put the comma first).
   places.slice(0, 3).forEach((place, index, list) => {
-    if (index) fragment.append(index === list.length - 1 ? ' and ' : ', ');
-    fragment.append(button('inline-place', `${countryFlag(place)} ${place.name}`.trim(), () => select(place)));
+    const last = index === list.length - 1, beforeLast = index === list.length - 2;
+    const run = el('span', 'place-run', button('inline-place', `${countryFlag(place)} ${place.name}`.trim(), () => select(place)));
+    run.append(last ? '.' : beforeLast ? '' : ',');
+    fragment.append(run);
+    if (!last) fragment.append(beforeLast ? ' and ' : ' ');
   });
-  fragment.append('.');
   return fragment;
 }
 
