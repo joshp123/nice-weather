@@ -33,11 +33,13 @@ const scoredLabel: ExpressionSpecification = [
   englishName,
 ];
 const minimumLabelPopulations = [4000000, 1000000, 300000, 80000, 20000, 0];
+/** Smaller places get names half a zoom step early, so the framed world view (zoom 1.6 to 2) names cities of a million. */
+const labelTier = (zoom: number) => Math.min(5, Math.max(0, Math.floor(zoom + 0.5) - 1));
 
 function cityLayer(colours: MapDesign, font = 'Noto Sans Regular'): SymbolLayerSpecification {
   return {
     id: 'city-labels', type: 'symbol', source: 'city-scores',
-    filter: ['step', ['zoom'], ['>=', ['get', 'population'], minimumLabelPopulations[0]], ...minimumLabelPopulations.slice(1).flatMap((population, index) => [index + 2, ['>=', ['get', 'population'], population]])] as ExpressionSpecification,
+    filter: ['step', ['zoom'], ['>=', ['get', 'population'], minimumLabelPopulations[0]], ...minimumLabelPopulations.slice(1).flatMap((population, index) => [index + 1.5, ['>=', ['get', 'population'], population]])] as ExpressionSpecification,
     layout: {
       'text-field': scoredLabel,
       'text-font': [font],
@@ -176,7 +178,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         const fontSize = (design.labelSmall + (design.labelLarge - design.labelSmall) * Math.max(0, Math.min(1, (zoom - 1) / 8))) * design.labelScale;
         const halfWidth = fontSize * design.labelWidth / 2 + design.labelHaloWidth;
         const halfHeight = (fontSize * design.labelLineHeight * 3 + design.countHeight * design.labelScale) / 2;
-        const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(zoom) - 1))];
+        const minimumPopulation = minimumLabelPopulations[labelTier(zoom)];
         map.setFilter('city-labels', ['all', ['!', ['has', 'headlineRank']], ['!', ['has', 'chosen']], ['>=', ['get', 'population'], minimumPopulation], viewportLabelFilter(halfWidth, halfWidth, halfHeight)]);
         map.setFilter('chosen-place', viewportLabelFilter(design.ringSize / 2, design.ringSize / 2, design.ringSize / 2));
         const countryFontSize = design.countFontSize * design.labelScale;
@@ -276,7 +278,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
           });
         },
         labelCandidates() {
-          const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(map.getZoom()) - 1))];
+          const minimumPopulation = minimumLabelPopulations[labelTier(map.getZoom())];
           return cities.filter(city => city.population >= minimumPopulation);
         },
         labelCities(cities, scores, niceCounts, prioritySlugs = []) {
