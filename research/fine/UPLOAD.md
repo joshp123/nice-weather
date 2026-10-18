@@ -4,7 +4,7 @@ Written by AI (GPT-6.1 Sol), 2026-10-18.
 
 **Prepared locally only. Nothing uploaded, activated, pushed or deployed.** The 18.54 GB / 484,004-file worldwide replay remains on hold. Upload only the compact folders below after Josh authorises deployment. Do not run the full-release sealer or uploader.
 
-The compact delivery covers **170,513 distinct catalogue coordinates**, including every label and every place-list entry. At the default taste, supported named places use their accepted 1 km temperature model: unchanged daytime correction and the uniform evening shift. There are 31 unsupported climate coordinates; those, arbitrary points and changed tastes use the current 25 km calculation. The map remains the 25 km overview. Cards identify that fallback as “Area estimate”.
+The compact delivery covers **170,513 distinct catalogue coordinates**, including every label and every place-list entry. At the default taste, supported named places use their accepted 1 km temperature model: unchanged daytime correction and the uniform evening shift. There are 31 unsupported climate coordinates; those, unnamed areas outside the place-naming rule and changed tastes use the current 25 km calculation. The map remains the 25 km overview. A click named after a town or city uses that place’s canonical coordinate and numbers, under the same existing naming rule. Other cards identify the fallback as “Area estimate”.
 
 ## Data to upload
 
@@ -25,7 +25,7 @@ The browser fetches the climate score table and the current forecast table, then
 
 The rebuilt daily runner is `fine-runner-named-b1-20261018/runner/`: **5 files, 35,416,693 bytes**. Its sibling manifest binds the executable, notices, refresh instructions and compiled source inputs.
 
-The matched Sites package is `fine-named-code-b1-20261018/`: **18 files, 5,306,145 bytes**. The separately staged outlooks are `fine-named-outlooks-b1-20261018/`: **9 files, 1,502,098 bytes**, for forecast run `20261017T0000Z` and **19 October 2026**. Their nine winners pass 36 comparisons with the shared compact values. Each folder has a sibling checksum inventory.
+The matched Sites package is `fine-named-code-b1-20261018/`: **18 files, 5,307,019 bytes**. The separately staged outlooks are `fine-named-outlooks-b1-20261018/`: **9 files, 1,502,098 bytes**, for forecast run `20261017T0000Z` and **19 October 2026**. Their nine winners pass 36 comparisons with the shared compact values. Each folder has a sibling checksum inventory.
 
 ## Safe order for a later authorised upload
 
@@ -60,7 +60,7 @@ Keep `v6/fine/current.json` absent. This release activates only through `v6/name
      v6/named/current.json
    ```
 
-   Reload after the sixty-second configuration/API cache lifetime. Check San Francisco, Funchal and San Diego cards, visible map labels, headlines and link previews. Check a nearby unnamed point and a changed taste both give working area estimates. Existing tabs need a reload to discover activation.
+   Reload after the sixty-second configuration/API cache lifetime. Check San Francisco, Funchal and San Diego cards, visible map labels, headlines and link previews. Check a nearby San Francisco click matches search (75 / 27 nice / 8 perfect days in July). Check a genuinely unnamed area and a changed taste both give working area estimates. Existing tabs need a reload to discover activation.
 
 Rollback requires no deletion: upload the separate rollback folder's `v6/named/current.json` (literal `null`) through the same publisher. After cache expiry and reload, the entire named-place overlay is inactive and the current 25 km path is restored. Never upload the rollback folder during activation.
 
@@ -96,9 +96,9 @@ The shared JavaScript decoder/aggregate is used by the app and Worker. The Go da
 - The actual Worker API, climate/forecast preview PNGs, facts endpoint, unnamed fallback and warm removal of the activation pointer are exercised independently of the browser.
 - Rendered phone/laptop checks cover cards, actual map-label updates, headline ranking, changed taste, forecast, and genuinely absent activation data. Paired warm slider redraw medians are 31.25 ms active versus 31.40 ms inactive, with zero requests/errors. The first transition is slower (32.3 versus 21.6 ms); the earlier eight-view cold-start gap remains recorded. Full timings and screenshots are recorded in [NAMED_DELIVERY.md](NAMED_DELIVERY.md).
 
-The Tenerife south airport validation coordinate is not a catalogue place and therefore uses the public area fallback; named Arona and Adeje receive their own fine rows. Existing places outside the overview land coverage retain its existing unavailable state.
+The airport reference coordinates in the numerical validation are not added as special catalogue entries. Public clicks follow the same place-naming and coordinate rule everywhere; named Arona and Adeje retain their own fine rows. Existing places outside the overview land coverage retain its existing unavailable state.
 
-An independent review checked the final phone/laptop images, current Worker cards and label routes, the parity evidence and the paired slider measurements. The eight-view traces precede a subsequent label-response compression-only change; current labels were checked separately and final timing-run source hashes match.
+An independent review checked the final phone/laptop images, current Worker cards and label routes, the parity evidence and the paired slider measurements. The click-to-place change is covered by a fresh rerun of the original eight views plus a remote unnamed land point, in both data states. The earlier paired slider measurements remain recorded as a reference; this fix changes no engine or scoring code.
 
 The accepted station comparison and Rotterdam's May regression remain in [B1_EVENING_RESULT.md](B1_EVENING_RESULT.md). Named scores do not improve the surrounding overview or non-temperature weather variables. Custom-taste link previews use neutral place/period text rather than advertising the default score.
 
