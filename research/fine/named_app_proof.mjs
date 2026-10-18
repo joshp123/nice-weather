@@ -14,6 +14,7 @@ import ts from 'typescript';
 
 const output = process.argv[2];
 const namedState = process.argv[5] ?? 'active';
+const timingOnly = process.env.NWF_NAMED_TIMING_ONLY === '1';
 if (!['active', 'inactive'].includes(namedState)) throw Error('Named state must be active or inactive');
 const packagedWorker = process.argv[4] ? path.resolve(process.argv[4], 'worker/index.js') : undefined;
 const packagedFetch = packagedWorker ? (await import(pathToFileURL(packagedWorker).href)).default.fetch : undefined;
@@ -138,7 +139,7 @@ try {
     ['unnamed-phone','/@37.7751,-122.4181,9z/july',390,844],
     ['san-francisco-forecast-phone','/united-states/san-francisco/next-14-days',390,844],
     ['san-francisco-forecast-laptop','/united-states/san-francisco/next-14-days',1440,1080],
-  ]) {
+  ].filter(([name]) => !timingOnly || name === 'san-francisco-laptop')) {
     const forecastView=pathname.endsWith('next-14-days');
     const periodWord=forecastView?'next-14-days':'july';
     const overview=forecastView?legacyForecastNumbers:legacyNumbers;
@@ -215,12 +216,40 @@ try {
       const expected={score:Math.floor(reference.meanScore),nice:Math.round(reference.niceDayCount),perfect:Math.round(reference.perfectDayCount),awful:Math.round(reference.awfulDayCount)};
       if(!cardMatches(afterTaste.card,expected))throw Error(`${name}: changed taste did not fall back to today's 25 km weather`);
     }
+    let warmSlider;
+    if(timingOnly) {
+      const beforeWarm=pageReads.length;
+      warmSlider=[];
+      for(const value of [25,26,24,25,26,24,25,26,24,25,26,24]) {
+        const measured=await command('Runtime.evaluate',{expression:`(async()=>{
+          performance.clearMeasures('nice-weather-redraw');
+          const start=performance.now();
+          const answer=new Promise((resolve,reject)=>{
+            const observer=new PerformanceObserver(list=>{
+              const redraw=list.getEntries().find(entry=>entry.name==='nice-weather-redraw');
+              if(redraw){observer.disconnect();clearTimeout(timer);resolve({duration:redraw.duration,wallMilliseconds:performance.now()-start})}
+            });
+            observer.observe({entryTypes:['measure']});
+            const timer=setTimeout(()=>{observer.disconnect();reject(Error('No slider redraw'))},5000);
+          });
+          const slider=document.querySelector('#slider-perfectFrom');
+          slider.value='${value}';
+          slider.dispatchEvent(new Event('input',{bubbles:true}));
+          slider.dispatchEvent(new Event('change',{bubbles:true}));
+          return answer;
+        })()`,awaitPromise:true,returnByValue:true});
+        if(measured.exceptionDetails)throw Error(JSON.stringify(measured.exceptionDetails));
+        warmSlider.push({value,...measured.result.value});
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      if(pageReads.length!==beforeWarm)throw Error('Warm slider issued network requests');
+    }
     const reads=pageReads.slice();
     const native=reads.filter(x=> {
       const url=new URL(x.url);
       return url.pathname==='/api/fine/replay'&&url.searchParams.has('lat');
     });
-    const r={name,namedState,cardApi,labelProof,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste,firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
+    const r={name,namedState,cardApi,labelProof,warmSlider,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste,firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
     await fs.writeFile(path.join(output,name+'-reads.json'),JSON.stringify(reads,null,2));
     if(r.errors.length)throw Error(`${name}: runtime exceptions`);
     const missing=native.filter(read=>read.status!==200);

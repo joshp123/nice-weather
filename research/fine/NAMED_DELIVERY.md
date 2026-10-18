@@ -34,7 +34,7 @@ The run exposed a pending old replay-label query that could execute after fine m
 
 ## Slider cost
 
-These are actual `nice-weather-redraw` event durations for one 23→24 °C slider change per view on this Mac, in headless Chrome. Both states made **zero additional network requests** during the slider change. The GPU overview scoring path is unchanged, but the active catalogue adds measured CPU work: timings are still tens of milliseconds, not numerically identical.
+These are actual `nice-weather-redraw` event durations for one 23→24 °C slider change per view on this Mac, in headless Chrome. Both states made **zero additional network requests** during the slider change. The GPU overview scoring path is unchanged, but the active run measured slower: timings are still tens of milliseconds, not numerically identical.
 
 | View | Inactive ms | Active ms |
 | --- | ---: | ---: |
@@ -48,7 +48,9 @@ These are actual `nice-weather-redraw` event durations for one 23→24 °C slide
 | San Francisco forecast, laptop | 22.9 | 32.4 |
 | Median / maximum | 21.2 / 31.6 | 42.4 / 74.0 |
 
-These measurements use 390×844 and 1440×1080 viewports; they are not physical-phone hardware or remote Sites latency measurements. The compact browser tables transfer 11,207,848 climate bytes and 15,783,946 forecast bytes. Selected-place facts arrive as small JSON responses rather than downloading the facts shards. No replay or correction-tile requests occurred in either run.
+A separate paired San Francisco laptop run then measured the first default→24 °C transition and twelve warm inputs (25→26→24, four times), awaiting every actual redraw. First-transition redraw: active **32.3 ms**, inactive **21.6 ms**. Warm redraw median/maximum: active **31.25 / 32.5 ms**, inactive **31.40 / 35.1 ms**. Warm input-to-redraw wall medians were **80.4 / 82.25 ms**, including the existing input debounce. Both runs made zero slider network requests and had no exceptions. This bounded paired check shows no warm-drag slowdown; it does not erase the slower first-transition readings above. Raw [active timing](</Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-validation/named-b1/timing-active/results.json>) and [inactive timing](</Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/fine-validation/named-b1/timing-inactive/results.json>) retain all twelve samples. Set `NWF_NAMED_TIMING_ONLY=1` to rerun this check without changing product code.
+
+These measurements use 390×844 and 1440×1080 viewports; they are not physical-phone hardware or remote Sites latency measurements. The compact browser tables transfer 11,207,848 climate bytes and 15,783,945 forecast bytes. Selected-place facts arrive as small JSON responses rather than downloading the facts shards. No replay or correction-tile requests occurred in either run.
 
 ## Full replay comparison
 
