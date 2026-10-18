@@ -28,6 +28,11 @@ export function swatch(colour: string, className = 'swatch'): HTMLSpanElement {
   return node;
 }
 
-export const closeIcon = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12"/></svg>';
-export const locateIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 3 3 10.5l7.2 2.3L12.5 20z"/></svg>';
-export const searchIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20 20"/></svg>';
+// One icon family: 24-unit drawings shown at 18 px, 1.8 px strokes, round ends.
+const icon = (body: string, filled = false) => `<svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="${filled ? 'currentColor' : 'none'}" stroke="${filled ? 'none' : 'currentColor'}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+export const closeIcon = icon('<path d="M6 6l12 12M18 6 6 18"/>');
+export const locateIcon = icon('<path d="M20 4 4 10.6l6.6 2.8L13.4 20z"/>');
+export const searchIcon = icon('<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>');
+export const chevronIcon = icon('<path d="m6 9 6 6 6-6"/>');
+export const tasteIcon = icon('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>');
+export const shareIcon = icon('<path d="M12 15V4M8 8l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/>');

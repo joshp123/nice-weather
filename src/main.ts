@@ -1,4 +1,4 @@
-// Written by AI on 2026.10.17 by model Claude Fable 5.1.
+// Written by AI on 2026.10.17 by model Claude Fable 5.1; the page layout reshaped on 2026.10.18 by model claude opus 5.5.
 // Puts the map, the engine and the interface together. The engine draws and judges; the Worker names places;
 // this file holds what the visitor is looking at and keeps the link in step with it.
 import './styles.css';
@@ -6,10 +6,10 @@ import { createWeatherEngine, tasteFromSliders, type Month, type Period, type Po
 import type { Actions } from './ui/actions';
 import { fetchForecastIndex, fetchPlace, resolveSlug, type PlaceDetails, type SearchResult } from './ui/api';
 import { renderCard } from './ui/card';
-import { button, el } from './ui/dom';
+import { button, closeIcon, el, shareIcon, tasteIcon } from './ui/dom';
 import { countryFlag } from './ui/countries';
 import { requestHome, inferredHome, timeZoneHome, isHomeWinter, regionalComparison } from './ui/home';
-import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, viewportRegion, type HeadlinePlace } from './ui/headline';
+import { createHeadline, forecastFreshness, headlineContext, headlineSentence, nicestPlaces, placeNames, viewportRegion, type AnswerLine, type HeadlinePlace } from './ui/headline';
 import { createMap, type WeatherMap } from './ui/map';
 import { DEFAULT_PERIOD, datedForecastPeriod, daysInPeriod, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
@@ -17,7 +17,8 @@ import { rankingPopulation } from './ui/ranking';
 import { drawShareCard, renderPoster, type ShareContext } from './ui/share';
 import { DEFAULT_SLIDERS, buildLink, loadSavedView, parseLink, saveView, slidersAreDefault, type AppState, type Place, type SliderId } from './ui/state';
 import { createTastePanel } from './ui/taste';
-import { bandColour, renderTimeBar } from './ui/timebar';
+import { bandColour, textOnBand } from './palette';
+import { renderTimeBar } from './ui/timebar';
 
 // Shared links and share cards always point at the live site, also when made from a local copy.
 const PUBLIC_ORIGIN = 'https://nice.jjpcodes.com';
@@ -45,27 +46,37 @@ let posterRequest = 0;
 let tasteOpen = false;
 let shareOpen = false;
 let periodProblem: string | null = null;
+/** A passing message beside the time: finding your location, a poster that failed. */
+let barMessage: AnswerLine | null = null;
+/** The camera is remembered only once the visitor has moved the map, so a first visit always frames the world. */
+let cameraChosen = Boolean(saved.camera);
 let placeRequest = 0;
 let weatherLoading = true;
 let remainingCitiesRequested = false;
 let remainingCitiesReady = false;
 
+// The page: a top bar (the brand, the answer, search and tools), the map, and a bottom bar (when, and the key).
+// Panels open on the same margins: the list and the time picker on the left, a place and the taste on the right.
 const app = document.getElementById('app')!;
+const topBar = el('header', 'top-bar');
+const topActions = el('div', 'top-actions');
 const mapContainer = el('div', 'map');
-const headline = createHeadline();
-const searchSlot = el('div', 'slot slot-search');
+const bottomBar = el('footer', 'bottom-bar');
+const headline = createHeadline(() => toggleList());
+const wordmark = el('h1', 'wordmark', 'Nice!');
 const cardSlot = el('div', 'slot slot-card');
 const tasteSlot = el('div', 'slot slot-taste');
-const barSlot = el('div', 'slot slot-bar');
 const listSlot = el('div', 'slot slot-list');
+const pickerSlot = el('div', 'slot slot-picker');
 const posterSlot = el('div', 'poster-slot');
-app.append(mapContainer, el('div', 'slot slot-headline', headline.element), searchSlot, tasteSlot, cardSlot, listSlot, barSlot, posterSlot);
+app.append(topBar, mapContainer, bottomBar, listSlot, pickerSlot, tasteSlot, cardSlot, posterSlot);
 
 const startCamera = link.target?.kind === 'point'
   ? { center: [link.target.longitude, link.target.latitude] as const, zoom: link.target.zoom ?? 5 }
   : saved.camera;
-const weatherMap: WeatherMap = await createMap(mapContainer, theme, startCamera, dataUrl);
+const weatherMap: WeatherMap = await createMap(mapContainer, theme, startCamera, dataUrl, home?.longitude);
 const { map } = weatherMap;
+window.niceWeatherMap = map;
 const engine: WeatherEngine = createWeatherEngine(map, {
   dataUrl,
   onRedraw: timing => { performance.measure('nice-weather-redraw', { start: performance.now() - timing.milliseconds, end: performance.now() }); afterRedraw(); },
@@ -114,20 +125,23 @@ const actions: Actions = {
     selectPlace({ name: '', region: '', latitude, longitude, slug: null });
   },
   selectSearchResult(result: SearchResult) {
+    cameraChosen = true;
     map.flyTo({ center: [result.longitude, result.latitude], zoom: Math.max(map.getZoom(), 5) });
     selectPlace({ name: result.name, region: result.region, latitude: result.latitude, longitude: result.longitude, slug: result.slug ?? null });
   },
   locate() {
-    headline.set(headlineText, { text: 'Finding your location…', warning: false });
+    barMessage = { text: 'Finding your location…', warning: false }; render();
     navigator.geolocation.getCurrentPosition(position => {
       const latitude = Math.round(position.coords.latitude * 100) / 100;
       const longitude = Math.round(position.coords.longitude * 100) / 100;
       map.flyTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 5) });
+      cameraChosen = true;
+      barMessage = null;
       homeOverridden = true;
       home = { name: 'Your location', region: '', latitude, longitude, slug: null };
       void fetchPlace(latitude, longitude).then(found => { home = found; render(); });
       actions.selectPoint(latitude, longitude);
-    }, () => headline.set(headlineText, { text: 'Location is not available. Search for your place instead.', warning: true }), { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 });
+    }, () => { barMessage = { text: 'Location is not available. Search for your place instead.', warning: true }; render(); }, { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 });
   },
   closePlace() {
     placeRequest++;
@@ -145,12 +159,12 @@ const actions: Actions = {
   },
   toggleShare() {
     if (shareOpen) { shareOpen = false; posterRequest++; posterSlot.replaceChildren(); render(); return; }
-    void openPoster().catch(error => headline.set(headlineText, { text: error instanceof Error ? error.message : String(error), warning: true }));
+    void openPoster().catch(error => { barMessage = { text: error instanceof Error ? error.message : String(error), warning: true }; render(); });
   },
 };
 
 function selectPlace(place: Place): void {
-  pickerOpen = false; listOpen = false;
+  pickerOpen = false; listOpen = false; barMessage = null;
   const request = ++placeRequest;
   state = { ...state, place };
   details = null;
@@ -185,7 +199,7 @@ function keepPlaceInView(place: Place): void {
   if (!phone.matches) return;
   const ease = () => requestAnimationFrame(() => {
     const sheet = cardSlot.getBoundingClientRect();
-    const top = headline.element.getBoundingClientRect().bottom + 16;
+    const top = topBar.getBoundingClientRect().bottom + 16;
     const targetY = (top + sheet.top) / 2;
     map.easeTo({ duration: 0, center: [place.longitude, place.latitude], padding: { top: 0, bottom: 0, left: 0, right: 0 }, offset: [0, targetY - window.innerHeight / 2] });
   });
@@ -291,25 +305,27 @@ function toggleList(): void {
 }
 
 function renderList(stretchLabel: string): void {
-  const trigger = button('list-trigger panel', `${state.period.kind === 'forecast-day' ? 'Highest scores' : 'Nicest places'} ${listOpen ? '⌄' : '›'}`, toggleList);
-  trigger.setAttribute('aria-expanded', String(listOpen));
   if (!listOpen) {
-    listSlot.replaceChildren(trigger);
-    weatherMap.showHomeConnection(null, null);
+    listSlot.replaceChildren();
     return;
   }
   const reference = home ? judge(home, state.period) : null;
   const days = reference?.countedDays ?? daysInPeriod(state.period, forecast);
-  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Nicest places'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
+  const close = button('icon-button', '', toggleList, 'Close');
+  close.innerHTML = closeIcon;
+  const title = state.period.kind === 'forecast-day' ? 'Highest scores' : 'Nicest places';
+  const list = el('section', 'place-list panel', el('header', 'panel-header', el('div', '', el('h2', 'panel-title', title), el('p', 'panel-subtitle', state.period.kind === 'forecast-day' ? 'Score out of 100' : `Nice days out of ${days}`)), close));
+  const rows = el('ol', 'ranked-places');
   if (!rankedPlaces.length) list.append(el('p', 'home-line', headlineText));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
     const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.round(place.score) : Math.round(place.niceDayCount));
     count.style.background = bandColour(place.score);
-    count.style.color = place.score < 40 ? 'var(--on-low-band)' : 'var(--on-high-band)';
-    list.append(button('ranked-place', el('span', 'rank-number', index + 1), () => chooseRankedPlace(place)));
-    list.lastElementChild!.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `nice ${place.niceDayCount} · perfect ${place.perfectDayCount}`)), count);
+    count.style.color = textOnBand(place.score);
+    const row = button('ranked-place', el('span', 'rank-number', index + 1), () => chooseRankedPlace(place));
+    row.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `nice ${place.niceDayCount} · perfect ${place.perfectDayCount}`)), count);
+    rows.append(el('li', '', row));
   });
-  list.append(el('p', 'home-line', state.period.kind === 'forecast-day' ? 'The label shows the day’s score. A perfect day counts twice. Ties favour larger places.' : `Nice days out of ${days} days in ${stretchLabel}. A perfect day counts twice. Ties favour larger places.`));
+  list.append(rows, el('p', 'home-line', 'A perfect day counts twice. Ties favour larger places.'));
   const homeVerdict = home ? judge(home, state.period) : null;
   if (home && homeVerdict) {
     const homeButton = button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!));
@@ -318,9 +334,8 @@ function renderList(stretchLabel: string): void {
     const regionalVerdict = judge(regional, state.period);
     const comparison = regionalVerdict && regional.name !== home.name ? el('p', 'home-line', button('inline-place', `${countryFlag(regional)} ${regional.name}`, () => actions.selectSearchResult(regional)), `: ${Math.round(regionalVerdict.niceDayCount)} nice days over the same stretch.`) : null;
     list.append(el('div', 'home-lines', homeLine, comparison));
-    weatherMap.showHomeConnection(null, null);
-  } else weatherMap.showHomeConnection(null, null);
-  listSlot.replaceChildren(list, trigger);
+  }
+  listSlot.replaceChildren(list);
 }
 
 async function openPoster(): Promise<void> {
@@ -338,60 +353,54 @@ async function openPoster(): Promise<void> {
 
 const tastePanel = createTastePanel(state.sliders, actions);
 tasteSlot.append(tastePanel.element);
-searchSlot.append(createSearch(actions));
+const search = createSearch(actions);
 
 function shareContext(): ShareContext {
   return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, link: new URL(buildLink(state.place ? state : { ...state, place: { name: '', region: '', slug: null, latitude: map.getCenter().lat, longitude: map.getCenter().lng } }, map.getZoom()), PUBLIC_ORIGIN).href };
 }
 
+/** Taste and Share: words in the top bar on a computer, icons beside the time on a phone. */
+function toolButton(label: string, icon: string, onClick: () => void, active: boolean): HTMLButtonElement {
+  const tool = button(phone.matches ? `icon-button${active ? ' selected' : ''}` : `button${active ? ' selected' : ''}`, '', onClick, label);
+  if (phone.matches) tool.innerHTML = icon;
+  else tool.textContent = label;
+  tool.setAttribute('aria-pressed', String(active));
+  return tool;
+}
+
 function render(): void {
   const tasteIsDefault = slidersAreDefault(state.sliders);
-  const note = periodProblem ? { text: periodProblem, warning: true } : weatherLoading ? { text: `Loading weather figures for ${periodTitle(state.period, forecast).toLowerCase()}…`, warning: false } : isForecast(state.period) && forecast ? forecastFreshness(forecast) : null;
-  headline.set(headlineText, note, rankedPlaces.length ? placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace, headlineRegion) : undefined);
-  if (!headline.element.querySelector('.masthead-links')) {
-    const method = el('a', '', 'How it works'); method.href = '/method';
-    const credits = el('a', '', 'Credits'); credits.href = '/method#credits';
-    const address = el('a', 'site-address', 'NICE.JJPCODES.COM'); address.href = '/';
-    headline.element.querySelector('.headline-copy')!.append(el('div', 'masthead-links', address, method, credits));
-  }
+  const status: AnswerLine | null = periodProblem ? { text: periodProblem, warning: true }
+    : weatherLoading ? { text: `Loading the weather for ${periodTitle(state.period, forecast).toLowerCase()}…`, warning: false }
+    : !rankedPlaces.length ? { text: headlineText, warning: false } : null;
+  headline.set(headlineContext(state.period, forecast, headlineRegion), status ? null : placeNames(rankedPlaces, chooseRankedPlace), status);
 
   const scorePlace = state.place ?? home;
   const scoreDetails = state.place ? details : null;
   const monthScores = scorePlace ? Array.from({ length: 12 }, (_, index) => judge(scorePlace, { kind: 'month', month: (index + 1) as Month })?.meanScore ?? (tasteIsDefault ? scoreDetails?.months?.[index]?.score : undefined) ?? NaN) : undefined;
   const dayScores = scorePlace && forecast ? Array.from({ length: forecast.days }, (_, day) => judge(scorePlace, { kind: 'forecast-day', day })?.meanScore ?? NaN) : undefined;
   const scoreVerdict = scorePlace ? judge(scorePlace, state.period) : null;
-  const stretchLabel = `${isHomeWinter(state.period, home) ? 'your winter, ' : ''}${isForecast(state.period) ? periodTitle(state.period, forecast).replace(/^Next/, 'the next') : periodTitle(state.period, forecast)}`;
-  const bar = renderTimeBar({ period: state.period, forecast, tasteOpen, tasteIsDefault, shareOpen, theme,
+  const stretchLabel = `${isHomeWinter(state.period, home) ? 'your winter, ' : ''}${isForecast(state.period) ? periodTitle(state.period, forecast).replace(/^Next/, 'the next') : state.period.kind === 'year' ? 'the whole year' : periodTitle(state.period, forecast)}`;
+  const note = barMessage ?? (isForecast(state.period) && forecast ? forecastFreshness(forecast) : null);
+  const bar = renderTimeBar({ period: state.period, forecast, note,
     home: home ?? undefined, monthScores, dayScores, niceDayCount: scoreVerdict?.niceDayCount, countedDays: scoreVerdict?.countedDays, countBasis: scoreVerdict?.countBasis,
     scorePlaceName: scorePlace?.name, pickerOpen, playing: Boolean(playing), stretchLabel,
     togglePicker: () => { pickerOpen = !pickerOpen; tasteOpen = false; listOpen = false; if (pickerOpen && !isForecast(state.period)) void engine.prepareYear().then(render).catch(showProblem); render(); },
     playYear: togglePlaying,
   }, actions);
-  const answer = el('div', 'dock-answer');
-  if (rankedPlaces.length) answer.append(placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace, headlineRegion));
-  else answer.append(headlineText);
-  answer.append(button('list-toggle', '›', toggleList, 'Nicest places'));
-  bar.insertBefore(answer, bar.querySelector('.bar-meta'));
-  headline.element.querySelector('.home-summary')?.remove();
-  const comparisonCity = regionalComparison(home);
-  const homeNumbers = home ? judge(home, state.period) : null;
-  const comparisonNumbers = judge(comparisonCity, state.period);
-  if (home && homeNumbers && comparisonNumbers) {
-    const comparison = el('p', 'dock-comparison', 'Nice days: ',
-      button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!)), ` ${Math.round(homeNumbers.niceDayCount)}`);
-    if (home.name !== comparisonCity.name) comparison.append(', ', button('inline-place', `${countryFlag(comparisonCity)} ${comparisonCity.name}`, () => actions.selectSearchResult(comparisonCity)), ` ${Math.round(comparisonNumbers.niceDayCount)}`);
-    comparison.append('.');
-    if (phone.matches) bar.insertBefore(comparison, bar.querySelector('.bar-meta'));
-    else {
-      comparison.classList.add('home-summary');
-      headline.element.querySelector('.headline-copy')!.append(comparison);
-    }
+  pickerSlot.replaceChildren(bar.picker);
+  const taste = toolButton('Your taste', tasteIcon, actions.toggleTaste, tasteOpen);
+  if (!tasteIsDefault) { taste.classList.add('changed'); taste.title = 'Your taste differs from the default'; }
+  const share = toolButton('Share', shareIcon, actions.toggleShare, shareOpen);
+  if (phone.matches) {
+    topActions.replaceChildren(search.openButton, search.locateButton);
+    topBar.replaceChildren(wordmark, topActions, search.field);
+    bottomBar.replaceChildren(...[el('div', 'bar-row', bar.timeButton, taste, share), headline.element, bar.note, bar.legend, bar.smallPrint].filter(node => node !== null));
+  } else {
+    topActions.replaceChildren(search.field, search.locateButton, taste, share);
+    topBar.replaceChildren(wordmark, headline.element, topActions);
+    bottomBar.replaceChildren(el('div', 'bar-start', bar.timeButton, bar.note), el('div', 'bar-end', bar.legend, bar.smallPrint));
   }
-  if (phone.matches && isForecast(state.period) && forecast) {
-    const freshness = forecastFreshness(forecast);
-    bar.append(el('p', `dock-freshness${freshness.warning ? ' warning' : ''}`, freshness.text));
-  }
-  barSlot.replaceChildren(bar);
   renderList(stretchLabel);
 
   if (state.place) {
@@ -416,14 +425,13 @@ function render(): void {
   app.classList.toggle('share-open', shareOpen);
   app.classList.toggle('picker-open', pickerOpen);
   app.classList.toggle('list-open', listOpen);
-  app.classList.toggle('has-place', Boolean(state.place));
   app.classList.toggle('place-open', Boolean(state.place));
   document.title = headlineText;
 }
 
 function rememberView(): void {
   const centre = map.getCenter();
-  saveView(state, { center: [centre.lng, centre.lat], zoom: map.getZoom() });
+  saveView(state, cameraChosen ? { center: [centre.lng, centre.lat], zoom: map.getZoom() } : null);
 }
 
 function updateLink(): void {
@@ -443,27 +451,18 @@ document.addEventListener('keydown', event => {
   render();
 });
 
-// The panels stack under the headline and the search box; the card must never sit under the bar.
+// The map sits between the bars; the phone's bottom bar grows with its answer, so it is measured.
 let measurementFrame = 0;
 const measured = new ResizeObserver(() => {
   cancelAnimationFrame(measurementFrame);
   measurementFrame = requestAnimationFrame(() => {
-    app.style.setProperty('--search-height', `${searchSlot.offsetHeight}px`);
-    app.style.setProperty('--headline-height', `${headline.element.offsetHeight}px`);
-    if (!phone.matches) {
-      const tokens = getComputedStyle(app);
-      const minimum = parseFloat(tokens.getPropertyValue('--masthead-min-height')) * parseFloat(tokens.getPropertyValue('--ui'));
-      const edge = parseFloat(getComputedStyle(headline.element.parentElement!).left);
-      document.documentElement.style.setProperty('--masthead-height', `${Math.max(minimum, headline.element.offsetHeight + edge * 2)}px`);
-    } else document.documentElement.style.removeProperty('--masthead-height');
-    app.style.setProperty('--bar-height', `${barSlot.offsetHeight}px`);
-    document.documentElement.style.setProperty('--bar-height', `${barSlot.getBoundingClientRect().height}px`);
-    if (phone.matches) document.documentElement.style.setProperty('--dock-height', `${barSlot.getBoundingClientRect().height}px`);
+    document.documentElement.style.setProperty('--top-bar-height', `${topBar.offsetHeight}px`);
+    document.documentElement.style.setProperty('--bottom-bar-height', `${bottomBar.offsetHeight}px`);
   });
 });
-measured.observe(headline.element);
-measured.observe(searchSlot);
-measured.observe(barSlot);
+measured.observe(topBar);
+measured.observe(bottomBar);
+phone.addEventListener('change', render);
 const cardMeasured = new ResizeObserver(() => {
   if (phone.matches && state.place && cardSlot.offsetHeight > 0) keepPlaceInView(state.place);
 });
@@ -482,6 +481,8 @@ for (const layer of ['headline-labels', 'city-labels']) {
   map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
 }
+map.on('dragstart', () => { cameraChosen = true; });
+map.on('zoomstart', event => { if (event.originalEvent) cameraChosen = true; });
 map.on('moveend', () => {
   listCandidates = null;
   rememberView();
@@ -536,11 +537,11 @@ if (link.target?.kind === 'point') {
     map.jumpTo({ center: [place.longitude, place.latitude], zoom: Math.max(map.getZoom(), 5) });
     selectPlace(place);
   } else {
-    periodProblem = 'Place not found. Search for a place on the map.';
+    barMessage = { text: 'Place not found. Search for it, or choose it on the map.', warning: true };
     render();
   }
 }
 
 declare global {
-  interface Window { niceWeatherShareCard: (width: number, height: number) => Promise<Blob> }
+  interface Window { niceWeatherShareCard: (width: number, height: number) => Promise<Blob>; niceWeatherMap: unknown }
 }

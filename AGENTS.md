@@ -32,6 +32,7 @@ Browser: src/engine scores eight real days per 1° square and month on the GPU f
 
 - The rule lives in `research/taste/nice_v6.py` (reference) and `src/engine/taste.ts` (the browser). They must agree.
 - Formats and grids: `.agent/v6-contract.md`.
+- The interface is a poster on one grid: a top bar (Nice!, the answer, search and tools), the map fitted between the bars, and a bottom bar (when, and the key); panels open on the same outer margin. Every design value is in `src/design-tokens.css`: one control height, one panel style, two weights, four sizes, colour only for weather.
 - Live site: <https://nice.jjpcodes.com> (ChatGPT Sites, free, public). Local: `npm run build && npm run serve` on <http://127.0.0.1:5198>, the only local port.
 
 ## Engineering rules
@@ -47,5 +48,5 @@ Browser: src/engine scores eight real days per 1° square and month on the GPU f
 Josh's rule: agents must see and debug the working product themselves, with no human in the loop.
 
 1. Data: score known places (Málaga, Rotterdam, Chania, Singapore, Cape Town, San Diego, San Francisco) from the published files and compare with research/taste/fable-results.md and with Josh's own words about them.
-2. Site: run it, click places, switch day, month and season, drag every slider, copy a link and an image, and look at screenshots at phone, laptop and ultrawide sizes. Reject clipped text, misaligned controls, unclear explanations or slow loading.
+2. Site: run it, click places, switch day, month and season, drag every slider, copy a link and an image, and look at screenshots at phone, laptop and ultrawide sizes. Reject clipped text, misaligned controls, unclear explanations or slow loading. `research/site/layout-audit/check_layout.py` screenshots every screen at Josh's sizes, light and dark, and must report no overlaps, alignment faults or low contrast.
 3. For product milestones, ask a reviewer with no context to judge the live site against Josh's verbatim steering only.

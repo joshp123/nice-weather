@@ -1,11 +1,12 @@
-// Written by AI on 2026.10.17 by model Claude Fable 5.1.
+// Written by AI on 2026.10.17 by model Claude Fable 5.1; labels and framing reworked on 2026.10.18 by model claude opus 5.5.
 // The base map: land, the weather (the engine's layer sits just under the sea), sea, borders, then city names
-// with their score, so the answer reads straight off the map. Dark or light to match the device.
+// with their count, so the answer reads straight off the map. Dark or light to match the device.
+// First view: the whole inhabited world, 56° S to 72° N, fitted between the bars.
 import maplibregl, { type ExpressionSpecification, type GeoJSONSource, type SymbolLayerSpecification, type StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Point } from '../engine';
 import type { Camera } from './state';
-import { bands } from '../palette';
+import { bands, colourOnLand, textOnColour } from '../palette';
 
 export type Theme = 'dark' | 'light';
 
@@ -17,16 +18,14 @@ function mapDesign() {
     land: colour('land'), sea: colour('sea'), state: colour('state-border'), country: colour('country-border'), text: colour('label'), halo: colour('label-halo'),
     labelScale: number('label-scale'), labelSmall: number('label-small'), labelLarge: number('label-large'), labelLineHeight: number('label-line-height'), labelWidth: number('label-width'), labelPadding: number('label-padding'), labelHaloWidth: number('label-halo-width'),
     stateWidth: number('state-width'), countryWidthSmall: number('country-width-small'), countryWidthLarge: number('country-width-large'),
-    homeLineWidth: number('home-line-width'), homeDash: number('home-dash'), homeDashGap: number('home-dash-gap'), homeOpacity: number('home-opacity'), homeRadius: number('home-radius'), homeStroke: number('home-stroke'),
-    chosenSize: number('chosen-size'), chosenOffset: number('chosen-offset'), chosenHalo: number('chosen-halo'),
-    countMinimumWidth: number('count-minimum-width'), countPadding: number('count-padding'), countCharacterWidth: number('count-character-width'), countHeight: number('count-height'), countFontSize: number('count-font-size'), countStroke: number('count-stroke'), countOutline: colour('count-outline'), countTextLow: colour('count-text-low'), countTextHigh: colour('count-text-high'),
+    pointerWidth: number('pointer-width'), pointerOpacity: number('pointer-opacity'), pointRadius: number('point-radius'), pointStroke: number('point-stroke'),
+    countMinimumWidth: number('count-minimum-width'), countPadding: number('count-padding'), countCharacterWidth: number('count-character-width'), countHeight: number('count-height'), countFontSize: number('count-font-size'),
     ringSize: number('ring-size'), ringRadius: number('ring-radius'), ringOutlineWidth: number('ring-outline-width'), ringStrokeWidth: number('ring-stroke-width'), ringOutline: colour('ring-outline'), ringStroke: colour('ring-stroke'),
-    showWholeWorld: number('show-whole-world'), wideLongitude: number('wide-longitude'), wideLatitude: number('wide-latitude'), wideZoom: number('wide-zoom'),
   };
 }
 type MapDesign = ReturnType<typeof mapDesign>;
 
-/** A city's nice-day count is printed in a coloured pill below its name. */
+/** A city's nice-day count sits below its name: a coloured pill in the good bands, plain figures in the others. */
 const englishName: ExpressionSpecification = ['coalesce', ['get', 'name:en'], ['get', 'name']];
 const scoredLabel: ExpressionSpecification = [
   'case', ['has', 'countImage'],
@@ -35,13 +34,13 @@ const scoredLabel: ExpressionSpecification = [
 ];
 const minimumLabelPopulations = [4000000, 1000000, 300000, 80000, 20000, 0];
 
-function cityLayer(colours: MapDesign): SymbolLayerSpecification {
+function cityLayer(colours: MapDesign, font = 'Noto Sans Regular'): SymbolLayerSpecification {
   return {
     id: 'city-labels', type: 'symbol', source: 'city-scores',
     filter: ['step', ['zoom'], ['>=', ['get', 'population'], minimumLabelPopulations[0]], ...minimumLabelPopulations.slice(1).flatMap((population, index) => [index + 2, ['>=', ['get', 'population'], population]])] as ExpressionSpecification,
     layout: {
       'text-field': scoredLabel,
-      'text-font': ['Noto Sans Bold'],
+      'text-font': [font],
       'text-size': ['interpolate', ['linear'], ['zoom'], 1, colours.labelSmall * colours.labelScale, 9, colours.labelLarge * colours.labelScale],
       'text-line-height': colours.labelLineHeight,
       'text-max-width': colours.labelWidth,
@@ -64,7 +63,6 @@ function style(colours: MapDesign): StyleSpecification {
       'city-scores': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       'palestine-label': { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { longitude: 34.8, latitude: 31.15 }, geometry: { type: 'Point', coordinates: [34.8, 31.15] } }] } },
       'chosen-place': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
-      'home-connection': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     },
     layers: [
       { id: 'sea-background', type: 'background', paint: { 'background-color': colours.sea } },
@@ -73,29 +71,21 @@ function style(colours: MapDesign): StyleSpecification {
       { id: 'state-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', minzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 4], ['!=', ['get', 'maritime'], 1]], paint: { 'line-color': colours.state, 'line-width': colours.stateWidth } },
       { id: 'world-borders', type: 'line', source: 'world-map', 'source-layer': 'boundary', maxzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1], ['!', ['has', 'claimed_by']]], paint: { 'line-color': colours.country, 'line-width': colours.countryWidthSmall } },
       { id: 'country-borders', type: 'line', source: 'openmaptiles', 'source-layer': 'boundary', minzoom: 3, filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1], ['!', ['has', 'claimed_by']]], paint: { 'line-color': colours.country, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, colours.countryWidthSmall, 6, colours.countryWidthLarge] } },
-      { id: 'home-connection', type: 'line', source: 'home-connection', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round' }, paint: { 'line-color': colours.text, 'line-width': colours.homeLineWidth, 'line-dasharray': [colours.homeDash, colours.homeDashGap], 'line-opacity': colours.homeOpacity } },
-      { id: 'home-dot', type: 'circle', source: 'home-connection', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': colours.homeRadius, 'circle-color': colours.sea, 'circle-stroke-color': colours.text, 'circle-stroke-width': colours.homeStroke } },
       {
         id: 'palestine-label', type: 'symbol', source: 'palestine-label', minzoom: 3, maxzoom: 6,
         layout: { 'text-field': 'Palestine', 'text-font': ['Noto Sans Regular'], 'text-size': colours.countFontSize * colours.labelScale, 'text-letter-spacing': 0.08, 'text-padding': 10, 'text-allow-overlap': true },
         paint: { 'text-color': colours.text, 'text-halo-color': colours.halo, 'text-halo-width': colours.labelHaloWidth, 'text-opacity': 0.75 },
       },
       cityLayer(colours),
-      { id: 'headline-pointers', type: 'line', source: 'headline-pointers', paint: { 'line-color': colours.text, 'line-width': colours.homeLineWidth, 'line-opacity': colours.homeOpacity } },
-      { id: 'headline-points', type: 'circle', source: 'city-scores', filter: ['has', 'headlineRank'], paint: { 'circle-radius': colours.homeRadius, 'circle-color': colours.text, 'circle-stroke-color': colours.halo, 'circle-stroke-width': colours.homeStroke } },
-      { ...cityLayer(colours), id: 'headline-labels', filter: ['has', 'headlineRank'], layout: {
-        ...cityLayer(colours).layout, 'symbol-sort-key': ['get', 'headlineRank'],
+      { id: 'headline-pointers', type: 'line', source: 'headline-pointers', layout: { 'line-cap': 'round' }, paint: { 'line-color': colours.text, 'line-width': colours.pointerWidth, 'line-opacity': colours.pointerOpacity } },
+      { id: 'headline-points', type: 'circle', source: 'city-scores', filter: ['has', 'headlineRank'], paint: { 'circle-radius': colours.pointRadius, 'circle-color': colours.text, 'circle-stroke-color': colours.halo, 'circle-stroke-width': colours.pointStroke } },
+      { ...cityLayer(colours, 'Noto Sans Bold'), id: 'headline-labels', filter: ['has', 'headlineRank'], layout: {
+        ...cityLayer(colours, 'Noto Sans Bold').layout, 'symbol-sort-key': ['get', 'headlineRank'],
         'text-allow-overlap': true, 'text-offset': ['get', 'headlineOffset'],
       } },
       {
         id: 'chosen-place', type: 'symbol', source: 'chosen-place',
-        layout: {
-          'icon-image': 'chosen-place', 'icon-allow-overlap': true,
-          'text-field': '', 'text-font': ['Noto Sans Bold'], 'text-size': colours.chosenSize * colours.labelScale,
-          'text-max-width': colours.labelWidth,
-          'text-anchor': 'left', 'text-offset': [colours.chosenOffset, 0], 'text-optional': true,
-        },
-        paint: { 'text-color': colours.text, 'text-halo-color': colours.halo, 'text-halo-width': colours.chosenHalo },
+        layout: { 'icon-image': 'chosen-place', 'icon-allow-overlap': true },
       },
     ],
   };
@@ -125,7 +115,6 @@ export type WeatherMap = Readonly<{
   loadRemainingCities(): Promise<void>;
   /** Marks the chosen spot and writes its name beside it. */
   showChosenPlace(place: { latitude: number; longitude: number; name: string; score?: number } | null): void;
-  showHomeConnection(home: Point | null, destination: Point | null): void;
   /** All loaded cities, independent of basemap tile requests. */
   visibleCities(): CityPoint[];
   labelCandidates(): CityPoint[];
@@ -135,7 +124,10 @@ export type WeatherMap = Readonly<{
   labelCities(cities: readonly CityPoint[], scores: ArrayLike<number>, niceCounts?: ArrayLike<number>, prioritySlugs?: readonly string[]): void;
 }>;
 
-export function createMap(container: HTMLElement, theme: Theme, camera: Camera | null, dataUrl = '/data/v6'): Promise<WeatherMap> {
+/** The inhabited world: Alaska to Fiji, Cape Horn to the North Cape. Greenland's ice and Antarctica are left out. */
+const INHABITED_WORLD: [[number, number], [number, number]] = [[-168, -56], [180, 72]];
+
+export function createMap(container: HTMLElement, theme: Theme, camera: Camera | null, dataUrl = '/data/v6', homeLongitude = 15): Promise<WeatherMap> {
   const design = mapDesign();
   container.style.backgroundColor = design.sea;
   let cities: CityPoint[] = [];
@@ -147,25 +139,31 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   });
   const labels = fetchLabels('labels-1.json');
   let remainingCities: Promise<void> | undefined;
+  // A window much wider than the world (the 57-inch ultrawide) shows the whole world with sea at the sides;
+  // MapLibre's own limit would otherwise zoom in until the world filled the width.
+  const wide = container.clientWidth / container.clientHeight > 2.1;
+  // The attribution is in the bottom bar's small print (© OpenStreetMap, and Credits for the rest).
   const map = new maplibregl.Map({
     container, style: style(design), center: camera ? [camera.center[0], camera.center[1]] : [10, 25], zoom: camera?.zoom ?? 1.6, minZoom: 1.1, maxZoom: 11,
-    attributionControl: { compact: true, customAttribution: 'Forecast © ECMWF · Climate: Copernicus ERA5' },
+    attributionControl: false,
     dragRotate: false, pitchWithRotate: false, touchPitch: false,
     renderWorldCopies: false,
     canvasContextAttributes: { preserveDrawingBuffer: true },
-    transformConstrain: design.showWholeWorld === 1 ? (center, zoom) => ({
+    transformConstrain: wide ? (center, zoom) => ({
       center: new maplibregl.LngLat(center.wrap().lng, Math.max(-85, Math.min(85, center.lat))),
       zoom: Math.max(1.1, Math.min(11, zoom)),
     }) : undefined,
   });
   map.touchZoomRotate.disableRotation();
   if (!camera) {
-    if (design.showWholeWorld === 1) map.jumpTo({ center: [design.wideLongitude, design.wideLatitude], zoom: design.wideZoom });
-    else map.fitBounds([[-125, -45], [150, 62]], { animate: false });
+    // A phone is too narrow for the whole world: it shows the visitor's side of it, from Cape Horn's latitude to the North Cape's.
+    const phoneWidth = container.clientWidth < 720;
+    map.fitBounds(phoneWidth ? [[homeLongitude - 55, INHABITED_WORLD[0][1]], [homeLongitude + 55, INHABITED_WORLD[1][1]]] : INHABITED_WORLD, { animate: false });
   }
 
   return new Promise(resolve => {
-    map.once('style.load', () => {
+    map.once('style.load', async () => {
+      await document.fonts.load(`600 ${design.countFontSize * design.labelScale}px Barlow`);
       map.addImage('chosen-place', ringImage(design), { pixelRatio: 2 });
       const viewportLabelFilter = (left: number, right: number, vertical: number): ExpressionSpecification => {
         const northWest = map.unproject([left, vertical]);
@@ -188,10 +186,12 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
       keepLabelsInsideViewport();
       map.on('move', keepLabelsInsideViewport);
       map.on('resize', keepLabelsInsideViewport);
+      // Good bands (Nice and better) get a pill in their colour; the others show plain figures, so the eye goes to the good places.
       const countImage = (score: number, count: number): string => {
         let band = bands[0];
         for (const candidate of bands) if (score >= candidate.minimumScore) band = candidate;
         const countText = String(Math.round(count));
+        const good = band.minimumScore >= 55;
         const name = `nice-count-${band.name}-${countText}`;
         if (!map.hasImage(name)) {
           const scale = design.labelScale;
@@ -200,23 +200,31 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
           const canvas = new OffscreenCanvas(Math.ceil(width * 2), Math.ceil(height * 2));
           const draw = canvas.getContext('2d')!;
           draw.scale(2, 2);
-          draw.fillStyle = band.colour.slice(0, 7);
-          draw.beginPath();
-          draw.roundRect(1, 1, width - 2, height - 2, (height - 2) / 2);
-          draw.fill();
-          draw.strokeStyle = design.countOutline;
-          draw.lineWidth = design.countStroke;
-          draw.stroke();
-          draw.font = `700 ${design.countFontSize * scale}px sans-serif`;
+          draw.font = `600 ${design.countFontSize * scale}px Barlow, sans-serif`;
           draw.textAlign = 'center';
           draw.textBaseline = 'middle';
-          draw.fillStyle = band.minimumScore < 40 ? design.countTextLow : design.countTextHigh;
+          if (good) {
+            const fill = colourOnLand(band.colour);
+            draw.fillStyle = fill;
+            draw.strokeStyle = design.halo;
+            draw.lineWidth = design.labelHaloWidth;
+            draw.beginPath();
+            draw.roundRect(1, 1, width - 2, height - 2, (height - 2) / 2);
+            draw.fill();
+            draw.stroke();
+            draw.fillStyle = textOnColour(fill, true);
+          } else {
+            draw.strokeStyle = design.halo;
+            draw.lineWidth = design.labelHaloWidth * 2;
+            draw.lineJoin = 'round';
+            draw.strokeText(countText, width / 2, height / 2 + 0.5);
+            draw.fillStyle = design.text;
+          }
           draw.fillText(countText, width / 2, height / 2 + 0.5);
           map.addImage(name, draw.getImageData(0, 0, canvas.width, canvas.height), { pixelRatio: 2 });
         }
         return name;
       };
-      container.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
       const weatherMap: WeatherMap = {
         map,
         theme,
@@ -237,15 +245,6 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
             features: place ? [{ type: 'Feature', properties: { name: place.name, longitude: place.longitude, latitude: place.latitude, ...(Number.isFinite(place.score) ? { score: Math.floor(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
           });
           if (changed && previousLabels) weatherMap.labelCities(previousLabels.cities, previousLabels.scores, previousLabels.niceCounts, previousLabels.prioritySlugs);
-        },
-        showHomeConnection(home, destination) {
-          (map.getSource('home-connection') as GeoJSONSource).setData({
-            type: 'FeatureCollection',
-            features: home && destination ? [
-              { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[home.longitude, home.latitude], [destination.longitude, destination.latitude]] } },
-              { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [home.longitude, home.latitude] } },
-            ] : [],
-          });
         },
         visibleCities() { return cities; },
         labelledPlaces() {
