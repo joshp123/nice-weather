@@ -44,7 +44,9 @@ San Francisco's January–September nice-day count moves 190 → 169 against an 
 
 This diagnostic retains the accepted temperature anchors and native rain, humidity and wind. Exact-date cloud and weather relationships can differ from the native ERA5 sequence; monthly mean matching cannot restore them. Two observed years and different 2 km/4 km source pixels add uncertainty. No source-specific or city-specific exception was fitted in response, and no new network data were acquired for this diagnostic. Evidence: SSD `sun/named-validation/goes-six-exact-day-diagnostic.json`. Rerun `named_day_diagnostic.mjs` with `--normal` pointing to `goes-six-two-year-normal.json` and `--goes-root` pointing to the cached GOES directory.
 
-## Rotterdam: the remaining count regression
+## Rotterdam: original sparse count diagnostic
+
+The larger-reference check linked above reverses this count concern: visitor predictions move 88 → 80 nice days against 81. The original calculation below is retained to show the sensitivity to reference-day selection; it is not the current best estimate of Rotterdam's count error.
 
 The exact-date radiation diagnostic substitutes satellite radiation on the retained ERA5 sample dates, while retaining the accepted temperature anchors and ERA5 rain, humidity and wind. All scenarios exclude the same seventeen samples from 2024, beyond SARAH-3's available period. Seventy-nine samples remain; they are reweighted within each month. This is a radiation diagnostic, not a complete observed-weather reference.
 
