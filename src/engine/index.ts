@@ -8,7 +8,7 @@ export type { Taste, BandName, DayJudgement } from './taste';
 export type Month = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 export type Season = 'Dec-Feb' | 'Mar-May' | 'Jun-Aug' | 'Sep-Nov';
 export type Period =
-  | Readonly<{ kind: 'forecast-day'; day: number }>
+  | Readonly<{ kind: 'forecast-day'; day: number; date?: string }>
   | Readonly<{ kind: 'forecast' }>
   | Readonly<{ kind: 'month'; month: Month }>
   | Readonly<{ kind: 'season'; season: Season }>
@@ -37,7 +37,7 @@ export type PointVerdict = Readonly<{
   band: BandName;
   /** 0..1, from the same representative day scores as meanScore. */
   niceDayShare: number;
-  /** Expected count from representative days, weighted by real month lengths. */
+  /** Whole days meeting the threshold, from the actual daily scores below. */
   niceDayCount: number;
   perfectDayShare: number;
   awfulDayShare: number;
@@ -45,6 +45,10 @@ export type PointVerdict = Readonly<{
   awfulDayCount: number;
   totalDays: number;
   sampleDays: number;
+  /** Denominator for the whole-day counts; typical-year counts describe sampled days. */
+  countedDays?: number;
+  countBasis?: 'sample' | 'forecast';
+  dayScores?: readonly number[];
   parts: Omit<DayJudgement, 'score'>;
   typical: TypicalWeather;
 }>;

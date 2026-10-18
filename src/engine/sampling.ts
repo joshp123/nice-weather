@@ -3,6 +3,7 @@ import { bandOf, decodeDay, judgeDay, type DayJudgement, type Taste } from './ta
 import type { Cells, PeriodData, SampleGroup } from './data';
 import type { Period, PointVerdict, TypicalWeather } from './index';
 import { SHIFT_LEVELS, SHIFT_MINIMUM, SHIFT_STEP } from './shaders';
+import { countDayScores } from '../../hosting/sites/day-counts.mjs';
 
 export type PointContribution = Readonly<{ group: number; cell: number; level: number; weight: number }>;
 type MutableTypicalWeather = { -readonly [Key in keyof TypicalWeather]-?: number };
@@ -90,9 +91,10 @@ export class PointSampler {
     for (const name of typicalNames) typical[name] = average(point => point.typical[name] ?? 0);
     const parts = { warmth: 0, evening: 0, rainFactor: 0, windFactor: 0, humidityFactor: 0, sunFactor: 0 };
     for (const name of partNames) parts[name] = average(point => point.parts[name]);
+    const dayScores = points[0].verdict.dayScores!.map((_, day) => canonicalScore(average(point => point.dayScores![day])));
     const verdict = {
       meanScore, band: bandOf(meanScore), niceDayShare: average(point => point.niceDayShare), perfectDayShare: average(point => point.perfectDayShare), awfulDayShare: average(point => point.awfulDayShare),
-      niceDayCount: average(point => point.niceDayCount), perfectDayCount: average(point => point.perfectDayCount), awfulDayCount: average(point => point.awfulDayCount),
+      ...countDayScores(dayScores, this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? 'forecast' : 'sample'),
       totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
     };
     this.cachedPoints.set(key, verdict);
@@ -132,9 +134,7 @@ export class PointSampler {
     const niceDayShare = shares[3], perfectDayShare = shares[5], awfulDayShare = Math.max(0, 1 - shares[1]);
     const verdict = {
       meanScore, band: bandOf(meanScore), niceDayShare, perfectDayShare, awfulDayShare,
-      niceDayCount: Math.round(niceDayShare * this.data.totalDays * 1e9) / 1e9,
-      perfectDayCount: Math.round(perfectDayShare * this.data.totalDays * 1e9) / 1e9,
-      awfulDayCount: Math.round(awfulDayShare * this.data.totalDays * 1e9) / 1e9,
+      ...countDayScores(dayScores.flatMap(scores => Array.from(scores, canonicalScore)), this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? 'forecast' : 'sample'),
       totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
     };
     this.cachedGridPoints.set(index, verdict);

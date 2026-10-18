@@ -1,6 +1,7 @@
 // Written by AI (GPT-6.1 Sol), 2026-10-18.
 // Default-taste named places: compact sampled scores and separately loaded facts.
 import {typicalScore} from './fine-place.mjs';
+import {countDayScores} from './day-counts.mjs';
 
 const MONTH_DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
 const THRESHOLDS=[0,25,40,55,70,85,100];
@@ -80,11 +81,13 @@ function climateNumbers(row,period) {
   if(!row?.climate||row.climateIndex<0)return null;
   const months=namedPeriodMonths(period),totalDays=months.reduce((sum,month)=>sum+MONTH_DAYS[month-1],0),shares=THRESHOLDS.map(()=>0);
   const {climate:table,climateIndex:index}=row,parts=zeroObject(NAMED_PART_FIELDS),typical=zeroObject(NAMED_TYPICAL_FIELDS);
+  const dayScores=[];
   for(const month of months) {
     const weight=MONTH_DAYS[month-1]/totalDays/8;
     for(let sample=0;sample<8;sample++) {
       const score=table.bytes[32+8*table.count+((month-1)*8+sample)*table.count+index];
       if(score===255)return null;
+      dayScores.push(score);
       for(let threshold=0;threshold<THRESHOLDS.length;threshold++)if(score>=THRESHOLDS[threshold])shares[threshold]+=weight;
     }
     const facts=row.months?.[month-1];
@@ -94,8 +97,8 @@ function climateNumbers(row,period) {
       for(let field=0;field<9;field++)typical[NAMED_TYPICAL_FIELDS[field]]+=facts[6+field]*monthWeight;
     }
   }
-  const score=typicalScore(shares),count=share=>Math.round(share*totalDays*1e9)/1e9;
-  return {score,meanScore:score,band:band(score),niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),niceDayCount:count(shares[3]),perfectDayCount:count(shares[5]),awfulDayCount:count(Math.max(0,1-shares[1])),totalDays,sampleDays:months.length*8,parts,typical,resolutionArcSeconds:30,status:'named-default',factsAvailable:!!row.months};
+  const score=typicalScore(shares);
+  return {score,meanScore:score,band:band(score),niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),...countDayScores(dayScores,'sample'),totalDays,sampleDays:months.length*8,parts,typical,resolutionArcSeconds:30,status:'named-default',factsAvailable:!!row.months};
 }
 
 function forecastNumbers(row,period) {
@@ -107,7 +110,11 @@ function forecastNumbers(row,period) {
   if(packed===0xffffff)return null;
   const score=packed/10000,shares=Array.from({length:3},(_,field)=>table.view.getFloat32(base+3*table.count+(field*table.count+index)*4,true));
   const totalDays=slot===14?14:1;
-  return {score,meanScore:score,band:band(score),niceDayShare:shares[0],perfectDayShare:shares[1],awfulDayShare:shares[2],niceDayCount:shares[0]*totalDays,perfectDayCount:shares[1]*totalDays,awfulDayCount:shares[2]*totalDays,totalDays,sampleDays:totalDays,parts:zeroObject(NAMED_PART_FIELDS),typical:zeroObject(NAMED_TYPICAL_FIELDS),status:'named-default',factsAvailable:false};
+  const dayScores=Array.from({length:totalDays},(_,day)=> {
+    const at=32+8*table.count+(slot===14?day:slot)*15*table.count+index*3;
+    return (table.bytes[at]|table.bytes[at+1]<<8|table.bytes[at+2]<<16)/10000;
+  });
+  return {score,meanScore:score,band:band(score),niceDayShare:shares[0],perfectDayShare:shares[1],awfulDayShare:shares[2],...countDayScores(dayScores,'forecast'),totalDays,sampleDays:totalDays,parts:zeroObject(NAMED_PART_FIELDS),typical:zeroObject(NAMED_TYPICAL_FIELDS),status:'named-default',factsAvailable:false};
 }
 
 /** One default named-place aggregate for app, Worker and offline validation. */

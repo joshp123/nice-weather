@@ -9,6 +9,7 @@ import { MONTH_NAMES, MONTH_SHORT, dayChipLabel, isForecast, bandSentence, month
 import type { Place } from './state';
 import { bandColour } from './timebar';
 import { countryFlag } from './countries';
+import { forecastFreshness } from './headline';
 import './card.css';
 
 export type CardView = Readonly<{
@@ -59,10 +60,6 @@ function eveningWords(temperatureC: number): string {
   return 'Cold';
 }
 
-function effect(factor: number): string | null {
-  return factor >= 0.985 ? null : `−${round((1 - factor) * 100)}%`;
-}
-
 function factorScore(factor: number): number {
   return factor >= 0.97 ? 85 : factor >= 0.9 ? 70 : factor >= 0.8 ? 55 : factor >= 0.65 ? 40 : factor >= 0.45 ? 25 : 0;
 }
@@ -87,17 +84,14 @@ function physicalScale(scale: PhysicalScale): HTMLElement {
   return el('div', 'reason-range', track, ticks);
 }
 
-function row(label: string, value: string, detail: string, scale: PhysicalScale, effectText: string | null = null): HTMLElement {
-  const penalty = effectText ? el('span', 'why-effect', effectText) : null;
-  if (penalty) penalty.title = 'Reduction in the score from this factor';
+function row(label: string, value: string, detail: string, scale: PhysicalScale): HTMLElement {
   return el('div', 'why-row', el('dt', '', label),
-    el('dd', '', el('span', 'why-value', value), el('span', 'why-detail', detail), penalty),
+    el('dd', '', el('span', 'why-value', value), el('span', 'why-detail', detail)),
     physicalScale(scale));
 }
 
-function why(verdict: PointVerdict, taste: Taste): HTMLElement {
+function why(verdict: PointVerdict, taste: Taste, singleDay: boolean): HTMLElement {
   const typical = verdict.typical;
-  const parts = verdict.parts;
   const afternoonShade = typical.feelsInShadeAt15C;
   return el('dl', 'why physical-why',
     row('Afternoon in the sun', `${round(typical.feelsInSunAt14C)} °C feels-like`, afternoonWords(typical.feelsInSunAt14C),
@@ -106,14 +100,14 @@ function why(verdict: PointVerdict, taste: Taste): HTMLElement {
       { value: afternoonShade, minimum: 10, maximum: 45, ticks: ['10 °C', '28 °C', '45 °C'], score: value => readCurve(HEAT_GRADE_BY_FEELS_IN_SHADE, value + taste.heatShift) }),
     row('Walk home at 21:00', `${round(typical.feelsInShadeAt21C)} °C in the shade`, eveningWords(typical.feelsInShadeAt21C),
       { value: typical.feelsInShadeAt21C, minimum: 0, maximum: 40, ticks: ['0 °C', '20 °C', '40 °C'], score: value => Math.min(readCurve(EVENING_GRADE_BY_FEELS_AT_21, value - taste.eveningShift), readCurve(HEAT_GRADE_BY_FEELS_IN_SHADE, value + taste.heatShift)) }),
-    row('Rain, 10:00 to 21:00', `${typical.rainMmPerDay.toFixed(1)} mm a day`, `${typical.rainMmPerDay < 0.5 ? 'Mostly dry' : typical.rainMmPerDay < 2 ? 'Some rain' : 'Wet'} · ${round(typical.wetDayShare * 100)}% of days wet`,
-      { value: typical.rainMmPerDay, minimum: 0, maximum: 10, ticks: ['0 mm', '5 mm', '10 mm'], score: value => factorScore(readCurve(RAIN_FACTOR_BY_MM, value * taste.rainScale)) }, effect(parts.rainFactor)),
+    row('Rain, 10:00 to 21:00', `${typical.rainMmPerDay.toFixed(1)} mm${singleDay ? '' : ' a day'}`, `${typical.rainMmPerDay < 0.5 ? 'Mostly dry' : typical.rainMmPerDay < 2 ? 'Some rain' : 'Wet'}${singleDay ? '' : ` · ${round(typical.wetDayShare * 100)}% of days wet`}`,
+      { value: typical.rainMmPerDay, minimum: 0, maximum: 10, ticks: ['0 mm', '5 mm', '10 mm'], score: value => factorScore(readCurve(RAIN_FACTOR_BY_MM, value * taste.rainScale)) }),
     row('Wind', `${round(typical.windKmh)} km/h`, typical.windKmh <= 15 ? 'Light wind' : typical.windKmh <= 25 ? 'Breezy' : typical.windKmh <= 40 ? 'Windy' : 'Strong wind',
-      { value: typical.windKmh, minimum: 0, maximum: 70, ticks: ['Calm', '35 km/h', '70 km/h'], score: value => factorScore(readCurve(WIND_FACTOR_BY_KMH, value - taste.windShift)) }, effect(parts.windFactor)),
+      { value: typical.windKmh, minimum: 0, maximum: 70, ticks: ['Calm', '35 km/h', '70 km/h'], score: value => factorScore(readCurve(WIND_FACTOR_BY_KMH, value - taste.windShift)) }),
     row('Humidity', `${typical.dewPointC.toFixed(1)} °C dew point`, humidityWord(typical.dewPointC),
-      { value: typical.dewPointC, minimum: 5, maximum: 30, ticks: ['5 °C · dry', '18 °C', '30 °C · sticky'], score: value => factorScore(readCurve(HUMIDITY_FACTOR_BY_DEW_POINT, value - taste.humidityShift)) }, effect(parts.humidityFactor)),
+      { value: typical.dewPointC, minimum: 5, maximum: 30, ticks: ['5 °C · dry', '18 °C', '30 °C · sticky'], score: value => factorScore(readCurve(HUMIDITY_FACTOR_BY_DEW_POINT, value - taste.humidityShift)) }),
     row('Sun', `${round(typical.sunnyShare * 100)}% of daylight`, typical.sunnyShare >= 0.8 ? 'Mostly sunny' : typical.sunnyShare >= 0.4 ? 'Sun and cloud' : 'Mostly cloudy',
-      { value: typical.sunnyShare * 100, minimum: 0, maximum: 100, ticks: ['0% · grey', '50%', '100% · clear'], score: value => factorScore(readCurve(SUN_FACTOR_BY_SUNNY_SHARE, value / 100)) }, effect(parts.sunFactor)),
+      { value: typical.sunnyShare * 100, minimum: 0, maximum: 100, ticks: ['0% · grey', '50%', '100% · clear'], score: value => factorScore(readCurve(SUN_FACTOR_BY_SUNNY_SHARE, value / 100)) }),
   );
 }
 
@@ -125,7 +119,7 @@ function comparisons(view: CardView, actions: Actions): HTMLElement | null {
   for (const [entry, label] of rows) {
     if (!entry?.verdict || entry.place.slug === view.place.slug && entry.place.name === view.place.name) continue;
     const place = button('inline-place', `${countryFlag(entry.place)} ${entry.place.name}`.trim(), () => actions.selectSearchResult(entry.place));
-    comparison.append(el('p', '', `${label}: `, place, `, nice on ${round(entry.verdict.niceDayCount)} of ${round(entry.verdict.totalDays)} days ${view.stretchLabel ?? `in ${periodTitle(view.period, view.forecast).toLowerCase()}`}.`));
+    comparison.append(el('p', '', `${label}: `, place, `, nice on ${entry.verdict.niceDayCount} of ${entry.verdict.countedDays ?? entry.verdict.sampleDays} ${entry.verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${view.stretchLabel ?? `in ${periodTitle(view.period, view.forecast).toLowerCase()}`}.`));
   }
   return comparison.childElementCount ? comparison : null;
 }
@@ -181,12 +175,16 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   }
   const score = el('span', 'score-badge', String(Math.floor(verdict.meanScore)));
   score.style.background = bandColour(verdict.meanScore);
-  const niceDays = isForecast(view.period) && view.period.kind === 'forecast-day' ? '' : `Nice on ${round(verdict.niceDayCount)} of the ${round(verdict.totalDays)} days ${view.stretchLabel ?? (view.period.kind === 'year' ? 'of the year' : `in ${periodTitle(view.period, view.forecast).toLowerCase()}`)}. Perfect on ${round(verdict.perfectDayCount)}; awful on ${round(verdict.awfulDayCount)}.`;
+  const countPeriod = isForecast(view.period) ? 'in this forecast' : (view.stretchLabel ?? (view.period.kind === 'month' ? `in ${periodTitle(view.period, view.forecast)}` : view.period.kind === 'year' ? 'across the year' : `from ${periodTitle(view.period, view.forecast)}`));
+  const niceDays = view.period.kind === 'forecast-day' ? '' : `Nice on ${verdict.niceDayCount} of ${verdict.countedDays ?? verdict.sampleDays} ${verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${countPeriod}. Perfect on ${verdict.perfectDayCount}; awful on ${verdict.awfulDayCount}.`;
   const answer = el('div', 'verdict', score,
     el('div', 'verdict-text', el('strong', 'band-word', bandSentence(view.period, verdict.band)), el('p', 'verdict-days', niceDays || periodTitle(view.period, view.forecast))));
   const periodLabel = isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`;
-  const periodLine = el('p', 'card-period', `${periodLabel}${verdict.resolutionArcSeconds === 30 ? '' : ' · Area estimate'}`);
+  const forecastDates = isForecast(view.period) && view.forecast ? upcomingForecastDays(view.forecast).map(day => dayChipLabel(view.forecast!, day)) : [];
+  const periodLine = el('p', 'card-period', `${periodLabel}${view.period.kind === 'forecast' && forecastDates.length ? `, ${forecastDates[0]} to ${forecastDates.at(-1)}` : ''}`);
+  const freshness = isForecast(view.period) && view.forecast ? forecastFreshness(view.forecast) : null;
+  const forecastTime = freshness ? el('p', `card-period${freshness.warning ? ' forecast-warning' : ''}`, freshness.text) : null;
 
   const strip = isForecast(view.period) ? dayStrip(view, actions) : null;
-  return el('section', 'card panel physical-card', header, answer, periodLine, why(verdict, view.taste ?? DEFAULT_TASTE), strip, monthStrip(view, actions), comparisons(view, actions));
+  return el('section', 'card panel physical-card', header, answer, periodLine, forecastTime, why(verdict, view.taste ?? DEFAULT_TASTE, view.period.kind === 'forecast-day'), strip, monthStrip(view, actions), comparisons(view, actions));
 }
