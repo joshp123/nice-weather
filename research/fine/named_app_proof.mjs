@@ -289,7 +289,6 @@ try {
     sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
   }
   await fs.writeFile(path.join(output,'results.json'),JSON.stringify({written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,namedState,status,expectedWorldHeadline,sources,views:results},null,2));
-  await send('Target.closeTarget', { targetId });
 } catch(error) {
   await fs.writeFile(path.join(output,'results.json'),JSON.stringify({passes:false,error:error.message},null,2)+'\n');
   throw error;
