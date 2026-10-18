@@ -62,7 +62,7 @@ def score_records(records, offset=0):
 
 def reference_months():
     table = {}
-    for line in (ROOT / 'research/taste/fable-results.md').read_text().splitlines():
+    for line in (ROOT / 'research/taste/anchor-places.md').read_text().splitlines():
         fields = [field.strip() for field in line.split('|')]
         if len(fields) != 18:
             continue
