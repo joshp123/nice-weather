@@ -4,6 +4,16 @@ Written by AI (GPT-6.1 Sol), 2026-10-18.
 
 **The compact B1 data are live.** The original upload is recorded in [the release report](../site/named-live-deploy-20261018.md). The 18.54 GB / 484,004-file worldwide replay remains on hold. Do not run the full-release sealer or uploader.
 
+## Satellite sunshine update: not active
+
+The [fourteen-place sunshine comparison](../sun/NAMED_FOURTEEN_REPORT.md) is a local validation build, **not an upload release**. Its small table contains only fourteen coordinates; activating it would remove the other named places. No satellite pointer has been uploaded and the live temperature release remains active.
+
+Worldwide acquisition is incomplete. Publication also awaits Josh's decisions on the documented Rotterdam nice-day-count regression and the source-download budget, which exceeds the earlier allowance of a few tens of GB. See [the control checks](../sun/NAMED_CONTROL_CHECKS.md) and [source acquisition instructions](../sun/named_inputs.md).
+
+For the eventual sunshine release, `research/sun/prepare_named_delivery.mjs` stages the complete rebuilt climate table, monthly fact shards, attribution, source-support table and manifest into a new immutable prefix. It writes activation and rollback folders separately. Upload and verify those immutable objects first, publish the compatible Worker from the latest source, then activate `v6/named/current.json` last. Preserve the existing labels root and forecast configuration. Its rollback is the **previous active named-place pointer**, rather than the original B1 `null` rollback described below. Forecast records, labels and the held full replay do not need another upload for this climate-only change.
+
+Exact new file sizes, checksums and the final staging commands belong here after the complete build and release checks pass. The original B1 inventory below is not the sunshine inventory.
+
 The compact delivery covers **170,513 distinct catalogue coordinates**, including every label and every place-list entry. At the default taste, supported named places use their accepted 1 km temperature model: unchanged daytime correction and the uniform evening shift. There are 31 unsupported climate coordinates; those, unnamed areas outside the place-naming rule and changed tastes use the current 25 km calculation. The map remains the 25 km overview. A click named after a town or city uses that place’s canonical coordinate and numbers, under the same existing naming rule. Other cards identify the fallback as “Area estimate”.
 
 ## Data to upload
