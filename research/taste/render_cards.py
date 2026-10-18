@@ -1,22 +1,22 @@
-# Written by AI on 2026.10.17 by model GPT-6.1 Sol.
-# Pre-renders link previews with the same share card as the app's Copy image button.
-# Writes world and place/period PNGs under --out (default /tmp/nice-weather-cards).
-# Needs the built app served with artifacts/v6 at http://127.0.0.1:5198.
-# Usage from /tmp: uv run --quiet --with playwright python -I /path/to/research/taste/render_cards.py 150
+# Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+"""Render link previews from the app's Make a poster image, in headless Chromium."""
 import argparse
+import asyncio
 import base64
 import csv
+import hashlib
+import json
 import pathlib
 import re
+import time
 import unicodedata
 
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-OUT = pathlib.Path('/tmp/nice-weather-cards/typical-day')
-SITE = 'http://127.0.0.1:5198'
 MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
 PERIODS = MONTHS + ['dec-feb', 'mar-may', 'jun-aug', 'sep-nov', 'nov-mar', 'year']
+EXTRA_PLACES = ['spain/arona', 'portugal/funchal', 'spain/malaga', 'spain/seville', 'portugal/lisbon', 'greece/chania', 'south-africa/cape-town', 'united-states/san-diego', 'united-states/san-francisco', 'morocco/agadir']
 
 
 def kebab(text):
@@ -24,74 +24,112 @@ def kebab(text):
     return re.sub(r'[^a-z0-9]+', '-', text).strip('-')
 
 
-def biggest_places(count):
-    """Match the Worker's country/city slugs, where the biggest place owns a shared slug."""
-    if count == 0:
-        return []
+def catalogue_places():
+    """Match the Worker's slugs: the largest place owns each country/city slug."""
     with (ROOT / 'artifacts/places.tsv').open(encoding='utf-8', newline='') as source:
         rows = sorted(csv.reader(source, delimiter='\t'), key=lambda row: -int(row[5]))
-    seen, chosen = set(), []
-    for row in rows:
-        name, plain_name, region = row[:3]
+    places = {}
+    for name, plain_name, region, *_ in rows:
         country = kebab(region.split(',')[-1])
-        # Places in Palestine use their Arabic names, but have no pre-rendered preview cards.
-        if country == 'palestine':
-            continue
-        slug = f'{country}/{kebab(plain_name)}'
-        if slug in seen:
-            continue
-        seen.add(slug)
-        chosen.append((slug, name))
-        if len(chosen) == count:
-            break
-    return chosen
+        if country != 'palestine':
+            places.setdefault(f'{country}/{kebab(plain_name)}', name)
+    return places
 
 
-def render(page, path, out, place_name=None):
-    response = page.goto(f'{SITE}{path}', wait_until='networkidle', timeout=120000)
-    if not response.ok:
-        raise RuntimeError(f'{path}: HTTP {response.status}')
-    page.wait_for_function('typeof window.niceWeatherShareCard === "function"', timeout=60000)
-    page.wait_for_function("document.querySelector('.headline-sentence')?.textContent.startsWith('Most nice days ')", timeout=120000)
-    if place_name is not None:
-        page.locator('.card .score-badge').wait_for(timeout=120000)
-        actual_name = page.locator('.card h2').inner_text()
-        if actual_name != place_name:
-            raise RuntimeError(f'{path}: expected {place_name!r}, saw {actual_name!r}')
-    page.wait_for_timeout(1500)  # Let the map's labels settle before copying its canvas.
-    data = page.evaluate('''async () => {
-        const blob = await window.niceWeatherShareCard(1200, 630);
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        let text = ''; for (const byte of bytes) text += String.fromCharCode(byte);
-        return btoa(text);
+async def select_period(page, period):
+    if page.url.rstrip('/').endswith('/' + period):
+        return
+    await page.get_by_role('button', name='Choose when', exact=True).click()
+    if period in MONTHS:
+        await page.get_by_role('button', name='Whole year', exact=True).click()
+        await page.locator(f'.year-dial-month[data-month="{MONTHS.index(period) + 1}"]').click()
+    else:
+        label = {'year': 'Whole year', 'nov-mar': 'Your winter, Nov to Mar', 'dec-feb': 'Winter', 'mar-may': 'Spring', 'jun-aug': 'Summer', 'sep-nov': 'Autumn'}[period]
+        await page.get_by_role('button', name=label, exact=True).click()
+    await page.get_by_role('button', name='Close time picker', exact=True).click()
+    await page.wait_for_url(lambda url: str(url).split('?')[0].endswith('/' + period))
+
+
+async def render_period(page, period, destination, place_name):
+    await select_period(page, period)
+    await page.wait_for_function("!document.querySelector('.headline-note')?.textContent.startsWith('Loading weather') && document.querySelectorAll('.headline-sentence .inline-place').length > 0", timeout=120000)
+    if place_name:
+        await page.locator('.card .score-badge').wait_for(timeout=120000)
+        actual_name = await page.locator('.card h2').inner_text()
+        if actual_name != place_name and not actual_name.endswith(' ' + place_name):
+            raise RuntimeError(f'{page.url}: expected {place_name!r}, saw {actual_name!r}')
+    await page.get_by_role('button', name='Make a poster', exact=True).click()
+    await page.wait_for_function("document.querySelector('.poster-preview')?.complete && document.querySelector('.poster-preview')?.naturalWidth === 1200", timeout=60000)
+    encoded = await page.locator('.poster-preview').evaluate('''async image => {
+        const blob = await fetch(image.src).then(response => response.blob());
+        return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.readAsDataURL(blob); });
     }''')
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(base64.b64decode(data))
-    print(f'{out.relative_to(OUT)}\t{out.stat().st_size}', flush=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(base64.b64decode(encoded))
+    await page.get_by_role('button', name='Back to the map', exact=True).click()
+
+
+async def main(arguments):
+    catalogue = catalogue_places()
+    if arguments.place_count < 0 or arguments.place_count > len(catalogue):
+        raise ValueError('place_count is outside the catalogue')
+    requested = list(catalogue)[:arguments.place_count] + arguments.include
+    places = list(dict.fromkeys(requested))
+    missing = [slug for slug in places if slug not in catalogue]
+    if missing:
+        raise ValueError(f'Unknown place slugs: {missing}')
+    arguments.out.mkdir(parents=True, exist_ok=True)
+    queue = asyncio.Queue()
+    queue.put_nowait((None, None))
+    for slug in places:
+        queue.put_nowait((slug, catalogue[slug]))
+    started = time.monotonic()
+    completed = []
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, args=['--use-angle=metal', '--enable-gpu'])
+        async def worker():
+            context = await browser.new_context(viewport={'width': 1200, 'height': 630}, device_scale_factor=1, color_scheme='light', timezone_id='UTC')
+            page = await context.new_page()
+            try:
+                while not queue.empty():
+                    slug, name = queue.get_nowait()
+                    response = await page.goto(f'{arguments.site}/{slug + "/" if slug else ""}year', wait_until='networkidle', timeout=120000)
+                    if not response.ok:
+                        raise RuntimeError(f'{page.url}: HTTP {response.status}')
+                    for period in arguments.periods:
+                        destination = arguments.out / slug / f'{period}.png' if slug else arguments.out / f'world-{period}.png'
+                        await render_period(page, period, destination, name)
+                        completed.append(destination)
+                        if period == 'year':
+                            alias = arguments.out / f'{slug}.png' if slug else arguments.out / 'world.png'
+                            alias.parent.mkdir(parents=True, exist_ok=True)
+                            alias.write_bytes(destination.read_bytes())
+                            completed.append(alias)
+                    print(f'{slug or "world"}\t{len(arguments.periods)} periods\t{time.monotonic() - started:.1f}s', flush=True)
+                    queue.task_done()
+            finally:
+                await context.close()
+        try:
+            await asyncio.gather(*(worker() for _ in range(arguments.workers)))
+        finally:
+            await browser.close()
+    files = []
+    for path in sorted(completed):
+        data = path.read_bytes()
+        files.append({'file': str(path.relative_to(arguments.out)), 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+    manifest = {'places': len(places), 'periods': arguments.periods, 'files': files, 'bytes': sum(item['bytes'] for item in files), 'seconds': round(time.monotonic() - started, 2)}
+    manifest_path = arguments.manifest or arguments.out.with_suffix('.manifest.json')
+    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+    print(json.dumps({**manifest, 'files': len(files), 'manifest': str(manifest_path)}, indent=2), flush=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('place_count', type=int)
-    parser.add_argument('--out', type=pathlib.Path, default=OUT)
-    parser.add_argument('--periods', nargs='+', default=PERIODS, help='Month names, month runs such as oct-apr, year, or forecast periods')
-    arguments = parser.parse_args()
-    OUT = arguments.out
-    place_count = arguments.place_count
-    places = biggest_places(place_count)
-    if len(places) != place_count:
-        raise RuntimeError(f'Asked for {place_count} places, found {len(places)}')
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=['--use-angle=metal', '--enable-gpu'])
-        page = browser.new_page(viewport={'width': 1200, 'height': 630}, device_scale_factor=1, color_scheme='light')
-        for period in arguments.periods:
-            render(page, f'/{period}', OUT / f'world-{period}.png')
-            if period == 'year':
-                (OUT / 'world.png').write_bytes((OUT / 'world-year.png').read_bytes())
-        for slug, name in places:
-            for period in arguments.periods:
-                render(page, f'/{slug}/{period}', OUT / slug / f'{period}.png', name)
-                if period == 'year':
-                    (OUT / f'{slug}.png').write_bytes((OUT / slug / 'year.png').read_bytes())
-        browser.close()
-    print(f'Finished: {len(arguments.periods)} world cards and {len(places) * len(arguments.periods)} place cards in {OUT}.', flush=True)
+    parser.add_argument('place_count', type=int, help='Largest places, before adding and deduplicating --include')
+    parser.add_argument('--out', type=pathlib.Path, default=pathlib.Path('/tmp/nice-weather-cards/typical-day'))
+    parser.add_argument('--periods', nargs='+', choices=PERIODS, default=PERIODS)
+    parser.add_argument('--include', nargs='*', default=EXTRA_PLACES, help='Additional country/city slugs; default: the ten requested places')
+    parser.add_argument('--site', default='http://127.0.0.1:5198')
+    parser.add_argument('--workers', type=int, choices=range(1, 5), default=2)
+    parser.add_argument('--manifest', type=pathlib.Path)
+    asyncio.run(main(parser.parse_args()))
