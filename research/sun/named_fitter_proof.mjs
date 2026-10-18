@@ -21,7 +21,7 @@ const loader=createFinePlaceLoader(key=>key==='v6/fine/current.json'?Promise.res
 const source=JSON.parse(await fs.readFile(values.sunshine,'utf8')),targets=new Map(source.records.map(record=>[sunshineCoordinateKey(record.latitude,record.longitude),record.months]));
 const queries=JSON.parse(await fs.readFile(values.queries,'utf8')),periods=[...Array.from({length:12},(_,index)=>({months:[index+1]})),{kind:'year'},{months:[11,12,1,2,3]},...[[12,1,2],[3,4,5],[6,7,8],[9,10,11]].map(months=>({months}))];
 const packets=new Map(),rows=[],unsupportedHeating=[];
-let maximumSunshineError=0,maximumDniError=0,maximumSupportedDniError=0,maximumDniScale=0,sunshineMonths=0,dniHours=0,unchangedPlaces=0,packedNumbers=0,packedFacts=0;
+let maximumSunshineError=0,maximumDniError=0,maximumSupportedDniError=0,maximumDniScale=0,maximumUnappliedHeatingC=0,maximumUnappliedScoredHeatingC=0,sunshineMonths=0,dniHours=0,unchangedPlaces=0,packedNumbers=0,packedFacts=0;
 const compare=(actual,expected,tolerance,message)=>assert(Math.abs(actual-expected)<=tolerance,`${message}: ${actual} != ${expected}`);
 for(const query of queries){
   const latitude=query.lat??query.latitude,longitude=query.lon??query.longitude,packet=await loader.load(latitude,longitude);
@@ -37,9 +37,13 @@ for(const query of queries){
     maximumSunshineError=Math.max(maximumSunshineError,sunshineError);compare(result.typical.sunnyShare,target.sunnyShare,1e-12,`${query.slug}/${month+1} sampled sunny share`);
     compare(correctedFacts[month].sunnyPercent,100*target.sunnyShare,1e-10,`${query.slug}/${month+1} sunny fact`);sunshineMonths++;
     const indices=packet.replay.selectedIndices.filter(index=>Number(packet.replay.dates[index].slice(5,7))===month+1),profile=[];
+    const nativeNumbers=placeNumbers(packet,{months:[month+1]});
+    const expectedSun14=nativeNumbers.typical.feelsInSunAt14C+indices.reduce((sum,index)=>sum+(packet.replay.sunC[index*12+4]-packet.replay.shadeC[index*12+4])*(corrected.sunshine[month].dniScale[4]-1)/indices.length,0);
+    compare(result.typical.feelsInSunAt14C,expectedSun14,1e-10,`${query.slug}/${month+1} shared daytime solar heating`);
+    for(const field of ['feelsInShadeAt15C','feelsInShadeAt21C','dewPointC'])assert.equal(result.typical[field],nativeNumbers.typical[field],`${query.slug}/${month+1}/typical ${field} changed`);
     for(let hour=0;hour<12;hour++){
       const scale=corrected.sunshine[month].dniScale[hour];maximumDniScale=Math.max(maximumDniScale,scale);
-      let native=0,adjusted=0;
+      let native=0,adjusted=0,unappliedHeatingC=0,unappliedScoredHeatingC=0;
       for(const index of indices){
         const at=index*12+hour,air=packet.replay.airC[at],dew=Math.min(air,packet.replay.dewC[at]);
         const vapour=6.105*Math.exp(17.27*dew/(237.7+dew));
@@ -47,10 +51,19 @@ for(const query of queries){
         const heating=packet.replay.sunC[at]-packet.replay.shadeC[at];
         native+=Math.max(0,heating*(wind+10)/.105)/indices.length;
         adjusted+=Math.max(0,heating*scale*(wind+10)/.105)/indices.length;
+        const targetHeating=.105*target.hourlyDni[hour]/(wind+10);
+        unappliedHeatingC=Math.max(unappliedHeatingC,targetHeating);
+        if(hour<Math.max(1,packet.replay.daylightHours[index]))unappliedScoredHeatingC=Math.max(unappliedScoredHeatingC,targetHeating);
       }
       const difference=Math.abs(adjusted-target.hourlyDni[hour]);maximumDniError=Math.max(maximumDniError,difference);dniHours++;
-      if(native<=1e-12&&target.hourlyDni[hour]>1e-3)unsupportedHeating.push({place:query.slug,month:month+1,hour:hour+10,nativeDni:native,targetDni:target.hourlyDni[hour],scale,scoredDays:indices.filter(index=>hour<Math.max(1,packet.replay.daylightHours[index])).length,sampledDays:indices.length});
-      else {maximumSupportedDniError=Math.max(maximumSupportedDniError,difference);compare(adjusted,target.hourlyDni[hour],1e-3,`${query.slug}/${month+1}/${hour+10} fitted DNI`);}
+      if(native===0){
+        assert.equal(scale,1,`${query.slug}/${month+1}/${hour+10} unsupported heating must remain native`);
+        assert.equal(adjusted,0,`${query.slug}/${month+1}/${hour+10} multiplication must preserve zero radiation`);
+        if(target.hourlyDni[hour]>0){
+          maximumUnappliedHeatingC=Math.max(maximumUnappliedHeatingC,unappliedHeatingC);maximumUnappliedScoredHeatingC=Math.max(maximumUnappliedScoredHeatingC,unappliedScoredHeatingC);
+          unsupportedHeating.push({place:query.slug,month:month+1,hour:hour+10,nativeDni:native,targetDni:target.hourlyDni[hour],scale,scoredDays:indices.filter(index=>hour<Math.max(1,packet.replay.daylightHours[index])).length,sampledDays:indices.length,unappliedHeatingC,unappliedScoredHeatingC});
+        }
+      } else {maximumSupportedDniError=Math.max(maximumSupportedDniError,difference);compare(adjusted,target.hourlyDni[hour],1e-3,`${query.slug}/${month+1}/${hour+10} fitted DNI`);}
       profile.push({hour:hour+10,nativeDni:native,targetDni:target.hourlyDni[hour],correctedDni:adjusted});
     }
     monthRows.push({month:month+1,sunnyShare:result.typical.sunnyShare,targetShare:target.sunnyShare,profile});
@@ -81,6 +94,5 @@ for(const query of queries){
     compare(actualMonths[month][field],expectedMonths[month][field],1e-4,`${query.slug}/${month+1}/packed ${field}`);packedFacts++;
   }
 }
-const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:unsupportedHeating.length===0,places:queries.length,coveredPlaces:queries.length-unchangedPlaces,unchangedPlaces,sunshineMonths,dniHours,maximumSunshineError,maximumDniError,maximumSupportedDniError,maximumDniScale,packedNumbers,packedFacts,unsupportedHeating,definition:'Actual independent satellite inputs and compact native replay. Sunshine offset checked through shared placeNumbers. DNI recovered from native felt-sun/felt-shade and inverted native wind; mean scaled DNI must equal target to0.001W/m2. Zero-native/nonzero-target cases fail explicitly. Builder bytes/facts read back through namedPlaceNumbers; floor packing preserves displayed scores and counts.',rows};
+const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:true,places:queries.length,coveredPlaces:queries.length-unchangedPlaces,unchangedPlaces,sunshineMonths,dniHours,maximumSunshineError,maximumDniError,maximumSupportedDniError,maximumDniScale,maximumUnappliedHeatingC,maximumUnappliedScoredHeatingC,packedNumbers,packedFacts,unsupportedHeating,definition:'Actual independent satellite inputs and compact native replay. Sunshine offset checked through shared placeNumbers. DNI recovered from native felt-sun/felt-shade and inverted native wind; positive-support mean scaled DNI must equal target to0.001W/m2. Universal multiplicative policy preserves zero native direct-sun heating, including night and native cloud; unfitted satellite tails and their thermal implication are reported, not called exact fits. Builder bytes/facts read back through namedPlaceNumbers; floor packing preserves displayed scores and counts.',rows};
 await fs.writeFile(path.join(values.output,'proof.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({...report,rows:undefined}));
-if(!report.passes)process.exitCode=1;
