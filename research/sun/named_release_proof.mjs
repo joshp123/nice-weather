@@ -26,9 +26,45 @@ async function open(root){
     if(!key.startsWith('release/'))return null;
     try{return await fs.readFile(path.join(root,key.slice(8)));}catch(error){if(error.code==='ENOENT')return null;throw error;}
   });
-  return {points,loader,count:table.count};
+  return {points,loader,table,root,count:table.count};
 }
 const before=await open(values.before),after=await open(values.after),places=JSON.parse(await fs.readFile(values.places));
+let globalPreservation;
+if(values.satellite){
+  if(before.count!==after.count)throw Error('Global preservation requires equal-sized complete releases');
+  const targets=JSON.parse(await fs.readFile(values.satellite));
+  const satellite=new Map(targets.records.map(place=>[coordinates(place.latitude,place.longitude),place.months]));
+  const allowedFields=new Set([0,5,6,13,19]);
+  globalPreservation={passes:true,places:before.count,unchangedFieldsPerMonth:21-allowedFields.size,uncoveredPlaces:0,uncoveredMonthRecords:0,unchangedScoreBytes:0,comparedFactWords:0,unchangedUncoveredFactWords:0};
+  const coverage=[];
+  for(let index=0;index<before.count;index++){
+    const at=32+index*8,key=`${before.table.view.getInt32(at,true)},${before.table.view.getInt32(at+4,true)}`;
+    if(!before.table.bytes.subarray(at,at+8).every((value,byte)=>value===after.table.bytes[at+byte]))throw Error(`Coordinate order differs at row ${index}`);
+    const months=satellite.get(key)??Array(12).fill(null);coverage.push(months);
+    if(!months.some(Boolean))globalPreservation.uncoveredPlaces++;
+    for(let month=0;month<12;month++)if(!months[month]){
+      globalPreservation.uncoveredMonthRecords++;
+      for(let sample=0;sample<8;sample++){
+        const at=32+8*before.count+(month*8+sample)*before.count+index;
+        if(before.table.bytes[at]!==after.table.bytes[at])throw Error(`Uncovered score changed at ${key} month ${month+1} sample ${sample}`);
+        globalPreservation.unchangedScoreBytes++;
+      }
+    }
+  }
+  for(let start=0,shard=0;start<before.count;start+=16384,shard++){
+    const name=`facts-${String(shard).padStart(3,'0')}.bin.gz`;
+    const [previous,corrected]=await Promise.all([before,after].map(async release=>decodeNamedTable(gunzipSync(await fs.readFile(path.join(release.root,name))))));
+    if(previous.count!==corrected.count||previous.rowStart!==corrected.rowStart)throw Error('Facts shard row addresses differ');
+    for(let month=0;month<12;month++)for(let field=0;field<21;field++)for(let local=0;local<previous.count;local++){
+      const index=start+local,uncovered=!coverage[index][month];
+      if(!uncovered&&allowedFields.has(field))continue;
+      const at=32+4*((month*21+field)*previous.count+local);
+      if(previous.view.getUint32(at,true)!==corrected.view.getUint32(at,true))throw Error(`Preserved fact field ${field} changed at row ${index}, month ${month+1}, uncovered=${uncovered}`);
+      globalPreservation.comparedFactWords++;
+      if(uncovered)globalPreservation.unchangedUncoveredFactWords++;
+    }
+  }
+}
 const rows=[];
 for(const place of places){
   const key=coordinates(place.latitude,place.longitude);
@@ -55,6 +91,6 @@ for(const [name,period]of [['year',{kind:'year'}],['nov-mar',{kind:'months',star
   const previous=rank(before,period),corrected=rank(after,period);
   rankings[name]={completeWorldComparison:before.count===after.count&&previous.candidates===corrected.candidates,before:previous,after:corrected};
 }
-const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:true,comparison:'Both releases use the same current shared named-place and ranking functions; no ranking-rule change is included in this before/after.',rankingSha256:crypto.createHash('sha256').update(rankingSource).digest('hex'),beforeRoot:values.before,afterRoot:values.after,places:rows,rankings};
+const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:true,comparison:'Both releases use the same current shared named-place and ranking functions; no ranking-rule change is included in this before/after.',rankingSha256:crypto.createHash('sha256').update(rankingSource).digest('hex'),beforeRoot:values.before,afterRoot:values.after,globalPreservation,places:rows,rankings};
 await fs.writeFile(path.join(values.output,'comparison.json'),JSON.stringify(report,null,2)+'\n');
-console.log(JSON.stringify({passes:true,places:rows.map(row=>({name:row.place.validationName,before:[row.before.year.niceDayCount,row.before.year.perfectDayCount],after:[row.after.year.niceDayCount,row.after.year.perfectDayCount]})),rankings},null,2));
+console.log(JSON.stringify({passes:true,globalPreservation,places:rows.map(row=>({name:row.place.validationName,before:[row.before.year.niceDayCount,row.before.year.perfectDayCount],after:[row.after.year.niceDayCount,row.after.year.perfectDayCount]})),rankings},null,2));
