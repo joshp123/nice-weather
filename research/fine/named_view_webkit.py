@@ -132,7 +132,7 @@ async def measure(browser, base, view, output, settle_ms, fixture=None):
       'labelsFirstMs':proof['labels'][0]['ms'] if proof['labels'] else None,'labelsSettledMs':proof['labels'][-1]['ms'] if proof['labels'] else None,
       'rankedHeadlineFirstMs':ranked_headlines[0]['ms'] if ranked_headlines else None,'scoredLabelsFirstMs':scored_labels[0]['ms'] if scored_labels else None,
       'cardFirstMs':proof['cards'][0]['ms'] if proof['cards'] else None,'cardSettledMs':proof['cards'][-1]['ms'] if proof['cards'] else None,
-      'passes':bool(proof['headlines'] and proof['labels'] and not errors and not pending)}
+      'passes':bool(ranked_headlines and scored_labels and not errors and not pending and (name.startswith(('world','nov-mar')) or 'Walk home' in state['card']))}
     if fixture: result['fixtureEncodedResponses'] = list(fixture.reads)
     (output/(name+'.json')).write_text(json.dumps(result,indent=2)+'\n')
     await context.close()
