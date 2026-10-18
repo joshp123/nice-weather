@@ -5,13 +5,12 @@ import { DEFAULT_TASTE, type Period, type PointVerdict, type Taste } from '../en
 import { COLD_GRADE_BY_FEELS_IN_SUN, HEAT_GRADE_BY_FEELS_IN_SHADE, EVENING_GRADE_BY_FEELS_AT_21, RAIN_FACTOR_BY_MM, WIND_FACTOR_BY_KMH, HUMIDITY_FACTOR_BY_DEW_POINT, SUN_FACTOR_BY_SUNNY_SHARE, readCurve } from '../engine/taste';
 import type { Actions } from './actions';
 import type { PlaceDetails } from './api';
-import { button, closeIcon, el } from './dom';
+import { button, closeIcon, el, shareIcon } from './dom';
 import { MONTH_NAMES, MONTH_SHORT, dayChipLabel, isForecast, bandSentence, monthsOfPeriod, periodTitle, upcomingForecastDays, type ForecastIndex } from './periods';
 import type { Place } from './state';
-import { bandColour } from './timebar';
+import { bandColour, textOnBand } from '../palette';
 import { countryFlag } from './countries';
 import { forecastFreshness } from './headline';
-import './card.css';
 
 export type CardView = Readonly<{
   place: Place;
@@ -52,10 +51,10 @@ function physicalScale(scale: PhysicalScale): HTMLElement {
   const marker = el('i', 'reason-marker');
   marker.style.left = `${Math.max(0, Math.min(100, (scale.value - scale.minimum) / (scale.maximum - scale.minimum) * 100))}%`;
   track.append(marker);
-  track.setAttribute('aria-hidden', 'true');
-  const ticks = el('div', 'reason-ticks', ...scale.ticks.map(tick => el('span', '', tick)));
-  ticks.setAttribute('aria-hidden', 'true');
-  return el('div', 'reason-range', track, ticks);
+  // The scale's two ends sit either side of the track, so each reason is two lines: the figure, then the scale.
+  const range = el('div', 'reason-range', el('span', 'reason-end', scale.ticks[0]), track, el('span', 'reason-end', scale.ticks.at(-1)!));
+  range.setAttribute('aria-hidden', 'true');
+  return range;
 }
 
 function row(reason: PlaceReason, scale: PhysicalScale): HTMLElement {
@@ -81,9 +80,9 @@ function why(verdict: PointVerdict, taste: Taste, singleDay: boolean): HTMLEleme
     row(reasons.get('wind')!,
       { value: typical.windKmh, minimum: 0, maximum: 70, ticks: ['Calm', '35 km/h', '70 km/h'], score: value => factorScore(readCurve(WIND_FACTOR_BY_KMH, value - taste.windShift)) }),
     row(reasons.get('humidity')!,
-      { value: typical.dewPointC, minimum: 5, maximum: 30, ticks: ['5 °C · dry', '18 °C', '30 °C · sticky'], score: value => factorScore(readCurve(HUMIDITY_FACTOR_BY_DEW_POINT, value - taste.humidityShift)) }),
+      { value: typical.dewPointC, minimum: 5, maximum: 30, ticks: ['5 °C', '18 °C', '30 °C'], score: value => factorScore(readCurve(HUMIDITY_FACTOR_BY_DEW_POINT, value - taste.humidityShift)) }),
     row(reasons.get('sun')!,
-      { value: typical.sunnyShare * 100, minimum: 0, maximum: 100, ticks: ['0% · grey', '50%', '100% · clear'], score: value => factorScore(readCurve(SUN_FACTOR_BY_SUNNY_SHARE, value / 100)) }),
+      { value: typical.sunnyShare * 100, minimum: 0, maximum: 100, ticks: ['0%', '50%', '100%'], score: value => factorScore(readCurve(SUN_FACTOR_BY_SUNNY_SHARE, value / 100)) }),
   );
 }
 
@@ -145,8 +144,9 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   close.innerHTML = closeIcon;
   const name = view.details?.name ?? view.place.name;
   const region = view.details?.region ?? view.place.region;
-  const share = button('icon-button card-share', '↑', actions.toggleShare, 'Make a poster');
-  const header = el('header', 'card-header', el('div', '', el('h2', '', name ? `${countryFlag({ region, slug: view.place.slug })} ${name}`.trim() : 'Finding the name…'), region ? el('p', 'muted', region) : null), el('div', 'card-actions', share, close));
+  const share = button('icon-button', '', actions.toggleShare, 'Share');
+  share.innerHTML = shareIcon;
+  const header = el('header', 'panel-header', el('div', '', el('h2', 'panel-title', name ? `${countryFlag({ region, slug: view.place.slug })} ${name}`.trim() : 'Finding the name…'), region ? el('p', 'panel-subtitle', region) : null), el('div', 'panel-actions', share, close));
 
   const verdict = view.verdict;
   if (!verdict) {
@@ -154,6 +154,7 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   }
   const score = el('span', 'score-badge', String(Math.floor(verdict.meanScore)));
   score.style.background = bandColour(verdict.meanScore);
+  score.style.color = textOnBand(verdict.meanScore);
   const countPeriod = isForecast(view.period) ? 'in this forecast' : (view.stretchLabel ?? (view.period.kind === 'month' ? `in ${periodTitle(view.period, view.forecast)}` : view.period.kind === 'year' ? 'across the year' : `from ${periodTitle(view.period, view.forecast)}`));
   const niceDays = view.period.kind === 'forecast-day' ? '' : `Nice on ${verdict.niceDayCount} of ${verdict.countedDays ?? verdict.totalDays} days ${countPeriod}. Perfect on ${verdict.perfectDayCount}; awful on ${verdict.awfulDayCount}.`;
   const answer = el('div', 'verdict', score,

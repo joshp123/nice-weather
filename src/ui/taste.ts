@@ -55,7 +55,7 @@ export function createTastePanel(values: SliderValues, actions: Actions): TasteP
   }
   const reset = button('text-button', 'Reset to the default', actions.resetSliders);
   const element = el('section', 'taste panel',
-    el('header', 'card-header', el('div', '', el('h2', '', 'Your taste'), el('p', 'muted', 'The default taste is warm, sunny, dry and calm. Drag a slider and the whole map redraws.')), close),
+    el('header', 'panel-header', el('div', '', el('h2', 'panel-title', 'Your taste'), el('p', 'panel-subtitle', 'Warm, sunny, dry and calm by default. Drag a slider and the map redraws.')), close),
     list,
     el('div', 'taste-foot', reset));
   return {

@@ -75,7 +75,8 @@ async function encodePng(pixels,metadata) {
 
 export const SHARE_WIDTH=WIDTH, SHARE_HEIGHT=HEIGHT;
 export const SHARE_MAP={x:40,y:174,width:1120,height:338};
-const BANDS=[['Awful',0,[74,18,34]],['Poor',25,[156,64,64]],['Fair',40,[111,123,138]],['Nice',55,[59,158,219]],['Beautiful',70,[85,194,122]],['Perfect',85,[245,197,66]]];
+// The six bands as they look on the light map (src/design-tokens.css, each band over the land). The browser passes its own theme's colours.
+const BANDS=[['Awful',0,[172,133,139]],['Poor',25,[204,143,133]],['Fair',40,[173,179,184]],['Nice',55,[64,158,216]],['Beautiful',70,[76,179,113]],['Perfect',85,[239,182,51]]];
 const bandFor=score=>BANDS.findLast(band=>score>=band[1])??BANDS[0];
 const unpack=async value=>new Uint8Array(await new Response(new Blob([Uint8Array.from(atob(value),character=>character.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
 let logoPromise,landPromise;
@@ -109,7 +110,7 @@ function copyMap(pixels,map) {
 
 /** The only image composition, used by browser exports and server link previews. */
 export async function shareImagePng(content) {
-  const dark=content.dark??false,paper=dark?[14,15,17]:[238,234,225],ink=dark?[243,241,236]:[20,20,19],muted=dark?[170,166,158]:[95,91,83];
+  const dark=content.dark??false,paper=dark?[19,20,22]:[251,250,246],ink=dark?[242,241,238]:[26,25,23],muted=dark?[162,159,153]:[93,90,84];
   const pixels=new Uint8Array(WIDTH*HEIGHT*3);for(let i=0;i<pixels.length;i+=3)pixels.set(paper,i);
   const [mask,logo,flags]=await Promise.all([fontMask(),logoPromise??=unpack(shareLogo.mask),unpack(shareFlags.rgba)]);
   flagPixels=flags;
@@ -123,7 +124,7 @@ export async function shareImagePng(content) {
   const detail=numbers?`${Math.floor(numbers.score)} / 100, ${bandFor(numbers.score)[0]}${numbers.totalDays>1?' most days':''}.${(numbers.countedDays??numbers.totalDays)>1?` Nice on ${numbers.niceDayCount} of ${numbers.countedDays??numbers.totalDays} days; perfect on ${numbers.perfectDayCount}.`:''}`:(content.detail||'A world of weather, by your taste.');
   const figures=fitLines(detail,1120,26,'Bold',1);
   figures.lines.forEach(line=>drawText(pixels,mask,line,40,554,figures.size,ink,'Bold'));
-  BANDS.forEach(([name,minimum,colour],index)=>{const x=40+index*141;rectangle(pixels,x,590,16,10,colour);drawText(pixels,mask,`${name} ${minimum}+`,x+23,602,16,muted);});
+  BANDS.forEach(([name,minimum,colour],index)=>{const x=40+index*141;rectangle(pixels,x,590,16,10,content.bandColours?.[index]??colour);drawText(pixels,mask,`${name} ${minimum}+`,x+23,602,16,muted);});
   const site='nice.jjpcodes.com';drawText(pixels,mask,site,1160-textWidth(site,20),602,20,ink,'Bold');
   return encodePng(pixels,{template:'nice-share-v1',title:content.title,dates:content.dates,numbers:content.numbers??null});
 }

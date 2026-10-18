@@ -7,6 +7,7 @@ import { bandSentence, dayCountsSentence, periodPhrase, type ForecastIndex } fro
 import type { Place } from './state';
 import { countryFlag } from './countries';
 import { shareImage } from '../../hosting/sites/share-image.mjs';
+import { bands, colourOnLand } from '../palette';
 
 export type ShareContext = Readonly<{
   map: maplibregl.Map;
@@ -72,6 +73,7 @@ export async function drawShareCard(_width: number, _height: number, context: Sh
       ...(place ? {focusX: context.map.project([place.longitude, place.latitude]).x * mapImage.width / context.map.getContainer().clientWidth,
         focusY: context.map.project([place.longitude, place.latitude]).y * mapImage.height / context.map.getContainer().clientHeight} : {}) },
     dark: matchMedia('(prefers-color-scheme: dark)').matches,
+    bandColours: bands.map(band => colourOnLand(band.colour).match(/\d+/g)!.map(Number) as [number, number, number]),
   });
   return new Blob([png as BlobPart], { type: 'image/png' });
 }
@@ -93,8 +95,10 @@ export async function renderPoster(context: ShareContext, close: () => void): Pr
     artwork.append(placeLink);
   }
   const menu = renderShareMenu(() => context, blob);
-  return el('section', 'poster-overlay', el('h2', 'poster-title', 'Your weather, as a poster.'), artwork,
-    el('div', 'poster-toolbar panel', menu, button('menu-button', 'Back to the map', dismiss)));
+  const overlay = el('section', 'poster-overlay', artwork, el('div', 'poster-toolbar panel', menu, button('button', 'Close', dismiss)));
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-label', 'Share this map');
+  return overlay;
 }
 
 function download(blob: Blob, name: string): void {
@@ -113,7 +117,7 @@ export function renderShareMenu(context: () => ShareContext, image: Blob): HTMLE
   status.setAttribute('role', 'status');
   const say = (text: string) => { status.textContent = text; };
 
-  const copyLink = button('menu-button', 'Copy link', async () => {
+  const copyLink = button('button', 'Copy link', async () => {
     try {
       await navigator.clipboard.writeText(context().link);
       say('Link copied.');
@@ -129,7 +133,7 @@ export function renderShareMenu(context: () => ShareContext, image: Blob): HTMLE
     }
   });
 
-  const share = button('menu-button', 'Share image', async () => {
+  const share = button('button', 'Share image', async () => {
     const current = context();
     share.disabled = true;
     try {
@@ -148,6 +152,6 @@ export function renderShareMenu(context: () => ShareContext, image: Blob): HTMLE
       share.disabled = false;
     }
   });
-  const save = button('menu-button', 'Download image', () => download(image, 'nice-weather.png'));
-  return el('div', 'share-menu panel', share, save, copyLink, status);
+  const save = button('button', 'Download image', () => download(image, 'nice-weather.png'));
+  return el('div', 'share-menu', share, save, copyLink, status);
 }

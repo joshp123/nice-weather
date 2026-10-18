@@ -1,5 +1,5 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
-// The one-line answer at the top of the map: where it is nicest in the chosen period, as on Ryan Hall's map.
+// The answer at the top of the map: where it is nicest in the chosen period, in two lines.
 import { type Period, type WeatherEngine } from '../engine';
 import { button, el } from './dom';
 import { periodPhrase, type ForecastIndex } from './periods';
@@ -49,45 +49,54 @@ export function viewportRegion(bounds: ViewBounds): string {
   return 'this map';
 }
 
-function headlineLead(period: Period, forecast: ForecastIndex | null, region: string): string {
-  return `Nicest ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}: `;
+/** The first line of the answer: "Nicest on this map from December to February". */
+export function headlineContext(period: Period, forecast: ForecastIndex | null, region: string): string {
+  return `Nicest ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}`;
 }
 
 export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[], region = 'the world'): string {
   if (nicest.length === 0) return `No nice days ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}.`;
   const names = nicest.map(place => `${countryFlag(place)} ${place.name}`.trim());
   const last = names.pop();
-  return `${headlineLead(period, forecast, region)}${names.length ? `${names.join(', ')} and ` : ''}${last}.`;
+  return `${headlineContext(period, forecast, region)}: ${names.length ? `${names.join(', ')} and ` : ''}${last}.`;
 }
 
-export function placeSentence(period: Period, forecast: ForecastIndex | null, places: readonly HeadlinePlace[], select: (place: HeadlinePlace) => void, region = 'the world'): DocumentFragment {
+/** The second line of the answer: the three places, each a button that opens it. */
+export function placeNames(places: readonly HeadlinePlace[], select: (place: HeadlinePlace) => void): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  fragment.append(headlineLead(period, forecast, region));
   // Each name keeps its following punctuation on the same line ("Cairo," never wraps to put the comma first).
   places.slice(0, 3).forEach((place, index, list) => {
     const last = index === list.length - 1, beforeLast = index === list.length - 2;
     const run = el('span', 'place-run', button('inline-place', `${countryFlag(place)} ${place.name}`.trim(), () => select(place)));
-    run.append(last ? '.' : beforeLast ? '' : ',');
+    if (!last && !beforeLast) run.append(',');
     fragment.append(run);
     if (!last) fragment.append(beforeLast ? ' and ' : ' ');
   });
   return fragment;
 }
 
-export type Headline = Readonly<{ element: HTMLElement; set(sentence: string, note?: { text: string; warning: boolean } | null, content?: DocumentFragment): void }>;
+export type AnswerLine = Readonly<{ text: string; warning: boolean }>;
+export type Headline = Readonly<{
+  element: HTMLElement;
+  /** The context line, then either the places or a line of status (loading, a problem). */
+  set(context: string, places: DocumentFragment | null, status: AnswerLine | null): void;
+}>;
 
-export function createHeadline(): Headline {
-  const sentence = el('p', 'headline-sentence');
-  const note = el('p', 'headline-note');
-  const element = el('header', 'headline', el('h1', 'wordmark', 'Nice!'), el('div', 'headline-copy', sentence, note));
+/** The answer at the top left: what the map shows, then the three nicest places. "More places" opens the list. */
+export function createHeadline(openList: () => void): Headline {
+  const context = el('span', 'answer-context-text');
+  const more = button('text-button', 'More places', openList);
+  const contextLine = el('p', 'answer-context', context, more);
+  const places = el('p', 'answer-places');
+  const element = el('div', 'answer', contextLine, places);
   return {
     element,
-    set(text, noteText = null, content) {
-      sentence.replaceChildren(content ?? text);
-      sentence.hidden = !text;
-      note.textContent = noteText?.text ?? '';
-      note.hidden = !noteText;
-      note.classList.toggle('warning', Boolean(noteText?.warning));
+    set(contextText, names, status) {
+      context.textContent = contextText;
+      more.hidden = !names;
+      places.classList.toggle('status', Boolean(status));
+      places.classList.toggle('warning', Boolean(status?.warning));
+      places.replaceChildren(status ? status.text : names ?? '');
     },
   };
 }

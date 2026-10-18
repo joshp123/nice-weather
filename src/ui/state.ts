@@ -71,8 +71,9 @@ export function buildLink(state: AppState, zoom: number): string {
 }
 
 // The last view, kept on this device so the map reopens where it was left (Josh: "remember my last view").
-const SAVED_VIEW_KEY = 'nice-weather-view-v6';
-type SavedView = { period: string; camera: Camera; sliders?: SliderValues; place?: Place | null };
+// The camera is kept only once the visitor has moved the map; until then every visit frames the whole world.
+const SAVED_VIEW_KEY = 'nice-weather-view-v7';
+type SavedView = { period: string; camera: Camera | null; sliders?: SliderValues; place?: Place | null };
 
 export function loadSavedView(): { period: Period | null; camera: Camera | null; sliders?: SliderValues; place?: Place | null } {
   try {
@@ -84,7 +85,7 @@ export function loadSavedView(): { period: Period | null; camera: Camera | null;
   }
 }
 
-export function saveView(state: AppState, camera: Camera): void {
+export function saveView(state: AppState, camera: Camera | null): void {
   const saved: SavedView = { period: periodWord(state.period), camera, sliders: state.sliders, place: state.place };
   try { localStorage.setItem(SAVED_VIEW_KEY, JSON.stringify(saved)); } catch { /* Private browsing can disable storage. */ }
 }
