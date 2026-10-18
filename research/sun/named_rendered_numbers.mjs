@@ -21,6 +21,7 @@ const views=[];
 for(const name of ['world-year-laptop','world-year-phone','nov-mar-laptop','nov-mar-phone','lima-year-phone','chiclayo-year-laptop','antofagasta-winter-phone']){
   const capture=JSON.parse(await fs.readFile(path.join(values.browser,name+'.json')));
   if(!capture.passes)throw Error(`Browser did not settle: ${name}`);
+  if(capture.requests.some(request=>request.url.endsWith('/climate.bin.gz')))throw Error(`Browser downloaded the whole named climate table: ${name}`);
   const period=capture.pathname.endsWith('nov-mar')?{kind:'months',startMonth:11,endMonth:3}:{kind:'year'};
   const labels=capture.state.proof.labels.at(-1).value;
   const checked=[];let unavailable=0;
@@ -54,6 +55,6 @@ for(const name of ['world-year-laptop','world-year-phone','nov-mar-laptop','nov-
   }
   views.push({name,checkedNamedLabels:checked.length,unavailableLabels:unavailable,headline:headline.map(row=>({name:row.name,score:row.score,nice:row.nice})),card});
 }
-const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:true,release:values.release,browser:values.browser,scope:'Settled real WebKit card text; map-label payload rows with named count badges, selected-place or headline markers; headline names and the same headline-label scores. Off-screen catalogue rows without badges use the overview and are excluded. Ranking selection is checked separately using a fixed ranking rule.',views};
+const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:true,release:values.release,releasePlaces:climate.count,browser:values.browser,noWholeClimateTableRequest:true,scope:'Settled real WebKit card text; map-label rows present in this release with named count badges, selected-place or headline markers; headline names and the same headline-label scores. Missing release rows are counted as unavailable, so a partial probe does not prove worldwide labels or ranking. Off-screen catalogue rows without badges use the overview and are excluded. Ranking selection is checked separately using a fixed ranking rule.',views};
 await fs.writeFile(values.output,JSON.stringify(report,null,2)+'\n');
 console.log(JSON.stringify(report,null,2));

@@ -3,6 +3,10 @@
 
 Canonical fourteen-place local proof. Worldwide acquisition is incomplete; nothing has been published. Rotterdam count-regression decision is pending.
 
+Seven cold headless WebKit views pass with this fourteen-place fixture: year and November–March on phone and laptop, plus Lima phone, Chiclayo laptop and Antofagasta phone cards. The rendered named labels, card values and headline labels equal the shared release. The fixture is partial, so its worldwide headlines are **not** a worldwide ranking result. No browser request fetches the whole named climate table; named responses total roughly 5–9 KB per view in this small fixture. These local route measurements are not live compressed-wire or physical-phone timing measurements.
+
+The Lima phone card was inspected: score 73, 270 nice days, 92 perfect days, and 25 °C afternoon feel in the sun. The Chiclayo laptop card was inspected: score 88, 365 nice days, 229 perfect days, and 63% annual sunny share. It remains nice all year under the existing taste rule. All fourteen actual Worker place APIs, generated 1200 × 630 link-preview PNGs, and HTML descriptions exactly match the shared release's scores and day counts. Lima and Chiclayo preview images were also inspected. Evidence: SSD `sun/named-validation/final-fourteen-webkit/`, `final-fourteen-rendered-numbers.json`, and `final-fourteen-previews/`.
+
 The same shared place model computes both releases. The correction changes each sampled day's sunny fraction before the SUN factor and its hourly direct-radiation warmth. Air highs, 21:00 shade feels-like, dew point, wet days and wind stay identical. Uncovered places and months retain their previous values. Forecast weather is not replaced by monthly climatology.
 
 The compact default-taste climate records keep eight scores per month. Cards, map labels, headlines and previews aggregate those same records. The native replay applies the same coefficients before offline computation. The JavaScript/Go arithmetic proof covers the same formula.
