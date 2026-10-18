@@ -160,7 +160,7 @@ const actions: Actions = {
     render();
   },
   toggleShare() {
-    if (shareOpen) { shareOpen = false; posterRequest++; posterSlot.replaceChildren(); render(); return; }
+    if (shareOpen) { closePoster(); return; }
     void openPoster().catch(error => { barMessage = { text: error instanceof Error ? error.message : String(error), warning: true }; render(); });
   },
 };
@@ -339,11 +339,20 @@ function renderList(stretchLabel: string): void {
   listSlot.replaceChildren(list);
 }
 
+/** Closing the poster also puts the answer's labels back on the map: a redraw while the poster covered the map
+ *  could not place them, because label placement keeps clear of anything covering the map. */
+function closePoster(): void {
+  posterRequest++;
+  shareOpen = false;
+  posterSlot.replaceChildren();
+  labelCities();
+  render();
+}
+
 async function openPoster(): Promise<void> {
   if (playing) stopPlaying();
   const request = ++posterRequest;
   const context = shareContext();
-  const closePoster = () => { shareOpen = false; posterSlot.replaceChildren(); render(); };
   // The overlay goes up first: behind it the map is briefly redrawn at the poster's size.
   shareOpen = true;
   posterSlot.replaceChildren(el('section', 'poster-overlay making', el('p', 'poster-status', 'Making the poster…')));
