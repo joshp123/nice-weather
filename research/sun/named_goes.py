@@ -308,6 +308,7 @@ def main():
                 values=np.frombuffer(data,dtype=dtype).reshape(time_chunk,site_chunk)
                 return group,start,{row:values[:,locations[row][0]%500].copy() for row in group_rows[group]}
             finished_groups=0
+            radiation_started=time.monotonic()
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
                 futures=[pool.submit(fetch,item) for item in downloads]
                 for future in concurrent.futures.as_completed(futures):
@@ -325,7 +326,9 @@ def main():
                         elapsed=time.monotonic()-started
                         progress=dict(source=source,groupsComplete=finished_groups,totalGroups=len(group_remaining),
                                       radiationBytesComplete=finished_groups*chunks_per_group*time_chunk*site_chunk*dtype.itemsize,
-                                      seconds=elapsed,etaSeconds=elapsed/max(1,finished_groups)*(len(group_remaining)-finished_groups))
+                                      seconds=elapsed,radiationSeconds=time.monotonic()-radiation_started,
+                                      radiationBytesPerSecond=finished_groups*chunks_per_group*time_chunk*site_chunk*dtype.itemsize/(time.monotonic()-radiation_started),
+                                      etaSeconds=elapsed/max(1,finished_groups)*(len(group_remaining)-finished_groups))
                         atomic_json(args.output.with_suffix('.progress.json'),progress)
                         if finished_groups%10==0 or finished_groups==len(group_remaining):
                             print(json.dumps(progress),flush=True)
