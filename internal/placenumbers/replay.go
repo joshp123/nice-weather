@@ -149,6 +149,9 @@ func PlaceMonths(packet Packet, taste *Taste) ([]MonthFacts, error) {
 		if count == 0 {
 			return nil, fmt.Errorf("no physical days for month %d", month)
 		}
+		if sunshine := packet.sunshineMonth(month); sunshine != nil {
+			value.SunnyPercent = 100 * sunshine.SunnyShare
+		}
 		numbers, err := PlaceNumbers(packet, Period{Months: []int{month}}, taste)
 		if err != nil {
 			return nil, err

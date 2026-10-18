@@ -71,14 +71,28 @@ type Replay struct {
 	DaylightHours    []float64         `json:"daylightHours"`
 }
 type Packet struct {
-	Source       string       `json:"source"`
-	Replay       Replay       `json:"replay"`
-	Corrections  [][2]float64 `json:"corrections"`
-	EveningModel string       `json:"eveningModel"`
-	Records      [][]byte     `json:"records"`
-	OffsetsC     []float64    `json:"offsetsC"`
-	Weights      []float64    `json:"weights"`
+	Source       string           `json:"source"`
+	Replay       Replay           `json:"replay"`
+	Corrections  [][2]float64     `json:"corrections"`
+	EveningModel string           `json:"eveningModel"`
+	Records      [][]byte         `json:"records"`
+	OffsetsC     []float64        `json:"offsetsC"`
+	Weights      []float64        `json:"weights"`
+	Sunshine     []*SunshineMonth `json:"sunshine,omitempty"`
 }
+type SunshineMonth struct {
+	SunnyShareOffset float64     `json:"sunnyShareOffset"`
+	DNIScale         [12]float64 `json:"dniScale"`
+	SunnyShare       float64     `json:"sunnyShare"`
+}
+
+func (p Packet) sunshineMonth(month int) *SunshineMonth {
+	if month <= len(p.Sunshine) {
+		return p.Sunshine[month-1]
+	}
+	return nil
+}
+
 type Period struct {
 	Months    []int `json:"months"`
 	TotalDays int   `json:"totalDays"`
@@ -107,11 +121,15 @@ func dateMonth(date string) int { month, _ := strconv.Atoi(date[5:7]); return mo
 func correctedDay(p Packet, index int) day {
 	r := p.Replay
 	month := dateMonth(r.Dates[index])
+	sunshine := p.sunshineMonth(month)
 	offsets := p.Corrections[month-1]
 	hi, lo := r.HighC[index], r.LowC[index]
 	width := hi - lo
 	ordered := width > 0 && width+offsets[0]-offsets[1] > 0
 	d := day{rain: r.RainMm[index], wind: r.WindKmh[index], sunny: r.SunnyHours[index], daylight: math.Max(1, r.DaylightHours[index])}
+	if sunshine != nil {
+		d.sunny = math.Max(0, math.Min(1, d.sunny/d.daylight+sunshine.SunnyShareOffset)) * d.daylight
+	}
 	for h := range 12 {
 		at := index*12 + h
 		t, td := r.AirC[at], r.DewC[at]
@@ -130,6 +148,9 @@ func correctedDay(p Packet, index int) day {
 		d.nativeDew += td / 12
 		felt := delta + .33*(vapor(math.Min(td, t+delta))-vapor(math.Min(td, t)))
 		d.sun[h] = r.SunC[at] + felt
+		if sunshine != nil {
+			d.sun[h] = r.ShadeC[at] + (r.SunC[at]-r.ShadeC[at])*sunshine.DNIScale[h] + felt
+		}
 		d.shade[h] = r.ShadeC[at] + felt
 	}
 	return d

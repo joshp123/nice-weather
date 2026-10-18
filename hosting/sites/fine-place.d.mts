@@ -12,7 +12,8 @@ export type FineReplay = Readonly<{
   physicalResponse?:Readonly<{dates:readonly string[];values:NumericArray;monthly:NumericArray;clockOffsets:NumericArray}>;
 }>;
 export type FineEveningModel = 'ordered'|'uniform'|'native';
-export type FinePacket = Readonly<{replay:FineReplay;corrections:readonly (readonly [number,number])[];pixel:FinePixel;status:string;eveningModel?:FineEveningModel}>;
+export type FineSunshineMonth = Readonly<{sunnyShareOffset:number;dniScale:readonly number[];sunnyShare:number}>;
+export type FinePacket = Readonly<{replay:FineReplay;corrections:readonly (readonly [number,number])[];pixel:FinePixel;status:string;eveningModel?:FineEveningModel;sunshine?:readonly (FineSunshineMonth|null)[]}>;
 export type FineVerdict = PointVerdict & Readonly<{score:number;pixel:FinePixel;resolutionArcSeconds:30;status:string}>;
 export type FineMonth = Readonly<{month:number;highC:number;feelsAt21C:number;dewPointC:number;wetDaysPercent:number;sunnyPercent:number;windKmh:number;score:number;niceDayShare:number}>;
 export const DEFAULT_FINE_TASTE: Taste;

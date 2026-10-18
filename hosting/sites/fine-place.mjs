@@ -48,6 +48,7 @@ function monthsForPeriod(period) {
 }
 function correctedDay(packet,index) {
   const {replay,corrections}=packet,month=Number(replay.dates[index].slice(5,7));
+  const sunshine=packet.sunshine?.[month-1];
   const [highOffset,lowOffset]=corrections[month-1],high=replay.highC[index],low=replay.lowC[index],range=high-low;
   const ordered=range>0&&range+highOffset-lowOffset>0;
   const sun=[],shade=[],air=[];let cappedDewSum=0,nativeDewSum=0;
@@ -58,9 +59,10 @@ function correctedDay(packet,index) {
     if(hour===11&&packet.eveningModel==='native')delta=0;
     air.push(nativeAir+delta);cappedDewSum+=Math.min(dew,nativeAir+delta);nativeDewSum+=dew;
     const feltDelta=delta+.33*(vapour(Math.min(dew,nativeAir+delta))-vapour(Math.min(dew,nativeAir)));
-    sun.push(replay.sunC[at]+feltDelta);shade.push(replay.shadeC[at]+feltDelta);
+    sun.push(sunshine?replay.shadeC[at]+(replay.sunC[at]-replay.shadeC[at])*sunshine.dniScale[hour]+feltDelta:replay.sunC[at]+feltDelta);shade.push(replay.shadeC[at]+feltDelta);
   }
-  return {sun,shade,air,dew:cappedDewSum/12,nativeDew:nativeDewSum/12,rain:replay.rainMm[index],wind:replay.windKmh[index],sunny:replay.sunnyHours[index],daylight:Math.max(1,replay.daylightHours[index])};
+  const daylight=Math.max(1,replay.daylightHours[index]),sunny=sunshine?Math.max(0,Math.min(1,replay.sunnyHours[index]/daylight+sunshine.sunnyShareOffset))*daylight:replay.sunnyHours[index];
+  return {sun,shade,air,dew:cappedDewSum/12,nativeDew:nativeDewSum/12,rain:replay.rainMm[index],wind:replay.windKmh[index],sunny,daylight};
 }
 function judgeDay(day,taste) {
   let daytime=0;
@@ -171,6 +173,7 @@ export function placeMonths(packet,taste=DEFAULT_FINE_TASTE) {
       totals.highC+=Math.max(...day.air.slice(0,11));totals.feelsAt21C+=day.shade[11];totals.dewPointC+=day.nativeDew;totals.wetDaysPercent+=(day.rain>=1?100:0);totals.sunnyPercent+=100*day.sunny/day.daylight;totals.windKmh+=day.wind;
     }
     for(const key of Object.keys(totals))totals[key]/=indices.length;
+    if(packet.sunshine?.[monthIndex])totals.sunnyPercent=100*packet.sunshine[monthIndex].sunnyShare;
     const judgement=placeNumbers(packet,{kind:'month',month:monthIndex+1},taste);
     return {month:monthIndex+1,...totals,score:judgement.meanScore,niceDayShare:judgement.niceDayShare};
   });
@@ -188,7 +191,7 @@ function compactPlaceMonths(packet,taste) {
     }
     if(!count)throw new Error(`Fine replay has no full-period days for month ${monthIndex+1}`);
     const judgement=placeNumbers(packet,{kind:'month',month:monthIndex+1},taste);
-    return {month:monthIndex+1,highC:highC/count,feelsAt21C:feelsAt21C/count,dewPointC:monthly[monthIndex*4],wetDaysPercent:monthly[monthIndex*4+1],sunnyPercent:monthly[monthIndex*4+2],windKmh:monthly[monthIndex*4+3],score:judgement.meanScore,niceDayShare:judgement.niceDayShare};
+    return {month:monthIndex+1,highC:highC/count,feelsAt21C:feelsAt21C/count,dewPointC:monthly[monthIndex*4],wetDaysPercent:monthly[monthIndex*4+1],sunnyPercent:packet.sunshine?.[monthIndex]?100*packet.sunshine[monthIndex].sunnyShare:monthly[monthIndex*4+2],windKmh:monthly[monthIndex*4+3],score:judgement.meanScore,niceDayShare:judgement.niceDayShare};
   });
 }
 async function uncompressed(bytes) {
@@ -300,7 +303,7 @@ const PLACE_TRANSPORT_FIELDS=[['airC',12],['dewC',12],['sunC',12],['shadeC',12],
 /** Only the representative weather needed by placeNumbers crosses to the browser. */
 export function encodeFinePlacePacket(packet) {
   const {replay,pixel,status,eveningModel,corrections}=packet,count=replay.dates.length;
-  const metadata=new TextEncoder().encode(JSON.stringify({pixel,status,eveningModel,replay:{fineIndex:replay.fineIndex,generation:replay.generation,targetTimezone:replay.targetTimezone,dates:replay.dates,selectedDateIndices:replay.selectedDateIndices}}));
+  const metadata=new TextEncoder().encode(JSON.stringify({pixel,status,eveningModel,sunshine:packet.sunshine,replay:{fineIndex:replay.fineIndex,generation:replay.generation,targetTimezone:replay.targetTimezone,dates:replay.dates,selectedDateIndices:replay.selectedDateIndices}}));
   const bytes=new Uint8Array(16+metadata.length+24*8+count*54*4),view=new DataView(bytes.buffer);
   view.setUint32(0,0x4c50574e,true);view.setUint16(4,1,true);view.setUint16(6,count,true);view.setUint32(8,metadata.length,true);
   bytes.set(metadata,16);let offset=16+metadata.length;
