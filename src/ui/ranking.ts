@@ -4,6 +4,10 @@ import { countryCode } from './countries';
 export type RankedPlace = Readonly<{ name: string; latitude: number; longitude: number; score: number; niceDayCount: number; perfectDayCount: number; population?: number; slug?: string | null; region?: string }>;
 export const WORLD_POPULATION = 300000;
 export const CONTINENT_POPULATION = 50000;
+export function rankingPopulation(zoom: number): number {
+  return zoom < 3 ? WORLD_POPULATION : zoom < 5 ? CONTINENT_POPULATION : 0;
+}
+
 const SEPARATION_KM = 250;
 const NEARBY_KM = 50;
 const SIMILAR_SCORE = 5;

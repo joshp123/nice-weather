@@ -1,0 +1,180 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026-10-18",
+  "cases": [
+    {
+      "viewport": [
+        390,
+        844
+      ],
+      "case": "novmar",
+      "headline": "Nicest on this map from November to March: 🇪🇹 Bahir Dar, 🇪🇹 Adama and 🇦🇪 Dubai.",
+      "checks": [
+        {
+          "name": "Bahir Dar",
+          "label": 151,
+          "card": 151,
+          "perfect": 151
+        },
+        {
+          "name": "Adama",
+          "label": 151,
+          "card": 151,
+          "perfect": 147
+        },
+        {
+          "name": "Dubai",
+          "label": 151,
+          "card": 151,
+          "perfect": 117
+        }
+      ]
+    },
+    {
+      "viewport": [
+        390,
+        844
+      ],
+      "case": "forecast",
+      "headline": "Nicest on this map in the 14-day forecast: 🇪🇬 Cairo, 🇸🇦 Tabuk and 🇸🇾 Raqqa.",
+      "checks": [
+        {
+          "name": "Cairo",
+          "label": 14,
+          "card": 14,
+          "perfect": 14
+        },
+        {
+          "name": "Tabuk",
+          "label": 14,
+          "card": 14,
+          "perfect": 14
+        },
+        {
+          "name": "Raqqa",
+          "label": 14,
+          "card": 14,
+          "perfect": 14
+        }
+      ]
+    },
+    {
+      "viewport": [
+        390,
+        844
+      ],
+      "case": "spain",
+      "headline": "Nicest on this map from November to March: 🇪🇸 Talavera de la Reina.",
+      "checks": [
+        {
+          "name": "Talavera de la Reina",
+          "label": 23,
+          "card": 23,
+          "perfect": 4
+        }
+      ]
+    },
+    {
+      "viewport": [
+        390,
+        844
+      ],
+      "case": "no-nice",
+      "headline": "No nice days on this map in January.",
+      "checks": []
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "case": "novmar",
+      "headline": "Nicest on this map from November to March: 🇪🇹 Bahir Dar, 🇨🇱 Antofagasta and 🇪🇹 Adama.",
+      "checks": [
+        {
+          "name": "Bahir Dar",
+          "label": 151,
+          "card": 151,
+          "perfect": 151
+        },
+        {
+          "name": "Antofagasta",
+          "label": 151,
+          "card": 151,
+          "perfect": 147
+        },
+        {
+          "name": "Adama",
+          "label": 151,
+          "card": 151,
+          "perfect": 147
+        }
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "case": "forecast",
+      "headline": "Nicest on this map in the 14-day forecast: 🇪🇬 Cairo, 🇵🇰 Peshawar and 🇸🇦 Tabuk.",
+      "checks": [
+        {
+          "name": "Cairo",
+          "label": 14,
+          "card": 14,
+          "perfect": 14
+        },
+        {
+          "name": "Peshawar",
+          "label": 14,
+          "card": 14,
+          "perfect": 14
+        },
+        {
+          "name": "Tabuk",
+          "label": 14,
+          "card": 14,
+          "perfect": 14
+        }
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "case": "spain",
+      "headline": "Nicest on this map from November to March: 🇪🇸 Gandia, 🇪🇸 Seville and 🇵🇹 Setúbal.",
+      "checks": [
+        {
+          "name": "Gandia",
+          "label": 79,
+          "card": 79,
+          "perfect": 27
+        },
+        {
+          "name": "Seville",
+          "label": 60,
+          "card": 60,
+          "perfect": 23
+        },
+        {
+          "name": "Setúbal",
+          "label": 41,
+          "card": 41,
+          "perfect": 8
+        }
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "case": "no-nice",
+      "headline": "No nice days on this map in January.",
+      "checks": []
+    }
+  ],
+  "errors": []
+}

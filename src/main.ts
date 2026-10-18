@@ -9,11 +9,11 @@ import { renderCard } from './ui/card';
 import { button, el } from './ui/dom';
 import { countryFlag } from './ui/countries';
 import { requestHome, inferredHome, timeZoneHome, isHomeWinter, regionalComparison } from './ui/home';
-import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, rankLabelledPlaces, viewportRegion, type HeadlinePlace } from './ui/headline';
+import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, viewportRegion, type HeadlinePlace } from './ui/headline';
 import { createMap, type WeatherMap } from './ui/map';
 import { DEFAULT_PERIOD, datedForecastPeriod, daysInPeriod, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
-import { inOutlookRegion } from './ui/ranking';
+import { rankingPopulation } from './ui/ranking';
 import { drawShareCard, renderPoster, type ShareContext } from './ui/share';
 import { DEFAULT_SLIDERS, buildLink, loadSavedView, parseLink, saveView, slidersAreDefault, type AppState, type Place, type SliderId } from './ui/state';
 import { createTastePanel } from './ui/taste';
@@ -39,6 +39,7 @@ let homeOverridden = false;
 let rankedPlaces: HeadlinePlace[] = [];
 let pickerOpen = false;
 let listOpen = false;
+let listCandidates: ReturnType<WeatherMap['rankingCandidates']> | null = null;
 let playing: number | undefined;
 let posterRequest = 0;
 let tasteOpen = false;
@@ -244,20 +245,23 @@ function afterRedraw(): void {
 }
 
 function updateHeadline(): void {
-  if (!remainingCitiesReady) return;
-  const labels = weatherMap.labelledPlaces().filter(place => Number.isFinite(place.displayedNumber));
+  if (!remainingCitiesReady || shareOpen) return;
+  const population = rankingPopulation(map.getZoom());
+  const candidates = listOpen && listCandidates ? listCandidates : weatherMap.rankingCandidates(population);
   headlineRegion = viewportRegion(map.getBounds());
-  if (headlineRegion === 'Europe' && labels.some(place => !inOutlookRegion(place, 'Europe'))) headlineRegion = 'this map';
-  rankedPlaces = rankLabelledPlaces(engine, labels.map(place => ({ ...place, labelValue: place.displayedNumber! })));
-  headlineText = headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion)
-    || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
+  rankedPlaces = nicestPlaces(engine, candidates, map.getBounds(), 8, population);
+  headlineText = !rankedPlaces.length && candidates.some(place => engine.pointLoading(place.latitude, place.longitude))
+    ? 'Finding the nicest places on this map…'
+    : headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion);
 }
 
 function labelCities(): void {
   if (weatherLoading) return;
-  const cities = weatherMap.labelCandidates();
+  updateHeadline();
+  const priority = new Set(rankedPlaces.slice(0, 3).map(place => place.slug));
+  const cities = [...new Map([...weatherMap.labelCandidates(), ...weatherMap.visibleCities().filter(place => priority.has(place.slug))].map(place => [place.slug, place])).values()];
   const counts = engine.countPoints(cities);
-  weatherMap.labelCities(cities, engine.scorePoints(cities), state.period.kind === 'forecast-day' ? engine.scorePoints(cities) : Float32Array.from(cities, (_, index) => counts[index * 3]));
+  weatherMap.labelCities(cities, engine.scorePoints(cities), state.period.kind === 'forecast-day' ? engine.scorePoints(cities) : Float32Array.from(cities, (_, index) => counts[index * 3]), rankedPlaces.slice(0, 3).map(place => place.slug!));
 }
 
 function chooseRankedPlace(place: HeadlinePlace): void {
@@ -278,6 +282,7 @@ function togglePlaying(): void {
 }
 
 function toggleList(): void {
+  listCandidates = listOpen ? null : weatherMap.rankingCandidates(rankingPopulation(map.getZoom()));
   listOpen = !listOpen;
   pickerOpen = false;
   tasteOpen = false;
@@ -296,6 +301,7 @@ function renderList(stretchLabel: string): void {
   const reference = home ? judge(home, state.period) : null;
   const days = reference?.countedDays ?? daysInPeriod(state.period, forecast);
   const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
+  if (!rankedPlaces.length) list.append(el('p', 'home-line', headlineText));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
     const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.round(place.score) : Math.round(place.niceDayCount));
     count.style.background = bandColour(place.score);
@@ -470,15 +476,18 @@ cardMeasured.observe(cardSlot);
 // ---------------------------------------------------------------- the map's events
 
 map.on('click', event => {
-  const city = map.queryRenderedFeatures(event.point, { layers: ['city-labels'] })[0];
+  const city = map.queryRenderedFeatures(event.point, { layers: ['headline-labels', 'city-labels'] })[0];
   if (city?.geometry.type === 'Point') {
     const [longitude, latitude] = city.geometry.coordinates;
     actions.selectSearchResult({ name: city.properties.name, region: '', slug: city.properties.slug, latitude, longitude });
   } else actions.selectPoint(event.lngLat.lat, event.lngLat.lng);
 });
-map.on('mouseenter', 'city-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
-map.on('mouseleave', 'city-labels', () => { map.getCanvas().style.cursor = ''; });
+for (const layer of ['headline-labels', 'city-labels']) {
+  map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+}
 map.on('moveend', () => {
+  listCandidates = null;
   rememberView();
   if (state.place && !state.place.slug) updateLink();
   if (!weatherLoading) {
@@ -491,7 +500,7 @@ map.on('idle', () => requestAnimationFrame(() => {
   const previous = JSON.stringify(rankedPlaces);
   const previousRegion = headlineRegion;
   updateHeadline();
-  if (previous !== JSON.stringify(rankedPlaces) || previousRegion !== headlineRegion) render();
+  if (previous !== JSON.stringify(rankedPlaces) || previousRegion !== headlineRegion) { labelCities(); render(); }
 }));
 map.on('zoomend', () => { if (!weatherLoading) labelCities(); });
 void weatherMap.citiesReady.then(() => {

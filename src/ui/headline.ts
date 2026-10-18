@@ -18,7 +18,7 @@ export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace
   const visible = places.filter(place => {
     if ((place.population ?? 0) < population || !inOutlookRegion(place, region)) return false;
     if (countries && !countries.has(countryCode(place))) return false;
-    if (!bounds || population > 0) return true;
+    if (!bounds) return true;
     if (place.latitude < bounds.getSouth() || place.latitude > bounds.getNorth()) return false;
     const span = bounds.getEast() - bounds.getWest();
     return span >= 360 || ((place.longitude - bounds.getWest()) % 360 + 360) % 360 <= span;
@@ -26,7 +26,7 @@ export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace
   const scores = engine.scorePoints(visible, population > 0 ? 'all' : undefined);
   const counts = engine.countPoints(visible, population > 0 ? 'all' : undefined);
   const candidates = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }));
-  return rankPlaces(candidates, population, limit, place => {
+  return rankPlaces(candidates.filter(place => place.niceDayCount > 0), population, limit, place => {
     const verdict = engine.judgePoint(place.latitude, place.longitude);
     return verdict ? { ...place, score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount } : null;
   });
@@ -48,21 +48,12 @@ export function viewportRegion(bounds: ViewBounds): string {
   return 'this map';
 }
 
-export function rankLabelledPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; population?: number; labelValue: number })[], limit = 8): HeadlinePlace[] {
-  const scores = engine.scorePoints(places);
-  const counts = engine.countPoints(places);
-  return places.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }))
-    .filter(place => Number.isFinite(place.labelValue) && Number.isFinite(place.score))
-    .sort((a, b) => b.labelValue - a.labelValue || b.perfectDayCount - a.perfectDayCount || b.score - a.score || (b.population ?? 0) - (a.population ?? 0) || a.name.localeCompare(b.name))
-    .slice(0, limit);
-}
-
 function headlineLead(period: Period, forecast: ForecastIndex | null, region: string): string {
   return `Nicest ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}: `;
 }
 
 export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[], region = 'the world'): string {
-  if (nicest.length === 0) return '';
+  if (nicest.length === 0) return `No nice days ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}.`;
   const names = nicest.map(place => `${countryFlag(place)} ${place.name}`.trim());
   const last = names.pop();
   return `${headlineLead(period, forecast, region)}${names.length ? `${names.join(', ')} and ` : ''}${last}.`;

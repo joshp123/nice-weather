@@ -1,7 +1,7 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
 // The base map: land, the weather (the engine's layer sits just under the sea), sea, borders, then city names
 // with their score, so the answer reads straight off the map. Dark or light to match the device.
-import maplibregl, { type ExpressionSpecification, type GeoJSONSource, type LayerSpecification, type StyleSpecification } from 'maplibre-gl';
+import maplibregl, { type ExpressionSpecification, type GeoJSONSource, type SymbolLayerSpecification, type StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Point } from '../engine';
 import type { Camera } from './state';
@@ -35,7 +35,7 @@ const scoredLabel: ExpressionSpecification = [
 ];
 const minimumLabelPopulations = [4000000, 1000000, 300000, 80000, 20000, 0];
 
-function cityLayer(colours: MapDesign): LayerSpecification {
+function cityLayer(colours: MapDesign): SymbolLayerSpecification {
   return {
     id: 'city-labels', type: 'symbol', source: 'city-scores',
     filter: ['step', ['zoom'], ['>=', ['get', 'population'], minimumLabelPopulations[0]], ...minimumLabelPopulations.slice(1).flatMap((population, index) => [index + 2, ['>=', ['get', 'population'], population]])] as ExpressionSpecification,
@@ -60,6 +60,7 @@ function style(colours: MapDesign): StyleSpecification {
     sources: {
       'world-map': { type: 'vector', url: 'https://tiles.openfreemap.org/planet', maxzoom: 1 },
       openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet', minzoom: 3 },
+      'headline-pointers': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       'city-scores': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       'palestine-label': { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { longitude: 34.8, latitude: 31.15 }, geometry: { type: 'Point', coordinates: [34.8, 31.15] } }] } },
       'chosen-place': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -80,6 +81,12 @@ function style(colours: MapDesign): StyleSpecification {
         paint: { 'text-color': colours.text, 'text-halo-color': colours.halo, 'text-halo-width': colours.labelHaloWidth, 'text-opacity': 0.75 },
       },
       cityLayer(colours),
+      { id: 'headline-pointers', type: 'line', source: 'headline-pointers', paint: { 'line-color': colours.text, 'line-width': colours.homeLineWidth, 'line-opacity': colours.homeOpacity } },
+      { id: 'headline-points', type: 'circle', source: 'city-scores', filter: ['has', 'headlineRank'], paint: { 'circle-radius': colours.homeRadius, 'circle-color': colours.text, 'circle-stroke-color': colours.halo, 'circle-stroke-width': colours.homeStroke } },
+      { ...cityLayer(colours), id: 'headline-labels', filter: ['has', 'headlineRank'], layout: {
+        ...cityLayer(colours).layout, 'symbol-sort-key': ['get', 'headlineRank'],
+        'text-allow-overlap': true, 'text-offset': ['get', 'headlineOffset'],
+      } },
       {
         id: 'chosen-place', type: 'symbol', source: 'chosen-place',
         layout: {
@@ -122,9 +129,10 @@ export type WeatherMap = Readonly<{
   /** All loaded cities, independent of basemap tile requests. */
   visibleCities(): CityPoint[];
   labelCandidates(): CityPoint[];
+  rankingCandidates(minimumPopulation: number): CityPoint[];
   labelledPlaces(): (CityPoint & { displayedNumber?: number })[];
   /** Colours nice-day counts by band; single-day views use the day's score. */
-  labelCities(cities: readonly CityPoint[], scores: ArrayLike<number>, niceCounts?: ArrayLike<number>): void;
+  labelCities(cities: readonly CityPoint[], scores: ArrayLike<number>, niceCounts?: ArrayLike<number>, prioritySlugs?: readonly string[]): void;
 }>;
 
 export function createMap(container: HTMLElement, theme: Theme, camera: Camera | null, dataUrl = '/data/v6'): Promise<WeatherMap> {
@@ -169,7 +177,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         const halfWidth = fontSize * design.labelWidth / 2 + design.labelHaloWidth;
         const halfHeight = (fontSize * design.labelLineHeight * 3 + design.countHeight * design.labelScale) / 2;
         const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(zoom) - 1))];
-        map.setFilter('city-labels', ['all', ['>=', ['get', 'population'], minimumPopulation], viewportLabelFilter(halfWidth, halfWidth, halfHeight)]);
+        map.setFilter('city-labels', ['all', ['!', ['has', 'headlineRank']], ['>=', ['get', 'population'], minimumPopulation], viewportLabelFilter(halfWidth, halfWidth, halfHeight)]);
         const chosenFontSize = design.chosenSize * design.labelScale;
         const chosenOffset = chosenFontSize * design.chosenOffset;
         map.setFilter('chosen-place', viewportLabelFilter(design.ringSize / 2, chosenOffset + chosenFontSize * design.labelWidth + design.chosenHalo, chosenFontSize * design.labelLineHeight * 2));
@@ -239,7 +247,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         visibleCities() { return cities; },
         labelledPlaces() {
           const seen = new Set<string>();
-          return map.queryRenderedFeatures({ layers: ['city-labels', 'chosen-place'] }).flatMap(feature => {
+          return map.queryRenderedFeatures({ layers: ['headline-labels', 'city-labels', 'chosen-place'] }).flatMap(feature => {
             const properties = feature.properties;
             const slug = properties.slug as string | undefined;
             const city = cities.find(candidate => slug ? candidate.slug === slug : candidate.name === properties.name && candidate.latitude === properties.latitude && candidate.longitude === properties.longitude);
@@ -251,11 +259,54 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
             return [{ ...city, displayedNumber: Number.isFinite(properties.displayedNumber) ? properties.displayedNumber : undefined }];
           });
         },
+        rankingCandidates(minimumPopulation) {
+          const fontSize = (design.labelSmall + (design.labelLarge - design.labelSmall) * Math.max(0, Math.min(1, (map.getZoom() - 1) / 8))) * design.labelScale;
+          const halfWidth = fontSize * design.labelWidth / 2 + design.labelHaloWidth;
+          const halfHeight = (fontSize * design.labelLineHeight * 3 + design.countHeight * design.labelScale) / 2;
+          return cities.filter(city => {
+            if (city.population < minimumPopulation) return false;
+            const point = map.project([city.longitude, city.latitude]);
+            if (point.x < halfWidth || point.x > container.clientWidth - halfWidth || point.y < halfHeight || point.y > container.clientHeight - halfHeight) return false;
+            return [[0, 0], [-halfWidth, -halfHeight], [halfWidth, halfHeight], [-halfWidth, halfHeight], [halfWidth, -halfHeight]].every(([x, y]) => {
+              const element = document.elementFromPoint(point.x + x, point.y + y);
+              return !element || container.contains(element);
+            });
+          });
+        },
         labelCandidates() {
           const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(map.getZoom()) - 1))];
           return cities.filter(city => city.population >= minimumPopulation);
         },
-        labelCities(cities, scores, niceCounts) {
+        labelCities(cities, scores, niceCounts, prioritySlugs = []) {
+          const fontSize = (design.labelSmall + (design.labelLarge - design.labelSmall) * Math.max(0, Math.min(1, (map.getZoom() - 1) / 8))) * design.labelScale;
+          const occupied: {x: number; y: number; width: number; height: number}[] = [];
+          const pointers: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+          const offsets = new Map<string, number[]>();
+          for (const slug of prioritySlugs) {
+            const city = cities.find(place => place.slug === slug);
+            if (!city) continue;
+            const point = map.project([city.longitude, city.latitude]);
+            const textWidth = city.name.length * fontSize * 0.65;
+            const width = Math.min(textWidth, fontSize * design.labelWidth) + design.labelPadding * 2;
+            const height = fontSize * design.labelLineHeight * Math.ceil(textWidth / (fontSize * design.labelWidth)) + design.countHeight * design.labelScale + design.labelPadding * 2;
+            const choices = [[0, 0], [0, -height], [0, height], [-width, 0], [width, 0], [-width, -height], [width, height]];
+            const offset = choices.find(([x, y]) => {
+              const centre = {x: point.x + x, y: point.y + y};
+              if (occupied.some(other => Math.abs(centre.x - other.x) < (width + other.width) / 2 && Math.abs(centre.y - other.y) < (height + other.height) / 2)) return false;
+              return [[-width / 2, -height / 2], [width / 2, height / 2]].every(([dx, dy]) => {
+                const px = centre.x + dx, py = centre.y + dy;
+                const element = document.elementFromPoint(px, py);
+                return px > 0 && px < container.clientWidth && py > 0 && py < container.clientHeight && (!element || container.contains(element));
+              });
+            }) ?? [0, 0];
+            occupied.push({x: point.x + offset[0], y: point.y + offset[1], width, height});
+            if (offset[0] || offset[1]) {
+              const end = map.unproject([point.x + offset[0], point.y + offset[1]]);
+              pointers.push({type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: [[city.longitude, city.latitude], [end.lng, end.lat]]}});
+            }
+            offsets.set(slug, offset.map(value => value / fontSize));
+          }
+          (map.getSource('headline-pointers') as GeoJSONSource).setData({type: 'FeatureCollection', features: pointers});
           (map.getSource('city-scores') as GeoJSONSource).setData({
             type: 'FeatureCollection',
             features: cities.map((city, index) => {
@@ -265,6 +316,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
                 type: 'Feature',
                 properties: {
                   name: city.name, population: city.population, slug: city.slug, longitude: city.longitude, latitude: city.latitude,
+                  ...(offsets.has(city.slug) ? {headlineRank: prioritySlugs.indexOf(city.slug), headlineOffset: offsets.get(city.slug)} : {}),
                   ...(Number.isFinite(score) ? { score: Math.floor(score) } : {}),
                   ...(Number.isFinite(score) && count !== undefined && Number.isFinite(count) ? { countImage: countImage(score, count), displayedNumber: Math.round(count) } : {}),
                 },
