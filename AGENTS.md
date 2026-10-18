@@ -4,7 +4,7 @@ written_by: AI (Claude Opus 5.5), 2026-10-16, updated 2026-10-17 for v6, from Jo
 
 # AGENTS.md
 
-Josh owns this project. His own words are the authority: `.agent/josh-steering-ledger.md` holds his messages verbatim. Read them before changing what the product does. Anything written by an agent, including this file, is secondary.
+Josh owns this project. His own words are the authority; they are kept verbatim in private notes (`.agent/`, not in this repository). Read them before changing what the product does. Anything written by an agent, including this file, is secondary.
 
 ## What it is
 
@@ -15,7 +15,7 @@ Nice Weather is a map of the world that answers one question: where on earth, an
 - **Taste sliders** in real units (felt temperatures, dew point, km/h, mm). The whole world redraws in tens of milliseconds.
 - Click or search a place: its score, the band word, nice days, and why. Every view has a shareable URL (`/lisbon-portugal/july`, `/@36.72,-4.42,7z/november`) with its own link preview; Copy image makes a share card.
 
-Josh's taste, in his words, is in `.agent/josh-steering-ledger.md`. The scoring method is Fable's graded rule: `research/taste/nice_v6.py`, explained for the public at `/method` (`method.html`).
+Josh's taste, in his words, is in those private notes. The scoring method is Fable's graded rule: `research/taste/nice_v6.py`, explained for the public at `/method` (`method.html`).
 
 ## How it works
 
@@ -31,7 +31,7 @@ Browser: src/engine scores eight real days per 1° square and month on the GPU f
 ```
 
 - The rule lives in `research/taste/nice_v6.py` (reference) and `src/engine/taste.ts` (the browser). They must agree.
-- Formats and grids: `.agent/v6-contract.md`.
+- Formats and grids: `.agent/v6-contract.md` (private notes).
 - The interface is a poster on one grid: a top bar (Nice!, the answer, search and tools), the map fitted between the bars, and a bottom bar (when, and the key); panels open on the same outer margin. Every design value is in `src/design-tokens.css`: one control height, one panel style, two weights, four sizes, colour only for weather.
 - Live site: <https://nice.jjpcodes.com> (ChatGPT Sites, free, public). Local: `npm run build && npm run serve` on <http://127.0.0.1:5198>, the only local port.
 
@@ -47,6 +47,6 @@ Browser: src/engine scores eight real days per 1° square and month on the GPU f
 
 Josh's rule: agents must see and debug the working product themselves, with no human in the loop.
 
-1. Data: score known places (Málaga, Rotterdam, Chania, Singapore, Cape Town, San Diego, San Francisco) from the published files and compare with research/taste/fable-results.md and with Josh's own words about them.
+1. Data: score known places (Málaga, Rotterdam, Chania, Singapore, Cape Town, San Diego, San Francisco) from the published files and compare with Josh's own words about them.
 2. Site: run it, click places, switch day, month and season, drag every slider, copy a link and an image, and look at screenshots at phone, laptop and ultrawide sizes. Reject clipped text, misaligned controls, unclear explanations or slow loading. `research/site/layout-audit/check_layout.py` screenshots every screen at Josh's sizes, light and dark, and must report no overlaps, alignment faults or low contrast.
 3. For product milestones, ask a reviewer with no context to judge the live site against Josh's verbatim steering only.

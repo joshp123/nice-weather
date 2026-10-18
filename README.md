@@ -30,9 +30,9 @@ npm run serve          # http://127.0.0.1:5198
 | Place names | `node hosting/sites/places.mjs .cache/geonames artifacts/places.tsv` | GeoNames names, regions, coordinates and search aliases |
 | Map labels | `python research/site/labels.py artifacts/places.tsv artifacts/v6` | `v6/labels-1.json` and `labels-2.json` |
 
-The scoring reference is [research/taste/nice_v6.py](research/taste/nice_v6.py), implemented in the browser by `src/engine/taste.ts` and the forecast runner by `internal/dailyforecast/v6_scores.go`. [Fable's calibration](research/taste/fable-results.md) explains the rule and its anchor places. The methodology charts use `research/site/scoring-explainer-data.mjs`. See [research/README.md](research/README.md) for the retained pipeline tools.
+The scoring reference is [research/taste/nice_v6.py](research/taste/nice_v6.py), implemented in the browser by `src/engine/taste.ts` and the forecast runner by `internal/dailyforecast/v6_scores.go`. The methodology charts use `research/site/scoring-explainer-data.mjs`. See [research/README.md](research/README.md) for the retained pipeline tools.
 
-Sources: ECMWF IFS open data (CC BY 4.0); ERA5 hourly from Copernicus, read from Earthmover's free public archive; GeoNames (CC BY 4.0); OpenFreeMap and OpenStreetMap. The [clear-sky calibration](internal/clearsky/README.md) documents the runner’s solar model. Bundled third-party decoder and clear-sky notices remain beside their code.
+Sources: ECMWF IFS open data (CC BY 4.0); place temperatures at 1 km derived from PRISM (contiguous US), WorldClim 1.4 (CC BY-SA 4.0) and CHELSA 2.1, published under CC BY-SA 4.0 on the site; ERA5 hourly from Copernicus, read from Earthmover's free public archive; GeoNames (CC BY 4.0); OpenFreeMap and OpenStreetMap. The [clear-sky calibration](internal/clearsky/README.md) documents the runner’s solar model. Bundled third-party decoder and clear-sky notices remain beside their code.
 
 ## Daily cloud refresh
 
@@ -60,3 +60,7 @@ Upload the executable under `runner/niceweather-linux-amd64`, with the refresh i
 For a local check without publishing, build a native executable and run `niceweather forecast --out /tmp/weather-forecast-check`. Its fourteen daily images use each selected land point's owning weather cell and temperature correction. The fortnight image describes the typical day, using the same threshold median as the app. Score bytes are floored. The runner writes no climate scores or place facts.
 
 `/outlook/world`, `/outlook/europe` and `/outlook/usa` provide tomorrow's ready-to-post sentence, downloadable poster and dated share link. The runner makes these before publication; no social account is used. To render an existing forecast without downloading weather again, run `go run ./tools/outlook --out /tmp/weather-outlook-check`. See [outlook/README.md](outlook/README.md) for selection, styling and posting options.
+
+## Licence and credits
+
+The code is under the MIT licence (see `LICENSE`). Weather data keeps its sources' licences, listed above and on the method page. Inspired by Theo Jaffee's [Weather Atlas](https://weather.theojaffee.net) and Ryan Hall's [Nice Weather](https://ryanhallyall.com/nice). Built by Josh directing AI agents.

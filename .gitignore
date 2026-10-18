@@ -10,3 +10,14 @@
 /public/artifacts/
 /tsconfig*.tsbuildinfo
 __pycache__/
+
+# Private notes and home-machine scripts, kept outside this repository
+/.agent/
+/research/periods/
+/research/taste/fable-*.md
+/research/era5/home*.py
+/research/era5/*-run.sh
+/research/era5/receive.py
+/research/era5/benchmark_home.py
+/research/era5/performance-*.json
+/research/fine/HOME_JOB_HANDOFF.md
