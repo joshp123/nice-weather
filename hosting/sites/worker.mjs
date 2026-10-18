@@ -127,23 +127,30 @@ async function nameForPoint(bucket, latitude, longitude) {
   const { byDegree, bySlug } = await loadPlaces(bucket);
   let best = null;
   let bestPull = 0;
+  let exact = null;
   let nearest = null;
   let nearestDistance = Infinity;
   for (let dLatitude = -1; dLatitude <= 1; dLatitude++) {
     for (let dLongitude = -1; dLongitude <= 1; dLongitude++) {
       for (const place of byDegree.get(`${Math.floor(latitude) + dLatitude},${Math.floor(longitude) + dLongitude}`) ?? []) {
         const distance = kilometres(latitude, longitude, place.latitude, place.longitude);
+        if (distance === 0 && (!exact || place.population > exact.population)) exact = place;
         const pull = place.population / (distance + 2) ** 2;
         if (distance < 30 && pull > bestPull) { best = place; bestPull = pull; }
         if (distance < nearestDistance) { nearest = place; nearestDistance = distance; }
       }
     }
   }
-  if (best) return { name: best.name, plainName: best.plainName, region: best.region, slug: bySlug.get(best.slug) === best ? best.slug : undefined };
+  best = exact ?? best;
+  if (best) return { name: best.name, plainName: best.plainName, region: best.region, latitude: best.latitude, longitude: best.longitude, slug: bySlug.get(best.slug) === best ? best.slug : undefined };
   if (nearest) return { name: `Near ${nearest.name}`, plainName: `Near ${nearest.plainName}`, region: nearest.region };
   const north = latitude >= 0 ? 'N' : 'S';
   const east = longitude >= 0 ? 'E' : 'W';
   return { name: `${Math.abs(latitude).toFixed(2)}° ${north}, ${Math.abs(longitude).toFixed(2)}° ${east}`, region: '' };
+}
+
+async function placeForPoint(bucket, latitude, longitude) {
+  return { latitude, longitude, ...(await nameForPoint(bucket, latitude, longitude)) };
 }
 
 // Islands and regions people search for, which the town list does not name, with the towns that stand for them.
@@ -178,7 +185,7 @@ async function search(bucket, query) {
   if (coordinates) {
     const latitude = Number(coordinates[1]);
     const longitude = Number(coordinates[2]);
-    if (Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) return [{ ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude }];
+    if (Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) return [await placeForPoint(bucket, latitude, longitude)];
   }
   const wanted = normalise(query.trim()).replace(/\s+/g, ' ');
   if (wanted.length < 2) return [];
@@ -291,7 +298,7 @@ async function viewFromPath(bucket, pathname) {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || parts.length > 2) return null;
     const period = parts[1] ? periodFromWord(parts[1]) : null;
     if (parts[1] && !period) return null;
-    return { place: { ...(await nameForPoint(bucket, latitude, longitude)), latitude, longitude }, period };
+    return { place: await placeForPoint(bucket, latitude, longitude), period };
   }
   if (parts.length === 1 && periodFromWord(parts[0])) return { place: null, period: periodFromWord(parts[0]) };
   const { bySlug } = await loadPlaces(bucket);
@@ -765,12 +772,14 @@ export async function handleRequest(request, env, serveAsset) {
     }});
   }
   if (url.pathname === '/api/place') {
-    const latitude = Number(url.searchParams.get('lat'));
-    const longitude = Number(url.searchParams.get('lon'));
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return new Response('Bad coordinates', { status: 400 });
+    const requestedLatitude = Number(url.searchParams.get('lat'));
+    const requestedLongitude = Number(url.searchParams.get('lon'));
+    if (!Number.isFinite(requestedLatitude) || !Number.isFinite(requestedLongitude) || Math.abs(requestedLatitude) > 90) return new Response('Bad coordinates', { status: 400 });
+    const where = await placeForPoint(bucket, requestedLatitude, requestedLongitude);
+    const {latitude, longitude} = where;
     const fine = finePlaces(bucket);
     const period = periodFromWord(url.searchParams.get('period') ?? 'year');
-    const [where, months, fineEnabled, named] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude), fine.enabled(), namedPlaces(bucket).load(latitude, longitude, period)]);
+    const [months, fineEnabled, named] = await Promise.all([typicalYearForPlace(bucket, latitude, longitude), fine.enabled(), namedPlaces(bucket).load(latitude, longitude, period)]);
     const namedJudgement = named && period ? namedPlaceNumbers(named, period) : null;
     let judgement;
     if (namedJudgement) judgement = period.kind === 'forecast' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : namedJudgement;
