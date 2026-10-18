@@ -120,7 +120,7 @@ const actions: Actions = {
       map.flyTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 5) });
       homeOverridden = true;
       home = { name: 'Your location', region: '', latitude, longitude, slug: null };
-      void fetchPlace(latitude, longitude).then(found => { home = { ...found, latitude, longitude }; render(); });
+      void fetchPlace(latitude, longitude).then(found => { home = found; render(); });
       actions.selectPoint(latitude, longitude);
     }, () => headline.set(headlineText, { text: 'Location is not available. Search for your place instead.', warning: true }), { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 });
   },
@@ -158,11 +158,14 @@ function selectPlace(place: Place): void {
   if (!isForecast(state.period)) void engine.prepareYear().then(render).catch(showProblem);
   fetchPlace(place.latitude, place.longitude).then(loaded => {
     if (request !== placeRequest) return;
-    details = { ...loaded, name: place.name || loaded.name, region: place.region || loaded.region };
-    state = { ...state, place: { ...place, name: details.name, region: details.region, slug: place.slug } };
-    weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: details.name, score: verdict?.meanScore });
+    details = loaded;
+    const resolvedPlace: Place = { name: loaded.name, region: loaded.region, latitude: loaded.latitude, longitude: loaded.longitude, slug: loaded.slug };
+    state = { ...state, place: resolvedPlace };
+    verdict = engine.judgePoint(resolvedPlace.latitude, resolvedPlace.longitude);
+    weatherMap.showChosenPlace({ ...resolvedPlace, score: verdict?.meanScore });
     render();
     updateLink();
+    if (resolvedPlace.latitude !== place.latitude || resolvedPlace.longitude !== place.longitude) keepPlaceInView(resolvedPlace);
   }).catch(() => {
     if (request !== placeRequest || place.name) return;
     const coordinates = `${Math.abs(place.latitude).toFixed(2)}° ${place.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(place.longitude).toFixed(2)}° ${place.longitude >= 0 ? 'E' : 'W'}`;

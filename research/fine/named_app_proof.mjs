@@ -38,7 +38,7 @@ const changedTaste={warmShift:1,heatShift:0,eveningShift:0,humidityShift:0,windS
 const changedTasteNumbers = await legacyBrowserNumbers(localFetch, 7, changedTaste);
 const legacyForecastNumbers = await legacyBrowserNumbers(localFetch, {kind:'forecast'});
 const changedForecastNumbers = await legacyBrowserNumbers(localFetch, {kind:'forecast'}, changedTaste);
-const cardMatches=(text,numbers)=>text.includes(`\n\n${numbers.score}\n`)&&new RegExp(`Nice on ${numbers.nice} of the \\d+ days .*Perfect on ${numbers.perfect}; awful on ${numbers.awful}\\.`).test(text);
+const cardMatches=(text,numbers)=>text.split('\n').includes(String(numbers.score))&&new RegExp(`Nice on ${numbers.nice} of the \\d+ days .*Perfect on ${numbers.perfect}; awful on ${numbers.awful}\\.`).test(text);
 const sourceUrl=source=>`data:text/javascript;base64,${Buffer.from(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText).toString('base64')}`;
 const countriesUrl=sourceUrl(await fs.readFile('src/ui/countries.ts','utf8'));
 const ranking=await import(sourceUrl((await fs.readFile('src/ui/ranking.ts','utf8')).replace("'./countries'",JSON.stringify(countriesUrl))));
@@ -136,10 +136,11 @@ try {
     ['san-francisco-phone','/united-states/san-francisco/july',390,844],
     ['san-francisco-laptop','/united-states/san-francisco/july',1440,1080],
     ['san-diego-desktop','/united-states/san-diego/july',1440,1080],
-    ['unnamed-phone','/@37.7751,-122.4181,9z/july',390,844],
+    ['nearby-city-phone','/@37.7751,-122.4181,9z/july',390,844],
+    ['remote-area-phone','/@-25,135,6z/july',390,844],
     ['san-francisco-forecast-phone','/united-states/san-francisco/next-14-days',390,844],
     ['san-francisco-forecast-laptop','/united-states/san-francisco/next-14-days',1440,1080],
-  ].filter(([name]) => !timingOnly || name === 'san-francisco-laptop')) {
+  ].filter(([name]) => process.env.NWF_NAMED_VIEW ? name===process.env.NWF_NAMED_VIEW : !timingOnly || name === 'san-francisco-laptop')) {
     const forecastView=pathname.endsWith('next-14-days');
     const periodWord=forecastView?'next-14-days':'july';
     const overview=forecastView?legacyForecastNumbers:legacyNumbers;
@@ -154,7 +155,7 @@ try {
     const deadline=performance.now()+60000;
     while(performance.now()<deadline) {
       await new Promise(r=>setTimeout(r,250));
-      const data=await command('Runtime.evaluate',{expression:`JSON.stringify({text:document.body.innerText,card:document.querySelector('.slot-card')?.innerText??'',headline:document.querySelector('.headline')?.innerText??'',labels:document.querySelectorAll('.maplibregl-canvas').length,headlinePlaces:[...document.querySelectorAll('.headline-sentence .inline-place')].map(el=>el.textContent)})`,returnByValue:true});
+      const data=await command('Runtime.evaluate',{expression:`JSON.stringify({text:document.body.innerText,card:document.querySelector('.slot-card')?.innerText??'',headline:document.querySelector('.headline')?.innerText??'',labels:document.querySelectorAll('.maplibregl-canvas').length,headlinePlaces:[...document.querySelectorAll('.headline-sentence .inline-place')].map(el=>el.textContent),url:location.href})`,returnByValue:true});
       state=JSON.parse(data.result.value??'{}');if(interceptionError)throw interceptionError;
       const usable=name==='world-desktop'? state.headline?.includes('Nicest'):state.card?.includes('Walk home');
       if(usable&&!ready)ready=performance.now()-began;
@@ -175,19 +176,27 @@ try {
     }
     let cardApi, cardPoint;
     if(name!=='world-desktop') {
-      const unnamed=name==='unnamed-phone';
+      const unnamed=name==='remote-area-phone';
+      const coordinateView=pathname.startsWith('/@');
       const slug=pathname.split('/').filter(Boolean).slice(0,2).join('/');
-      const place=unnamed?{latitude:37.7751,longitude:-122.4181}:await(await localFetch(`http://127.0.0.1:5198/api/slug/${slug}`)).json();
+      const place=coordinateView?(unnamed?{latitude:-25,longitude:135}:{latitude:37.7751,longitude:-122.4181}):await(await localFetch(`http://127.0.0.1:5198/api/slug/${slug}`)).json();
       const numbers=await(await localFetch(`http://127.0.0.1:5198/api/place?lat=${place.latitude}&lon=${place.longitude}&period=${periodWord}`)).json();
-      cardPoint=place;
+      cardPoint={latitude:numbers.latitude,longitude:numbers.longitude};
+      const chosen=state.geoJSON?.['chosen-place']?.features?.[0];
+      if(!chosen||chosen.geometry.coordinates[0]!==numbers.longitude||chosen.geometry.coordinates[1]!==numbers.latitude)throw Error(`${name}: selected marker differs from resolved place`);
+      if(name==='nearby-city-phone'){
+        const searched=await(await localFetch('http://127.0.0.1:5198/api/slug/united-states/san-francisco')).json();
+        if(numbers.latitude!==searched.latitude||numbers.longitude!==searched.longitude||!state.url.includes('/united-states/san-francisco/july'))throw Error('Nearby city click did not use the searched city coordinates and link');
+      }
+      if(unnamed&&(numbers.latitude!==place.latitude||numbers.longitude!==place.longitude||!state.url.includes('/@-25,135,')||!state.card.includes('Area estimate')))throw Error('Remote area did not retain its point and overview model');
       const judgement=numbers.judgement;
       if (namedState === 'active'&&!unnamed) {
         cardApi={score:Math.floor(judgement.meanScore),nice:Math.round(judgement.niceDayCount),perfect:Math.round(judgement.perfectDayCount),awful:Math.round(judgement.awfulDayCount)};
       } else {
-        const reference=overview(place.latitude,place.longitude);
+        const reference=overview(cardPoint.latitude,cardPoint.longitude);
         cardApi={score:Math.floor(reference.meanScore),nice:Math.round(reference.niceDayCount),perfect:Math.round(reference.perfectDayCount),awful:Math.round(reference.awfulDayCount),source:'Unchanged browser PointSampler over published 25 km files'};
       }
-      if(!cardMatches(state.card,cardApi))throw Error(`${name}: displayed card and its weather reference disagree`);
+      if(!cardMatches(state.card,cardApi))throw Error(`${name}: displayed card and its weather reference disagree: ${JSON.stringify({card:state.card,cardApi,cardPoint})}`);
     }
     const labelled=(state.geoJSON?.['city-scores']?.features??[]).filter(feature=>Number.isFinite(feature.properties?.score));
     const labelProof=[];
