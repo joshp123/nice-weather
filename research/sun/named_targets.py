@@ -1,7 +1,7 @@
 """Combine complete satellite targets in one deterministic source order.
 
 Written by AI on 2026.10.18 by model GPT-6.1 Sol.
-SARAH long normals take priority, then the approved GOES typical direct year,
+SARAH long normals take priority, then the approved GOES typical meteorological year,
 then both southern GOES years. Validation subsets are explicitly labelled.
 """
 import argparse
@@ -64,6 +64,7 @@ def main():
     parser.add_argument('--coordinates',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--validation',action='store_true')
+    parser.add_argument('--timezones',type=Path,default=Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/sun/named/target-timezones.json'))
     parser.add_argument('--profiles-progress',type=Path)
     parser.add_argument('--north-plan',type=Path)
     parser.add_argument('--south-plan',type=Path)
@@ -90,11 +91,15 @@ def main():
     combined={point:average_years(south_a[point],south_b[point]) for point in south_a}
     combined.update(north)
     combined.update(sarah_all)
-    unsupported_model={point for point,row in combined.items() if not any(row['months'])}
+    satellite_eligible_model_unsupported={point for point,row in combined.items() if not any(row['months'])}
     combined={point:row for point,row in combined.items() if any(row['months'])}
     coordinates=json.loads(args.coordinates.read_text())
     expected={(round((row['latitude'] if isinstance(row,dict) else row[0])*1e5),
                round((row['longitude'] if isinstance(row,dict) else row[1])*1e5)) for row in coordinates}
+    clock_export=json.loads(args.timezones.read_text())
+    unsupported_model={(lat,lon) for lat,lon,zone in clock_export['coordinates'] if zone is None}&expected
+    if satellite_eligible_model_unsupported-unsupported_model:
+        raise ValueError('A satellite target lacks values at a supported place model')
     extra=combined.keys()-expected
     if extra:
         raise ValueError(f'Unexpected named coordinates: {len(extra)}')
@@ -102,7 +107,10 @@ def main():
     missing=sorted(expected-combined.keys())
     coverage=dict(namedPoints=len(expected),correctedPoints=len(ordered),unchangedPoints=len(missing),
                   sources=dict(Counter(row['source'] for row in ordered)),validationSubset=args.validation,
-                  satelliteEligibleModelUnsupported=len(unsupported_model),
+                  modelUnsupported=len(unsupported_model),
+                  satelliteEligibleModelUnsupported=len(satellite_eligible_model_unsupported),
+                  targetTimezoneGeneration=clock_export['generation'],
+                  targetTimezoneSha256=digest(args.timezones),
                   periods={row['source']:row['years'] for row in ordered},
                   inputFiles=[dict(file=path.name,bytes=path.stat().st_size,sha256=digest(path))
                               for path in (args.sarah,args.north,args.south2022,args.south2024)],
@@ -121,7 +129,7 @@ def main():
         table.write('latitude\tlongitude\tsource\n')
         for lat,lon in sorted(expected):
             row=combined.get((lat,lon))
-            code='SARAH3' if row and row['source'].startswith('PVGIS-SARAH3') else 'GOES-TDY' if row and 'TDY' in row['source'] else 'GOES-TMY' if row and 'TMY' in row['source'] else 'GOES-2022-2024' if row else 'native'
+            code='SARAH3' if row and row['source'].startswith('PVGIS-SARAH3') else 'GOES-TDY' if row and 'TDY' in row['source'] else 'GOES-TMY' if row and 'TMY' in row['source'] else 'GOES-2022-2024' if row else 'model-unsupported' if (lat,lon) in unsupported_model else 'native'
             table.write(f'{lat/1e5:.5f}\t{lon/1e5:.5f}\t{code}\n')
     print(json.dumps({**{k:v for k,v in coverage.items() if k!='unchangedCoordinates'},
                       'bytes':args.output.stat().st_size,'sha256':digest(args.output),

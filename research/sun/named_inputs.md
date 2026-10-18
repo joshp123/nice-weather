@@ -66,12 +66,22 @@ hash, and the CSV hash. It does not falsely claim CSV contains database metadata
 HDF5 groups required by named coordinates. `extract` requires an explicit
 `--max-groups` budget. Native sites are selected by spherical nearest distance,
 with support distance reported by eligibility; groups share each physical DNI
-chunk. Raw ranges are fetched concurrently and completed point arrays are
+chunk. The northern native grid extends to 20.99 degrees south, so Iquique uses
+the same long-period TMY as northern places. Exclude exact SARAH-supported
+points from northern GOES, then exclude both SARAH and eligible northern
+points from the southern full-disc plan. Raw ranges are fetched concurrently and completed point arrays are
 checkpointed for a rerun. A truncated HTTP range is retried before any array
-is accepted. Full HDF5 files, hundreds of gigabytes each, are never downloaded.
+is accepted. `index` visits the HDF5 chunk directory once and retains exact
+physical byte addresses, avoiding thousands of repeated remote B-tree
+lookups during extraction. It reads metadata only. `extract` reuses
+`<source>-dni-chunks.json` when present. Full HDF5 files, hundreds of gigabytes each, are never downloaded.
 
-TDY is the producer's typical direct-radiation year, selected primarily on DNI;
-it is the appropriate typical-year candidate for direct sunshine. TMY and TDY
+TDY is the producer's typical direct-radiation year, selected primarily on DNI.
+Both candidates were tested at the same three independent two-year GOES
+reference points. TMY improved sunshine and direct-radiation errors at all
+three; TDY worsened San Diego direct radiation against native ERA5 and had
+larger errors at both Californian points. Use TMY everywhere in northern GOES
+coverage; there is no per-place source choice. TMY and TDY
 hourly values are instantaneous midpoint samples, not hourly means. Actual
 selected years are in the compact `tmy_year_short` dataset. Global extraction
 must use the validated civil-hour integration, source-year offsets and final
@@ -87,7 +97,7 @@ SSD='/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data'
 sh research/sun/run.sh named_profiles.py \
   --coordinates "$SSD/v6-named-b1-20261018/coordinates.json" \
   --output "$SSD/sun/named/sarah-profiles.ndjson" \
-  --workers 16 --requests-per-second 20
+  --workers 32 --requests-per-second 20
 
 sh research/sun/run.sh named_satellite.py \
   --coordinates "$SSD/v6-named-b1-20261018/coordinates.json" \
@@ -96,10 +106,26 @@ sh research/sun/run.sh named_satellite.py \
   --normalize --verified-csv --watch-profiles --workers 96 \
   --requests-per-second 8 --finished-requests-per-second 25
 
-sh research/sun/run.sh named_goes.py plan --source tdy \
+sh research/sun/run.sh named_goes.py plan --source tmy \
   --coordinates "$SSD/v6-named-b1-20261018/coordinates.json" \
   --exclude-profiles "$SSD/sun/named/sarah-profiles.ndjson" \
-  --output "$SSD/sun/named/goes/tdy-global.json"
+  --output "$SSD/sun/named/goes/tmy-global.json"
+
+sh research/sun/run.sh named_goes.py index --source tmy \
+  --coordinates "$SSD/v6-named-b1-20261018/coordinates.json" \
+  --output "$SSD/sun/named/goes/tmy-dni-chunks.json"
+
+sh research/sun/run.sh named_goes.py extract --source tmy --metadata \
+  --coordinates "$SSD/v6-named-b1-20261018/coordinates.json" \
+  --exclude-profiles "$SSD/sun/named/sarah-profiles.ndjson" \
+  --output "$SSD/sun/named/goes/tmy-global.json" \
+  --max-groups <the-approved-plan-group-count> --workers 16
+
+sh research/sun/run.sh named_goes.py plan --source disc2022 \
+  --coordinates "$SSD/v6-named-b1-20261018/coordinates.json" \
+  --exclude-profiles "$SSD/sun/named/sarah-profiles.ndjson" \
+  --exclude-locations "$SSD/sun/named/goes/tmy-global.locations.json" \
+  --output "$SSD/sun/named/goes/disc2022-global.json"
 ```
 
 PVGIS permits 30 requests/s per IP. The simultaneous example jobs total 28;

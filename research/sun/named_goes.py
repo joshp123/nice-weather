@@ -18,7 +18,8 @@ import h5py
 import numpy as np
 from scipy.spatial import cKDTree
 
-from named_satellite import NativeTimezones, atomic_json, coordinates, solar_sunset
+from named_satellite import atomic_json, coordinates, solar_sunset
+from named_timezone_lookup import TargetTimezones
 from satellite import ChunkLocationFile
 from instant_hours import integrate_civil_hours
 from named_range_file import AnonymousRangeFile
@@ -158,7 +159,7 @@ def summarize(values, timestamps, latitude, longitude, zone_name, source,selecte
 def summarize_cached(args,points):
     source=args.source
     typical=source in ('tmy','tdy')
-    zones=NativeTimezones(Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/v6-fine-b1-20261018/temperature/timezones/lookup.npz'))
+    zones=TargetTimezones(args.root.parent/'target-timezones.json')
     locations=json.loads((args.root/f'{source}-selected.json').read_text())
     years=np.load(args.root/f'{source}-selected-years.npy',mmap_mode='r') if typical else None
     records=[]
@@ -184,7 +185,7 @@ def summarize_cached(args,points):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['plan','extract','summarize'])
+    parser.add_argument('action',choices=['plan','extract','summarize','index'])
     parser.add_argument('--source',choices=KEYS,required=True)
     parser.add_argument('--coordinates',type=Path,required=True)
     parser.add_argument('--root',type=Path,default=ROOT)
@@ -194,16 +195,20 @@ def main():
     parser.add_argument('--workers',type=int,default=12)
     parser.add_argument('--all-latitudes',action='store_true')
     parser.add_argument('--exclude-profiles',type=Path)
+    parser.add_argument('--exclude-locations',type=Path)
     args=parser.parse_args()
     args.root.mkdir(parents=True,exist_ok=True)
-    points=[p for p in coordinates(args.coordinates) if -60<=p[0]<=60 and -180<=p[1]<-25
-            and (p[0]>=-20 if args.source in ('tmy','tdy') else args.all_latitudes or p[0]<-20)]
+    points=[p for p in coordinates(args.coordinates) if -60<=p[0]<=60 and -180<=p[1]<-22
+            and (p[0]>=-21 if args.source in ('tmy','tdy') else args.all_latitudes or p[0]<-20)]
     if args.exclude_profiles:
         preferred=set()
         for line in args.exclude_profiles.read_text().splitlines():
             profile=json.loads(line)
             if profile.get('inputs',{}).get('meteo_data',{}).get('radiation_db')=='PVGIS-SARAH3':
                 preferred.add(tuple(profile['requestedCoordinates']))
+        points=[point for point in points if tuple(point) not in preferred]
+    if args.exclude_locations:
+        preferred={(row['latitude'],row['longitude']) for row in json.loads(args.exclude_locations.read_text()) if row['eligible']}
         points=[point for point in points if tuple(point) not in preferred]
     source=args.source
     if args.action=='summarize':
@@ -214,6 +219,16 @@ def main():
     with AnonymousRangeFile(url) as remote:
         recording=ChunkLocationFile(remote)
         with h5py.File(recording) as hdf:
+            if args.action=='index':
+                chunks=[]
+                def visit(chunk):
+                    chunks.append([list(chunk.chunk_offset),chunk.byte_offset,chunk.size])
+                    if len(chunks)%1000==0:
+                        print(json.dumps(dict(source=source,indexedChunks=len(chunks),seconds=time.monotonic()-started,
+                                              metadataBytes=remote.transferred,metadataRequests=remote.requests)),flush=True)
+                hdf['dni'].id.chunk_iter(visit)
+                atomic_json(args.output,dict(sourceUrl=url,dniShape=hdf['dni'].shape,dniChunks=hdf['dni'].chunks,records=chunks))
+                return
             locations=locate_points(hdf,url,args.root,source,points,args.metadata or args.action=='plan')
             groups={}
             for row,location in enumerate(locations):
@@ -228,6 +243,11 @@ def main():
                         radiationBytes=len(groups)*chunks_per_group*time_chunk*site_chunk*dataset.dtype.itemsize,
                         dniShape=dataset.shape,dniChunks=dataset.chunks,seconds=time.monotonic()-started)
             atomic_json(args.output.with_suffix('.plan.json'),budget)
+            atomic_json(args.output.with_suffix('.locations.json'),
+                        [dict(latitude=point[0],longitude=point[1],eligible=location is not None,
+                              sourceIndex=location[0] if location else None,
+                              selectedCoordinates=location[1] if location else None)
+                         for point,location in zip(points,locations)])
             print(json.dumps(budget),flush=True)
             if args.action=='plan':
                 return
@@ -239,6 +259,13 @@ def main():
             raw_directory=args.root/source
             raw_directory.mkdir(exist_ok=True)
             downloads=[];group_remaining={};group_rows={}
+            index_path=args.root/f'{source}-dni-chunks.json'
+            chunk_index={}
+            if index_path.exists():
+                index_payload=json.loads(index_path.read_text())
+                if index_payload['sourceUrl']!=url or index_payload['dniShape']!=list(dataset.shape) or index_payload['dniChunks']!=list(dataset.chunks):
+                    raise ValueError('Physical chunk index describes a different source dataset')
+                chunk_index={tuple(row[0]):(row[1],row[2]) for row in index_payload['records']}
             indexed=0
             for group,rows in groups.items():
                 remaining=[]
@@ -256,12 +283,19 @@ def main():
                 ranges=[]
                 for start in range(0,dataset.shape[0],time_chunk):
                     size=time_chunk*site_chunk*dataset.dtype.itemsize
-                    recording.locating_size=size; recording.locations=[]
-                    dataset.id.read_direct_chunk((start,group*500))
-                    recording.locating_size=None
-                    if len(recording.locations)!=1:
-                        raise ValueError('Cannot locate physical DNI chunk')
-                    ranges.append((start,*recording.locations[0]))
+                    logical=(start,group*500)
+                    if logical in chunk_index:
+                        offset,indexed_size=chunk_index[logical]
+                        if indexed_size!=size:
+                            raise ValueError('Physical DNI index has an unexpected chunk size')
+                        ranges.append((start,offset,indexed_size))
+                    else:
+                        recording.locating_size=size; recording.locations=[]
+                        dataset.id.read_direct_chunk(logical)
+                        recording.locating_size=None
+                        if len(recording.locations)!=1:
+                            raise ValueError('Cannot locate physical DNI chunk')
+                        ranges.append((start,*recording.locations[0]))
                 group_remaining[group]=len(ranges)
                 downloads.extend((group,*item) for item in ranges)
                 indexed+=1
@@ -287,7 +321,7 @@ def main():
                         for row in group_rows[group]:
                             lat,lon=points[row]
                             np.savez_compressed(raw_directory/f'{round(lat*1e5)},{round(lon*1e5)}.npz',
-                                                dni=results[row],time=np.array(timestamps),requested=[lat,lon],selected=locations[row][1])
+                                                dni=results[row],time=np.array(timestamps),requested=[lat,lon],selected=locations[row][1],sourceIndex=locations[row][0])
                         elapsed=time.monotonic()-started
                         progress=dict(source=source,groupsComplete=finished_groups,totalGroups=len(group_remaining),
                                       radiationBytesComplete=finished_groups*chunks_per_group*time_chunk*site_chunk*dtype.itemsize,
@@ -295,7 +329,7 @@ def main():
                         atomic_json(args.output.with_suffix('.progress.json'),progress)
                         if finished_groups%10==0 or finished_groups==len(group_remaining):
                             print(json.dumps(progress),flush=True)
-            timezone=NativeTimezones(Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/v6-fine-b1-20261018/temperature/timezones/lookup.npz'))
+            timezone=TargetTimezones(args.root.parent/'target-timezones.json')
             records=[]
             for row,values in results.items():
                 lat,lon=points[row];zone=timezone.timezone_at(lat=lat,lng=lon)

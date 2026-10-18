@@ -37,12 +37,6 @@ METHOD = ('Civil clock hours 10..21; SARAH snapshots shifted by the documented '
           'months, not full-period monthly means.')
 
 
-class NativeTimezones(TargetTimezones):
-    """Use the shared place model's exact 1 km clock at each named point."""
-    def __init__(self,path=None):
-        super().__init__(ROOT/'target-timezones.json')
-
-
 def atomic_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + '.partial')
@@ -340,7 +334,7 @@ def main():
                 eligible.add(tuple(profile['requestedCoordinates']))
         jobs=[point for point in jobs if tuple(point) in eligible]
     jobs = jobs[args.offset: args.offset+args.limit if args.limit else None]
-    timezone_finder = NativeTimezones(Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/v6-fine-b1-20261018/temperature/timezones/lookup.npz'))
+    timezone_finder = TargetTimezones(args.root/'target-timezones.json')
     pacer = RequestPacer(args.requests_per_second)
     started = time.monotonic()
     records, transferred, cached, fetched = [], 0, 0, 0
