@@ -1,0 +1,194 @@
+[
+  {
+    "viewport": [
+      390,
+      844
+    ],
+    "period": "spain/arona/year",
+    "zoom": 5,
+    "labels": [
+      {
+        "name": "Boujdour",
+        "count": 324,
+        "x": 294.9373937777772,
+        "y": 341.67844809409036,
+        "width": 104.8,
+        "height": 73.9
+      },
+      {
+        "name": "Arona",
+        "count": 323,
+        "x": 195,
+        "y": 277.95000000000294,
+        "width": 77.5,
+        "height": 73.9
+      },
+      {
+        "name": "Las Palmas de Gran Canaria",
+        "count": 331,
+        "x": 252.58475377777737,
+        "y": 194.48855952008128,
+        "width": 158,
+        "height": 92.80000000000001
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\uddf8 Arona",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\udded Boujdour",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      }
+    ],
+    "chosenBox": null,
+    "headline": "Nicest on this map all year: \ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria, \ud83c\uddea\ud83c\uddf8 Arona and \ud83c\uddea\ud83c\udded Boujdour.",
+    "dock": "Nicest on this map all year: \ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria, \ud83c\uddea\ud83c\uddf8 Arona and \ud83c\uddea\ud83c\udded Boujdour.\u203a"
+  },
+  {
+    "viewport": [
+      1512,
+      982
+    ],
+    "period": "spain/arona/year",
+    "zoom": 5,
+    "labels": [
+      {
+        "name": "Funchal",
+        "count": 282,
+        "x": 744.87480888889,
+        "y": 250.0039174824546,
+        "width": 95.7,
+        "height": 73.9
+      },
+      {
+        "name": "Smara",
+        "count": 312,
+        "x": 983.9687964444448,
+        "y": 560.7927571471441,
+        "width": 77.5,
+        "height": 73.9
+      },
+      {
+        "name": "Las Palmas de Gran Canaria",
+        "count": 331,
+        "x": 813.5847537777775,
+        "y": 490.88855952007896,
+        "width": 158,
+        "height": 92.80000000000001
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddf2\ud83c\udde6 Smara",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddf5\ud83c\uddf9 Funchal",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      }
+    ],
+    "chosenBox": null,
+    "headline": "Nicest on this map all year: \ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria, \ud83c\uddf2\ud83c\udde6 Smara and \ud83c\uddf5\ud83c\uddf9 Funchal.",
+    "dock": "Nicest on this map all year: \ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria, \ud83c\uddf2\ud83c\udde6 Smara and \ud83c\uddf5\ud83c\uddf9 Funchal.\u203a"
+  },
+  {
+    "viewport": [
+      1728,
+      1117
+    ],
+    "period": "spain/arona/year",
+    "zoom": 5,
+    "labels": [
+      {
+        "name": "Smara",
+        "count": 312,
+        "x": 1091.9687964444438,
+        "y": 628.2927571471432,
+        "width": 77.5,
+        "height": 73.9
+      },
+      {
+        "name": "Las Palmas de Gran Canaria",
+        "count": 331,
+        "x": 921.5847537777773,
+        "y": 558.388559520079,
+        "width": 158,
+        "height": 92.80000000000001
+      },
+      {
+        "name": "Agadir",
+        "count": 350,
+        "x": 1186.3492835555542,
+        "y": 437.42983047471955,
+        "width": 86.6,
+        "height": 73.9
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddf2\ud83c\udde6 Agadir",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddf2\ud83c\udde6 Smara",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      }
+    ],
+    "chosenBox": null,
+    "headline": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria and \ud83c\uddf2\ud83c\udde6 Smara.",
+    "dock": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf8 Las Palmas de Gran Canaria and \ud83c\uddf2\ud83c\udde6 Smara.\u203a"
+  }
+]

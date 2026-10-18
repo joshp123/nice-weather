@@ -1,0 +1,454 @@
+[
+  {
+    "viewport": [
+      390,
+      844
+    ],
+    "period": "year",
+    "zoom": 1.1,
+    "labels": [
+      {
+        "name": "Agadir",
+        "count": 350,
+        "x": 127.63157833629475,
+        "y": 368.902176901702,
+        "width": 78.995,
+        "height": 71.2675
+      },
+      {
+        "name": "Adama",
+        "count": 346,
+        "x": 241.01962206817092,
+        "y": 440.17000221877413,
+        "width": 71.1625,
+        "height": 71.2675
+      },
+      {
+        "name": "Boorama",
+        "count": 346,
+        "x": 331.95327529305416,
+        "y": 435.8886083762719,
+        "width": 86.82750000000001,
+        "height": 71.2675
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddf2\ud83c\udde6 Agadir",
+        "x": 205.390625,
+        "y": 664.46875,
+        "width": 66.078125,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 205.390625,
+            "y": 664.46875,
+            "width": 66.078125,
+            "height": 20.25
+          }
+        ]
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\uddf9 Adama",
+        "x": 278.4375,
+        "y": 664.46875,
+        "width": 68.671875,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 278.4375,
+            "y": 664.46875,
+            "width": 68.671875,
+            "height": 20.25
+          }
+        ]
+      },
+      {
+        "text": "\ud83c\uddf8\ud83c\uddf4 Boorama",
+        "x": 54.09375,
+        "y": 684.71875,
+        "width": 82.03125,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 54.09375,
+            "y": 684.71875,
+            "width": 82.03125,
+            "height": 20.25
+          }
+        ]
+      }
+    ],
+    "headline": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf8\ud83c\uddf4 Boorama.",
+    "dock": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf8\ud83c\uddf4 Boorama.\u203a"
+  },
+  {
+    "viewport": [
+      390,
+      844
+    ],
+    "period": "nov-mar",
+    "zoom": 1.1,
+    "labels": [
+      {
+        "name": "Bahir Dar",
+        "count": 151,
+        "x": 270.88200319457985,
+        "y": 395.11100143628715,
+        "width": 102.4925,
+        "height": 71.2675
+      },
+      {
+        "name": "Adama",
+        "count": 151,
+        "x": 276.60087206817093,
+        "y": 475.80375221877415,
+        "width": 71.1625,
+        "height": 71.2675
+      },
+      {
+        "name": "Jos",
+        "count": 147,
+        "x": 184.00101677506723,
+        "y": 435.9121921770351,
+        "width": 55.4975,
+        "height": 71.2675
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddea\ud83c\uddf9 Bahir Dar",
+        "x": 27,
+        "y": 684.71875,
+        "width": 82.84375,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 27,
+            "y": 684.71875,
+            "width": 82.84375,
+            "height": 20.25
+          }
+        ]
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\uddf9 Adama",
+        "x": 116.8125,
+        "y": 684.71875,
+        "width": 68.671875,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 116.8125,
+            "y": 684.71875,
+            "width": 68.671875,
+            "height": 20.25
+          }
+        ]
+      },
+      {
+        "text": "\ud83c\uddf3\ud83c\uddec Jos",
+        "x": 215.578125,
+        "y": 684.71875,
+        "width": 46.640625,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 215.578125,
+            "y": 684.71875,
+            "width": 46.640625,
+            "height": 20.25
+          }
+        ]
+      }
+    ],
+    "headline": "Nicest on this map from November to March: \ud83c\uddea\ud83c\uddf9 Bahir Dar, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf3\ud83c\uddec Jos.",
+    "dock": "Nicest on this map from November to March: \ud83c\uddea\ud83c\uddf9 Bahir Dar, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf3\ud83c\uddec Jos.\u203a"
+  },
+  {
+    "viewport": [
+      390,
+      844
+    ],
+    "period": "next-14-days",
+    "zoom": 1.1,
+    "labels": [
+      {
+        "name": "Al Maw\u015fil al Jad\u012bdah",
+        "count": 14,
+        "x": 288.30408190955427,
+        "y": 259.7644207399725,
+        "width": 140.45,
+        "height": 87.535
+      },
+      {
+        "name": "Aleppo",
+        "count": 14,
+        "x": 309.67954461822916,
+        "y": 383.4302746149416,
+        "width": 78.995,
+        "height": 71.2675
+      },
+      {
+        "name": "Cairo",
+        "count": 14,
+        "x": 216.57899529724557,
+        "y": 370.1639154855423,
+        "width": 71.1625,
+        "height": 71.2675
+      }
+    ],
+    "lines": [
+      [
+        {
+          "x": 288.3040819095566,
+          "y": 347.29942073997427
+        },
+        {
+          "x": 288.3040819095566,
+          "y": 303.53192073997405
+        }
+      ]
+    ],
+    "buttons": [
+      {
+        "text": "\ud83c\uddea\ud83c\uddec Cairo",
+        "x": 302.265625,
+        "y": 636.28125,
+        "width": 56.734375,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 302.265625,
+            "y": 636.28125,
+            "width": 56.734375,
+            "height": 20.25
+          }
+        ]
+      },
+      {
+        "text": "\ud83c\uddf8\ud83c\uddfe Aleppo",
+        "x": 27,
+        "y": 656.53125,
+        "width": 69.265625,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 27,
+            "y": 656.53125,
+            "width": 69.265625,
+            "height": 20.25
+          }
+        ]
+      },
+      {
+        "text": "\ud83c\uddee\ud83c\uddf6 Al Maw\u015fil al Jad\u012bdah",
+        "x": 126.359375,
+        "y": 656.53125,
+        "width": 154.859375,
+        "height": 20.25,
+        "rects": [
+          {
+            "x": 126.359375,
+            "y": 656.53125,
+            "width": 154.859375,
+            "height": 20.25
+          }
+        ]
+      }
+    ],
+    "headline": "Nicest on this map in the 14-day forecast: \ud83c\uddea\ud83c\uddec Cairo, \ud83c\uddf8\ud83c\uddfe Aleppo and \ud83c\uddee\ud83c\uddf6 Al Maw\u015fil al Jad\u012bdah.",
+    "dock": "Nicest on this map in the 14-day forecast: \ud83c\uddea\ud83c\uddec Cairo, \ud83c\uddf8\ud83c\uddfe Aleppo and \ud83c\uddee\ud83c\uddf6 Al Maw\u015fil al Jad\u012bdah.\u203a"
+  },
+  {
+    "viewport": [
+      1512,
+      982
+    ],
+    "period": "year",
+    "zoom": 1.9508077121387255,
+    "labels": [
+      {
+        "name": "Agadir",
+        "count": 350,
+        "x": 634.5003534545453,
+        "y": 395.2375258399153,
+        "width": 80.65407503867053,
+        "height": 71.84179520569364
+      },
+      {
+        "name": "Adama",
+        "count": 346,
+        "x": 903.1680183272726,
+        "y": 523.7697872800331,
+        "width": 72.54506253222543,
+        "height": 71.84179520569364
+      },
+      {
+        "name": "Chiclayo",
+        "count": 365,
+        "x": 248.21569309090893,
+        "y": 608.2647410042563,
+        "width": 96.8721000515607,
+        "height": 71.84179520569364
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddf2\ud83c\udde6 Agadir",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\uddf9 Adama",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddf5\ud83c\uddea Chiclayo",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      }
+    ],
+    "headline": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf5\ud83c\uddea Chiclayo.",
+    "dock": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf5\ud83c\uddea Chiclayo.\u203a"
+  },
+  {
+    "viewport": [
+      1512,
+      982
+    ],
+    "period": "nov-mar",
+    "zoom": 1.9508077121387255,
+    "labels": [
+      {
+        "name": "Bahir Dar",
+        "count": 151,
+        "x": 892.8539790545453,
+        "y": 470.85035222604984,
+        "width": 104.98111255800578,
+        "height": 71.84179520569364
+      },
+      {
+        "name": "Adama",
+        "count": 151,
+        "x": 903.1680183272726,
+        "y": 559.69068488288,
+        "width": 72.54506253222543,
+        "height": 71.84179520569364
+      },
+      {
+        "name": "Antofagasta",
+        "count": 151,
+        "x": 300.2143627636363,
+        "y": 704.8503006553698,
+        "width": 121.19913757089594,
+        "height": 71.84179520569364
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddea\ud83c\uddf9 Bahir Dar",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddea\ud83c\uddf9 Adama",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\udde8\ud83c\uddf1 Antofagasta",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      }
+    ],
+    "headline": "Nicest on this map from November to March: \ud83c\uddea\ud83c\uddf9 Bahir Dar, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\udde8\ud83c\uddf1 Antofagasta.",
+    "dock": "Nicest on this map from November to March: \ud83c\uddea\ud83c\uddf9 Bahir Dar, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\udde8\ud83c\uddf1 Antofagasta.\u203a"
+  },
+  {
+    "viewport": [
+      1512,
+      982
+    ],
+    "period": "next-14-days",
+    "zoom": 1.9508077121387255,
+    "labels": [
+      {
+        "name": "Gujranwala",
+        "count": 14,
+        "x": 1095.1666167272726,
+        "y": 419.99176318424026,
+        "width": 113.09012506445086,
+        "height": 71.84179520569364
+      },
+      {
+        "name": "Peshawar",
+        "count": 14,
+        "x": 1080.8242795636363,
+        "y": 335.9941417824739,
+        "width": 96.8721000515607,
+        "height": 71.84179520569364
+      },
+      {
+        "name": "Cairo",
+        "count": 14,
+        "x": 859.0890946909092,
+        "y": 397.5130844500696,
+        "width": 72.54506253222543,
+        "height": 71.84179520569364
+      }
+    ],
+    "lines": [],
+    "buttons": [
+      {
+        "text": "\ud83c\uddea\ud83c\uddec Cairo",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddf5\ud83c\uddf0 Peshawar",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      },
+      {
+        "text": "\ud83c\uddf5\ud83c\uddf0 Gujranwala",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "rects": []
+      }
+    ],
+    "headline": "Nicest on this map in the 14-day forecast: \ud83c\uddea\ud83c\uddec Cairo, \ud83c\uddf5\ud83c\uddf0 Peshawar and \ud83c\uddf5\ud83c\uddf0 Gujranwala.",
+    "dock": "Nicest on this map in the 14-day forecast: \ud83c\uddea\ud83c\uddec Cairo, \ud83c\uddf5\ud83c\uddf0 Peshawar and \ud83c\uddf5\ud83c\uddf0 Gujranwala.\u203a"
+  }
+]
