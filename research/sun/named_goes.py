@@ -22,7 +22,7 @@ from named_satellite import atomic_json, coordinates, solar_sunset
 from named_timezone_lookup import TargetTimezones
 from satellite import ChunkLocationFile
 from instant_hours import integrate_civil_hours
-from named_range_file import AnonymousRangeFile
+from named_range_file import AnonymousRangeFile, read_range_before_deadline
 
 ROOT = Path('/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data/sun/named/goes')
 KEYS = {'tmy': 'GOES/tmy/v4.0.0/nsrdb_tmy-2024.h5',
@@ -50,8 +50,8 @@ def range_read(url, offset, size):
     for attempt in range(4):
         try:
             request = urllib.request.Request(url, headers={'Range': f'bytes={offset}-{offset+size-1}'})
-            with urllib.request.urlopen(request, timeout=120) as response:
-                data = response.read()
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = read_range_before_deadline(response,size,60)
             if len(data) != size:
                 raise ValueError(f'Wrong byte range length {len(data)} != {size}')
             return data

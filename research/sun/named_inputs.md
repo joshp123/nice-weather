@@ -154,6 +154,15 @@ integration without any network request. Source arrays, timestamps and native
 coordinates are retained; typical-year summaries also use the cached selected
 source-year array. This separates an arithmetic rerun from radiation download.
 
+`named_budget_watch.py` can enforce a temporary acquisition budget while a
+larger transfer awaits approval. Supply only the acquisition process IDs and
+their progress files; it records its baseline and stops those processes after
+the byte allowance or wall time. Leave room for responses already in flight.
+It uses the standard library and needs no environment package installation.
+A watcher without progress files provides a wall-time bound for metadata-only
+preparation. Stopped producers and followers must be restarted together because
+the producer rewrites its NDJSON stream from cached responses.
+
 JSON/NDJSON here is an offline acquisition interface, not a browser payload.
 Target records contain exact requested coordinates, twelve monthly sunshine
 shares and twelve hourly DNI means per month, source/period, selected source

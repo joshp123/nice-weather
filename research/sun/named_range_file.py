@@ -11,6 +11,21 @@ import time
 import urllib.request
 
 
+def read_range_before_deadline(response,size,maximum_seconds):
+    deadline=time.monotonic()+maximum_seconds
+    pieces=[];received=0
+    while received<size:
+        if time.monotonic()>deadline:
+            raise TimeoutError('Whole byte-range response exceeded its deadline')
+        part=response.read1(min(128*1024,size-received+1))
+        if not part:
+            break
+        pieces.append(part);received+=len(part)
+    if received!=size:
+        raise OSError(f'Truncated byte range: {received} != {size}')
+    return b''.join(pieces)
+
+
 class AnonymousRangeFile(io.RawIOBase):
     def __init__(self,url,block_size=65536,max_blocks=16384):
         self.url=url
@@ -47,7 +62,7 @@ class AnonymousRangeFile(io.RawIOBase):
             try:
                 request=urllib.request.Request(self.url,headers={'Range':f'bytes={start}-{start+size-1}'})
                 with urllib.request.urlopen(request,timeout=30) as response:
-                    data=response.read()
+                    data=read_range_before_deadline(response,size,30)
                 if len(data)!=size:
                     raise OSError(f'Truncated metadata range: {len(data)} != {size}')
                 break
