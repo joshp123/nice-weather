@@ -136,7 +136,7 @@ const actions: Actions = {
   },
   toggleTaste() {
     tasteOpen = !tasteOpen;
-    if (tasteOpen) { pickerOpen = false; listOpen = false; }
+    if (tasteOpen) { pickerOpen = false; listOpen = false; void engine.prepareTaste().catch(showProblem); }
     render();
   },
   toggleShare() {

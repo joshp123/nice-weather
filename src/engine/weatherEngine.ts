@@ -5,22 +5,21 @@ import type { EngineOptions, Period, Point, PointVerdict, RedrawTiming, WeatherE
 import { DEFAULT_TASTE, type Taste } from './taste';
 import { WeatherData, type Cells, type PeriodData, type Records, type ScoreImage } from './data';
 import { PointSampler, readMapPoint } from './sampling';
-import { FinePlaces } from './finePlaces';
+import { DefaultPlaces } from './defaultPlaces';
 import { NamedPlaces } from './namedPlaces';
-import { finePlaceCandidates } from '../../hosting/sites/fine-candidates.mjs';
-import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment, finePixelVertex, finePixelFragment } from './shaders';
+import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
 
 function periodKey(period: Period): string {
   return period.kind === 'months' ? `months:${period.startMonth}:${period.endMonth}` : period.kind === 'month' ? `month:${period.month}` : period.kind === 'season' ? `season:${period.season}` : period.kind === 'forecast-day' ? `forecast-day:${period.day}` : period.kind;
 }
 
 type PendingFrame = { started: number; resolve: (timing: RedrawTiming) => void; reject: (error: Error) => void };
-type Programs = { score: WebGLProgram; resolve: WebGLProgram; map: WebGLProgram; finePixel: WebGLProgram };
+type Programs = { score: WebGLProgram; resolve: WebGLProgram; map: WebGLProgram };
 
 export class BrowserWeatherEngine implements WeatherEngine {
   readonly layer: CustomLayerInterface;
   private source: WeatherData;
-  private finePlaces: FinePlaces;
+  private defaultPlaces: DefaultPlaces;
   private namedPlaces: NamedPlaces;
   private reportedLoading = false;
   private hasPeriod = false;
@@ -29,7 +28,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private imageTexture?: WebGLTexture;
   private uploadedImage?: ScoreImage;
   private gpuRevision = -1;
-  private releaseImageWait?: () => void;
+  private recordRequest?: Promise<{ cells: Cells; data: PeriodData }>;
+  private yearRequested = false;
   private periodError?: Error;
   private cells?: Cells;
   private data?: PeriodData;
@@ -41,11 +41,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private programs?: Programs;
   private quad?: WebGLVertexArrayObject;
   private framebuffer?: WebGLFramebuffer;
-  private finePixelArray?: WebGLVertexArrayObject;
-  private finePixelBuffer?: WebGLBuffer;
-  private finePixelCount = 0;
-  private fineFieldRevision = 0;
-  private uploadedFineFieldRevision = -1;
   private ordinals?: WebGLTexture;
   private offsets?: WebGLTexture;
   private scores?: WebGLTexture;
@@ -61,23 +56,18 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private pending: PendingFrame[] = [];
   private destroyed = false;
   private landColour: number[];
-  private renderedLabelSlugs = new Set<string>();
-  private labelQueryPending = false;
 
   constructor(private map: MapLibreMap, private options: EngineOptions) {
     this.landColour = premultipliedRgba(`${getComputedStyle(document.documentElement).getPropertyValue('--map-land').trim()}ff`);
     const dataUrl = (options.dataUrl ?? '/data/v6').replace(/\/$/, '');
     this.source = new WeatherData(dataUrl);
-    this.finePlaces = new FinePlaces(dataUrl, () => {
+    this.defaultPlaces = new DefaultPlaces(new URL('/api/place', new URL(dataUrl, window.location.href)).href, () => {
       if (this.destroyed) return;
-      this.fineFieldRevision++;
-      this.map.triggerRepaint();
       this.notifyLoading();
       if (this.hasPeriod) this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
     });
     this.namedPlaces = new NamedPlaces(dataUrl, () => {
       if (this.destroyed) return;
-      this.fineFieldRevision++;
       this.map.triggerRepaint();
       if (this.hasPeriod) this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
     });
@@ -91,7 +81,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   private isClimate(period: Period = this.period): boolean { return period.kind !== 'forecast' && period.kind !== 'forecast-day'; }
 
-  get loading(): boolean { return this.loadState || (this.isClimate() && this.finePlaces.loading); }
+  get loading(): boolean { return this.loadState || (this.isDefaultTaste() && this.defaultPlaces.loading(this.period)); }
 
   private setLoading(loading: boolean): void {
     if (this.loadState === loading) return;
@@ -111,48 +101,85 @@ export class BrowserWeatherEngine implements WeatherEngine {
   }
 
   async setPeriod(period: Period): Promise<void> {
-    this.releaseImageWait?.();
-    this.releaseImageWait = undefined;
     const request = ++this.periodRequest;
     this.periodError = undefined;
     this.hasPeriod = true;
     this.period = { ...period };
-    this.fineFieldRevision++;
     this.data = undefined;
     this.sampler = undefined;
     this.scoreImage = undefined;
+    this.recordRequest = undefined;
     this.revision++;
     this.map.triggerRepaint();
     this.setLoading(true);
+    await this.displayPeriod(request);
+  }
+
+  async prepareYear(): Promise<void> {
+    this.yearRequested = true;
+    if (!this.isDefaultTaste()) await Promise.all([this.source.cells, this.source.load({ kind: 'year' })]);
+  }
+
+  async prepareTaste(): Promise<void> {
+    if (this.hasPeriod) await Promise.all([this.periodRecords(), this.requestedCalendar()]);
+  }
+
+  setTaste(taste: Taste): Promise<RedrawTiming> {
+    this.taste = { ...taste };
+    this.notifyLoading();
+    this.periodError = undefined;
+    this.periodSamplers.clear();
+    if (!this.hasPeriod) return Promise.resolve({ milliseconds: 0, period: this.period, revision: this.revision });
+    if (this.isDefaultTaste()) {
+      this.data = undefined;
+      this.sampler = undefined;
+    } else if (this.cells && this.data) {
+      this.sampler = new PointSampler(this.cells, this.data, this.period, this.taste);
+      return this.requestFrame();
+    }
+    this.revision++;
+    this.map.triggerRepaint();
+    this.setLoading(true);
+    return this.displayPeriod(this.periodRequest);
+  }
+
+  private periodRecords(): Promise<{ cells: Cells; data: PeriodData }> {
+    if (this.recordRequest) return this.recordRequest;
+    const request = Promise.all([this.source.cells, this.source.load(this.period)])
+      .then(([cells, data]) => ({ cells, data }))
+      .catch(error => { if (this.recordRequest === request) this.recordRequest = undefined; throw error; });
+    return this.recordRequest = request;
+  }
+
+  private requestedCalendar(): Promise<PeriodData> | undefined {
+    return this.yearRequested && this.isClimate() ? this.source.load({ kind: 'year' }) : undefined;
+  }
+
+  private async displayPeriod(request: number): Promise<RedrawTiming> {
+    const defaultTaste = this.isDefaultTaste();
     try {
-      const cachedData = this.cells ? this.source.loaded(period) : null;
-      if (!cachedData && this.isDefaultTaste()) {
-        const image = await this.source.scoreImage(period);
-        if (request !== this.periodRequest || this.destroyed) return;
-        if (image) {
-          this.scoreImage = image;
-          // The frame fence and next animation frame let the small image paint before bulk requests start.
-          if (this.isDefaultTaste()) {
-            let release!: () => void;
-            const interrupted = new Promise<void>(resolve => { release = resolve; });
-            this.releaseImageWait = release;
-            await Promise.race([this.requestFrame(), interrupted]);
-            if (this.releaseImageWait === release) this.releaseImageWait = undefined;
-          }
-          if (request !== this.periodRequest || this.destroyed) return;
-        }
+      if (defaultTaste) {
+        const image = this.scoreImage ?? await this.source.scoreImage(this.period);
+        if (request !== this.periodRequest || this.destroyed) return { milliseconds: 0, period: this.period, revision: this.revision };
+        if (!this.isDefaultTaste()) return this.displayPeriod(request);
+        if (!image) throw new Error('The default weather map is unavailable for this period');
+        this.scoreImage = image;
+        this.data = undefined;
+        this.sampler = undefined;
+      } else {
+        const [{ cells, data }] = await Promise.all([this.periodRecords(), this.requestedCalendar()]);
+        if (request !== this.periodRequest || this.destroyed) return { milliseconds: 0, period: this.period, revision: this.revision };
+        if (this.isDefaultTaste()) return this.displayPeriod(request);
+        this.cells = cells;
+        this.data = data;
+        this.sampler = new PointSampler(cells, data, this.period, this.taste);
+        this.periodSamplers.set(periodKey(this.period), this.sampler);
       }
-      const [cells, data] = cachedData ? [this.cells!, cachedData] : await Promise.all([this.source.cells, this.source.load(period)]);
-      if (request !== this.periodRequest || this.destroyed) return;
-      this.cells = cells;
-      this.data = data;
-      this.sampler = new PointSampler(cells, data, this.period, this.taste);
-      this.periodSamplers.set(periodKey(this.period), this.sampler);
       this.setLoading(false);
-      if (cachedData && this.isDefaultTaste()) this.loadScoreImage();
-      await this.requestFrame();
+      return await this.requestFrame();
     } catch (error) {
-      if (request !== this.periodRequest || this.destroyed) return;
+      if (request !== this.periodRequest || this.destroyed) return { milliseconds: 0, period: this.period, revision: this.revision };
+      if (defaultTaste !== this.isDefaultTaste()) return this.displayPeriod(request);
       this.periodError = error as Error;
       this.setLoading(false);
       for (const frame of this.pending.splice(0)) frame.reject(error as Error);
@@ -160,42 +187,23 @@ export class BrowserWeatherEngine implements WeatherEngine {
     }
   }
 
-  async prepareYear(): Promise<void> {
-    await this.source.load({ kind: 'year' });
-  }
-
-  setTaste(taste: Taste): Promise<RedrawTiming> {
-    this.taste = { ...taste };
-    this.fineFieldRevision++;
-    if (!this.isDefaultTaste()) { this.releaseImageWait?.(); this.releaseImageWait = undefined; }
-    this.periodSamplers.clear();
-    if (this.cells && this.data) this.sampler = new PointSampler(this.cells, this.data, this.period, this.taste);
-    if (!this.hasPeriod) return Promise.resolve({ milliseconds: 0, period: this.period, revision: this.revision });
-    if (this.isDefaultTaste() && !this.scoreImage) this.loadScoreImage();
-    if (this.periodError && !this.isDefaultTaste()) return Promise.reject(this.periodError);
-    return this.requestFrame();
-  }
-
-  private loadScoreImage(): void {
-    const request = this.periodRequest;
-    void this.source.scoreImage(this.period).then(image => {
-      if (image && request === this.periodRequest && !this.destroyed) {
-        this.scoreImage = image;
-        if (this.isDefaultTaste()) void this.requestFrame().catch(() => {});
-      }
-    }).catch(error => console.warn('Score image unavailable', error));
-  }
-
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null {
     if (this.loadState || this.destroyed) return null;
     const selectedPeriod = period ?? this.period;
-    const named = this.isDefaultTaste() ? this.namedPlaces.judge(latitude, longitude, selectedPeriod) : null;
-    if (this.isDefaultTaste() && this.namedPlaces.pendingJudgement(latitude, longitude, selectedPeriod)) return null;
-    if (named && this.isClimate(selectedPeriod)) return named;
-    if (!this.namedPlaces.enabled && this.isDefaultTaste() && this.isClimate(selectedPeriod) && this.finePlaces.enabled) return this.finePlaces.judge(latitude, longitude, selectedPeriod, this.taste);
-    const withNamedScores = (overview: PointVerdict | null): PointVerdict | null => named && overview
-      ? { ...named, parts: overview.parts, typical: overview.typical } : overview;
-    if (!period) return withNamedScores(this.sampler?.judge(latitude, longitude) ?? null);
+    if (this.isDefaultTaste()) {
+      this.namedPlaces.prepare([{ latitude, longitude }], selectedPeriod);
+      if (this.namedPlaces.pending(latitude, longitude, selectedPeriod)) return null;
+      const named = this.namedPlaces.numbers(latitude, longitude, selectedPeriod);
+      if (named && this.isClimate(selectedPeriod)) return this.namedPlaces.judge(latitude, longitude, selectedPeriod);
+      if (named && periodKey(selectedPeriod) !== periodKey(this.period)) return named;
+      if (periodKey(selectedPeriod) !== periodKey(this.period)) {
+        if (this.isClimate() || this.isClimate(selectedPeriod)) return null;
+        this.defaultPlaces.judge(latitude, longitude, this.period);
+        return this.defaultPlaces.cached(latitude, longitude, selectedPeriod);
+      }
+      return this.defaultPlaces.judge(latitude, longitude, selectedPeriod);
+    }
+    if (!period) return this.sampler?.judge(latitude, longitude) ?? null;
     if (!this.cells) return null;
     const key = periodKey(period);
     let sampler = this.periodSamplers.get(key);
@@ -205,11 +213,11 @@ export class BrowserWeatherEngine implements WeatherEngine {
       sampler = new PointSampler(this.cells, data, period, this.taste);
       this.periodSamplers.set(key, sampler);
     }
-    return withNamedScores(sampler.judge(latitude, longitude));
+    return sampler.judge(latitude, longitude);
   }
 
   pointLoading(latitude: number, longitude: number, period: Period = this.period): boolean {
-    return this.isDefaultTaste() && this.namedPlaces.pendingJudgement(latitude, longitude, period);
+    return this.isDefaultTaste() && (this.namedPlaces.pendingJudgement(latitude, longitude, period) || this.defaultPlaces.loading(period, latitude, longitude));
   }
 
   scorePoints(points: readonly Point[], scope?: 'all'): Float32Array {
@@ -228,44 +236,13 @@ export class BrowserWeatherEngine implements WeatherEngine {
         return scores;
       }
     }
-    if (this.isDefaultTaste() && this.isClimate() && this.finePlaces.enabled) {
-      const candidates = this.fineCandidates(points, scope === 'all');
-      return Float32Array.from(points, (point, index) => candidates.has(index)
-        ? this.finePlaces.judge(point.latitude, point.longitude, this.period, this.taste, true)?.meanScore ?? NaN : NaN);
-    }
     return this.overviewScores(points);
   }
 
   private namedPointIndices(points: readonly Point[], scope?: 'all'): number[] {
-    if (scope === 'all') return Array.from(points, (_, index) => index);
-    const bounds = this.map.getBounds(), west = bounds.getWest(), span = bounds.getEast() - west;
-    return points.flatMap((point, index) => point.latitude >= bounds.getSouth() && point.latitude <= bounds.getNorth()
-      && (span >= 360 || ((point.longitude - west) % 360 + 360) % 360 <= span) ? [index] : []);
-  }
-
-  private fineCandidates(points: readonly Point[], all = false): Set<number> {
-    if (this.loadState || this.destroyed) return new Set();
-    const bounds = this.map.getBounds();
-    const labelSlugs = all ? new Set<string>() : this.fineLabelSlugs();
-    return finePlaceCandidates(points, this.overviewScores(points), {
-      west: all ? -180 : bounds.getWest(), east: all ? 180 : bounds.getEast(), south: all ? -90 : bounds.getSouth(), north: all ? 90 : bounds.getNorth(), labelSlugs,
-    });
-  }
-
-  private fineLabelSlugs(): Set<string> {
-    if (!this.labelQueryPending) {
-      this.labelQueryPending = true;
-      this.map.once('idle', () => {
-        this.labelQueryPending = false;
-        if (this.destroyed || !this.finePlaces.enabled || this.namedPlaces.enabled) return;
-        const slugs = new Set(this.map.queryRenderedFeatures({ layers: ['city-labels'] }).map(feature => String(feature.properties?.slug)));
-        if (slugs.size === this.renderedLabelSlugs.size && [...slugs].every(slug => this.renderedLabelSlugs.has(slug))) return;
-        this.renderedLabelSlugs = slugs;
-        this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
-      });
-      this.map.triggerRepaint();
-    }
-    return this.renderedLabelSlugs;
+    const bounds = this.map.getBounds(), width = bounds.getEast() - bounds.getWest();
+    return points.flatMap((point, index) => scope === 'all' || point.latitude >= bounds.getSouth() && point.latitude <= bounds.getNorth()
+      && (width >= 360 || ((point.longitude - bounds.getWest()) % 360 + 360) % 360 <= width) ? [index] : []);
   }
 
   private overviewScores(points: readonly Point[]): Float32Array {
@@ -295,14 +272,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
     const counts = new Float32Array(points.length * 3).fill(NaN);
     const visible = this.isDefaultTaste() ? this.namedPointIndices(points, scope) : [];
     if (this.isDefaultTaste()) this.namedPlaces.prepare(visible.map(index => points[index]), this.period);
-    if (!this.namedPlaces.enabled && this.isDefaultTaste() && this.isClimate() && this.finePlaces.enabled) {
-      const candidates = this.fineCandidates(points, scope === 'all');
-      points.forEach((point, index) => {
-        const verdict = candidates.has(index) ? this.finePlaces.judge(point.latitude, point.longitude, this.period, this.taste, true) : null;
-        if (verdict) counts.set([verdict.niceDayCount, verdict.perfectDayCount, verdict.awfulDayCount], index * 3);
-      });
-      return counts;
-    }
     if (this.data && this.gl && this.gpuRevision === this.revision && this.drawnRevision === this.revision && !this.destroyed) {
       this.readScores();
       points.forEach((point, ordinal) => {
@@ -335,7 +304,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
       score: compileProgram(gl, fullscreenVertex, scoringFragment),
       resolve: compileProgram(gl, fullscreenVertex, resolveFragment),
       map: compileProgram(gl, mapVertex, mapFragment),
-      finePixel: compileProgram(gl, finePixelVertex, finePixelFragment),
     };
     this.quad = gl.createVertexArray()!;
     gl.bindVertexArray(this.quad);
@@ -444,51 +412,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  private uploadFinePixels(): void {
-    if (this.uploadedFineFieldRevision === this.fineFieldRevision) return;
-    const gl = this.gl!;
-    const pixels = !this.namedPlaces.enabled && this.isDefaultTaste() && this.isClimate() ? this.finePlaces.mapPixels(this.period, this.taste) : [];
-    const vertices: number[] = [];
-    const mercatorY = (latitude: number) => (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2;
-    for (const pixel of pixels) {
-      const north = 90 - pixel.row / 120, south = north - 1 / 120;
-      if (north > 85 || south < -60) continue;
-      const left = pixel.column / 43200, right = (pixel.column + 1) / 43200;
-      const top = mercatorY(north), bottom = mercatorY(south);
-      for (const [x, y] of [[left, top], [right, top], [left, bottom], [left, bottom], [right, top], [right, bottom]]) vertices.push(x, y, pixel.score);
-    }
-    this.finePixelCount = vertices.length / 3;
-    if (!this.finePixelArray) {
-      this.finePixelArray = gl.createVertexArray()!;
-      this.finePixelBuffer = gl.createBuffer()!;
-      this.resources.buffers.push(this.finePixelBuffer);
-      gl.bindVertexArray(this.finePixelArray);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.finePixelBuffer);
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 12, 0);
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 12, 8);
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.finePixelBuffer!);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
-    this.uploadedFineFieldRevision = this.fineFieldRevision;
-  }
-
-  private renderFinePixels(input: CustomRenderMethodInput, worldOffsets: readonly number[]): void {
-    this.uploadFinePixels();
-    if (!this.finePixelCount) return;
-    const gl = this.gl!, program = this.programs!.finePixel;
-    gl.useProgram(program);
-    gl.bindVertexArray(this.finePixelArray!);
-    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, input.defaultProjectionData.mainMatrix);
-    gl.uniform4fv(gl.getUniformLocation(program, 'u_band_colours'), bands.flatMap(band => premultipliedRgba(band.colour)));
-    gl.uniform4fv(gl.getUniformLocation(program, 'u_land_colour'), this.landColour);
-    for (const worldOffset of worldOffsets) {
-      gl.uniform1f(gl.getUniformLocation(program, 'u_world_offset'), worldOffset);
-      gl.drawArrays(gl.TRIANGLES, 0, this.finePixelCount);
-    }
-  }
-
   private bindTexture(program: WebGLProgram, uniform: string, unit: number, target: number, texture: WebGLTexture): void {
     const gl = this.gl!;
     gl.activeTexture(gl.TEXTURE0 + unit);
@@ -549,7 +472,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
         gl.uniform1f(gl.getUniformLocation(program, 'u_world_offset'), worldOffset);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       }
-      this.renderFinePixels(input, worldOffsets);
       if (needsRecount) {
         this.drawnRevision = this.revision;
         this.completeFrame(this.pending.splice(0), this.revision, this.period);
@@ -592,10 +514,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.finePlaces.destroy();
+    this.defaultPlaces.destroy();
     this.namedPlaces.destroy();
-    this.releaseImageWait?.();
-    this.releaseImageWait = undefined;
     for (const frame of this.pending.splice(0)) frame.reject(new Error('Weather engine has been destroyed'));
     const gl = this.gl;
     if (!gl) return;
@@ -603,7 +523,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
     for (const buffer of this.resources.buffers) gl.deleteBuffer(buffer);
     if (this.programs) for (const program of Object.values(this.programs)) gl.deleteProgram(program);
     if (this.quad) gl.deleteVertexArray(this.quad);
-    if (this.finePixelArray) gl.deleteVertexArray(this.finePixelArray);
     if (this.framebuffer) gl.deleteFramebuffer(this.framebuffer);
     this.recordTextures.clear();
     this.fineScoreReadback = undefined;

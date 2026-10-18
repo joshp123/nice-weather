@@ -146,19 +146,22 @@ def write_default_scores(folder, image_folder=None):
         words = 'january february march april may june july august september october november december'.split()
         periods = {word: [index] for index, word in enumerate(words)}
         for start in range(12):
-            for length in range(2, 12):
+            for length in range(2, 13):
                 end = (start + length - 1) % 12
                 periods[f'{words[start][:3]}-{words[end][:3]}'] = [(start + step) % 12 for step in range(length)]
         periods.update({'dec-feb': [11, 0, 1], 'mar-may': [2, 3, 4], 'jun-aug': [5, 6, 7], 'sep-nov': [8, 9, 10], 'year': list(range(12))})
+        image_bytes = 0
         for word, months in periods.items():
             values = np.full(FINE_WIDTH * FINE_HEIGHT, 255, dtype=np.uint8)
             valid = (output[:, months] != 255).all(axis=1)
             weights = MONTH_DAYS[months] / MONTH_DAYS[months].sum()
             shares = np.einsum("pmt,m->pt", monthly_shares[valid][:, months], weights)
             values[valid] = np.floor(typical_scores(shares)).astype(np.uint8)
-            Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_folder / f'scores-typical-day-{word}.png', optimize=True)
+            image_path = image_folder / f'scores-typical-day-{word}.png'
+            Image.fromarray(values.reshape(FINE_HEIGHT, FINE_WIDTH)).save(image_path, optimize=True)
+            image_bytes += image_path.stat().st_size
         output.tofile(image_folder / 'scores.bin')
-        print(f'{image_folder}: {len(periods)} images in {time.monotonic() - started:.1f} s', flush=True)
+        print(f'{image_folder}: {len(periods)} images, {image_bytes:,} bytes; scores.bin {output.nbytes:,} bytes; {time.monotonic() - started:.1f} s', flush=True)
     else:
         path = folder / 'climate/scores.bin'
         output.tofile(path)

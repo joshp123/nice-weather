@@ -21,6 +21,14 @@ const seasons = { 'Dec-Feb': [12, 1, 2], 'Mar-May': [3, 4, 5], 'Jun-Aug': [6, 7,
 export const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
 const monthShortWords = monthWords.map(word => word.slice(0, 3));
 
+export function periodWord(period: Period): string {
+  if (period.kind === 'forecast') return 'next-14-days';
+  if (period.kind === 'forecast-day') return `day-${period.day}`;
+  const months = climateMonths(period);
+  return months.length === 12 ? 'year' : months.length === 1 ? monthWords[months[0] - 1]
+    : `${monthShortWords[months[0] - 1]}-${monthShortWords[months[months.length - 1] - 1]}`;
+}
+
 export function climateMonths(period: Exclude<Period, { kind: 'forecast' | 'forecast-day' }>): readonly Month[] {
   if (period.kind === 'months') return Array.from({ length: (period.endMonth - period.startMonth + 12) % 12 + 1 }, (_, index) => ((period.startMonth - 1 + index) % 12 + 1) as Month);
   return period.kind === 'month' ? [period.month] : period.kind === 'season' ? seasons[period.season] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -79,10 +87,7 @@ export class WeatherData {
       const index = await this.forecastIndex();
       path = `forecast/${encodeURIComponent(index.run)}/scores-typical-day-${period.kind === 'forecast' ? 'all' : `day-${String(period.day).padStart(2, '0')}`}.png`;
     } else {
-      const months = climateMonths(period);
-      const word = months.length === 12 ? 'year' : months.length === 1 ? monthWords[months[0] - 1]
-        : `${monthShortWords[months[0] - 1]}-${monthShortWords[months[months.length - 1] - 1]}`;
-      path = `climate/scores-typical-day-${word}.png`;
+      path = `climate/scores-typical-day-${periodWord(period)}.png`;
     }
     let request = this.scoreImages.get(path);
     if (!request) {
@@ -91,7 +96,7 @@ export class WeatherData {
         return { bytes };
       }).catch(error => {
         this.scoreImages.delete(path);
-        if (!String(error).endsWith('HTTP 404')) console.warn('Score image unavailable; loading weather records', error);
+        if (!String(error).endsWith('HTTP 404')) console.warn('Score image unavailable', error);
         return null;
       });
       this.scoreImages.set(path, request);

@@ -262,8 +262,14 @@ async function typicalYearForPlace(bucket, latitude, longitude) {
 async function overviewYearForPlace(bucket, latitude, longitude) {
   const point = await nearestLandPoint(bucket, latitude, longitude);
   if (!point) return null;
-  const scores = await readBytes(bucket, 'v6/climate/scores.bin', (point.row * FINE_WIDTH + point.column) * 12, 12);
-  return point.months.map((month, index) => ({ ...month, score: scores && scores.getUint8(index) !== 255 ? scores.getUint8(index) : null }));
+  const samples = await Promise.all(mapPointWeights(latitude, longitude, () => true).map(async sample => ({
+    weight: sample.weight, scores: await readBytes(bucket, 'v6/climate/scores.bin', sample.index * 12, 12),
+  })));
+  return point.months.map((month, index) => {
+    const valid = samples.filter(sample => sample.scores && sample.scores.getUint8(index) !== 255);
+    const weight = valid.reduce((sum, sample) => sum + sample.weight, 0);
+    return { ...month, score: weight ? valid.reduce((sum, sample) => sum + sample.scores.getUint8(index) * sample.weight, 0) / weight : null };
+  });
 }
 
 // ---------------------------------------------------------------- shareable URLs
@@ -425,17 +431,14 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
   if (period.kind === 'forecast') {
     const current = await cachedJson(bucket, 'v6/forecast/current.json', 60);
     if (!current) return null;
-    const days = period.day === undefined ? Array.from({length: 14}, (_, day) => day) : [period.day];
+    const days = !namedJudgement || period.day === undefined ? Array.from({length: 14}, (_, day) => day) : [period.day];
     groups = days.map(day => {
       const date = new Date(`${current.firstDate}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + day);
       return {month: date.getUTCMonth() + 1, samples: 14, firstDay: day, count: 1, days: 1, key: `v6/forecast/${current.run}/days.bin`};
     });
   } else groups = period.months.map(month => ({month, samples: 8, firstDay: 0, count: 8, days: MONTH_DAYS[month - 1], key: `v6/climate/month-${String(month).padStart(2, '0')}.bin`}));
   const [ordinals, ...offsets] = await Promise.all([weatherFile(bucket, 'v6/cells.bin', decodeCellOrdinals), ...groups.map(group => monthlyOffsets(bucket, group.month))]);
-  const nearest = period.kind === 'forecast' ? null : nearestFineIndex(latitude, longitude, offsets);
-  const points = period.kind === 'forecast'
-    ? mapPointWeights(latitude, longitude, index => offsets.every(month => month[index] !== 255))
-    : nearest === null ? [] : [{index: nearest, weight: 1}];
+  const points = mapPointWeights(latitude, longitude, index => offsets.every(month => month[index] !== 255));
   if (!points.length) return null;
   const recordsByCell = new Map();
   const judgements = await Promise.all(points.map(async point => {
@@ -448,12 +451,18 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
       const view = await recordsByCell.get(address);
       if (!view) throw new Error(`Weather records missing: ${group.key}`);
       const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-      return Array.from({length: group.count}, (_, sample) => ({record: bytes.slice((group.firstDay + sample) * 15, (group.firstDay + sample + 1) * 15), offset, weight: group.days / group.count}));
+      return Array.from({length: group.count}, (_, sample) => ({record: bytes.slice((group.firstDay + sample) * 15, (group.firstDay + sample + 1) * 15), offset, weight: group.days / group.count, forecastDay: group.firstDay + sample}));
     }));
     const days = packets.flat();
-    return {numbers: placeNumbers({source: 'forecast', fineIndex: point.index, records: days.map(day => day.record), offsetsC: days.map(day => day.offset), weights: days.map(day => day.weight)}, period), weight: point.weight};
+    const numbersFor = selected => placeNumbers({source: 'forecast', fineIndex: point.index, records: selected.map(day => day.record), offsetsC: selected.map(day => day.offset), weights: selected.map(day => day.weight)}, period);
+    const selected = period.kind === 'forecast' && period.day !== undefined ? days.filter(day => day.forecastDay === period.day) : days;
+    const dayJudgements = period.kind === 'forecast' && !namedJudgement ? days.map(day => numbersFor([day])) : undefined;
+    return {numbers: numbersFor(selected), weight: point.weight, dayJudgements};
   }));
-  const overview = period.kind === 'forecast' ? blendPlaceNumbers(judgements) : judgements[0].numbers;
+  const overview = blendPlaceNumbers(judgements);
+  if (period.kind === 'forecast' && !namedJudgement) {
+    overview.dayJudgements = Array.from({length: 14}, (_, day) => blendPlaceNumbers(judgements.map(point => ({numbers: point.dayJudgements[day], weight: point.weight}))));
+  }
   return namedJudgement ? {...overview, ...namedJudgement, parts: overview.parts, typical: overview.typical, factsAvailable: true} : overview;
 }
 
@@ -793,9 +802,9 @@ export async function handleRequest(request, env, serveAsset) {
     const namedJudgement = named && period ? namedPlaceNumbers(named, period) : null;
     let judgement;
     if (namedJudgement) judgement = period.kind === 'forecast' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : namedJudgement;
-    else if (fineEnabled && period?.kind === 'climate') judgement = await defaultPeriodJudgement(bucket, latitude, longitude, period);
+    else if (period) judgement = await defaultPeriodJudgement(bucket, latitude, longitude, period);
     const overviewMonths = named ? await overviewYearForPlace(bucket, latitude, longitude) : undefined;
-    return json({ ...where, latitude, longitude, months, ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {}), judgement} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true, judgement } : {}) }, 60);
+    return json({ ...where, latitude, longitude, months, judgement, ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {})} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true } : {}) }, 60);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
   if (url.pathname.startsWith('/api/slug/')) {
