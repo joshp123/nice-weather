@@ -202,13 +202,13 @@ export function renderTimePicker(view: TimeBarView, actions: Actions): HTMLEleme
   const close = view.togglePicker ? button('close-button picker-close', '×', view.togglePicker, 'Close time picker') : null;
   panel.append(el('div', 'time-picker-heading', el('h2', '', 'When is nice?'), close));
   panel.append(segmented<'forecast' | 'year'>(
-    [['forecast', `Next ${view.forecast?.days ?? 14} days`], ['year', 'Typical year']],
+    [['forecast', periodTitle({ kind: 'forecast' }, view.forecast)], ['year', 'Typical year']],
     isForecast(view.period) ? 'forecast' : 'year',
     kind => actions.setPeriod(kind === 'forecast' ? { kind: 'forecast' } : { kind: 'year' }), 'Time',
   ));
   if (isForecast(view.period)) {
     panel.append(forecastCalendar(view, actions));
-    if (view.period.kind === 'forecast-day') panel.append(button('period-shortcut', 'All 14 days', () => actions.setPeriod({ kind: 'forecast' })));
+    if (view.period.kind === 'forecast-day') panel.append(button('period-shortcut', `All ${view.forecast?.days ?? 14} days`, () => actions.setPeriod({ kind: 'forecast' })));
     panel.append(el('p', 'picker-help', 'Choose a day to see where to go.'));
   } else {
     panel.append(el('div', 'year-dial-row', yearDial(view, actions), el('div', 'year-dial-description',

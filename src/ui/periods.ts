@@ -23,11 +23,11 @@ export function samePeriod(a: Period, b: Period): boolean {
   return periodWord(a) === periodWord(b);
 }
 
-/** The word in a link: next-14-days, day-3, july, dec-feb, year. */
+/** The date or period in a shared link. */
 export function periodWord(period: Period): string {
   switch (period.kind) {
     case 'forecast': return 'next-14-days';
-    case 'forecast-day': return `day-${period.day}`;
+    case 'forecast-day': return period.date ?? `day-${period.day}`;
     case 'month': return MONTH_NAMES[period.month - 1].toLowerCase();
     case 'season': return period.season.toLowerCase();
     case 'months': return `${MONTH_SHORT[period.startMonth - 1].toLowerCase()}-${MONTH_SHORT[period.endMonth - 1].toLowerCase()}`;
@@ -38,8 +38,7 @@ export function periodWord(period: Period): string {
 export function periodFromWord(word: string): Period | null {
   if (word === 'next-14-days') return { kind: 'forecast' };
   if (word === 'year') return { kind: 'year' };
-  const day = /^day-(\d{1,2})$/.exec(word);
-  if (day) return { kind: 'forecast-day', day: Number(day[1]) };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(word)) return { kind: 'forecast-day', day: 0, date: word };
   const month = MONTH_NAMES.findIndex(name => name.toLowerCase() === word);
   if (month >= 0) return { kind: 'month', month: (month + 1) as Month };
   const season = SEASONS.find(name => name.toLowerCase() === word);
@@ -58,6 +57,12 @@ export function forecastDate(forecast: ForecastIndex, day: number): Date {
   const date = new Date(`${forecast.firstDate}T12:00:00`);
   date.setDate(date.getDate() + day);
   return date;
+}
+
+export function datedForecastPeriod(forecast: ForecastIndex, day: number): Period {
+  const date = forecastDate(forecast, day);
+  const word = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return { kind: 'forecast-day', day, date: word };
 }
 
 function daysFromToday(date: Date, today = new Date()): number {
@@ -83,7 +88,7 @@ function dayPhrase(forecast: ForecastIndex, day: number): string {
 /** The period as it reads in a sentence after "nice": "in the next 14 days", "today", "in November", "all year". */
 export function periodPhrase(period: Period, forecast: ForecastIndex | null): string {
   switch (period.kind) {
-    case 'forecast': return `in the next ${forecast?.days ?? 14} days`;
+    case 'forecast': return forecast && daysFromToday(forecastDate(forecast, 0)) !== 0 ? `in the ${forecast.days}-day forecast` : `in the next ${forecast?.days ?? 14} days`;
     case 'forecast-day': return forecast ? dayPhrase(forecast, period.day) : 'that day';
     case 'month': return `in ${MONTH_NAMES[period.month - 1]}`;
     case 'season': return `from ${SEASON_SENTENCE[period.season]}`;
@@ -95,7 +100,7 @@ export function periodPhrase(period: Period, forecast: ForecastIndex | null): st
 /** The period as a title: "Next 14 days", "Sunday 19 October", "November", "December to February", "The whole year". */
 export function periodTitle(period: Period, forecast: ForecastIndex | null): string {
   switch (period.kind) {
-    case 'forecast': return `Next ${forecast?.days ?? 14} days`;
+    case 'forecast': return forecast && daysFromToday(forecastDate(forecast, 0)) !== 0 ? `${forecast.days}-day forecast` : `Next ${forecast?.days ?? 14} days`;
     case 'forecast-day': {
       if (!forecast) return 'One day';
       const date = forecastDate(forecast, period.day);
@@ -110,11 +115,9 @@ export function periodTitle(period: Period, forecast: ForecastIndex | null): str
   }
 }
 
-/** The forecast days still to come: the run's first day can be yesterday until the morning refresh lands. */
+/** Show every day used by the forecast total, including its explicitly dated first day. */
 export function upcomingForecastDays(forecast: ForecastIndex): number[] {
-  const days: number[] = [];
-  for (let day = 0; day < forecast.days; day++) if (daysFromToday(forecastDate(forecast, day)) >= 0) days.push(day);
-  return days;
+  return Array.from({ length: forecast.days }, (_, day) => day);
 }
 
 export function daysInPeriod(period: Period, forecast: ForecastIndex | null): number {
@@ -131,8 +134,8 @@ export function daysInPeriod(period: Period, forecast: ForecastIndex | null): nu
 /** Counts refer to the selected stretch, including all days within its months. */
 export function dayCountsSentence(period: Period, forecast: ForecastIndex | null, verdict: PointVerdict): string {
   if (period.kind === 'forecast-day') return '';
-  const days = daysInPeriod(period, forecast);
-  return `Nice or better on ${Math.round(verdict.niceDayCount)} of ${days} days, perfect on ${Math.round(verdict.perfectDayCount)}, awful on ${Math.round(verdict.awfulDayCount)}`;
+  const days = verdict.countedDays ?? daysInPeriod(period, forecast);
+  return `Nice or better on ${verdict.niceDayCount} of ${days} ${verdict.countBasis === 'sample' ? 'sampled ' : ''}days, perfect on ${verdict.perfectDayCount}, awful on ${verdict.awfulDayCount}`;
 }
 
 export function bandSentence(period: Period, band: string): string {

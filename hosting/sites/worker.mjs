@@ -9,7 +9,8 @@
 
 import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket, mapPointWeights, blendPlaceNumbers } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
-import { finePreviewPng } from './fine-preview.mjs';
+import { shareImagePng, decodeScorePng, previewMap, sharePlaceTitle } from './share-template.mjs';
+import { shareWordmark } from './share-assets.mjs';
 import { createNamedPlaceLoader, namedPlaceNumbers, namedPlaceMonths } from './named-place.mjs';
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
@@ -280,7 +281,7 @@ const MONTH_ABBREVIATIONS = MONTH_WORDS.map(word => word.slice(0, 3));
 
 function periodFromWord(word) {
   if (word === 'next-14-days') return { word, kind: 'forecast', when: 'over the next 14 days' };
-  if (/^day-(?:[0-9]|1[0-3])$/.test(word)) return { word, kind: 'forecast', day: Number(word.slice(4)), when: `on forecast day ${Number(word.slice(4)) + 1}` };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(word) && !Number.isNaN(Date.parse(`${word}T12:00:00Z`))) return { word, kind: 'forecast', date: word, when: `on ${new Date(`${word}T12:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}` };
   const month = MONTH_WORDS.indexOf(word);
   if (month >= 0) return { word, kind: 'climate', months: [month + 1], when: `in ${word[0].toUpperCase()}${word.slice(1)}` };
   const run = word.split('-');
@@ -294,6 +295,14 @@ function periodFromWord(word) {
   return null;
 }
 
+async function datedPeriod(bucket, period) {
+  if (!period?.date) return period;
+  const forecast = await cachedJson(bucket, 'v6/forecast/current.json', 0);
+  if (!forecast) return null;
+  const day = Math.round((Date.parse(`${period.date}T12:00:00Z`) - Date.parse(`${forecast.firstDate}T12:00:00Z`)) / 86400000);
+  return day >= 0 && day < forecast.days ? { ...period, day } : null;
+}
+
 /** A place and period, or null for an unknown path. */
 async function viewFromPath(bucket, pathname) {
   const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent);
@@ -302,15 +311,18 @@ async function viewFromPath(bucket, pathname) {
   if (parts[0].startsWith('@')) {
     const [latitude, longitude] = parts[0].slice(1).split(',').map(Number);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || parts.length > 2) return null;
-    const period = parts[1] ? periodFromWord(parts[1]) : null;
+    const period = parts[1] ? await datedPeriod(bucket, periodFromWord(parts[1])) : null;
     if (parts[1] && !period) return null;
     return { place: await placeForPoint(bucket, latitude, longitude), period };
   }
-  if (parts.length === 1 && periodFromWord(parts[0])) return { place: null, period: periodFromWord(parts[0]) };
+  if (parts.length === 1 && periodFromWord(parts[0])) {
+    const period = await datedPeriod(bucket, periodFromWord(parts[0]));
+    return period ? { place: null, period } : null;
+  }
   const { bySlug } = await loadPlaces(bucket);
   const place = parts.length >= 2 ? bySlug.get(`${parts[0]}/${parts[1]}`) : null;
   if (!place) return null;
-  const period = parts[2] ? periodFromWord(parts[2]) : null;
+  const period = parts[2] ? await datedPeriod(bucket, periodFromWord(parts[2])) : null;
   if (parts[2] && !period) return null;
   return { place, period };
 }
@@ -472,43 +484,31 @@ const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => ({ '&': '&am
 
 async function previewFor(bucket, origin, pathname, view, search = '') {
   const { place } = view;
-  const period = view.period ?? (place ? { word: 'next-14-days', kind: 'forecast', when: 'over the next 14 days' } : null);
+  const period = view.period ?? { word: 'next-14-days', kind: 'forecast', when: 'over the next 14 days' };
   const placeName = place ? place.name : null;
   const query = new URLSearchParams(search);
   const sliderDefaults = {perfectFrom: 23, tooHotFrom: 28, walkHome: 19, humidity: 23, wind: 46, rain: 4};
   const customTaste = Object.entries(sliderDefaults).some(([name, value]) => query.has(name) && Number.isFinite(Number(query.get(name))) && Number(query.get(name)) !== value);
   if (customTaste) return {
-    title: placeName && period ? `${placeName} ${period.when}: Nice Weather` : 'Nice Weather: where on earth is the weather nice?',
+    title: placeName && period ? `${placeName} ${period.when}: Nice!` : 'Nice! Where on earth is the weather nice?',
     description: placeName && period ? `Weather in ${placeName} ${period.when}, with your own taste. Open the map to see its score and nice-day counts.` : 'Find weather by your own taste. Open the map to see scores and nice-day counts.',
     image: null,
     url: `${origin}${pathname}${search}`,
   };
-  let title = 'Nice Weather: where on earth is the weather nice?';
+  let title = 'Nice! Where on earth is the weather nice?';
   let description = 'A map of the whole world coloured by how nice the weather feels, for the next 14 days or any month of a typical year. Set your own taste.';
   if (placeName && period) {
-    title = `${placeName} ${period.when}: Nice Weather`;
+    title = `${placeName} ${period.when}: Nice!`;
     const judgement = await defaultPeriodJudgement(bucket, place.latitude, place.longitude, period);
     description = judgement === null ? `How nice the weather is in ${placeName} ${period.when}.` : `${placeName} ${period.when}: ${bandWord(judgement.score)}${judgement.totalDays > 1 ? ' most days' : ''}, nice score ${Math.floor(judgement.score)} out of 100.`;
-    if (judgement && judgement.totalDays > 1) description += ` Nice or better on ${Math.round(judgement.niceDayCount)} of ${judgement.totalDays} days, perfect on ${Math.round(judgement.perfectDayCount)}, awful on ${Math.round(judgement.awfulDayCount)}.`;
+    if (judgement && judgement.totalDays > 1) description += ` Nice or better on ${judgement.niceDayCount} of ${judgement.countedDays ?? judgement.totalDays} ${judgement.countBasis === 'sample' ? 'sampled ' : ''}days, perfect on ${judgement.perfectDayCount}, awful on ${judgement.awfulDayCount}.`;
   } else if (placeName) {
-    title = `${placeName}: Nice Weather`;
+    title = `${placeName}: Nice!`;
     description = `How nice the weather will be in ${placeName} over the next 14 days, and in every month of a typical year.`;
   } else if (period?.kind === 'climate') {
-    title = `Where is the weather nice ${period.when}? Nice Weather`;
+    title = `Where is the weather nice ${period.when}? Nice!`;
   }
-  const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
-  const namedPlace = place?.slug && !pathname.startsWith('/@') && !place.slug.startsWith('palestine/');
-  const namedRow = place && period ? await namedPlaces(bucket).load(place.latitude, place.longitude, period) : null;
-  const namedJudgement = namedRow && namedPlaceNumbers(namedRow, period);
-  const namedConfiguration = namedJudgement ? await namedPlaces(bucket).configuration() : null;
-  const fineClimate = place && period?.kind === 'climate' && await finePlaces(bucket).enabled();
-  const configuration = fineClimate ? await finePlaces(bucket).configuration() : null;
-  const image = namedConfiguration
-    ? `${origin}/preview/named.png?path=${encodeURIComponent(pathname)}&generation=${namedConfiguration.generation}&run=${namedRow.forecastRun ?? ''}`
-    : fineClimate
-    ? `${origin}/preview/fine.png?path=${encodeURIComponent(pathname)}&generation=${configuration.generation}&model=${configuration.eveningModel ?? 'ordered'}&style=1`
-    : period && (!place || namedPlace)
-      ? await card(`v6/cards/typical-day/${namedPlace ? place.slug + '/' : 'world-'}${period.word}.png`) : null;
+  const image = `${origin}/preview/share.png?path=${encodeURIComponent(pathname)}`;
   return { title, description, image, url: `${origin}${pathname}` };
 }
 
@@ -517,7 +517,7 @@ function withPreview(html, preview) {
     `<meta name="description" content="${escapeHtml(preview.description)}" />`,
     `<link rel="canonical" href="${escapeHtml(preview.url)}" />`,
     `<meta property="og:type" content="website" />`,
-    `<meta property="og:site_name" content="Nice Weather" />`,
+    `<meta property="og:site_name" content="Nice!" />`,
     `<meta property="og:title" content="${escapeHtml(preview.title)}" />`,
     `<meta property="og:description" content="${escapeHtml(preview.description)}" />`,
     `<meta property="og:url" content="${escapeHtml(preview.url)}" />`,
@@ -549,7 +549,7 @@ const OUTLOOK_STYLE = `
   :root{font-family:Barlow,system-ui,sans-serif;color:#233b38;background:#f4f5ef;font-synthesis:none}
   *{box-sizing:border-box}body{margin:0}main{max-width:1280px;margin:auto;padding:28px 32px 48px}
   header,nav,.actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap}header{justify-content:space-between;margin-bottom:32px}
-  a{color:inherit;text-underline-offset:4px}.brand{font-size:36px;font-weight:800;letter-spacing:-2px;text-decoration:none}.brand span{color:#b67c20}
+  a{color:inherit;text-underline-offset:4px}.brand{display:block;width:145px;text-decoration:none}.brand img{display:block;width:100%;height:auto}
   nav{gap:20px;font-size:16px}nav [aria-current]{font-weight:750;text-decoration-thickness:3px}
   .eyebrow{font-size:14px;letter-spacing:.1em;text-transform:uppercase;color:#526560;margin:0 0 12px}
   h1{font-size:clamp(28px,4vw,46px);line-height:1.12;letter-spacing:-.025em;max-width:1000px;margin:0 0 24px;font-weight:650}
@@ -599,7 +599,7 @@ async function outlookPage(request, bucket, url) {
   const navigation = Object.entries(OUTLOOK_REGIONS).map(([word, area]) => `<a href="/outlook/${word}"${word === region ? ' aria-current="page"' : ''}>${area.name}</a>`).join('');
   const dayInCurrentForecast = current ? Math.round((outlookDate - new Date(`${current.firstDate}T12:00:00Z`)) / 86400000) : -1;
   const explore = dayInCurrentForecast >= 0 && dayInCurrentForecast < current.days
-    ? `<a href="/@${settings.centre}/day-${dayInCurrentForecast}">Explore ${forTomorrow ? 'tomorrow' : 'this date'}</a>` : '';
+    ? `<a href="/@${settings.centre}/${requestedDate}">Explore ${forTomorrow ? 'tomorrow' : 'this date'}</a>` : '';
   const content = ready ? `
     <p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)}${forTomorrow ? ' · Tomorrow' : ''}</p>
     <h1>${escapeHtml(sentence)}</h1>
@@ -627,7 +627,7 @@ async function outlookPage(request, bucket, url) {
     <p class="note">${forTomorrow ? `${latestDate ? `The latest outlook was for ${escapeHtml(latestDate)}. ` : ''}Please check back after the daily forecast refresh.` : `This link is for ${escapeHtml(fullDate)}. Its forecast is no longer available.`}</p>
     <div class="actions"><a href="${forTomorrow ? '/' : `/outlook/${region}`}">${forTomorrow ? 'Explore the weather map' : 'See the current outlook'}</a></div></div>`;
   const html = withPreview(`<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Nice!</title><style>${OUTLOOK_STYLE}</style></head>
-    <body><main><header><a class="brand" href="/" aria-label="Nice! weather map">Nice<span>!</span></a><nav aria-label="Outlook region">${navigation}</nav></header>${content}</main></body></html>`,
+    <body><main><header><a class="brand" href="/" aria-label="Nice! weather map"><img src="${shareWordmark}" width="436" height="129" alt="Nice!" /></a><nav aria-label="Outlook region">${navigation}</nav></header>${content}</main></body></html>`,
   { title, description, image, url: `${url.origin}/outlook/${region}?date=${requestedDate}` });
   return new Response(request.method === 'HEAD' ? null : html, {
     status: ready ? 200 : 503,
@@ -738,33 +738,31 @@ export async function handleRequest(request, env, serveAsset) {
     const row = await namedPlaces(bucket).load(latitude, longitude);
     return json(row ? {months: row.months} : null, 60);
   }
-  if (url.pathname === '/preview/named.png') {
-    const view = await viewFromPath(bucket, url.searchParams.get('path') ?? '');
-    const configuration = await namedPlaces(bucket).configuration();
-    const row = view?.place && configuration ? await namedPlaces(bucket).load(view.place.latitude, view.place.longitude, view.period) : null;
-    const judgement = row && view.period ? namedPlaceNumbers(row, view.period) : null;
-    if (!judgement) return new Response('Preview unavailable', {status: 404});
-    if (url.searchParams.get('generation') !== configuration.generation || url.searchParams.get('run') !== (row.forecastRun ?? '')) {
-      url.searchParams.set('generation', configuration.generation);
-      url.searchParams.set('run', row.forecastRun ?? '');
-      return Response.redirect(url.href, 302);
+  if (url.pathname === '/preview/share.png') {
+    const view = await viewFromPath(bucket, url.searchParams.get('path') ?? '/');
+    if (!view) return new Response('Place not found', {status: 404});
+    const period = view.period ?? {word: 'next-14-days', kind: 'forecast', when: 'over the next 14 days'};
+    const current = period.kind === 'forecast' ? await cachedJson(bucket, 'v6/forecast/current.json', 60) : null;
+    const imageKey = period.kind === 'forecast'
+      ? current && `v6/forecast/${current.run}/scores-typical-day-${period.day === undefined ? 'all' : `day-${String(period.day).padStart(2, '0')}`}.png`
+      : `v6/climate/scores-typical-day-${period.word}.png`;
+    const [scoreImage, judgement] = await Promise.all([
+      imageKey ? bucket.get(imageKey) : null,
+      view.place ? defaultPeriodJudgement(bucket, view.place.latitude, view.place.longitude, period) : null,
+    ]);
+    if (!scoreImage) return new Response('Weather image unavailable', {status: 503});
+    let dates = `${period.when[0].toUpperCase()}${period.when.slice(1)}, typical weather`;
+    if (current) {
+      const date = day => {const value = new Date(`${current.firstDate}T12:00:00Z`); value.setUTCDate(value.getUTCDate() + day); return value.toLocaleDateString('en-GB', {day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC'});};
+      dates = period.day === undefined ? `${date(0)} to ${date((current.days ?? 14) - 1)}` : date(period.day);
     }
-    const image = await finePreviewPng(view.place, view.period, judgement);
+    const map = await previewMap(await decodeScorePng(new Uint8Array(await scoreImage.arrayBuffer())), view.place);
+    const image = await shareImagePng({title: view.place ? sharePlaceTitle(view.place) : 'Where in the world is the weather nice?', dates, numbers: judgement ?? undefined, map,
+      detail: 'Colours show the typical day. Find your nice weather.'});
     return new Response(image, {headers: {'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=60'}});
   }
-  if (url.pathname === '/preview/fine.png') {
-    const view = await viewFromPath(bucket, url.searchParams.get('path') ?? '');
-    const configuration = await finePlaces(bucket).configuration();
-    if (!configuration || !view?.place || view.period?.kind !== 'climate') return new Response('Preview unavailable', {status: 404});
-    if (url.searchParams.get('generation') !== configuration.generation || url.searchParams.get('model') !== (configuration.eveningModel ?? 'ordered')) {
-      url.searchParams.set('generation', configuration.generation);
-      url.searchParams.set('model', configuration.eveningModel ?? 'ordered');
-      return Response.redirect(url.href, 302);
-    }
-    const judgement = await defaultPeriodJudgement(bucket, view.place.latitude, view.place.longitude, view.period);
-    if (!judgement) return new Response('Weather unavailable', {status: 503});
-    const image = await finePreviewPng(view.place, view.period, judgement);
-    return new Response(image, {headers: {'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400'}});
+  if (url.pathname === '/preview/named.png' || url.pathname === '/preview/fine.png') {
+    return Response.redirect(`${url.origin}/preview/share.png?path=${encodeURIComponent(url.searchParams.get('path') ?? '/')}`, 302);
   }
   if (url.pathname === '/api/home') {
     // Cloudflare's request metadata, when Sites supplies it. Never trust client headers or cache a home.
@@ -797,7 +795,7 @@ export async function handleRequest(request, env, serveAsset) {
     const where = await placeForPoint(bucket, requestedLatitude, requestedLongitude);
     const {latitude, longitude} = where;
     const fine = finePlaces(bucket);
-    const period = periodFromWord(url.searchParams.get('period') ?? 'year');
+    const period = await datedPeriod(bucket, periodFromWord(url.searchParams.get('period') ?? 'year'));
     const [months, fineEnabled, named] = await Promise.all([typicalYearForPlace(bucket, latitude, longitude), fine.enabled(), namedPlaces(bucket).load(latitude, longitude, period)]);
     const namedJudgement = named && period ? namedPlaceNumbers(named, period) : null;
     let judgement;
@@ -825,7 +823,7 @@ export async function handleRequest(request, env, serveAsset) {
     const page = await serveAsset('/index.html', request);
     if (request.method === 'HEAD') return new Response(null, { status: view ? page.status : 404, headers: page.headers });
     const html = await page.text();
-    if (!view) return new Response(withPreview(html, await previewFor(bucket, url.origin, '/', { place: null, period: null }, url.search)), { status: 404, headers: page.headers });
+    if (!view) return new Response(`<!doctype html><html lang="en-GB"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Place not found | Nice!</title><style>body{font:20px/1.5 system-ui;max-width:36rem;margin:15vh auto;padding:24px;background:#f0ecdd;color:#101419}h1{font-size:72px;margin:0}a{color:inherit}</style><h1>Nice!</h1><p>Place not found.</p><p><a href="/">Search for a place on the map</a></p></html>`, { status: 404, headers: page.headers });
     return new Response(withPreview(html, await previewFor(bucket, url.origin, url.pathname, view, url.search)), { headers: page.headers });
   }
   return serveAsset(url.pathname, request);

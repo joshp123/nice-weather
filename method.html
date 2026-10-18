@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>How Nice Weather works</title>
+<title>How it works | Nice!</title>
 <meta name="description" content="How Nice Weather decides where and when the weather is nice: the rule, the data, and where it is wrong." />
 <style>
   :root { color-scheme: light dark; --text: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --page: #fff; }
   @media (prefers-color-scheme: dark) { :root { --text: #f2f2f0; --muted: #a1a1a6; --line: #33343a; --page: #121316; } }
-  body { margin: 0; background: var(--page); color: var(--text); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { margin: 0; background: var(--page); color: var(--text); font: 17px/1.6 var(--font); }
   main { max-width: 720px; margin: 0 auto; padding: 40px 22px 80px; }
-  h1 { font-size: 30px; font-weight: 600; line-height: 1.2; margin: 0 0 8px; }
+  h1 { font-family: var(--font-brand); letter-spacing: var(--brand-tracking); font-size: 72px; font-weight: var(--weight-brand); line-height: 1.2; margin: 0 0 8px; }
   h2 { font-size: 21px; font-weight: 600; margin: 44px 0 10px; }
   p, li { margin: 0 0 12px; }
   a { color: inherit; }
@@ -25,7 +25,8 @@
 <body>
 <main>
 <p class="muted"><a href="/">← Back to the map</a></p>
-<h1>How Nice Weather works</h1>
+<h1>Nice!</h1>
+<h2>How it works</h2>
 <p>Nice Weather answers one question: where on earth, and when, is the weather nice? Nice here means warm enough for a t-shirt and shorts from morning until you walk home in the evening, without rain, muggy air or a gale. This page explains exactly how each day is scored, where the weather data comes from, and where we know it is wrong, so you can check it.</p>
 
 <h2>A day's score</h2>
@@ -59,21 +60,21 @@
 <div><h3>Sunshine</h3><p>The share of daylight hours from 10:00 with strong direct sunlight. An hour counts as sunny at 300 W/m² of direct sunlight or more.</p><p>Sunshine in at least 80% of these hours keeps full marks. A completely grey day keeps 75%. Sunshine has no taste slider.</p></div>
 <div data-score-axis="sunshine"></div>
 </section>
-<p class="muted curve-source">The numbered dots are monthly means of the eight representative real days in each place's nearest 1° land square, from the published weather files. They show the conditions in that square, before the finer temperature correction. Warmth uses 14:00 in the sun; heat uses 15:00 in the shade. A curve's value at the mean is a reference, not that month's average score.</p>
+<p class="muted curve-source">The charts show how each condition affects a day’s score. A day with several kinds of bad weather loses marks for each one.</p>
 <p>The final score is warmth multiplied by the four shares kept. For example, warmth of 80 with rain keeping half becomes 40 before wind, humidity and sunshine count.</p>
 <p>The six words on the map follow the score: <b>Awful</b> under 25, <b>Poor</b> from 25, <b>Fair</b> from 40, <b>Nice</b> from 55, <b>Beautiful</b> from 70, <b>Perfect</b> from 85.</p>
 <p>For a stretch of days, the map describes the typical day: the middle of the daily scores, with half the days reaching at least that band. So “Perfect most days” means at least half the days score 85 or more. Each month counts its real number of days, so a short February does not count as much as a long January. You can choose one month, any run of months, the whole year or the next 14 days. One forecast day keeps its own score.</p>
-<p>The place card also counts the days: nice or better (55 or more), perfect (85 or more) and awful (under 25). Perfect days are included in nice or better. The typical year uses eight representative real days per month, weighted to that month's length, so these counts are estimates rounded to whole days. Forecast counts use each day's score.</p>
+<p>The place card also counts the days: nice or better (55 or more), perfect (85 or more) and awful (under 25). Perfect days are included in nice or better. The typical year counts eight sampled real days per month: 40 for November to March, or 96 for the whole year. These are whole days from the sample, not a prediction of how many calendar days will be nice. The forecast counts the individual days shown in its calendar, with the dates alongside them.</p>
 
 <h2>Checking it against places people know</h2>
 <p>Useful checks include humid Singapore and Bangkok, northern Europe in winter, and dry winter escapes such as Cape Town and the Canary Islands. The rule aims for warm, sunny, dry and calm weather. It does not measure how good a place is to visit.</p>
 
 <h2>The weather data</h2>
 <ul>
-<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses real days from __YEARS__. More years are being added.</li>
+<li><b>The typical year</b> comes from ERA5, the European Centre for Medium-Range Weather Forecasts' record of past weather, hour by hour, read from Earthmover's free public copy. It uses real days from __YEARS__. The dates describe the weather used here.</li>
 <li><b>The next 14 days</b> come from the same centre's free forecast, refreshed every morning. Its free version has no direct-sunlight field, so sunshine is estimated from total solar radiation against a clear sky.</li>
 <li><b>Detail.</b> The weather is stored for squares of 1° (about 100 km). Temperature then gets finer detail on a 25 km grid: each point is shifted by how much warmer or cooler it runs than its square, month by month. Coastal towns sit near sea level but their grid square's average height includes the hills behind them, so coastal points take their temperature from the nearest mostly-land square and correct it to sea level (6.5 °C per km, at most 600 m). This helps separate coastal towns from the hills behind them.</li>
-<li><b>Fast sliders.</b> For each square and month, eight real days represent the month's range of weather. Your browser re-scores them on its graphics chip when you move a slider.</li>
+<li><b>Fast sliders.</b> For each square and month, eight real days represent the month's range of weather. The colours update as you move a slider.</li>
 <li><b>Place names</b> come from GeoNames; the base map from OpenFreeMap and OpenStreetMap.</li>
 </ul>
 

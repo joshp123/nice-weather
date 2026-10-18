@@ -10,7 +10,7 @@ const SIMILAR_SCORE = 5;
 
 export function mostNiceDaysFirst(a: RankedPlace, b: RankedPlace): number {
   return Math.round(b.niceDayCount) - Math.round(a.niceDayCount) || Math.round(b.perfectDayCount) - Math.round(a.perfectDayCount)
-    || (b.population ?? 0) - (a.population ?? 0) || ((a.slug ?? a.name) < (b.slug ?? b.name) ? -1 : (a.slug ?? a.name) > (b.slug ?? b.name) ? 1 : 0);
+    || b.score - a.score || (b.population ?? 0) - (a.population ?? 0) || ((a.slug ?? a.name) < (b.slug ?? b.name) ? -1 : (a.slug ?? a.name) > (b.slug ?? b.name) ? 1 : 0);
 }
 
 function distanceKM(a: RankedPlace, b: RankedPlace): number {

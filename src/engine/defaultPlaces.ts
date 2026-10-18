@@ -29,7 +29,8 @@ export class DefaultPlaces {
       this.pending.add(key);
       this.notify();
       const url = new URL(this.endpoint);
-      url.search = new URLSearchParams({lat: String(latitude), lon: String(longitude), period: word}).toString();
+      const requestPeriod = period.kind === 'forecast-day' ? period.date ?? word : word;
+      url.search = new URLSearchParams({lat: String(latitude), lon: String(longitude), period: requestPeriod}).toString();
       void fetch(url).then(async response => {
         if (!response.ok) throw new Error(`Place weather unavailable: HTTP ${response.status}`);
         const place = await response.json() as {latitude: number; longitude: number; judgement?: PointVerdict & {dayJudgements?: PointVerdict[]}};

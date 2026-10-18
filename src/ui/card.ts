@@ -119,7 +119,9 @@ function comparisons(view: CardView, actions: Actions): HTMLElement | null {
   for (const [entry, label] of rows) {
     if (!entry?.verdict || entry.place.slug === view.place.slug && entry.place.name === view.place.name) continue;
     const place = button('inline-place', `${countryFlag(entry.place)} ${entry.place.name}`.trim(), () => actions.selectSearchResult(entry.place));
-    comparison.append(el('p', '', `${label}: `, place, `, nice on ${entry.verdict.niceDayCount} of ${entry.verdict.countedDays ?? entry.verdict.sampleDays} ${entry.verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${view.stretchLabel ?? `in ${periodTitle(view.period, view.forecast).toLowerCase()}`}.`));
+    const stretch = isForecast(view.period) ? 'in this forecast' : (view.stretchLabel ?? `in ${periodTitle(view.period, view.forecast).toLowerCase()}`);
+    const comparisonText = view.period.kind === 'forecast-day' ? `${entry.verdict.band}, ${Math.floor(entry.verdict.meanScore)} out of 100 that day` : `nice on ${entry.verdict.niceDayCount} of ${entry.verdict.countedDays ?? entry.verdict.sampleDays} ${entry.verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${stretch}`;
+    comparison.append(el('p', '', `${label}: `, place, `, ${comparisonText}.`));
   }
   return comparison.childElementCount ? comparison : null;
 }
@@ -167,7 +169,8 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   close.innerHTML = closeIcon;
   const name = view.details?.name ?? view.place.name;
   const region = view.details?.region ?? view.place.region;
-  const header = el('header', 'card-header', el('div', '', el('h2', '', name ? `${countryFlag({ region, slug: view.place.slug })} ${name}`.trim() : 'Finding the name…'), region ? el('p', 'muted', region) : null), close);
+  const share = button('icon-button card-share', '↑', actions.toggleShare, 'Make a poster');
+  const header = el('header', 'card-header', el('div', '', el('h2', '', name ? `${countryFlag({ region, slug: view.place.slug })} ${name}`.trim() : 'Finding the name…'), region ? el('p', 'muted', region) : null), el('div', 'card-actions', share, close));
 
   const verdict = view.verdict;
   if (!verdict) {
@@ -178,7 +181,7 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   const countPeriod = isForecast(view.period) ? 'in this forecast' : (view.stretchLabel ?? (view.period.kind === 'month' ? `in ${periodTitle(view.period, view.forecast)}` : view.period.kind === 'year' ? 'across the year' : `from ${periodTitle(view.period, view.forecast)}`));
   const niceDays = view.period.kind === 'forecast-day' ? '' : `Nice on ${verdict.niceDayCount} of ${verdict.countedDays ?? verdict.sampleDays} ${verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${countPeriod}. Perfect on ${verdict.perfectDayCount}; awful on ${verdict.awfulDayCount}.`;
   const answer = el('div', 'verdict', score,
-    el('div', 'verdict-text', el('strong', 'band-word', bandSentence(view.period, verdict.band)), el('p', 'verdict-days', niceDays || periodTitle(view.period, view.forecast))));
+    el('div', 'verdict-text', el('strong', 'band-word', bandSentence(view.period, verdict.band)), niceDays ? el('p', 'verdict-days', niceDays) : null));
   const periodLabel = isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`;
   const forecastDates = isForecast(view.period) && view.forecast ? upcomingForecastDays(view.forecast).map(day => dayChipLabel(view.forecast!, day)) : [];
   const periodLine = el('p', 'card-period', `${periodLabel}${view.period.kind === 'forecast' && forecastDates.length ? `, ${forecastDates[0]} to ${forecastDates.at(-1)}` : ''}`);

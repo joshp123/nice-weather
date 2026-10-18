@@ -293,4 +293,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .period-trigger { min-height: var(--touch-target); }
   .inline-place { min-width: var(--touch-target); }
 }
+
+/* Place actions remain available when the phone dock is replaced. */
+.card-actions { display: flex; gap: var(--space-2); }
+.card-actions .icon-button { min-width: var(--touch-target); min-height: var(--touch-target); margin: 0; }
+
+@media (max-width: 720px) {
+  .poster-toolbar .menu-button { min-height: var(--touch-target); }
+  .poster-place-link { min-width: var(--touch-target); min-height: var(--touch-target); }
+}
+
+@media (max-width: 720px) {
+  .list-open .slot-bar { display: none; }
+  .list-open .slot-list { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); max-height: var(--phone-sheet-height); }
+  .list-open .slot-list { contain: paint; border-radius: var(--radius-panel); }
+}
 .slot-card { contain: paint; overflow: hidden; border-radius: var(--radius-panel); }

@@ -9,10 +9,11 @@ import { renderCard } from './ui/card';
 import { button, el } from './ui/dom';
 import { countryFlag } from './ui/countries';
 import { requestHome, inferredHome, timeZoneHome, isHomeWinter, regionalComparison } from './ui/home';
-import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, viewportRegion, type HeadlinePlace } from './ui/headline';
+import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, rankLabelledPlaces, viewportRegion, type HeadlinePlace } from './ui/headline';
 import { createMap, type WeatherMap } from './ui/map';
-import { DEFAULT_PERIOD, daysInPeriod, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
+import { DEFAULT_PERIOD, datedForecastPeriod, daysInPeriod, isForecast, monthsOfPeriod, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
+import { inOutlookRegion } from './ui/ranking';
 import { drawShareCard, renderPoster, type ShareContext } from './ui/share';
 import { DEFAULT_SLIDERS, buildLink, loadSavedView, parseLink, saveView, slidersAreDefault, type AppState, type Place, type SliderId } from './ui/state';
 import { createTastePanel } from './ui/taste';
@@ -69,7 +70,7 @@ const engine: WeatherEngine = createWeatherEngine(map, {
   onRedraw: timing => { performance.measure('nice-weather-redraw', { start: performance.now() - timing.milliseconds, end: performance.now() }); afterRedraw(); },
   onLoadingChange(loading) {
     weatherLoading = loading;
-    labelCities();
+    if (!loading) labelCities();
     if (state.place) {
       verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
       weatherMap.showChosenPlace({ ...state.place, score: verdict?.meanScore });
@@ -85,6 +86,7 @@ const judge = (place: Place, period: Period): PointVerdict | null => engine.judg
 
 const actions: Actions = {
   setPeriod(period) {
+    if (period.kind === 'forecast-day' && forecast) period = datedForecastPeriod(forecast, period.day);
     if (samePeriod(period, state.period)) return;
     state = { ...state, period };
     if (playing && period.kind !== 'month') stopPlaying();
@@ -117,7 +119,8 @@ const actions: Actions = {
   locate() {
     headline.set(headlineText, { text: 'Finding your location…', warning: false });
     navigator.geolocation.getCurrentPosition(position => {
-      const { latitude, longitude } = position.coords;
+      const latitude = Math.round(position.coords.latitude * 100) / 100;
+      const longitude = Math.round(position.coords.longitude * 100) / 100;
       map.flyTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 5) });
       homeOverridden = true;
       home = { name: 'Your location', region: '', latitude, longitude, slug: null };
@@ -183,7 +186,7 @@ function keepPlaceInView(place: Place): void {
     const sheet = cardSlot.getBoundingClientRect();
     const top = headline.element.getBoundingClientRect().bottom + 16;
     const targetY = (top + sheet.top) / 2;
-    map.easeTo({ center: [place.longitude, place.latitude], padding: { top: 0, bottom: 0, left: 0, right: 0 }, offset: [0, targetY - window.innerHeight / 2] });
+    map.easeTo({ duration: 0, center: [place.longitude, place.latitude], padding: { top: 0, bottom: 0, left: 0, right: 0 }, offset: [0, targetY - window.innerHeight / 2] });
   });
   ease();
 }
@@ -225,14 +228,12 @@ function afterRedraw(): void {
     void weatherMap.loadRemainingCities().then(() => {
       remainingCitiesReady = true;
       labelCities();
-      updateHeadline();
       render();
     });
   }
   periodProblem = null;
   labelCities();
   const labelled = performance.now();
-  updateHeadline();
   const ranked = performance.now();
   if (state.place) {
     verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
@@ -244,13 +245,16 @@ function afterRedraw(): void {
 
 function updateHeadline(): void {
   if (!remainingCitiesReady) return;
-  headlineRegion = viewportRegion(map.getBounds(), weatherMap.visibleCities());
-  rankedPlaces = nicestPlaces(engine, weatherMap.visibleCities(), map.getBounds(), 8, map.getZoom() >= 5 ? 0 : undefined);
+  const labels = weatherMap.labelledPlaces().filter(place => Number.isFinite(place.displayedNumber));
+  headlineRegion = viewportRegion(map.getBounds());
+  if (headlineRegion === 'Europe' && labels.some(place => !inOutlookRegion(place, 'Europe'))) headlineRegion = 'this map';
+  rankedPlaces = rankLabelledPlaces(engine, labels.map(place => ({ ...place, labelValue: place.displayedNumber! })));
   headlineText = headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion)
     || `Where is it nice? ${periodTitle(state.period, forecast)}.`;
 }
 
 function labelCities(): void {
+  if (weatherLoading) return;
   const cities = weatherMap.labelCandidates();
   const counts = engine.countPoints(cities);
   weatherMap.labelCities(cities, engine.scorePoints(cities), state.period.kind === 'forecast-day' ? engine.scorePoints(cities) : Float32Array.from(cities, (_, index) => counts[index * 3]));
@@ -282,27 +286,29 @@ function toggleList(): void {
 }
 
 function renderList(stretchLabel: string): void {
-  const trigger = button('list-trigger panel', `Most nice days ${listOpen ? '⌄' : '›'}`, toggleList);
+  const trigger = button('list-trigger panel', `${state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'} ${listOpen ? '⌄' : '›'}`, toggleList);
   trigger.setAttribute('aria-expanded', String(listOpen));
   if (!listOpen) {
     listSlot.replaceChildren(trigger);
     weatherMap.showHomeConnection(null, null);
     return;
   }
-  const days = daysInPeriod(state.period, forecast);
-  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', 'Most nice days'), el('span', '', `of ${days}`)));
+  const reference = home ? judge(home, state.period) : null;
+  const sample = !isForecast(state.period);
+  const days = reference?.countedDays ?? (sample ? monthsOfPeriod(state.period, forecast).length * 8 : daysInPeriod(state.period, forecast));
+  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}${sample ? ' sampled' : ''}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
-    const count = el('span', 'count-pill', Math.round(place.niceDayCount));
+    const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.round(place.score) : Math.round(place.niceDayCount));
     count.style.background = bandColour(place.score);
     count.style.color = place.score < 40 ? 'var(--on-low-band)' : 'var(--on-high-band)';
     list.append(button('ranked-place', el('span', 'rank-number', index + 1), () => chooseRankedPlace(place)));
-    list.lastElementChild!.append(el('span', 'rank-name', `${countryFlag(place)} ${place.name}`.trim()), count);
+    list.lastElementChild!.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `${place.niceDayCount} nice · ${place.perfectDayCount} perfect${state.period.kind === 'forecast-day' ? '' : ` · score ${Math.round(place.score)}`}`)), count);
   });
-  list.append(el('p', 'home-line', `Nice days out of ${days} in ${stretchLabel}.`));
+  list.append(el('p', 'home-line', state.period.kind === 'forecast-day' ? 'The label shows the day’s score. Ties favour perfect days, then the typical-day score and population.' : `Nice days out of ${days}${sample ? ' sampled days' : ' days'} in ${stretchLabel}. Ties favour perfect days, then the typical-day score and population.`));
   const homeVerdict = home ? judge(home, state.period) : null;
   if (home && homeVerdict) {
     const homeButton = button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!));
-    const homeLine = el('p', 'home-line', homeButton, `: awful on ${Math.round(homeVerdict.awfulDayCount)} of ${days} days in ${stretchLabel}.`);
+    const homeLine = el('p', 'home-line', homeButton, `: awful on ${Math.round(homeVerdict.awfulDayCount)} of ${homeVerdict.countedDays ?? days}${homeVerdict.countBasis === 'sample' ? ' sampled' : ''} days in ${stretchLabel}.`);
     const regional = regionalComparison(home);
     const regionalVerdict = judge(regional, state.period);
     const comparison = regionalVerdict && regional.name !== home.name ? el('p', 'home-line', button('inline-place', `${countryFlag(regional)} ${regional.name}`, () => actions.selectSearchResult(regional)), `: ${Math.round(regionalVerdict.niceDayCount)} nice days over the same stretch.`) : null;
@@ -355,7 +361,7 @@ function render(): void {
   const scoreVerdict = scorePlace ? judge(scorePlace, state.period) : null;
   const stretchLabel = `${isHomeWinter(state.period, home) ? 'your winter, ' : ''}${isForecast(state.period) ? periodTitle(state.period, forecast).replace(/^Next/, 'the next') : periodTitle(state.period, forecast)}`;
   const bar = renderTimeBar({ period: state.period, forecast, tasteOpen, tasteIsDefault, shareOpen, theme,
-    home: home ?? undefined, monthScores, dayScores, niceDayCount: scoreVerdict?.niceDayCount,
+    home: home ?? undefined, monthScores, dayScores, niceDayCount: scoreVerdict?.niceDayCount, countedDays: scoreVerdict?.countedDays, countBasis: scoreVerdict?.countBasis,
     scorePlaceName: scorePlace?.name, pickerOpen, playing: Boolean(playing), stretchLabel,
     togglePicker: () => { pickerOpen = !pickerOpen; tasteOpen = false; listOpen = false; if (pickerOpen && !isForecast(state.period)) void engine.prepareYear().then(render).catch(showProblem); render(); },
     playYear: togglePlaying,
@@ -380,12 +386,16 @@ function render(): void {
       headline.element.querySelector('.headline-copy')!.append(comparison);
     }
   }
+  if (phone.matches && isForecast(state.period) && forecast) {
+    const freshness = forecastFreshness(forecast);
+    bar.append(el('p', `dock-freshness${freshness.warning ? ' warning' : ''}`, freshness.text));
+  }
   barSlot.replaceChildren(bar);
   renderList(stretchLabel);
 
   if (state.place) {
     const place = state.place;
-    const dayScores = forecast && isForecast(state.period)
+    const dayScores = state.period.kind === 'forecast' && verdict?.dayScores ? verdict.dayScores : forecast && isForecast(state.period)
       ? Array.from({ length: forecast.days }, (_, day) => judge(place, { kind: 'forecast-day', day })?.meanScore ?? null) : null;
     const monthScores = !isForecast(state.period)
       ? Array.from({ length: 12 }, (_, index) => judge(place, { kind: 'month', month: (index + 1) as 1 })?.meanScore ?? null) : null;
@@ -406,6 +416,7 @@ function render(): void {
   app.classList.toggle('picker-open', pickerOpen);
   app.classList.toggle('list-open', listOpen);
   app.classList.toggle('has-place', Boolean(state.place));
+  app.classList.toggle('place-open', Boolean(state.place));
   document.title = headlineText;
 }
 
@@ -452,6 +463,10 @@ const measured = new ResizeObserver(() => {
 measured.observe(headline.element);
 measured.observe(searchSlot);
 measured.observe(barSlot);
+const cardMeasured = new ResizeObserver(() => {
+  if (phone.matches && state.place && cardSlot.offsetHeight > 0) keepPlaceInView(state.place);
+});
+cardMeasured.observe(cardSlot);
 
 // ---------------------------------------------------------------- the map's events
 
@@ -469,14 +484,20 @@ map.on('moveend', () => {
   if (state.place && !state.place.slug) updateLink();
   if (!weatherLoading) {
     labelCities();
-    updateHeadline();
     render();
   }
 });
+map.on('idle', () => requestAnimationFrame(() => {
+  if (weatherLoading) return;
+  const previous = JSON.stringify(rankedPlaces);
+  const previousRegion = headlineRegion;
+  updateHeadline();
+  if (previous !== JSON.stringify(rankedPlaces) || previousRegion !== headlineRegion) render();
+}));
 map.on('zoomend', () => { if (!weatherLoading) labelCities(); });
 void weatherMap.citiesReady.then(() => {
   labelCities();
-  if (!weatherLoading) { updateHeadline(); render(); }
+  if (!weatherLoading) render();
 });
 
 // ---------------------------------------------------------------- start
@@ -491,10 +512,15 @@ void requestHome().then(async found => {
 }).catch(() => {});
 
 forecast = await fetchForecastIndex(dataUrl).catch(() => null);
-if (state.period.kind === 'forecast-day' && !(forecast && upcomingForecastDays(forecast).includes(state.period.day))) state = { ...state, period: { kind: 'forecast' } };
+if (state.period.kind === 'forecast-day' && forecast) {
+  const day = state.period.date ? Math.round((Date.parse(`${state.period.date}T12:00:00Z`) - Date.parse(`${forecast.firstDate}T12:00:00Z`)) / 86_400_000) : state.period.day;
+  if (upcomingForecastDays(forecast).includes(day)) state = { ...state, period: datedForecastPeriod(forecast, day) };
+  else state = { ...state, period: { kind: 'forecast' } };
+}
 render();
 void engine.setTaste(tasteFromSliders(state.sliders)).catch(showProblem);
 void applyPeriod();
+if (state.period.kind === 'forecast-day') updateLink();
 
 if (link.target?.kind === 'point') {
   actions.selectPoint(link.target.latitude, link.target.longitude);
@@ -506,7 +532,8 @@ if (link.target?.kind === 'point') {
     map.jumpTo({ center: [place.longitude, place.latitude], zoom: Math.max(map.getZoom(), 5) });
     selectPlace(place);
   } else {
-    updateLink();
+    periodProblem = 'Place not found. Search for a place on the map.';
+    render();
   }
 }
 

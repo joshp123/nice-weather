@@ -2,8 +2,7 @@
 // The one-line answer at the top of the map: where it is nicest in the chosen period, as on Ryan Hall's map.
 import { type Period, type WeatherEngine } from '../engine';
 import { button, el } from './dom';
-import { kilometresBetween } from './map';
-import { daysInPeriod, periodPhrase, type ForecastIndex } from './periods';
+import { periodPhrase, type ForecastIndex } from './periods';
 import { type NamedPlace } from './places';
 import { countryCode, countryFlag } from './countries';
 
@@ -13,7 +12,7 @@ type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): n
 export type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number; region?: string; slug?: string | null; population?: number }>;
 
 export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], bounds?: ViewBounds, limit = 3, minimumPopulation?: number): HeadlinePlace[] {
-  const region = bounds ? viewportRegion(bounds, places) : 'the world';
+  const region = bounds ? viewportRegion(bounds) : 'the world';
   const population = minimumPopulation ?? (region === 'the world' ? WORLD_POPULATION : CONTINENT_POPULATION);
   const countries = REGION_COUNTRIES[region];
   const visible = places.filter(place => {
@@ -43,28 +42,23 @@ const REGION_COUNTRIES: Record<string, ReadonlySet<string>> = Object.fromEntries
   'Oceania': 'AS AU CK FJ PF GU KI MH FM NR NC NZ NU NF MP PW PG PN WS SB TK TO TV VU WF',
 }).map(([region, codes]) => [region, new Set(codes.split(' '))]));
 
-export function viewportRegion(bounds: ViewBounds, places: readonly (NamedPlace & { slug?: string | null; region?: string })[] = []): string {
-  const width = bounds.getEast() - bounds.getWest();
-  const height = bounds.getNorth() - bounds.getSouth();
-  if (width > 160 || height > 125) return 'the world';
-  const longitude = ((bounds.getWest() + width / 2 + 180) % 360 + 360) % 360 - 180;
-  const mercatorLatitude = (latitude: number) => Math.asinh(Math.tan(latitude * Math.PI / 180));
-  const latitude = Math.atan(Math.sinh((mercatorLatitude(bounds.getNorth()) + mercatorLatitude(bounds.getSouth())) / 2)) * 180 / Math.PI;
-  let nearest: (typeof places)[number] | undefined, nearestDistance = Infinity;
-  for (const place of places) {
-    const distance = kilometresBetween({ latitude, longitude }, place);
-    if (distance < nearestDistance) { nearest = place; nearestDistance = distance; }
-  }
-  if (!nearest) return 'the world';
-  const country = countryCode(nearest);
-  if (country === 'US') return 'the USA';
-  if (country === 'TR' && longitude > 29.1) return 'the Middle East';
-  if (country === 'RU' && longitude > 60) return 'Asia';
-  return Object.entries(REGION_COUNTRIES).find(([, countries]) => countries.has(country))?.[0] ?? 'the world';
+/** Name a region only when all of it is in view. */
+export function viewportRegion(bounds: ViewBounds): string {
+  if (bounds.getWest() <= -32 && bounds.getEast() >= 40 && bounds.getSouth() <= 27 && bounds.getNorth() >= 72 && bounds.getWest() >= -45 && bounds.getEast() <= 55 && bounds.getSouth() >= 20 && bounds.getNorth() <= 83) return 'Europe';
+  return 'this map';
+}
+
+export function rankLabelledPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; population?: number; labelValue: number })[], limit = 8): HeadlinePlace[] {
+  const scores = engine.scorePoints(places);
+  const counts = engine.countPoints(places);
+  return places.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }))
+    .filter(place => Number.isFinite(place.labelValue) && Number.isFinite(place.score))
+    .sort((a, b) => b.labelValue - a.labelValue || b.perfectDayCount - a.perfectDayCount || b.score - a.score || (b.population ?? 0) - (a.population ?? 0) || a.name.localeCompare(b.name))
+    .slice(0, limit);
 }
 
 function headlineLead(period: Period, forecast: ForecastIndex | null, region: string): string {
-  return `Nicest in ${region} ${periodPhrase(period, forecast)}: `;
+  return `Nicest ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}: `;
 }
 
 export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[], region = 'the world'): string {
