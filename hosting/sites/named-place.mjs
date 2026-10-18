@@ -54,6 +54,23 @@ function rowFromTables(climate,forecast,latitude,longitude,forecastRun) {
   return {latitude,longitude,climate,climateIndex,forecast,forecastIndex,forecastRun};
 }
 
+/** Preserve the packed day records while sending only the requested coordinates. */
+export function selectNamedPoints(table,points) {
+  const indexes=[...new Set(points.map(point=>tableIndex(table,point.latitude,point.longitude)).filter(index=>index>=0))].sort((a,b)=>a-b);
+  const count=indexes.length,bytes=new Uint8Array(32+count*(table.kind===1?104:233)),view=new DataView(bytes.buffer);
+  bytes.set(table.bytes.subarray(0,32));view.setUint32(8,count,true);view.setUint32(12,0,true);
+  indexes.forEach((index,ordinal)=>bytes.set(table.bytes.subarray(32+index*8,40+index*8),32+ordinal*8));
+  if(table.kind===1)for(let sample=0;sample<96;sample++)indexes.forEach((index,ordinal)=>{
+    bytes[32+count*8+sample*count+ordinal]=table.bytes[32+table.count*8+sample*table.count+index];
+  });
+  else for(let slot=0;slot<15;slot++)indexes.forEach((index,ordinal)=>{
+    const source=32+table.count*8+slot*15*table.count,target=32+count*8+slot*15*count;
+    bytes.set(table.bytes.subarray(source+index*3,source+index*3+3),target+ordinal*3);
+    for(let share=0;share<3;share++)bytes.set(table.bytes.subarray(source+table.count*3+(share*table.count+index)*4,source+table.count*3+(share*table.count+index)*4+4),target+count*3+(share*count+ordinal)*4);
+  });
+  return bytes;
+}
+
 function monthlyFacts(table,index) {
   if(table.kind!==3||index<table.rowStart||index>=table.rowStart+table.count)throw Error('Named-place facts address differs');
   return Array.from({length:12},(_,month)=>Array.from({length:21},(_,field)=>table.view.getFloat32(32+4*((month*21+field)*table.count+index-table.rowStart),true)));
@@ -170,46 +187,69 @@ export function createNamedPlaceLoader(readBytes) {
     }
     return row;
   };
-  return {configuration,enabled:async()=>!!await configuration(),load};
+  const points=async(points,period)=> {
+    if(!await configuration())return null;
+    const table=forecastPeriod(period)?await forecast():await climate();
+    return table?selectNamedPoints(table,points):null;
+  };
+  return {configuration,enabled:async()=>!!await configuration(),load,points};
 }
 
 export function createNamedPlaceClient(endpoint='/api/named') {
-  let configuration,climate,forecast,forecastRun;
+  let configuration;
+  const pointRows={climate:new Map(),forecast:new Map()},attempted={climate:new Set(),forecast:new Set()},inflight={climate:new Map(),forecast:new Map()};
   const factsCache=new Map();
-  const read=async key=> {
-    const response=await fetch(`/data/${key}`);
-    if(response.status===404)return null;
-    if(!response.ok)throw Error(`Named-place request failed: ${response.status}`);
-    return new Uint8Array(await response.arrayBuffer());
-  };
+  const keyFor=(latitude,longitude)=>`${coordinate(latitude)},${coordinate(longitude)}`;
+  const kindFor=period=>forecastPeriod(period)?'forecast':'climate';
   const readyPromise=(async()=> {
     const response=await fetch(endpoint);if(!response.ok)return;
     const status=await response.json();
     configuration=status.enabled?(status.configuration??status):null;
-    if(!configuration)return;
-    const bytes=await read(`${configuration.root}/${configuration.climate??'climate.bin.gz'}`);
-    if(bytes)climate=decodeNamedTable(await namedUncompressed(bytes));
-    const current=await read('v6/forecast/current.json');
-    if(current) {
-      const meta=await jsonBytes(current);forecastRun=meta.run??meta.id;
-      if(forecastRun) {
-        const bytes=await read(`v6/forecast/${forecastRun}/named.bin.gz`);
-        if(bytes)forecast=decodeNamedTable(await namedUncompressed(bytes));
-      }
-    }
   })();
   const client={
     ready:()=>readyPromise,
     get enabled(){return !!configuration;},
+    pending:(latitude,longitude,period)=>!!configuration&&!attempted[kindFor(period)].has(keyFor(latitude,longitude)),
+    ensure:async(points,period)=> {
+      await readyPromise;if(!configuration)return;
+      const kind=kindFor(period),missing=new Map(),waiting=new Set();
+      for(const point of points) {
+        const key=keyFor(point.latitude,point.longitude);
+        if(attempted[kind].has(key))continue;
+        if(inflight[kind].has(key))waiting.add(inflight[kind].get(key));
+        else missing.set(key,point);
+      }
+      const entries=[...missing];
+      for(let start=0;start<entries.length;start+=8192) {
+        const batch=entries.slice(start,start+8192);
+        const task=(async()=> {
+          const response=await fetch(`${endpoint}/points`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,points:batch.map(([,point])=>[point.latitude,point.longitude])})});
+          if(!response.ok)throw Error(`Named-place points request failed: ${response.status}`);
+          const bytes=new Uint8Array(await response.arrayBuffer()),table=bytes.length?decodeNamedTable(await namedUncompressed(bytes)):null;
+          for(const [key,point]of batch) {
+            const row=table&&rowFromTables(kind==='climate'?table:null,kind==='forecast'?table:null,point.latitude,point.longitude);
+            if(row)pointRows[kind].set(key,row);
+            attempted[kind].add(key);
+          }
+        })().catch(error=>{
+          for(const [key]of batch)attempted[kind].add(key);
+          throw error;
+        });
+        for(const [key]of batch)inflight[kind].set(key,task);
+        void task.finally(()=>{for(const[key]of batch)inflight[kind].delete(key);}).catch(()=>{});
+        waiting.add(task);
+      }
+      await Promise.all(waiting);
+    },
     find:(latitude,longitude,period)=> {
       if(!configuration)return null;
-      const row=rowFromTables(forecastPeriod(period)?null:climate,forecastPeriod(period)?forecast:null,latitude,longitude,forecastRun);
+      const row=pointRows[kindFor(period)].get(keyFor(latitude,longitude));
       if(!row)return null;
       const cached=factsCache.get(`${coordinate(latitude)},${coordinate(longitude)}`);if(cached)row.months=cached;
       return row;
     },
     load:async(latitude,longitude,period)=> {
-      await readyPromise;
+      await client.ensure([{latitude,longitude}],period);
       const row=client.find(latitude,longitude,period);if(!row)return null;
       if(forecastPeriod(period))return row;
       if(!climateNumbers(row,period??{kind:'year'}))return null;

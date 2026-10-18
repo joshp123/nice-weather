@@ -5,6 +5,8 @@ export function namedPlaceNumbers(row:NamedPlaceRow,period:Period):PointVerdict|
 export function createNamedPlaceClient(endpoint?:string):{
   ready():Promise<void>;
   readonly enabled:boolean;
+  ensure(points:readonly {latitude:number;longitude:number}[],period:Period):Promise<void>;
+  pending(latitude:number,longitude:number,period:Period):boolean;
   find(latitude:number,longitude:number,period:Period):NamedPlaceRow|null;
   load(latitude:number,longitude:number,period?:Period):Promise<NamedPlaceRow|null>;
 };

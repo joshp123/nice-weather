@@ -691,7 +691,7 @@ export async function handleRequest(request, env, serveAsset) {
     if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
   }
-  if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
+  if (request.method !== 'GET' && request.method !== 'HEAD' && !(request.method === 'POST' && url.pathname === '/api/named/points')) return new Response('Method not allowed', { status: 405 });
 
   if (/^\/api\/fine\/labels-[12]\.json$/.test(url.pathname)) {
     const configuration = await namedPlaces(bucket).configuration() ?? await finePlaces(bucket).configuration();
@@ -711,6 +711,16 @@ export async function handleRequest(request, env, serveAsset) {
   if (url.pathname === '/api/named') {
     const configuration = await namedPlaces(bucket).configuration();
     return json({enabled: Boolean(configuration), configuration}, 60);
+  }
+  if (url.pathname === '/api/named/points') {
+    if (request.method !== 'POST') return new Response('Use POST', {status: 405});
+    const query = await request.json();
+    if (!['climate', 'forecast'].includes(query.kind) || !Array.isArray(query.points) || query.points.length > 8192
+      || query.points.some(point => !Array.isArray(point) || point.length !== 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]) || Math.abs(point[0]) > 90 || Math.abs(point[1]) > 180)) return new Response('Bad named-place points', {status: 400});
+    const bytes = await namedPlaces(bucket).points(query.points.map(([latitude, longitude]) => ({latitude, longitude})), {kind: query.kind});
+    if (!bytes) return new Response(null, {status: 204});
+    const body = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+    return new Response(body, {headers: {'Content-Type': 'application/octet-stream', 'Content-Encoding': 'gzip', 'Cache-Control': 'no-store'}});
   }
   if (url.pathname === '/api/named/place') {
     const latitude = Number(url.searchParams.get('lat')), longitude = Number(url.searchParams.get('lon'));
