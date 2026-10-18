@@ -60,7 +60,7 @@ CORRECTNESS = [
 
 class Fixture:
     async def start(self, overlay):
-        self.process = await asyncio.create_subprocess_exec('node',str(Path(__file__).with_name('webkit_fixture_bridge.mjs')),str(overlay),cwd=Path(__file__).resolve().parents[2],stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE)
+        self.process = await asyncio.create_subprocess_exec('node',str(Path(__file__).with_name('webkit_fixture_bridge.mjs')),str(overlay),cwd=Path(__file__).resolve().parents[2],stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,limit=64*1024*1024)
         self.lock = asyncio.Lock()
         self.serial = 0
         self.reads = []
