@@ -2,7 +2,7 @@ Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
 # Named-place data size, measured without upload
 
-The existing file format can reduce the full 18.54 GB carrier to **3.98 GB for every named place**, or **1.66 GB for all map labels plus search places with population at least 50,000**. The correction tiles dominate the latter option. **A sparse active release does not fall back to the 25 km product today. It must not be activated as it stands.** Keeping the fine pointer absent preserves the current product.
+The existing file format can reduce the full 18.54 GB carrier to **3.98 GB for the catalogue's supported named places**, or **1.66 GB for all map labels plus search places with population at least 50,000**. The correction tiles dominate the latter option. **A sparse active release does not fall back to the 25 km product today. It must not be activated as it stands.** Keeping the fine pointer absent preserves the current product.
 
 No data was copied into a release, sealed, uploaded or activated for this measurement. All sizes are decimal bytes of actual existing files, before HTTP transfer compression of text. Source: `v6-fine-b1-20261018` on the SSD, generation `e68c86ba3e24654a499ae4ef37ad35f9`.
 
