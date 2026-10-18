@@ -46,7 +46,7 @@ export function localWorkerFixture(overlay, finePointer, packagedWorkerFetch) {
     }
     return new Response(bytes,{headers:{'Content-Type':media[path.extname(name)]??'application/octet-stream'}});
   };
-  return url=>packagedWorkerFetch
-    ? packagedWorkerFetch(new Request(url),{WEATHER:bucket})
-    : handleRequest(new Request(url),{WEATHER:bucket},serveAsset);
+  return (url, init)=>packagedWorkerFetch
+    ? packagedWorkerFetch(new Request(url, init),{WEATHER:bucket})
+    : handleRequest(new Request(url, init),{WEATHER:bucket},serveAsset);
 }

@@ -43,13 +43,15 @@ const sourceUrl=source=>`data:text/javascript;base64,${Buffer.from(ts.transpileM
 const countriesUrl=sourceUrl(await fs.readFile('src/ui/countries.ts','utf8'));
 const ranking=await import(sourceUrl((await fs.readFile('src/ui/ranking.ts','utf8')).replace("'./countries'",JSON.stringify(countriesUrl))));
 let namedClient;
+let labelRows;
 const nativeFetch=globalThis.fetch;
 try {
-  globalThis.fetch=url=>localFetch(new URL(url,'http://127.0.0.1:5198').href);
+  globalThis.fetch=(url,init)=>localFetch(new URL(url,'http://127.0.0.1:5198').href,init);
   namedClient=createNamedPlaceClient('http://127.0.0.1:5198/api/named');
   await namedClient.ready();
+  labelRows=(await Promise.all([1,2].map(async level=>{const response=await localFetch(`http://127.0.0.1:5198/api/fine/labels-${level}.json`);const bytes=Buffer.from(await response.arrayBuffer());return JSON.parse((bytes[0]===31&&bytes[1]===139?gunzipSync(bytes):bytes).toString());}))).flat();
+  await namedClient.ensure(labelRows.map(([, ,latitude,longitude])=>({latitude,longitude})),{kind:'month',month:7});
 } finally {globalThis.fetch=nativeFetch;}
-const labelRows=(await Promise.all([1,2].map(async level=>{const response=await localFetch(`http://127.0.0.1:5198/api/fine/labels-${level}.json`);const bytes=Buffer.from(await response.arrayBuffer());return JSON.parse((bytes[0]===31&&bytes[1]===139?gunzipSync(bytes):bytes).toString());}))).flat();
 const worldNumbers=labelRows.map(([name,slug,latitude,longitude,population])=>{
   const row=namedClient.find(latitude,longitude,{kind:'month',month:7});
   const numbers=row&&namedPlaceNumbers(row,{kind:'month',month:7})||legacyNumbers(latitude,longitude);
@@ -113,7 +115,7 @@ try {
     eventHandler = value => {
       if (value.method !== 'Fetch.requestPaused') return;
       const {requestId,request} = value.params;
-      void fixture(request.url).then(async response => {
+      void fixture(request.url,{method:request.method,headers:request.headers,...(request.postData?{body:request.postData}:{})}).then(async response => {
         const bytes = Buffer.from(await response.arrayBuffer());
         pageReads.push({url:request.url,status:response.status,bytes:bytes.length});
         const compressed=response.headers.get('Content-Encoding')==='gzip';
