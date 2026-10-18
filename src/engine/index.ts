@@ -30,6 +30,8 @@ export type TypicalWeather = Readonly<{
   daylightHours: number;
 }>;
 export type PointVerdict = Readonly<{
+  /** Present when a named place's temperature detail comes from its 1 km pixel. */
+  resolutionArcSeconds?: number;
   /** Typical-day score; retained field name for app integration. */
   meanScore: number;
   band: BandName;
@@ -66,9 +68,9 @@ export interface WeatherEngine {
   setTaste(taste: Taste): Promise<RedrawTiming>;
   /** Load the year for the dial without changing the visible map. */
   prepareYear(): Promise<void>;
-  /** Synchronous; null until data arrive or where unavailable. With the fine-place manifest, climate queries load the exact 30 arc-second pixel and replay; no overview fallback. Other periods do not select a map period. */
+  /** Synchronous; null until overview records arrive or where unavailable. At the default taste, a loaded named-place catalogue supplies that place's precomputed days; other points and tastes use the 25 km model. Other periods do not select a map period. */
   judgePoint(latitude: number, longitude: number, period?: Period): PointVerdict | null;
-  /** Named-place scores in input order; NaN means pending or missing. Fine climate uses the same exact-pixel judgement as the card and the loaded native pixel area on the map. */
+  /** Scores in input order; named default-taste values are the same as the card. Other points and tastes use the 25 km field; NaN means pending or missing. */
   scorePoints(points: readonly Point[], scope?: 'all'): Float32Array;
   /** Packed nice, perfect and awful day counts for each point. */
   countPoints(points: readonly Point[], scope?: 'all'): Float32Array;
@@ -84,8 +86,8 @@ export interface WeatherEngine {
  * const malaga = engine.judgePoint(36.72, -4.42);
  *
  * Climate months count their real calendar days, represented by eight sampled days each.
- * An installed fine-place manifest selects exact-pixel climate replay for cards and named places.
- * Without it the map and card share the full-verdict B-spline field. Every grid point first uses the same temporal typical-day rule.
+ * A named-place catalogue selects precomputed exact-pixel climate days at the default taste.
+ * The map, unnamed points and changed tastes use the full-verdict B-spline field. Every source uses the same temporal typical-day rule.
  */
 export function createWeatherEngine(map: MapLibreMap, options: EngineOptions = {}): WeatherEngine {
   return new BrowserWeatherEngine(map, options);

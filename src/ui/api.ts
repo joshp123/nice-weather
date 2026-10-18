@@ -17,7 +17,7 @@ export type MonthFacts = Readonly<{
   niceDayShare?: number;
 }>;
 
-export type PlaceDetails = Place & Readonly<{ months: readonly MonthFacts[] | null }>;
+export type PlaceDetails = Place & Readonly<{ months: readonly MonthFacts[] | null; overviewMonths?: readonly MonthFacts[] | null }>;
 export type SearchResult = Readonly<{ name: string; region: string; latitude: number; longitude: number; slug?: string | null }>;
 
 async function json<T>(url: string): Promise<T> {

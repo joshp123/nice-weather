@@ -29,7 +29,7 @@ export class FinePlaces {
     }).finally(() => this.notify());
   }
 
-  get enabled(): boolean { return this.availability !== 'inactive'; }
+  get enabled(): boolean { return this.availability === 'active'; }
   get loading(): boolean { return this.availability === 'checking' || this.pending > 0; }
 
   judge(latitude: number, longitude: number, period: Period, taste: Taste, background = false): PointVerdict | null {

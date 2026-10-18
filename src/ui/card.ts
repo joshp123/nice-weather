@@ -131,7 +131,7 @@ function comparisons(view: CardView, actions: Actions): HTMLElement | null {
 }
 
 function monthStrip(view: CardView, actions: Actions): HTMLElement | null {
-  const months = view.details?.months;
+  const months = !view.tasteIsDefault && view.details?.overviewMonths ? view.details.overviewMonths : view.details?.months;
   if (!months || months.length !== 12) return null;
   const strip = el('div', 'strip month-strip');
   let anyScore = false;
@@ -184,7 +184,8 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   const niceDays = isForecast(view.period) && view.period.kind === 'forecast-day' ? '' : `Nice on ${round(verdict.niceDayCount)} of the ${round(verdict.totalDays)} days ${view.stretchLabel ?? (view.period.kind === 'year' ? 'of the year' : `in ${periodTitle(view.period, view.forecast).toLowerCase()}`)}. Perfect on ${round(verdict.perfectDayCount)}; awful on ${round(verdict.awfulDayCount)}.`;
   const answer = el('div', 'verdict', score,
     el('div', 'verdict-text', el('strong', 'band-word', bandSentence(view.period, verdict.band)), el('p', 'verdict-days', niceDays || periodTitle(view.period, view.forecast))));
-  const periodLine = el('p', 'card-period', isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`);
+  const periodLabel = isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`;
+  const periodLine = el('p', 'card-period', `${periodLabel}${verdict.resolutionArcSeconds === 30 ? '' : ' · Area estimate'}`);
 
   const strip = isForecast(view.period) ? dayStrip(view, actions) : null;
   return el('section', 'card panel physical-card', header, answer, periodLine, why(verdict, view.taste ?? DEFAULT_TASTE), strip, monthStrip(view, actions), comparisons(view, actions));
