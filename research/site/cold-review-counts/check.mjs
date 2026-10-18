@@ -17,7 +17,7 @@ const read=async key=> {
 };
 const loader=createNamedPlaceLoader(read);
 // The preceding committed function gives a direct check that scores and bands did not move.
-let oldSource=execFileSync('git',['show','HEAD:hosting/sites/named-place.mjs'],{encoding:'utf8'});
+let oldSource=execFileSync('git',['show','a4c8a54^:hosting/sites/named-place.mjs'],{encoding:'utf8'});
 oldSource=oldSource.replaceAll("'./fine-place.mjs'",JSON.stringify(pathToFileURL(path.resolve('hosting/sites/fine-place.mjs')).href));
 const old=await import('data:text/javascript;base64,'+Buffer.from(oldSource).toString('base64'));
 const queries=['Chania','Santa Cruz de Tenerife','Arona','Málaga','Cape Town','San Diego','Rotterdam','Sydney','Bangkok','London','New York','San Francisco','Lisbon','Agadir','Funchal','Santiago','Valparaíso','Buenos Aires','Rio de Janeiro','Melbourne','Perth','Tokyo','Singapore','Hong Kong','Taipei','Auckland','Honolulu','Los Angeles','Athens','Karachi'];

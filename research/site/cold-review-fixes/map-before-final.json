@@ -1,0 +1,415 @@
+{
+  "viewport": [
+    1728,
+    1117
+  ],
+  "seconds": 30.30500033404678,
+  "totalBytes": 9122697,
+  "requests": [
+    {
+      "url": "http://127.0.0.1:5198/",
+      "bytes": 2183,
+      "bodyBytes": 2183,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/scoreCurve-87wYW0Bd.js",
+      "bytes": 8006,
+      "bodyBytes": 8006,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/scoreCurve-EoM00r-Y.css",
+      "bytes": 685,
+      "bodyBytes": 685,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/main-TDuT6SpV.css",
+      "bytes": 105985,
+      "bodyBytes": 105985,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/main-DSsTvSbZ.js",
+      "bytes": 1170331,
+      "bodyBytes": 1170331,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/barlow-latin-700-normal-A9pxMQ4z.woff2",
+      "bytes": 22788,
+      "bodyBytes": 22788,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/barlow-latin-500-normal-BPAOfeC8.woff2",
+      "bytes": 22008,
+      "bodyBytes": 22008,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/fine/labels-1.json",
+      "bytes": 57803,
+      "bodyBytes": 57803,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named",
+      "bytes": 314,
+      "bodyBytes": 314,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/home",
+      "bytes": 4,
+      "bodyBytes": 4,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/data/v6/forecast/current.json",
+      "bytes": 77,
+      "bodyBytes": 77,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet",
+      "bytes": 19254,
+      "bodyBytes": 19254,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet",
+      "bytes": 19254,
+      "bodyBytes": 19254,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "bytes": 136,
+      "bodyBytes": 136,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/data/v6/forecast/current.json",
+      "bytes": 77,
+      "bodyBytes": 77,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "bytes": 265,
+      "bodyBytes": 265,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "bytes": 265,
+      "bodyBytes": 265,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/fine/labels-2.json",
+      "bytes": 823510,
+      "bodyBytes": 823510,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/data/v6/forecast/20261017T0000Z/scores-typical-day-all.png",
+      "bytes": 79196,
+      "bodyBytes": 79196,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/2/1.pbf",
+      "bytes": 723857,
+      "bodyBytes": 1562395,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/1/1.pbf",
+      "bytes": 601193,
+      "bodyBytes": 1296979,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/2/2.pbf",
+      "bytes": 687396,
+      "bodyBytes": 1506838,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/place?lat=51.9225&lon=4.47917&kind=climate",
+      "bytes": 4225,
+      "bodyBytes": 4225,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "bytes": 131910,
+      "bodyBytes": 131910,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/place?lat=51.50853&lon=-0.12574&period=next-14-days",
+      "bytes": 5427,
+      "bodyBytes": 5427,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/place?lat=51.9225&lon=4.47917&period=next-14-days",
+      "bytes": 5462,
+      "bodyBytes": 5462,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/1/2.pbf",
+      "bytes": 590958,
+      "bodyBytes": 1276263,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/2/0.pbf",
+      "bytes": 565186,
+      "bodyBytes": 1224697,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/3/1.pbf",
+      "bytes": 607534,
+      "bodyBytes": 1331392,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/1/0.pbf",
+      "bytes": 504819,
+      "bodyBytes": 1083038,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/3/2.pbf",
+      "bytes": 596532,
+      "bodyBytes": 1310201,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/0/1.pbf",
+      "bytes": 322338,
+      "bodyBytes": 659435,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/0/2.pbf",
+      "bytes": 306794,
+      "bodyBytes": 635177,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/3/0.pbf",
+      "bytes": 521440,
+      "bodyBytes": 1141780,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/0-255.pbf",
+      "bytes": 81170,
+      "bodyBytes": 81170,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet/20261011_080001_pt/2/0/0.pbf",
+      "bytes": 224770,
+      "bodyBytes": 441548,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/256-511.pbf",
+      "bytes": 134545,
+      "bodyBytes": 134545,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/7680-7935.pbf",
+      "bytes": 139322,
+      "bodyBytes": 139322,
+      "status": 200
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/8192-8447.pbf",
+      "bytes": 35678,
+      "bodyBytes": 35678,
+      "status": 200
+    }
+  ],
+  "cdpRequests": [
+    {
+      "url": "http://127.0.0.1:5198/",
+      "status": 200,
+      "type": "Document",
+      "bytes": 2391
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/scoreCurve-87wYW0Bd.js",
+      "status": 200,
+      "type": "Script",
+      "bytes": 8206
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/scoreCurve-EoM00r-Y.css",
+      "status": 200,
+      "type": "Stylesheet",
+      "bytes": 877
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/main-TDuT6SpV.css",
+      "status": 200,
+      "type": "Stylesheet",
+      "bytes": 106179
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/main-DSsTvSbZ.js",
+      "status": 200,
+      "type": "Script",
+      "bytes": 1170527
+    },
+    {
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E",
+      "status": 200,
+      "type": "Image",
+      "bytes": 0
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/barlow-latin-700-normal-A9pxMQ4z.woff2",
+      "status": 200,
+      "type": "Font",
+      "bytes": 22997
+    },
+    {
+      "url": "http://127.0.0.1:5198/assets/barlow-latin-500-normal-BPAOfeC8.woff2",
+      "status": 200,
+      "type": "Font",
+      "bytes": 22217
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/fine/labels-1.json",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 58014
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 524
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/home",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 211
+    },
+    {
+      "url": "http://127.0.0.1:5198/data/v6/forecast/current.json",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 298
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 2439
+    },
+    {
+      "url": "https://tiles.openfreemap.org/planet",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 2085
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 342
+    },
+    {
+      "url": "http://127.0.0.1:5198/data/v6/forecast/current.json",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 298
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 340
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 340
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/fine/labels-2.json",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 823722
+    },
+    {
+      "url": "http://127.0.0.1:5198/data/v6/forecast/20261017T0000Z/scores-typical-day-all.png",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 79433
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/0-255.pbf",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 45418
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/7680-7935.pbf",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 40047
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/8192-8447.pbf",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 24710
+    },
+    {
+      "url": "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Bold/256-511.pbf",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 58569
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/place?lat=51.9225&lon=4.47917&kind=climate",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 4436
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/named/points",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 57520
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/place?lat=51.50853&lon=-0.12574&period=next-14-days",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 5638
+    },
+    {
+      "url": "http://127.0.0.1:5198/api/place?lat=51.9225&lon=4.47917&period=next-14-days",
+      "status": 200,
+      "type": "Fetch",
+      "bytes": 5673
+    }
+  ],
+  "errors": []
+}

@@ -1,0 +1,1803 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026.10.18",
+  "checks": [
+    {
+      "width": 1512,
+      "case": "ranking-winter",
+      "headline": "Nicest on this map from November to March: \ud83c\uddee\ud83c\uddf3 Bengaluru, \ud83c\uddf5\ud83c\uddf0 Lahore and \ud83c\uddff\ud83c\udde6 Johannesburg.",
+      "visibleLabels": [
+        {
+          "name": "Abidjan",
+          "slug": "ivory-coast/abidjan",
+          "latitude": 5.35444,
+          "longitude": -4.00167,
+          "population": 6321017,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Bogot\u00e1",
+          "slug": "colombia/bogota",
+          "latitude": 4.60971,
+          "longitude": -74.08175,
+          "population": 7674366,
+          "displayedNumber": 22
+        },
+        {
+          "name": "New York",
+          "slug": "united-states/new-york",
+          "latitude": 40.71427,
+          "longitude": -74.00597,
+          "population": 8804190,
+          "displayedNumber": 1
+        },
+        {
+          "name": "London",
+          "slug": "united-kingdom/london",
+          "latitude": 51.50853,
+          "longitude": -0.12574,
+          "population": 8961989,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Mexico City",
+          "slug": "mexico/mexico-city",
+          "latitude": 19.42847,
+          "longitude": -99.12766,
+          "population": 12294193,
+          "displayedNumber": 35
+        },
+        {
+          "name": "\u00dcr\u00fcmqi",
+          "slug": "china/urumqi",
+          "latitude": 43.80096,
+          "longitude": 87.60046,
+          "population": 4054000,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Baghdad",
+          "slug": "iraq/baghdad",
+          "latitude": 33.34058,
+          "longitude": 44.40088,
+          "population": 7216000,
+          "displayedNumber": 26
+        },
+        {
+          "name": "Bengaluru",
+          "slug": "india/bengaluru",
+          "latitude": 12.97194,
+          "longitude": 77.59369,
+          "population": 8495492,
+          "displayedNumber": 36
+        },
+        {
+          "name": "Harbin",
+          "slug": "china/harbin",
+          "latitude": 45.75,
+          "longitude": 126.65,
+          "population": 10009854,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Moscow",
+          "slug": "russia/moscow",
+          "latitude": 55.75204,
+          "longitude": 37.61781,
+          "population": 10381222,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Lahore",
+          "slug": "pakistan/lahore",
+          "latitude": 31.558,
+          "longitude": 74.35071,
+          "population": 13004135,
+          "displayedNumber": 33
+        },
+        {
+          "name": "Ho Chi Minh City",
+          "slug": "vietnam/ho-chi-minh-city",
+          "latitude": 10.82302,
+          "longitude": 106.62965,
+          "population": 14002598,
+          "displayedNumber": 3
+        },
+        {
+          "name": "Istanbul",
+          "slug": "turkey/istanbul",
+          "latitude": 41.01384,
+          "longitude": 28.94966,
+          "population": 15701602,
+          "displayedNumber": 2
+        },
+        {
+          "name": "Chengdu",
+          "slug": "china/chengdu",
+          "latitude": 30.66667,
+          "longitude": 104.06667,
+          "population": 20937757,
+          "displayedNumber": 6
+        },
+        {
+          "name": "Shanghai",
+          "slug": "china/shanghai",
+          "latitude": 31.22222,
+          "longitude": 121.45806,
+          "population": 24874500,
+          "displayedNumber": 4
+        },
+        {
+          "name": "Santiago",
+          "slug": "chile/santiago",
+          "latitude": -33.45694,
+          "longitude": -70.64827,
+          "population": 4837295,
+          "displayedNumber": 39
+        },
+        {
+          "name": "Lima",
+          "slug": "peru/lima",
+          "latitude": -12.04318,
+          "longitude": -77.02824,
+          "population": 7737002,
+          "displayedNumber": 38
+        },
+        {
+          "name": "S\u00e3o Paulo",
+          "slug": "brazil/sao-paulo",
+          "latitude": -23.5475,
+          "longitude": -46.63611,
+          "population": 12400232,
+          "displayedNumber": 20
+        },
+        {
+          "name": "Dar es Salaam",
+          "slug": "tanzania/dar-es-salaam",
+          "latitude": -6.82349,
+          "longitude": 39.26951,
+          "population": 5383728,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Jakarta",
+          "slug": "indonesia/jakarta",
+          "latitude": -6.21462,
+          "longitude": 106.84513,
+          "population": 8540121,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Johannesburg",
+          "slug": "south-africa/johannesburg",
+          "latitude": -26.20227,
+          "longitude": 28.04363,
+          "population": 9418183,
+          "displayedNumber": 30
+        },
+        {
+          "name": "Kinshasa",
+          "slug": "democratic-republic-of-the-congo/kinshasa",
+          "latitude": -4.32758,
+          "longitude": 15.31357,
+          "population": 16000000,
+          "displayedNumber": 0
+        }
+      ],
+      "list": "MOST NICE DAYS\nOF 40 SAMPLED\n1\n\ud83c\udde8\ud83c\uddf1 Santiago\n39 nice \u00b7 38 perfect \u00b7 score 99\n39\n2\n\ud83c\uddf5\ud83c\uddea Lima\n38 nice \u00b7 20 perfect \u00b7 score 85\n38\n3\n\ud83c\uddee\ud83c\uddf3 Bengaluru\n36 nice \u00b7 23 perfect \u00b7 score 87\n36\n4\n\ud83c\uddf2\ud83c\uddfd Mexico City\n35 nice \u00b7 19 perfect \u00b7 score 84\n35\n5\n\ud83c\uddf5\ud83c\uddf0 Lahore\n33 nice \u00b7 23 perfect \u00b7 score 87\n33\n\nNice days out of 40 sampled days in your winter, November to March. Ties favour perfect days, then the typical-day score and population.\n\n\ud83c\uddf3\ud83c\uddf1 Rotterdam (home): awful on 40 of 40 sampled days in your winter, November to March.\n\n\ud83c\uddec\ud83c\udde7 London: 0 nice days over the same stretch.\n\nBest by van from Rotterdam: \ud83c\uddf2\ud83c\udde6 Agadir. Swap 40 awful days at home for 36 nice ones in your winter, November to March."
+    },
+    {
+      "width": 1512,
+      "case": "ranking-day",
+      "headline": "Nicest on this map on Tuesday 20 October: \ud83c\uddf1\ud83c\uddfe At T\u0101j, \ud83c\uddf8\ud83c\uddfe Al-Hasakah and \ud83c\uddee\ud83c\uddf6 Al-Qa'im.",
+      "visibleLabels": [
+        {
+          "name": "Benghazi",
+          "slug": "libya/benghazi",
+          "latitude": 32.11486,
+          "longitude": 20.06859,
+          "population": 757490,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Heraklion",
+          "slug": "greece/heraklion",
+          "latitude": 35.32787,
+          "longitude": 25.14341,
+          "population": 137154,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Tobruk",
+          "slug": "libya/tobruk",
+          "latitude": 32.08963,
+          "longitude": 23.95385,
+          "population": 141499,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Nicosia",
+          "slug": "cyprus/nicosia",
+          "latitude": 35.17284,
+          "longitude": 33.35397,
+          "population": 200452,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Al-Qa'im",
+          "slug": "iraq/al-qa-im",
+          "latitude": 34.39251,
+          "longitude": 40.98945,
+          "population": 74100,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Rukban",
+          "slug": "jordan/rukban",
+          "latitude": 33.31405,
+          "longitude": 38.70342,
+          "population": 85000,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Al-Hasakah",
+          "slug": "syria/al-hasakah",
+          "latitude": 36.50237,
+          "longitude": 40.74772,
+          "population": 422445,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Latakia",
+          "slug": "syria/latakia",
+          "latitude": 35.53125,
+          "longitude": 35.79088,
+          "population": 709000,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Amman",
+          "slug": "jordan/amman",
+          "latitude": 31.95522,
+          "longitude": 35.94503,
+          "population": 1275857,
+          "displayedNumber": 94
+        },
+        {
+          "name": "Adana",
+          "slug": "turkey/adana",
+          "latitude": 36.98615,
+          "longitude": 35.32531,
+          "population": 1816750,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Diyarbak\u0131r",
+          "slug": "turkey/diyarbakr",
+          "latitude": 37.91363,
+          "longitude": 40.21721,
+          "population": 1833684,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Beirut",
+          "slug": "lebanon/beirut",
+          "latitude": 33.89332,
+          "longitude": 35.50157,
+          "population": 1916100,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Al Maw\u015fil al Jad\u012bdah",
+          "slug": "iraq/al-mawsil-al-jadidah",
+          "latitude": 36.33271,
+          "longitude": 43.10555,
+          "population": 2065597,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Gaziantep",
+          "slug": "turkey/gaziantep",
+          "latitude": 37.05944,
+          "longitude": 37.3825,
+          "population": 2222415,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Baghdad",
+          "slug": "iraq/baghdad",
+          "latitude": 33.34058,
+          "longitude": 44.40088,
+          "population": 7216000,
+          "displayedNumber": 85
+        },
+        {
+          "name": "\u012al\u0101m",
+          "slug": "iran/ilam",
+          "latitude": 33.6374,
+          "longitude": 46.4227,
+          "population": 140940,
+          "displayedNumber": 92
+        },
+        {
+          "name": "B\u016bk\u0101n",
+          "slug": "iran/bukan",
+          "latitude": 36.521,
+          "longitude": 46.2089,
+          "population": 193501,
+          "displayedNumber": 80
+        },
+        {
+          "name": "Tabriz",
+          "slug": "iran/tabriz",
+          "latitude": 38.08,
+          "longitude": 46.2919,
+          "population": 1424641,
+          "displayedNumber": 59
+        },
+        {
+          "name": "Sirte",
+          "slug": "libya/sirte",
+          "latitude": 31.20892,
+          "longitude": 16.58866,
+          "population": 106705,
+          "displayedNumber": 93
+        },
+        {
+          "name": "At T\u0101j",
+          "slug": "libya/at-taj",
+          "latitude": 24.20487,
+          "longitude": 23.2857,
+          "population": 46050,
+          "displayedNumber": 100
+        },
+        {
+          "name": "Al Burj",
+          "slug": "egypt/al-burj",
+          "latitude": 31.58229,
+          "longitude": 30.98095,
+          "population": 60320,
+          "displayedNumber": 88
+        },
+        {
+          "name": "Al Kh\u0101rjah",
+          "slug": "egypt/al-kharjah",
+          "latitude": 25.45101,
+          "longitude": 30.54653,
+          "population": 83108,
+          "displayedNumber": 89
+        },
+        {
+          "name": "Mars\u00e1 Ma\u0163r\u016b\u1e29",
+          "slug": "egypt/marsa-matruh",
+          "latitude": 31.3529,
+          "longitude": 27.23725,
+          "population": 176498,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Esna",
+          "slug": "egypt/esna",
+          "latitude": 25.29336,
+          "longitude": 32.55402,
+          "population": 462787,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Asyut",
+          "slug": "egypt/asyut",
+          "latitude": 27.18096,
+          "longitude": 31.18368,
+          "population": 528669,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Cairo",
+          "slug": "egypt/cairo",
+          "latitude": 30.06263,
+          "longitude": 31.24967,
+          "population": 9606916,
+          "displayedNumber": 95
+        },
+        {
+          "name": "Ma'an",
+          "slug": "jordan/ma-an",
+          "latitude": 30.19624,
+          "longitude": 35.73405,
+          "population": 50350,
+          "displayedNumber": 85
+        },
+        {
+          "name": "\u0162urayf",
+          "slug": "saudi-arabia/turayf",
+          "latitude": 31.672,
+          "longitude": 38.663,
+          "population": 66014,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Ad Daw\u0101dim\u012b",
+          "slug": "saudi-arabia/ad-dawadimi",
+          "latitude": 24.50772,
+          "longitude": 44.39237,
+          "population": 86861,
+          "displayedNumber": 93
+        },
+        {
+          "name": "Arar",
+          "slug": "saudi-arabia/arar",
+          "latitude": 30.97531,
+          "longitude": 41.03808,
+          "population": 148540,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Al \u2018Ar\u012bsh",
+          "slug": "egypt/al-arish",
+          "latitude": 31.13159,
+          "longitude": 33.79844,
+          "population": 199243,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Hurghada",
+          "slug": "egypt/hurghada",
+          "latitude": 27.25738,
+          "longitude": 33.81291,
+          "population": 207132,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Ha'il",
+          "slug": "saudi-arabia/ha-il",
+          "latitude": 27.52188,
+          "longitude": 41.69073,
+          "population": 605930,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Tabuk",
+          "slug": "saudi-arabia/tabuk",
+          "latitude": 28.3998,
+          "longitude": 36.57151,
+          "population": 667000,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Buraidah",
+          "slug": "saudi-arabia/buraidah",
+          "latitude": 26.32599,
+          "longitude": 43.97497,
+          "population": 745353,
+          "displayedNumber": 86
+        },
+        {
+          "name": "Al-Madinah al-Munawwarah",
+          "slug": "saudi-arabia/al-madinah-al-munawwarah",
+          "latitude": 24.46861,
+          "longitude": 39.61417,
+          "population": 1300000,
+          "displayedNumber": 82
+        },
+        {
+          "name": "Hafar Al-Batin",
+          "slug": "saudi-arabia/hafar-al-batin",
+          "latitude": 28.43279,
+          "longitude": 45.97077,
+          "population": 271642,
+          "displayedNumber": 82
+        },
+        {
+          "name": "Nasiriyah",
+          "slug": "iraq/nasiriyah",
+          "latitude": 31.05799,
+          "longitude": 46.25726,
+          "population": 558400,
+          "displayedNumber": 74
+        },
+        {
+          "name": "Jeddah",
+          "slug": "saudi-arabia/jeddah",
+          "latitude": 21.49012,
+          "longitude": 39.18624,
+          "population": 4697000,
+          "displayedNumber": 39
+        }
+      ],
+      "list": "HIGHEST SCORES\nOUT OF 100\n1\n\ud83c\uddf1\ud83c\uddfe At T\u0101j\n1 nice \u00b7 1 perfect\n100\n2\n\ud83c\uddf8\ud83c\uddfe Al-Hasakah\n1 nice \u00b7 1 perfect\n99\n3\n\ud83c\uddee\ud83c\uddf6 Al-Qa'im\n1 nice \u00b7 1 perfect\n99\n4\n\ud83c\uddf8\ud83c\udde6 Tabuk\n1 nice \u00b7 1 perfect\n99\n5\n\ud83c\uddf9\ud83c\uddf7 Adana\n1 nice \u00b7 1 perfect\n99\n\nThe label shows the day\u2019s score. Ties favour perfect days, then the typical-day score and population.\n\n\ud83c\uddf3\ud83c\uddf1 Rotterdam (home): awful on 1 of 1 days in Tuesday 20 October.\n\n\ud83c\uddec\ud83c\udde7 London: 0 nice days over the same stretch.\n\nBest by van from Rotterdam: \ud83c\uddea\ud83c\udded Laayoune. Swap 1 awful day at home for 1 nice ones in Tuesday 20 October."
+    },
+    {
+      "width": 1512,
+      "case": "rounded-location",
+      "apiRequests": [
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[38.7,-9.41]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"climate\",\"points\":[[38.7,-9.41]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41&period=2026-10-20",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[32.88743,13.18733],[40.17765,44.5126],[41.69143,44.83412],[39.90861,41.27694],[19.61745,37.21644],[41.27976,36.3361],[30.4431,47.87802],[40.68157,46.36134],[34.74056,10.76028],[39.74833,37.01611],[41.005,39.72694],[40.97782,37.89047],[32.46739,14.56874],[32.64861,14.26191],[32.7571,12.72764],[41.64077,41.6306],[33.35608,6.86319],[32.75222,12.72778],[29.33278,48.02861],[32.81868,13.01727],[39.73919,39.49015],[40.17396,44.4457],[27.03766,14.42832],[33.11083,6.07],[40.1557,44.4779],[29.25722,48.05722],[40.19661,44.5669],[40.17806,44.51303],[32.75718,12.37633],[40.31389,36.55444],[40.13309,44.53009],[41.56271,44.9787],[40.61832,47.15014],[27.05,14.4],[40.91698,38.38741],[34.79435,10.80617],[39.71467,43.04015],[40.19917,44.47056],[41.02083,40.52194],[40.20624,44.50365],[20.00054,42.6052],[40.65333,35.83306],[40.79305,43.84635],[40.3875,36.08111],[33.88146,10.0982],[30.0362,47.91951],[18.73694,7.38528],[40.76422,47.06227],[39.6482,47.9174],[32.85286,12.0612],[39.92371,44.045],[32.68333,13.18333],[32.88167,13.35056],[19.5773,41.96357],[34.80194,10.76361],[39.20889,45.41222],[40.59825,43.08548],[34.425,8.78417],[41.56787,35.90311],[39.02587,43.35964],[33.87576,10.85745],[20.01288,41.46767],[39.22493,42.85693],[33.13783,11.21965],[29.2775,47.95861],[38.94728,38.9423],[32.79335,12.48845],[41.02886,37.49977],[32.76472,12.67389]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[38.69681,-9.42147]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"climate\",\"points\":[[38.69681,-9.42147]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[34.67279,3.263],[34.85038,5.72805],[31.94932,5.32502],[32.49094,3.67347],[34.83033,0.15171],[33.8,2.86514],[23.68477,-15.95798],[34.15429,3.50309],[34.11279,2.10228],[33.68318,1.01927],[22.785,5.52278],[31.92427,5.35018]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.69681&lon=-9.42147&period=2026-10-20",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/place?lat=38.69681&lon=-9.42147&kind=climate",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[32.79211,4.49949],[34.43,5.06139],[30.57556,2.88417],[34.72224,5.37845],[41.17872,-8.55953],[38.90883,1.43296],[45.76106,4.82677],[43.21649,2.34863],[45.64997,0.15345],[35.06544,1.04945],[45.90878,6.12565],[40.36709,-3.74608],[35.97108,6.87374],[40.3995,-3.65853],[33.48529,6.79693],[35.63106,5.91186],[43.65783,6.92537],[34.31,-2.16],[40.38432,-3.74575],[32.75,-0.58333],[43.60527,2.24088],[43.30213,5.40141],[41.3975,2.14301],[43.32842,-3.03248],[36.64997,3.3308],[43.66352,7.1479],[35.16878,-5.2636],[38.70194,-9.34083],[33.16427,-5.56722],[40.15085,-8.86179],[41.38697,2.13472],[42.26645,2.96163],[41.37732,2.08809],[38.77478,-9.15601],[36.67,2.94444],[40.40924,-3.70246],[39.47523,-0.41825],[41.30605,2.00123],[36.75472,6.2725],[31.51472,-5.53278],[37.34461,-6.06391],[41.17289,-8.59931],[43.32099,-3.02064],[43.40735,5.05526],[34.58319,-2.50612],[41.38042,2.1686],[40.47714,-3.70959],[43.30257,5.37583],[46.20574,5.2258],[37.01938,-4.56123],[40.39003,-3.66787],[46.34015,2.60254],[35.9441,5.03107],[43.29276,5.57067],[33.28952,-8.3425],[41.76719,-8.58393],[40.40804,-3.70131],[43.29551,5.40055],[36.74328,3.7173],[36.18503,1.53299],[31.68041,6.07286],[43.49316,-1.473],[39.15,-0.43333],[43.51345,4.98747],[40.47456,-3.72236],[36.46298,2.81464],[43.25,-5.76667],[34.68664,-6.00272],[36.14766,3.69123],[41.43806,2.2195],[30.33241,-5.8384],[41.39606,2.16688],[40.65909,-3.76762],[40.24147,-3.69999],[40.47366,-3.57777],[36.30554,2.2248],[43.28764,5.37918],[43.57662,7.01912],[40.40969,-3.73181],[40.38524,-3.63726],[38.77079,-9.25015],[41.38333,2.05],[36.56463,3.5933],[45.79462,4.8464],[44.55858,6.07868],[31.56517,-7.66163],[43.2397,-2.8858],[39.56964,3.20955],[44.80849,-0.58915],[44.12489,4.08082],[37.40881,-4.48522],[31.96156,-6.57109],[40.43633,-3.66658],[40.60092,-3.70806],[41.38939,2.15517],[36.12129,5.9867],[38.84078,0.10574],[45.69651,4.94385],[35.48171,6.26074],[34.30494,-6.30404],[30.20942,-9.37922],[43.64229,5.09478],[36.53628,3.8334],[36.8,4.26667],[40.21805,-8.40523],[38.44451,-9.10149],[33.11667,6.08333],[37.96939,-1.21714],[34.53661,-4.64009],[36.64262,2.69007],[43.29814,5.38407],[41.37452,2.16326],[36.6204,3.22248],[41.37426,2.13826],[36.51833,2.90528],[43.4028,3.69278],[36.68394,3.36661],[33.78942,-7.15968],[43.48921,-1.51921],[41.44443,-8.29619],[40.38476,-3.65888],[40.34852,-3.61621],[40.3966,-3.72833],[36.45774,6.04267],[36.52819,-6.19011],[33.41972,-7.85237],[40.03116,-6.08845],[40.53754,-7.26631],[41.67419,2.79036],[35.14637,-3.85063],[43.29568,-5.68416],[35.41722,0.32982],[37.5422,-5.0826],[41.93012,2.25486],[46.03624,4.06802],[40.46396,-3.63625],[35.30099,-1.38226],[32.61336,5.51259],[32.26667,3.63333],[40.42386,-3.53261]]}"
+        }
+      ]
+    },
+    {
+      "width": 1512,
+      "case": "method-and-not-found",
+      "passed": true
+    },
+    {
+      "width": 390,
+      "case": "ranking-winter",
+      "headline": "Nicest on this map from November to March: \ud83c\uddf9\ud83c\uddf7 Istanbul, \ud83c\udde8\ud83c\udde9 Kinshasa and \ud83c\uddec\ud83c\udde7 London.",
+      "visibleLabels": [
+        {
+          "name": "London",
+          "slug": "united-kingdom/london",
+          "latitude": 51.50853,
+          "longitude": -0.12574,
+          "population": 8961989,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Saint Petersburg",
+          "slug": "russia/saint-petersburg",
+          "latitude": 59.93863,
+          "longitude": 30.31413,
+          "population": 5351935,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Istanbul",
+          "slug": "turkey/istanbul",
+          "latitude": 41.01384,
+          "longitude": 28.94966,
+          "population": 15701602,
+          "displayedNumber": 2
+        },
+        {
+          "name": "Kinshasa",
+          "slug": "democratic-republic-of-the-congo/kinshasa",
+          "latitude": -4.32758,
+          "longitude": 15.31357,
+          "population": 16000000,
+          "displayedNumber": 0
+        }
+      ],
+      "list": "MOST NICE DAYS\nOF 40 SAMPLED\n\u00d7\n1\n\ud83c\uddf9\ud83c\uddf7 Istanbul\n2 nice \u00b7 1 perfect \u00b7 score 16\n2\n2\n\ud83c\udde8\ud83c\udde9 Kinshasa\n0 nice \u00b7 0 perfect \u00b7 score 22\n0\n3\n\ud83c\uddec\ud83c\udde7 London\n0 nice \u00b7 0 perfect \u00b7 score 13\n0\n4\n\ud83c\uddf7\ud83c\uddfa Saint Petersburg\n0 nice \u00b7 0 perfect \u00b7 score 13\n0\n\nNice days out of 40 sampled days in your winter, November to March. Ties favour perfect days, then the typical-day score and population.\n\n\ud83c\uddf3\ud83c\uddf1 Rotterdam (home): awful on 40 of 40 sampled days in your winter, November to March.\n\n\ud83c\uddec\ud83c\udde7 London: 0 nice days over the same stretch.\n\nBest by van from Rotterdam: \ud83c\uddf2\ud83c\udde6 Agadir. Swap 40 awful days at home for 36 nice ones in your winter, November to March."
+    },
+    {
+      "width": 390,
+      "case": "ranking-day",
+      "headline": "Nicest on this map on Tuesday 20 October: \ud83c\uddea\ud83c\uddec Al \u2018Ar\u012bsh, \ud83c\uddea\ud83c\uddec Cairo and \ud83c\uddea\ud83c\uddec Asyut.",
+      "visibleLabels": [
+        {
+          "name": "Al Burj",
+          "slug": "egypt/al-burj",
+          "latitude": 31.58229,
+          "longitude": 30.98095,
+          "population": 60320,
+          "displayedNumber": 88
+        },
+        {
+          "name": "Al Kh\u0101rjah",
+          "slug": "egypt/al-kharjah",
+          "latitude": 25.45101,
+          "longitude": 30.54653,
+          "population": 83108,
+          "displayedNumber": 89
+        },
+        {
+          "name": "Esna",
+          "slug": "egypt/esna",
+          "latitude": 25.29336,
+          "longitude": 32.55402,
+          "population": 462787,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Asyut",
+          "slug": "egypt/asyut",
+          "latitude": 27.18096,
+          "longitude": 31.18368,
+          "population": 528669,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Cairo",
+          "slug": "egypt/cairo",
+          "latitude": 30.06263,
+          "longitude": 31.24967,
+          "population": 9606916,
+          "displayedNumber": 95
+        },
+        {
+          "name": "Al \u2018Ar\u012bsh",
+          "slug": "egypt/al-arish",
+          "latitude": 31.13159,
+          "longitude": 33.79844,
+          "population": 199243,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Hurghada",
+          "slug": "egypt/hurghada",
+          "latitude": 27.25738,
+          "longitude": 33.81291,
+          "population": 207132,
+          "displayedNumber": 92
+        }
+      ],
+      "list": "HIGHEST SCORES\nOUT OF 100\n\u00d7\n1\n\ud83c\uddea\ud83c\uddec Al \u2018Ar\u012bsh\n1 nice \u00b7 1 perfect\n96\n2\n\ud83c\uddea\ud83c\uddec Cairo\n1 nice \u00b7 1 perfect\n95\n3\n\ud83c\uddea\ud83c\uddec Asyut\n1 nice \u00b7 1 perfect\n92\n4\n\ud83c\uddea\ud83c\uddec Hurghada\n1 nice \u00b7 1 perfect\n92\n5\n\ud83c\uddea\ud83c\uddec Al Burj\n1 nice \u00b7 1 perfect\n88\n\nThe label shows the day\u2019s score. Ties favour perfect days, then the typical-day score and population.\n\n\ud83c\uddf3\ud83c\uddf1 Rotterdam (home): awful on 1 of 1 days in Tuesday 20 October.\n\n\ud83c\uddec\ud83c\udde7 London: 0 nice days over the same stretch.\n\nBest by van from Rotterdam: \ud83c\uddea\ud83c\udded Laayoune. Swap 1 awful day at home for 1 nice ones in Tuesday 20 October."
+    },
+    {
+      "width": 390,
+      "case": "rounded-location",
+      "apiRequests": [
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[38.7,-9.41]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"climate\",\"points\":[[38.7,-9.41]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[17.70217,33.98638]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41&period=2026-10-20",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[38.69681,-9.42147]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"climate\",\"points\":[[38.69681,-9.42147]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.69681&lon=-9.42147&period=2026-10-20",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/place?lat=38.69681&lon=-9.42147&kind=climate",
+          "body": null
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "case": "method-and-not-found",
+      "passed": true
+    },
+    {
+      "width": 3840,
+      "case": "ranking-winter",
+      "headline": "Nicest on this map from November to March: \ud83c\udde8\ud83c\uddf1 Santiago, \ud83c\udde6\ud83c\uddfa Perth and \ud83c\uddf3\ud83c\uddec Kano.",
+      "visibleLabels": [
+        {
+          "name": "Dallas",
+          "slug": "united-states/dallas",
+          "latitude": 32.78306,
+          "longitude": -96.80667,
+          "population": 1326087,
+          "displayedNumber": 12
+        },
+        {
+          "name": "Los Angeles",
+          "slug": "united-states/los-angeles",
+          "latitude": 34.05223,
+          "longitude": -118.24368,
+          "population": 3820914,
+          "displayedNumber": 32
+        },
+        {
+          "name": "Mexico City",
+          "slug": "mexico/mexico-city",
+          "latitude": 19.42847,
+          "longitude": -99.12766,
+          "population": 12294193,
+          "displayedNumber": 35
+        },
+        {
+          "name": "Santo Domingo",
+          "slug": "dominican-republic/santo-domingo",
+          "latitude": 18.47186,
+          "longitude": -69.89232,
+          "population": 2201941,
+          "displayedNumber": 10
+        },
+        {
+          "name": "Dakar",
+          "slug": "senegal/dakar",
+          "latitude": 14.6937,
+          "longitude": -17.44406,
+          "population": 2646503,
+          "displayedNumber": 37
+        },
+        {
+          "name": "Casablanca",
+          "slug": "morocco/casablanca",
+          "latitude": 33.58831,
+          "longitude": -7.61138,
+          "population": 3665954,
+          "displayedNumber": 29
+        },
+        {
+          "name": "Abidjan",
+          "slug": "ivory-coast/abidjan",
+          "latitude": 5.35444,
+          "longitude": -4.00167,
+          "population": 6321017,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Bogot\u00e1",
+          "slug": "colombia/bogota",
+          "latitude": 4.60971,
+          "longitude": -74.08175,
+          "population": 7674366,
+          "displayedNumber": 22
+        },
+        {
+          "name": "New York",
+          "slug": "united-states/new-york",
+          "latitude": 40.71427,
+          "longitude": -74.00597,
+          "population": 8804190,
+          "displayedNumber": 1
+        },
+        {
+          "name": "London",
+          "slug": "united-kingdom/london",
+          "latitude": 51.50853,
+          "longitude": -0.12574,
+          "population": 8961989,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Yekaterinburg",
+          "slug": "russia/yekaterinburg",
+          "latitude": 56.85733,
+          "longitude": 60.61529,
+          "population": 1495066,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Novosibirsk",
+          "slug": "russia/novosibirsk",
+          "latitude": 55.02259,
+          "longitude": 82.93175,
+          "population": 1612833,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Mashhad",
+          "slug": "iran/mashhad",
+          "latitude": 36.29807,
+          "longitude": 59.60567,
+          "population": 2307177,
+          "displayedNumber": 6
+        },
+        {
+          "name": "Rome",
+          "slug": "italy/rome",
+          "latitude": 41.89193,
+          "longitude": 12.51133,
+          "population": 2318895,
+          "displayedNumber": 7
+        },
+        {
+          "name": "Berlin",
+          "slug": "germany/berlin",
+          "latitude": 52.52437,
+          "longitude": 13.41053,
+          "population": 3426354,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Addis Ababa",
+          "slug": "ethiopia/addis-ababa",
+          "latitude": 9.02497,
+          "longitude": 38.74689,
+          "population": 3860000,
+          "displayedNumber": 38
+        },
+        {
+          "name": "\u00dcr\u00fcmqi",
+          "slug": "china/urumqi",
+          "latitude": 43.80096,
+          "longitude": 87.60046,
+          "population": 4054000,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Kano",
+          "slug": "nigeria/kano",
+          "latitude": 12.00012,
+          "longitude": 8.51672,
+          "population": 4910000,
+          "displayedNumber": 38
+        },
+        {
+          "name": "Baghdad",
+          "slug": "iraq/baghdad",
+          "latitude": 33.34058,
+          "longitude": 44.40088,
+          "population": 7216000,
+          "displayedNumber": 26
+        },
+        {
+          "name": "Cairo",
+          "slug": "egypt/cairo",
+          "latitude": 30.06263,
+          "longitude": 31.24967,
+          "population": 9606916,
+          "displayedNumber": 32
+        },
+        {
+          "name": "Moscow",
+          "slug": "russia/moscow",
+          "latitude": 55.75204,
+          "longitude": 37.61781,
+          "population": 10381222,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Mumbai",
+          "slug": "india/mumbai",
+          "latitude": 19.07283,
+          "longitude": 72.88261,
+          "population": 12691836,
+          "displayedNumber": 31
+        },
+        {
+          "name": "Lahore",
+          "slug": "pakistan/lahore",
+          "latitude": 31.558,
+          "longitude": 74.35071,
+          "population": 13004135,
+          "displayedNumber": 33
+        },
+        {
+          "name": "Istanbul",
+          "slug": "turkey/istanbul",
+          "latitude": 41.01384,
+          "longitude": 28.94966,
+          "population": 15701602,
+          "displayedNumber": 2
+        },
+        {
+          "name": "Budta",
+          "slug": "philippines/budta",
+          "latitude": 7.20417,
+          "longitude": 124.43972,
+          "population": 1273715,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Tokyo",
+          "slug": "japan/tokyo",
+          "latitude": 35.6895,
+          "longitude": 139.69171,
+          "population": 9733276,
+          "displayedNumber": 4
+        },
+        {
+          "name": "Harbin",
+          "slug": "china/harbin",
+          "latitude": 45.75,
+          "longitude": 126.65,
+          "population": 10009854,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Dhaka",
+          "slug": "bangladesh/dhaka",
+          "latitude": 23.7104,
+          "longitude": 90.40744,
+          "population": 10356500,
+          "displayedNumber": 33
+        },
+        {
+          "name": "Ho Chi Minh City",
+          "slug": "vietnam/ho-chi-minh-city",
+          "latitude": 10.82302,
+          "longitude": 106.62965,
+          "population": 14002598,
+          "displayedNumber": 3
+        },
+        {
+          "name": "Chengdu",
+          "slug": "china/chengdu",
+          "latitude": 30.66667,
+          "longitude": 104.06667,
+          "population": 20937757,
+          "displayedNumber": 6
+        },
+        {
+          "name": "Shanghai",
+          "slug": "china/shanghai",
+          "latitude": 31.22222,
+          "longitude": 121.45806,
+          "population": 24874500,
+          "displayedNumber": 4
+        },
+        {
+          "name": "Santa Cruz de la Sierra",
+          "slug": "bolivia/santa-cruz-de-la-sierra",
+          "latitude": -17.78629,
+          "longitude": -63.18117,
+          "population": 1831434,
+          "displayedNumber": 7
+        },
+        {
+          "name": "Manaus",
+          "slug": "brazil/manaus",
+          "latitude": -3.10194,
+          "longitude": -60.025,
+          "population": 2219580,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Fortaleza",
+          "slug": "brazil/fortaleza",
+          "latitude": -3.71722,
+          "longitude": -38.54306,
+          "population": 2400000,
+          "displayedNumber": 3
+        },
+        {
+          "name": "Santiago",
+          "slug": "chile/santiago",
+          "latitude": -33.45694,
+          "longitude": -70.64827,
+          "population": 4837295,
+          "displayedNumber": 39
+        },
+        {
+          "name": "Lima",
+          "slug": "peru/lima",
+          "latitude": -12.04318,
+          "longitude": -77.02824,
+          "population": 7737002,
+          "displayedNumber": 38
+        },
+        {
+          "name": "S\u00e3o Paulo",
+          "slug": "brazil/sao-paulo",
+          "latitude": -23.5475,
+          "longitude": -46.63611,
+          "population": 12400232,
+          "displayedNumber": 20
+        },
+        {
+          "name": "Dar es Salaam",
+          "slug": "tanzania/dar-es-salaam",
+          "latitude": -6.82349,
+          "longitude": 39.26951,
+          "population": 5383728,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Johannesburg",
+          "slug": "south-africa/johannesburg",
+          "latitude": -26.20227,
+          "longitude": 28.04363,
+          "population": 9418183,
+          "displayedNumber": 30
+        },
+        {
+          "name": "Kinshasa",
+          "slug": "democratic-republic-of-the-congo/kinshasa",
+          "latitude": -4.32758,
+          "longitude": 15.31357,
+          "population": 16000000,
+          "displayedNumber": 0
+        },
+        {
+          "name": "Auckland",
+          "slug": "new-zealand/auckland",
+          "latitude": -36.84853,
+          "longitude": 174.76349,
+          "population": 1547200,
+          "displayedNumber": 30
+        },
+        {
+          "name": "Perth",
+          "slug": "australia/perth",
+          "latitude": -31.95224,
+          "longitude": 115.8614,
+          "population": 2384371,
+          "displayedNumber": 39
+        },
+        {
+          "name": "Sydney",
+          "slug": "australia/sydney",
+          "latitude": -33.86785,
+          "longitude": 151.20732,
+          "population": 5638830,
+          "displayedNumber": 32
+        },
+        {
+          "name": "Jakarta",
+          "slug": "indonesia/jakarta",
+          "latitude": -6.21462,
+          "longitude": 106.84513,
+          "population": 8540121,
+          "displayedNumber": 0
+        }
+      ],
+      "list": "MOST NICE DAYS\nOF 40 SAMPLED\n1\n\ud83c\udde8\ud83c\uddf1 Santiago\n39 nice \u00b7 38 perfect \u00b7 score 99\n39\n2\n\ud83c\udde6\ud83c\uddfa Perth\n39 nice \u00b7 25 perfect \u00b7 score 89\n39\n3\n\ud83c\uddf3\ud83c\uddec Kano\n38 nice \u00b7 26 perfect \u00b7 score 89\n38\n4\n\ud83c\uddf5\ud83c\uddea Lima\n38 nice \u00b7 20 perfect \u00b7 score 85\n38\n5\n\ud83c\uddea\ud83c\uddf9 Addis Ababa\n38 nice \u00b7 19 perfect \u00b7 score 84\n38\n\nNice days out of 40 sampled days in your winter, November to March. Ties favour perfect days, then the typical-day score and population.\n\n\ud83c\uddf3\ud83c\uddf1 Rotterdam (home): awful on 40 of 40 sampled days in your winter, November to March.\n\n\ud83c\uddec\ud83c\udde7 London: 0 nice days over the same stretch.\n\nBest by van from Rotterdam: \ud83c\uddf2\ud83c\udde6 Agadir. Swap 40 awful days at home for 36 nice ones in your winter, November to March."
+    },
+    {
+      "width": 3840,
+      "case": "ranking-day",
+      "headline": "Nicest on this map on Tuesday 20 October: \ud83c\uddf1\ud83c\uddfe At T\u0101j, \ud83c\uddf1\ud83c\uddfe Sabha and \ud83c\uddf8\ud83c\udde6 Tabuk.",
+      "visibleLabels": [
+        {
+          "name": "Nador",
+          "slug": "morocco/nador",
+          "latitude": 35.16813,
+          "longitude": -2.93352,
+          "population": 176600,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Fes",
+          "slug": "morocco/fes",
+          "latitude": 34.03313,
+          "longitude": -5.00028,
+          "population": 1191905,
+          "displayedNumber": 90
+        },
+        {
+          "name": "Casablanca",
+          "slug": "morocco/casablanca",
+          "latitude": 33.58831,
+          "longitude": -7.61138,
+          "population": 3665954,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Gharda\u00efa",
+          "slug": "algeria/ghardaia",
+          "latitude": 32.49094,
+          "longitude": 3.67347,
+          "population": 142913,
+          "displayedNumber": 92
+        },
+        {
+          "name": "El Oued",
+          "slug": "algeria/el-oued",
+          "latitude": 33.35608,
+          "longitude": 6.86319,
+          "population": 186525,
+          "displayedNumber": 95
+        },
+        {
+          "name": "Djelfa",
+          "slug": "algeria/djelfa",
+          "latitude": 34.67279,
+          "longitude": 3.263,
+          "population": 265833,
+          "displayedNumber": 72
+        },
+        {
+          "name": "Sfax",
+          "slug": "tunisia/sfax",
+          "latitude": 34.74056,
+          "longitude": 10.76028,
+          "population": 280566,
+          "displayedNumber": 87
+        },
+        {
+          "name": "Benghazi",
+          "slug": "libya/benghazi",
+          "latitude": 32.11486,
+          "longitude": 20.06859,
+          "population": 757490,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Tripoli",
+          "slug": "libya/tripoli",
+          "latitude": 32.88743,
+          "longitude": 13.18733,
+          "population": 1302947,
+          "displayedNumber": 81
+        },
+        {
+          "name": "Rhodes",
+          "slug": "greece/rhodes",
+          "latitude": 36.43556,
+          "longitude": 28.22199,
+          "population": 56128,
+          "displayedNumber": 91
+        },
+        {
+          "name": "Heraklion",
+          "slug": "greece/heraklion",
+          "latitude": 35.32787,
+          "longitude": 25.14341,
+          "population": 137154,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Tobruk",
+          "slug": "libya/tobruk",
+          "latitude": 32.08963,
+          "longitude": 23.95385,
+          "population": 141499,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Limassol",
+          "slug": "cyprus/limassol",
+          "latitude": 34.68406,
+          "longitude": 33.03794,
+          "population": 154000,
+          "displayedNumber": 95
+        },
+        {
+          "name": "U\u015fak",
+          "slug": "turkey/usak",
+          "latitude": 38.67351,
+          "longitude": 29.4058,
+          "population": 369433,
+          "displayedNumber": 50
+        },
+        {
+          "name": "Athens",
+          "slug": "greece/athens",
+          "latitude": 37.98376,
+          "longitude": 23.72784,
+          "population": 664046,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Konya",
+          "slug": "turkey/konya",
+          "latitude": 37.87135,
+          "longitude": 32.48464,
+          "population": 1433861,
+          "displayedNumber": 45
+        },
+        {
+          "name": "Izmir",
+          "slug": "turkey/izmir",
+          "latitude": 38.41273,
+          "longitude": 27.13838,
+          "population": 2938292,
+          "displayedNumber": 87
+        },
+        {
+          "name": "Mu\u015f",
+          "slug": "turkey/mus",
+          "latitude": 38.73163,
+          "longitude": 41.48482,
+          "population": 82536,
+          "displayedNumber": 49
+        },
+        {
+          "name": "Rukban",
+          "slug": "jordan/rukban",
+          "latitude": 33.31405,
+          "longitude": 38.70342,
+          "population": 85000,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Ni\u011fde",
+          "slug": "turkey/nigde",
+          "latitude": 37.96583,
+          "longitude": 34.67935,
+          "population": 91039,
+          "displayedNumber": 30
+        },
+        {
+          "name": "Van",
+          "slug": "turkey/van",
+          "latitude": 38.49457,
+          "longitude": 43.38323,
+          "population": 525016,
+          "displayedNumber": 76
+        },
+        {
+          "name": "Amman",
+          "slug": "jordan/amman",
+          "latitude": 31.95522,
+          "longitude": 35.94503,
+          "population": 1275857,
+          "displayedNumber": 94
+        },
+        {
+          "name": "Beirut",
+          "slug": "lebanon/beirut",
+          "latitude": 33.89332,
+          "longitude": 35.50157,
+          "population": 1916100,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Al Maw\u015fil al Jad\u012bdah",
+          "slug": "iraq/al-mawsil-al-jadidah",
+          "latitude": 36.33271,
+          "longitude": 43.10555,
+          "population": 2065597,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Gaziantep",
+          "slug": "turkey/gaziantep",
+          "latitude": 37.05944,
+          "longitude": 37.3825,
+          "population": 2222415,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Baghdad",
+          "slug": "iraq/baghdad",
+          "latitude": 33.34058,
+          "longitude": 44.40088,
+          "population": 7216000,
+          "displayedNumber": 85
+        },
+        {
+          "name": "B\u0101neh",
+          "slug": "iran/baneh",
+          "latitude": 35.9975,
+          "longitude": 45.8853,
+          "population": 110218,
+          "displayedNumber": 72
+        },
+        {
+          "name": "Gorgan",
+          "slug": "iran/gorgan",
+          "latitude": 36.8427,
+          "longitude": 54.44391,
+          "population": 244937,
+          "displayedNumber": 87
+        },
+        {
+          "name": "Zanjan",
+          "slug": "iran/zanjan",
+          "latitude": 36.67642,
+          "longitude": 48.49628,
+          "population": 357471,
+          "displayedNumber": 78
+        },
+        {
+          "name": "Hamadan",
+          "slug": "iran/hamadan",
+          "latitude": 34.79922,
+          "longitude": 48.51456,
+          "population": 528256,
+          "displayedNumber": 67
+        },
+        {
+          "name": "Tabriz",
+          "slug": "iran/tabriz",
+          "latitude": 38.08,
+          "longitude": 46.2919,
+          "population": 1424641,
+          "displayedNumber": 59
+        },
+        {
+          "name": "Isfahan",
+          "slug": "iran/isfahan",
+          "latitude": 32.65246,
+          "longitude": 51.67462,
+          "population": 1547164,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Tehran",
+          "slug": "iran/tehran",
+          "latitude": 35.69439,
+          "longitude": 51.42151,
+          "population": 7153309,
+          "displayedNumber": 86
+        },
+        {
+          "name": "Farah",
+          "slug": "afghanistan/farah",
+          "latitude": 32.37451,
+          "longitude": 62.11638,
+          "population": 43561,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Tabas",
+          "slug": "iran/tabas",
+          "latitude": 33.59586,
+          "longitude": 56.92437,
+          "population": 49993,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Birjand",
+          "slug": "iran/birjand",
+          "latitude": 32.86628,
+          "longitude": 59.22114,
+          "population": 196982,
+          "displayedNumber": 83
+        },
+        {
+          "name": "Mazari Sharif",
+          "slug": "afghanistan/mazari-sharif",
+          "latitude": 36.70904,
+          "longitude": 67.11087,
+          "population": 523300,
+          "displayedNumber": 88
+        },
+        {
+          "name": "Herat",
+          "slug": "afghanistan/herat",
+          "latitude": 34.34817,
+          "longitude": 62.19967,
+          "population": 574300,
+          "displayedNumber": 82
+        },
+        {
+          "name": "Mashhad",
+          "slug": "iran/mashhad",
+          "latitude": 36.29807,
+          "longitude": 59.60567,
+          "population": 2307177,
+          "displayedNumber": 76
+        },
+        {
+          "name": "Dushanbe",
+          "slug": "tajikistan/dushanbe",
+          "latitude": 38.53575,
+          "longitude": 68.77905,
+          "population": 679400,
+          "displayedNumber": 74
+        },
+        {
+          "name": "Kabul",
+          "slug": "afghanistan/kabul",
+          "latitude": 34.52813,
+          "longitude": 69.17233,
+          "population": 4434550,
+          "displayedNumber": 41
+        },
+        {
+          "name": "Tindouf",
+          "slug": "algeria/tindouf",
+          "latitude": 27.67111,
+          "longitude": -8.14743,
+          "population": 45610,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Adrar",
+          "slug": "algeria/adrar",
+          "latitude": 27.87429,
+          "longitude": -0.29388,
+          "population": 68276,
+          "displayedNumber": 96
+        },
+        {
+          "name": "B\u00e9char",
+          "slug": "algeria/bechar",
+          "latitude": 31.61667,
+          "longitude": -2.21667,
+          "population": 165241,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Marrakesh",
+          "slug": "morocco/marrakesh",
+          "latitude": 31.63416,
+          "longitude": -7.99994,
+          "population": 995871,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Tamanghasset",
+          "slug": "algeria/tamanghasset",
+          "latitude": 22.785,
+          "longitude": 5.52278,
+          "population": 81752,
+          "displayedNumber": 95
+        },
+        {
+          "name": "Sirte",
+          "slug": "libya/sirte",
+          "latitude": 31.20892,
+          "longitude": 16.58866,
+          "population": 106705,
+          "displayedNumber": 93
+        },
+        {
+          "name": "Sabha",
+          "slug": "libya/sabha",
+          "latitude": 27.03766,
+          "longitude": 14.42832,
+          "population": 149329,
+          "displayedNumber": 100
+        },
+        {
+          "name": "At T\u0101j",
+          "slug": "libya/at-taj",
+          "latitude": 24.20487,
+          "longitude": 23.2857,
+          "population": 46050,
+          "displayedNumber": 100
+        },
+        {
+          "name": "Mars\u00e1 Ma\u0163r\u016b\u1e29",
+          "slug": "egypt/marsa-matruh",
+          "latitude": 31.3529,
+          "longitude": 27.23725,
+          "population": 176498,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Kom Ombo",
+          "slug": "egypt/kom-ombo",
+          "latitude": 24.47669,
+          "longitude": 32.94626,
+          "population": 409311,
+          "displayedNumber": 98
+        },
+        {
+          "name": "Asyut",
+          "slug": "egypt/asyut",
+          "latitude": 27.18096,
+          "longitude": 31.18368,
+          "population": 528669,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Cairo",
+          "slug": "egypt/cairo",
+          "latitude": 30.06263,
+          "longitude": 31.24967,
+          "population": 9606916,
+          "displayedNumber": 95
+        },
+        {
+          "name": "Afif",
+          "slug": "saudi-arabia/afif",
+          "latitude": 23.9065,
+          "longitude": 42.91724,
+          "population": 45525,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Arar",
+          "slug": "saudi-arabia/arar",
+          "latitude": 30.97531,
+          "longitude": 41.03808,
+          "population": 148540,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Hurghada",
+          "slug": "egypt/hurghada",
+          "latitude": 27.25738,
+          "longitude": 33.81291,
+          "population": 207132,
+          "displayedNumber": 92
+        },
+        {
+          "name": "Ha'il",
+          "slug": "saudi-arabia/ha-il",
+          "latitude": 27.52188,
+          "longitude": 41.69073,
+          "population": 605930,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Tabuk",
+          "slug": "saudi-arabia/tabuk",
+          "latitude": 28.3998,
+          "longitude": 36.57151,
+          "population": 667000,
+          "displayedNumber": 99
+        },
+        {
+          "name": "Buraidah",
+          "slug": "saudi-arabia/buraidah",
+          "latitude": 26.32599,
+          "longitude": 43.97497,
+          "population": 745353,
+          "displayedNumber": 86
+        },
+        {
+          "name": "Al-Madinah al-Munawwarah",
+          "slug": "saudi-arabia/al-madinah-al-munawwarah",
+          "latitude": 24.46861,
+          "longitude": 39.61417,
+          "population": 1300000,
+          "displayedNumber": 82
+        },
+        {
+          "name": "Samawah",
+          "slug": "iraq/samawah",
+          "latitude": 31.33198,
+          "longitude": 45.2944,
+          "population": 152890,
+          "displayedNumber": 82
+        },
+        {
+          "name": "Yazd",
+          "slug": "iran/yazd",
+          "latitude": 31.89722,
+          "longitude": 54.3675,
+          "population": 477905,
+          "displayedNumber": 95
+        },
+        {
+          "name": "Shiraz",
+          "slug": "iran/shiraz",
+          "latitude": 29.61031,
+          "longitude": 52.53113,
+          "population": 1249942,
+          "displayedNumber": 93
+        },
+        {
+          "name": "Dammam",
+          "slug": "saudi-arabia/dammam",
+          "latitude": 26.43442,
+          "longitude": 50.10326,
+          "population": 1252523,
+          "displayedNumber": 31
+        },
+        {
+          "name": "Basra",
+          "slug": "iraq/basra",
+          "latitude": 30.50852,
+          "longitude": 47.7804,
+          "population": 1326564,
+          "displayedNumber": 74
+        },
+        {
+          "name": "Dubai",
+          "slug": "united-arab-emirates/dubai",
+          "latitude": 25.07725,
+          "longitude": 55.30927,
+          "population": 3790000,
+          "displayedNumber": 41
+        },
+        {
+          "name": "Riyadh",
+          "slug": "saudi-arabia/riyadh",
+          "latitude": 24.68773,
+          "longitude": 46.72185,
+          "population": 4205961,
+          "displayedNumber": 84
+        },
+        {
+          "name": "Washuk",
+          "slug": "pakistan/washuk",
+          "latitude": 27.72728,
+          "longitude": 64.80972,
+          "population": 41107,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Gwadar",
+          "slug": "pakistan/gwadar",
+          "latitude": 25.12163,
+          "longitude": 62.32541,
+          "population": 70852,
+          "displayedNumber": 43
+        },
+        {
+          "name": "Iranshahr",
+          "slug": "iran/iranshahr",
+          "latitude": 27.20245,
+          "longitude": 60.68476,
+          "population": 131232,
+          "displayedNumber": 94
+        },
+        {
+          "name": "Bandar Abbas",
+          "slug": "iran/bandar-abbas",
+          "latitude": 27.1865,
+          "longitude": 56.2808,
+          "population": 352173,
+          "displayedNumber": 46
+        },
+        {
+          "name": "Zahedan",
+          "slug": "iran/zahedan",
+          "latitude": 29.4963,
+          "longitude": 60.8629,
+          "population": 551980,
+          "displayedNumber": 96
+        },
+        {
+          "name": "Kerman",
+          "slug": "iran/kerman",
+          "latitude": 30.28321,
+          "longitude": 57.07879,
+          "population": 577514,
+          "displayedNumber": 86
+        },
+        {
+          "name": "Muscat",
+          "slug": "oman/muscat",
+          "latitude": 23.58413,
+          "longitude": 58.40778,
+          "population": 797000,
+          "displayedNumber": 44
+        },
+        {
+          "name": "Quetta",
+          "slug": "pakistan/quetta",
+          "latitude": 30.18414,
+          "longitude": 67.00141,
+          "population": 1565546,
+          "displayedNumber": 80
+        },
+        {
+          "name": "Karachi",
+          "slug": "pakistan/karachi",
+          "latitude": 24.8608,
+          "longitude": 67.0104,
+          "population": 11624219,
+          "displayedNumber": 72
+        },
+        {
+          "name": "Kunri",
+          "slug": "pakistan/kunri",
+          "latitude": 25.17874,
+          "longitude": 69.56572,
+          "population": 237063,
+          "displayedNumber": 54
+        },
+        {
+          "name": "Sukkur",
+          "slug": "pakistan/sukkur",
+          "latitude": 27.70323,
+          "longitude": 68.85889,
+          "population": 563851,
+          "displayedNumber": 63
+        },
+        {
+          "name": "Dera Ismail Khan",
+          "slug": "pakistan/dera-ismail-khan",
+          "latitude": 31.83129,
+          "longitude": 70.9017,
+          "population": 763195,
+          "displayedNumber": 84
+        },
+        {
+          "name": "Rajkot",
+          "slug": "india/rajkot",
+          "latitude": 22.29161,
+          "longitude": 70.79322,
+          "population": 1390640,
+          "displayedNumber": 73
+        },
+        {
+          "name": "Ranyah",
+          "slug": "saudi-arabia/ranyah",
+          "latitude": 21.2504,
+          "longitude": 42.84751,
+          "population": 45942,
+          "displayedNumber": 97
+        },
+        {
+          "name": "Jeddah",
+          "slug": "saudi-arabia/jeddah",
+          "latitude": 21.49012,
+          "longitude": 39.18624,
+          "population": 4697000,
+          "displayedNumber": 39
+        }
+      ],
+      "list": "HIGHEST SCORES\nOUT OF 100\n1\n\ud83c\uddf1\ud83c\uddfe At T\u0101j\n1 nice \u00b7 1 perfect\n100\n2\n\ud83c\uddf1\ud83c\uddfe Sabha\n1 nice \u00b7 1 perfect\n100\n3\n\ud83c\uddf2\ud83c\udde6 Casablanca\n1 nice \u00b7 1 perfect\n99\n4\n\ud83c\uddf8\ud83c\udde6 Tabuk\n1 nice \u00b7 1 perfect\n99\n5\n\ud83c\uddf8\ud83c\udde6 Afif\n1 nice \u00b7 1 perfect\n99\n\nThe label shows the day\u2019s score. Ties favour perfect days, then the typical-day score and population.\n\n\ud83c\uddf3\ud83c\uddf1 Rotterdam (home): awful on 1 of 1 days in Tuesday 20 October.\n\n\ud83c\uddec\ud83c\udde7 London: 0 nice days over the same stretch.\n\nBest by van from Rotterdam: \ud83c\uddea\ud83c\udded Laayoune. Swap 1 awful day at home for 1 nice ones in Tuesday 20 October."
+    },
+    {
+      "width": 3840,
+      "case": "rounded-location",
+      "apiRequests": [
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[38.7,-9.41]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"climate\",\"points\":[[38.7,-9.41]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.7&lon=-9.41&period=2026-10-20",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[41.27976,36.3361],[44.73188,37.76176],[40.97782,37.89047],[45.35675,36.47542],[46.84735,35.38196],[40.31389,36.55444],[40.91698,38.38741],[40.65333,35.83306],[40.3875,36.08111],[46.75578,36.78815],[41.56787,35.90311],[46.69263,38.27907],[41.02886,37.49977]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[38.69681,-9.42147]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"climate\",\"points\":[[38.69681,-9.42147]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/points",
+          "body": "{\"kind\":\"forecast\",\"points\":[[41.17872,-8.55953],[40.8971,14.18824],[45.95689,12.66051],[41.45794,12.66393],[43.90358,22.26405],[45.03333,7.65],[45.76106,4.82677],[43.21649,2.34863],[43.21052,23.56312],[45.64997,0.15345],[45.90878,6.12565],[41.55947,14.66737],[40.36709,-3.74608],[43.61694,21.0025],[42.65913,20.28828],[40.3995,-3.65853],[40.7602,14.53723],[45.07073,7.51465],[45.77417,19.11222],[41.74583,22.19583],[41.13488,24.888],[42.87419,25.31823],[40.91494,14.79103],[40.85686,14.26481],[42.61667,25.4],[45.00031,7.65305],[46.19484,30.34827],[43.65783,6.92537],[42.09325,11.79674],[45.13925,7.77008],[43.41285,23.22174],[40.38432,-3.74575],[46.45347,16.99104],[43.60527,2.24088],[46.78112,4.85372],[43.30213,5.40141],[42.41937,12.1056],[40.60861,14.98209],[45.53245,9.0402],[41.3975,2.14301],[43.81725,7.7772],[43.32842,-3.03248],[42.32139,21.35833],[45.21857,12.27774],[43.66352,7.1479],[47.21154,-1.651],[42.28314,22.69224],[45.0801,7.62567],[40.15085,-8.86179],[45.85589,9.39704],[45.07873,7.56735],[41.15171,16.41143],[41.38697,2.13472],[42.26645,2.96163],[41.37732,2.08809],[45.56899,9.16483],[40.40924,-3.70246],[40.9025,20.6525],[40.66944,22.93806],[41.30605,2.00123],[41.17289,-8.59931],[45.32163,8.41989],[42.9568,13.87676],[43.32099,-3.02064],[40.90969,14.34205],[45.53004,9.27795],[43.40735,5.05526],[41.38042,2.1686],[43.83193,11.19924],[41.11758,25.40587],[40.47714,-3.70959],[40.7454,14.64542],[45.0241,7.64359],[40.83261,14.34162],[43.30257,5.37583],[41.47849,20.55945],[41.45263,12.62157],[46.20574,5.2258],[40.8455,14.19262],[40.39003,-3.66787],[45.16158,18.0163],[40.73542,8.56771],[47.2469,26.72291],[46.34015,2.60254],[40.64944,22.95083],[43.75423,11.18794],[43.29276,5.57067],[41.15283,24.1473],[40.84282,14.23075],[41.76719,-8.58393],[40.85525,26.63266],[40.40804,-3.70131],[43.29551,5.40055],[44.54245,18.52618],[41.63976,13.34109],[40.52437,22.20242],[42.34827,14.16494],[43.49316,-1.473],[43.51345,4.98747],[40.47456,-3.72236],[40.21323,28.3612],[45.41667,23.36667],[41.76984,12.65917],[41.64502,25.36578],[43.25,-5.76667],[46.41667,20.33333],[45.42178,11.88755],[46.98956,3.159],[41.43806,2.2195],[46.75118,7.62166],[41.39606,2.16688],[40.65909,-3.76762],[40.75337,14.45251],[40.24147,-3.69999],[40.47366,-3.57777],[43.28764,5.37918],[43.57662,7.01912],[46.56667,23.78333],[44.25,28.28333],[40.40969,-3.73181],[45.68861,21.90306],[46.19278,9.01703],[40.38524,-3.63726],[45.56304,8.05796],[41.38333,2.05],[45.79462,4.8464],[45.65002,9.20548],[44.55858,6.07868],[43.2397,-2.8858],[44.80849,-0.58915],[44.12489,4.08082],[43.88917,8.03933],[43.30491,13.72068],[40.81748,16.41915],[41.11701,20.80175],[40.43633,-3.66658],[45.61831,9.20249],[45.82972,20.46528],[40.60092,-3.70806],[41.38939,2.15517],[45.49167,15.55],[45.63019,12.5681],[46.92436,7.41457],[42.85351,13.57395],[44.62133,21.18782],[44.29007,11.87948],[45.69651,4.94385],[45.12619,25.73496],[44.5647,27.3633],[42.1115,14.70649],[43.64229,5.09478],[44.05722,17.45083],[45.04248,7.6276],[45.84973,27.43441],[40.21805,-8.40523],[43.84171,10.57271],[46.66817,11.15953],[42.70219,9.45123],[42.00778,21.35306],[43.29814,5.38407],[41.37452,2.16326],[41.37426,2.13826],[45.30989,9.50085],[40.1049,27.65399],[43.4028,3.69278],[40.83255,14.22677],[43.15306,22.58611],[43.48921,-1.51921],[41.44443,-8.29619],[43.67557,10.55494],[40.38476,-3.65888],[40.34852,-3.61621],[43.98333,25.33333],[40.3966,-3.72833],[41.03064,14.29868],[40.03116,-6.08845],[40.53754,-7.26631],[41.67419,2.79036],[42.78083,20.4875],[43.29568,-5.68416],[45.74096,9.13084],[41.93012,2.25486],[46.03624,4.06802],[40.46396,-3.63625],[41.35787,13.42718],[45.38193,9.1559],[41.14073,28.45967],[43.81623,28.57656],[41.07096,30.78543],[40.42386,-3.53261]]}"
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/place?lat=38.69681&lon=-9.42147&period=2026-10-20",
+          "body": null
+        },
+        {
+          "url": "http://127.0.0.1:5198/api/named/place?lat=38.69681&lon=-9.42147&kind=climate",
+          "body": null
+        }
+      ]
+    },
+    {
+      "width": 3840,
+      "case": "method-and-not-found",
+      "passed": true
+    }
+  ],
+  "errors": []
+}

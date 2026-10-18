@@ -14,4 +14,4 @@ Run from the repository:
 devenv shell -- node research/site/cold-review-counts/check.mjs '/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data' /tmp/nwf-counts-results.json
 ```
 
-The preceding-version comparison uses `HEAD:hosting/sites/named-place.mjs`; the saved results were produced before committing this change. No data files, scoring curves or bands were changed.
+The preceding-version comparison uses the parent of the whole-day-count commit (`a4c8a54^:hosting/sites/named-place.mjs`), so it remains reproducible after later commits. No data files, scoring curves or bands were changed.

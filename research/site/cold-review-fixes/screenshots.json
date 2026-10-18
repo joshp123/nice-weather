@@ -1,0 +1,1358 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026.10.18",
+  "shots": [
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/first-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 525.875,
+          "width": 370,
+          "height": 308.125,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/novmar-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 539.21875,
+          "width": 370,
+          "height": 294.78125,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/list-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/dial-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 10,
+          "y": 412,
+          "width": 370,
+          "height": 422,
+          "right": 380,
+          "bottom": 834
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 834,
+          "width": 370,
+          "height": 0,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/place-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".card",
+          "x": 10,
+          "y": 412,
+          "width": 370,
+          "height": 422,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/calendar-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 10,
+          "y": 452.90625,
+          "width": 370,
+          "height": 381.09375,
+          "right": 380,
+          "bottom": 834
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 834,
+          "width": 370,
+          "height": 0,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/taste-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 525.875,
+          "width": 370,
+          "height": 308.125,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/poster-390x844-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 525.875,
+          "width": 370,
+          "height": 308.125,
+          "right": 380,
+          "bottom": 834
+        },
+        {
+          "selector": ".poster-artwork",
+          "x": 10,
+          "y": 254.046875,
+          "width": 370,
+          "height": 194.25,
+          "right": 380,
+          "bottom": 448.296875
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/first-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.34375,
+          "right": 916,
+          "bottom": 168.34375
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/novmar-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 128.15625,
+          "right": 916,
+          "bottom": 144.15625
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/list-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 128.15625,
+          "right": 916,
+          "bottom": 144.15625
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/dial-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 128.15625,
+          "right": 916,
+          "bottom": 144.15625
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 16,
+          "y": 148,
+          "width": 440,
+          "height": 476.1875,
+          "right": 456,
+          "bottom": 624.1875
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/place-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".card",
+          "x": 1094,
+          "y": 172,
+          "width": 390,
+          "height": 750,
+          "right": 1484,
+          "bottom": 922
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/calendar-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 16,
+          "y": 172,
+          "width": 440,
+          "height": 333.28125,
+          "right": 456,
+          "bottom": 505.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/taste-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/poster-1512x982-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        },
+        {
+          "selector": ".poster-artwork",
+          "x": 156,
+          "y": 159.84375,
+          "width": 1200,
+          "height": 630,
+          "right": 1356,
+          "bottom": 789.84375
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/first-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/novmar-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 192.28125,
+          "right": 1374,
+          "bottom": 216.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/list-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 192.28125,
+          "right": 1374,
+          "bottom": 216.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/dial-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 192.28125,
+          "right": 1374,
+          "bottom": 216.28125
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 24,
+          "y": 222,
+          "width": 720,
+          "height": 632,
+          "right": 744,
+          "bottom": 854
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/place-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".card",
+          "x": 3108,
+          "y": 259,
+          "width": 690,
+          "height": 731,
+          "right": 3798,
+          "bottom": 990
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/calendar-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 24,
+          "y": 259,
+          "width": 720,
+          "height": 498.921875,
+          "right": 744,
+          "bottom": 757.921875
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/taste-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/poster-3840x1080-light.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 180.28125,
+          "right": 1374,
+          "bottom": 204.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        },
+        {
+          "selector": ".poster-artwork",
+          "x": 1320,
+          "y": 201.265625,
+          "width": 1200,
+          "height": 630,
+          "right": 2520,
+          "bottom": 831.265625
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/first-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 525.875,
+          "width": 370,
+          "height": 308.125,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/novmar-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 539.21875,
+          "width": 370,
+          "height": 294.78125,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/list-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/dial-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 10,
+          "y": 412,
+          "width": 370,
+          "height": 422,
+          "right": 380,
+          "bottom": 834
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 834,
+          "width": 370,
+          "height": 0,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/place-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".card",
+          "x": 10,
+          "y": 412,
+          "width": 370,
+          "height": 422,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/calendar-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 10,
+          "y": 452.90625,
+          "width": 370,
+          "height": 381.09375,
+          "right": 380,
+          "bottom": 834
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 834,
+          "width": 370,
+          "height": 0,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/taste-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 525.875,
+          "width": 370,
+          "height": 308.125,
+          "right": 380,
+          "bottom": 834
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/poster-390x844-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 10,
+          "y": 10,
+          "width": 116.375,
+          "height": 44,
+          "right": 126.375,
+          "bottom": 54
+        },
+        {
+          "selector": ".bar",
+          "x": 10,
+          "y": 525.875,
+          "width": 370,
+          "height": 308.125,
+          "right": 380,
+          "bottom": 834
+        },
+        {
+          "selector": ".poster-artwork",
+          "x": 10,
+          "y": 254.046875,
+          "width": 370,
+          "height": 194.25,
+          "right": 380,
+          "bottom": 448.296875
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/first-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.34375,
+          "right": 916,
+          "bottom": 168.34375
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/novmar-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 128.15625,
+          "right": 916,
+          "bottom": 144.15625
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/list-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 128.15625,
+          "right": 916,
+          "bottom": 144.15625
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/dial-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 128.15625,
+          "right": 916,
+          "bottom": 144.15625
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 16,
+          "y": 148,
+          "width": 440,
+          "height": 476.1875,
+          "right": 456,
+          "bottom": 624.1875
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/place-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".card",
+          "x": 1094,
+          "y": 172,
+          "width": 390,
+          "height": 750,
+          "right": 1484,
+          "bottom": 922
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/calendar-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 16,
+          "y": 172,
+          "width": 440,
+          "height": 333.28125,
+          "right": 456,
+          "bottom": 505.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/taste-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/poster-1512x982-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 16,
+          "y": 16,
+          "width": 900,
+          "height": 152.359375,
+          "right": 916,
+          "bottom": 168.359375
+        },
+        {
+          "selector": ".bar",
+          "x": 16,
+          "y": 934,
+          "width": 1480,
+          "height": 48,
+          "right": 1496,
+          "bottom": 982
+        },
+        {
+          "selector": ".poster-artwork",
+          "x": 156,
+          "y": 159.84375,
+          "width": 1200,
+          "height": 630,
+          "right": 1356,
+          "bottom": 789.84375
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/first-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/novmar-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 192.28125,
+          "right": 1374,
+          "bottom": 216.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/list-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 192.28125,
+          "right": 1374,
+          "bottom": 216.28125
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/dial-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 192.28125,
+          "right": 1374,
+          "bottom": 216.28125
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 24,
+          "y": 222,
+          "width": 720,
+          "height": 632,
+          "right": 744,
+          "bottom": 854
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/place-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".card",
+          "x": 3108,
+          "y": 259,
+          "width": 690,
+          "height": 731,
+          "right": 3798,
+          "bottom": 990
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/calendar-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".time-picker-panel",
+          "x": 24,
+          "y": 259,
+          "width": 720,
+          "height": 498.921875,
+          "right": 744,
+          "bottom": 757.921875
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/taste-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        }
+      ]
+    },
+    {
+      "path": "/tmp/nwf-agents/round5/cold-fixes/shots/poster-3840x1080-dark.png",
+      "bounds": [
+        {
+          "selector": ".slot-headline",
+          "x": 24,
+          "y": 24,
+          "width": 1350,
+          "height": 228.59375,
+          "right": 1374,
+          "bottom": 252.59375
+        },
+        {
+          "selector": ".bar",
+          "x": 24,
+          "y": 1008,
+          "width": 3792,
+          "height": 72,
+          "right": 3816,
+          "bottom": 1080
+        },
+        {
+          "selector": ".poster-artwork",
+          "x": 1320,
+          "y": 201.265625,
+          "width": 1200,
+          "height": 630,
+          "right": 2520,
+          "bottom": 831.265625
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "checks": [
+    {
+      "size": 390,
+      "theme": "light",
+      "forecastCard": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n\u2191\n84\nBeautiful most days\n\nNice on 13 of 14 days in this forecast. Perfect on 8; awful on 1.\n\n14-day forecast, Sat 17 to Fri 30\n\nForecast from Sat 17 Oct at 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n19 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n28 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n15 \u00b0C in the shadeCool evening\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 14% of days wet\n0 mm\n5 mm\n10 mm\nWind\n6 km/hLight wind\nCalm\n35 km/h\n70 km/h\nHumidity\n14.7 \u00b0C dew pointcomfortable\n5 \u00b0C \u00b7 dry\n18 \u00b0C\n30 \u00b0C \u00b7 sticky\nSun\n81% of daylightMostly sunny\n0% \u00b7 grey\n50%\n100% \u00b7 clear\n\nDay by day: score out of 100\n\nSat 17\n16\nSun 18\n61\nMon 19\n80\nTue 20\n88\nWed 21\n93\nThu 22\n97\nFri 23\n95\nSat 24\n88\nSun 25\n77\nMon 26\n85\nTue 27\n80\nWed 28\n80\nThu 29\n85\nFri 30\n86\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n17\u00b0\nMar\n17\u00b0\nApr\n21\u00b0\nMay\n24\u00b0\nJun\n29\u00b0\nJul\n30\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n21\u00b0\nDec\n17\u00b0\n\nHome: \ud83c\uddf3\ud83c\uddf1 Rotterdam, nice on 0 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "phoneDockHidden": true
+    },
+    {
+      "size": 390,
+      "theme": "light",
+      "calendarDays": 14
+    },
+    {
+      "size": 1512,
+      "theme": "light",
+      "forecastCard": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n\u2191\n84\nBeautiful most days\n\nNice on 13 of 14 days in this forecast. Perfect on 8; awful on 1.\n\n14-day forecast, Sat 17 to Fri 30\n\nForecast from Sat 17 Oct at 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n19 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n28 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n15 \u00b0C in the shadeCool evening\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 14% of days wet\n0 mm\n5 mm\n10 mm\nWind\n6 km/hLight wind\nCalm\n35 km/h\n70 km/h\nHumidity\n14.7 \u00b0C dew pointcomfortable\n5 \u00b0C \u00b7 dry\n18 \u00b0C\n30 \u00b0C \u00b7 sticky\nSun\n81% of daylightMostly sunny\n0% \u00b7 grey\n50%\n100% \u00b7 clear\n\nDay by day: score out of 100\n\nSat 17\n16\nSun 18\n61\nMon 19\n80\nTue 20\n88\nWed 21\n93\nThu 22\n97\nFri 23\n95\nSat 24\n88\nSun 25\n77\nMon 26\n85\nTue 27\n80\nWed 28\n80\nThu 29\n85\nFri 30\n86\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n17\u00b0\nMar\n17\u00b0\nApr\n21\u00b0\nMay\n24\u00b0\nJun\n29\u00b0\nJul\n30\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n21\u00b0\nDec\n17\u00b0\n\nHome: \ud83c\uddf3\ud83c\uddf1 Rotterdam, nice on 0 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "phoneDockHidden": null
+    },
+    {
+      "size": 1512,
+      "theme": "light",
+      "calendarDays": 14
+    },
+    {
+      "size": 3840,
+      "theme": "light",
+      "forecastCard": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n\u2191\n84\nBeautiful most days\n\nNice on 13 of 14 days in this forecast. Perfect on 8; awful on 1.\n\n14-day forecast, Sat 17 to Fri 30\n\nForecast from Sat 17 Oct at 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n19 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n28 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n15 \u00b0C in the shadeCool evening\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 14% of days wet\n0 mm\n5 mm\n10 mm\nWind\n6 km/hLight wind\nCalm\n35 km/h\n70 km/h\nHumidity\n14.7 \u00b0C dew pointcomfortable\n5 \u00b0C \u00b7 dry\n18 \u00b0C\n30 \u00b0C \u00b7 sticky\nSun\n81% of daylightMostly sunny\n0% \u00b7 grey\n50%\n100% \u00b7 clear\n\nDay by day: score out of 100\n\nSat 17\n16\nSun 18\n61\nMon 19\n80\nTue 20\n88\nWed 21\n93\nThu 22\n97\nFri 23\n95\nSat 24\n88\nSun 25\n77\nMon 26\n85\nTue 27\n80\nWed 28\n80\nThu 29\n85\nFri 30\n86\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n17\u00b0\nMar\n17\u00b0\nApr\n21\u00b0\nMay\n24\u00b0\nJun\n29\u00b0\nJul\n30\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n21\u00b0\nDec\n17\u00b0\n\nHome: \ud83c\uddf3\ud83c\uddf1 Rotterdam, nice on 0 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "phoneDockHidden": null
+    },
+    {
+      "size": 3840,
+      "theme": "light",
+      "calendarDays": 14
+    },
+    {
+      "size": 390,
+      "theme": "dark",
+      "forecastCard": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n\u2191\n84\nBeautiful most days\n\nNice on 13 of 14 days in this forecast. Perfect on 8; awful on 1.\n\n14-day forecast, Sat 17 to Fri 30\n\nForecast from Sat 17 Oct at 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n19 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n28 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n15 \u00b0C in the shadeCool evening\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 14% of days wet\n0 mm\n5 mm\n10 mm\nWind\n6 km/hLight wind\nCalm\n35 km/h\n70 km/h\nHumidity\n14.7 \u00b0C dew pointcomfortable\n5 \u00b0C \u00b7 dry\n18 \u00b0C\n30 \u00b0C \u00b7 sticky\nSun\n81% of daylightMostly sunny\n0% \u00b7 grey\n50%\n100% \u00b7 clear\n\nDay by day: score out of 100\n\nSat 17\n16\nSun 18\n61\nMon 19\n80\nTue 20\n88\nWed 21\n93\nThu 22\n97\nFri 23\n95\nSat 24\n88\nSun 25\n77\nMon 26\n85\nTue 27\n80\nWed 28\n80\nThu 29\n85\nFri 30\n86\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n17\u00b0\nMar\n17\u00b0\nApr\n21\u00b0\nMay\n24\u00b0\nJun\n29\u00b0\nJul\n30\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n21\u00b0\nDec\n17\u00b0\n\nHome: \ud83c\uddf3\ud83c\uddf1 Rotterdam, nice on 0 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "phoneDockHidden": true
+    },
+    {
+      "size": 390,
+      "theme": "dark",
+      "calendarDays": 14
+    },
+    {
+      "size": 1512,
+      "theme": "dark",
+      "forecastCard": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n\u2191\n84\nBeautiful most days\n\nNice on 13 of 14 days in this forecast. Perfect on 8; awful on 1.\n\n14-day forecast, Sat 17 to Fri 30\n\nForecast from Sat 17 Oct at 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n19 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n28 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n15 \u00b0C in the shadeCool evening\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 14% of days wet\n0 mm\n5 mm\n10 mm\nWind\n6 km/hLight wind\nCalm\n35 km/h\n70 km/h\nHumidity\n14.7 \u00b0C dew pointcomfortable\n5 \u00b0C \u00b7 dry\n18 \u00b0C\n30 \u00b0C \u00b7 sticky\nSun\n81% of daylightMostly sunny\n0% \u00b7 grey\n50%\n100% \u00b7 clear\n\nDay by day: score out of 100\n\nSat 17\n16\nSun 18\n61\nMon 19\n80\nTue 20\n88\nWed 21\n93\nThu 22\n97\nFri 23\n95\nSat 24\n88\nSun 25\n77\nMon 26\n85\nTue 27\n80\nWed 28\n80\nThu 29\n85\nFri 30\n86\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n17\u00b0\nMar\n17\u00b0\nApr\n21\u00b0\nMay\n24\u00b0\nJun\n29\u00b0\nJul\n30\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n21\u00b0\nDec\n17\u00b0\n\nHome: \ud83c\uddf3\ud83c\uddf1 Rotterdam, nice on 0 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "phoneDockHidden": null
+    },
+    {
+      "size": 1512,
+      "theme": "dark",
+      "calendarDays": 14
+    },
+    {
+      "size": 3840,
+      "theme": "dark",
+      "forecastCard": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n\u2191\n84\nBeautiful most days\n\nNice on 13 of 14 days in this forecast. Perfect on 8; awful on 1.\n\n14-day forecast, Sat 17 to Fri 30\n\nForecast from Sat 17 Oct at 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n19 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n28 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n15 \u00b0C in the shadeCool evening\n0 \u00b0C\n20 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 14% of days wet\n0 mm\n5 mm\n10 mm\nWind\n6 km/hLight wind\nCalm\n35 km/h\n70 km/h\nHumidity\n14.7 \u00b0C dew pointcomfortable\n5 \u00b0C \u00b7 dry\n18 \u00b0C\n30 \u00b0C \u00b7 sticky\nSun\n81% of daylightMostly sunny\n0% \u00b7 grey\n50%\n100% \u00b7 clear\n\nDay by day: score out of 100\n\nSat 17\n16\nSun 18\n61\nMon 19\n80\nTue 20\n88\nWed 21\n93\nThu 22\n97\nFri 23\n95\nSat 24\n88\nSun 25\n77\nMon 26\n85\nTue 27\n80\nWed 28\n80\nThu 29\n85\nFri 30\n86\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n17\u00b0\nMar\n17\u00b0\nApr\n21\u00b0\nMay\n24\u00b0\nJun\n29\u00b0\nJul\n30\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n21\u00b0\nDec\n17\u00b0\n\nHome: \ud83c\uddf3\ud83c\uddf1 Rotterdam, nice on 0 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "phoneDockHidden": null
+    },
+    {
+      "size": 3840,
+      "theme": "dark",
+      "calendarDays": 14
+    }
+  ]
+}
