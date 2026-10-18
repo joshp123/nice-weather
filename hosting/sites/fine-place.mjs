@@ -68,9 +68,15 @@ function judgeDay(day,taste) {
   const warmth=(daytime+2*evening)/(day.daylight+2),rainFactor=curve(RAIN,day.rain*taste.rainScale),windFactor=curve(WIND,day.wind-taste.windShift),humidityFactor=curve(HUMIDITY,day.dew-taste.humidityShift),sunFactor=curve(SUN,day.sunny/day.daylight);
   return {score:canonical(warmth*rainFactor*windFactor*humidityFactor*sunFactor),warmth,evening,rainFactor,windFactor,humidityFactor,sunFactor};
 }
-function typicalScore(shares) {
+export function typicalScore(shares) {
   for(let band=5;band>=0;band--)if(shares[band]>=.5-1e-9)return canonical(band===5?Math.max(85,85+(shares[5]-.5)*30):Math.max(THRESHOLDS[band],THRESHOLDS[band]+(THRESHOLDS[band+1]-THRESHOLDS[band])*(shares[band]-.5)/(shares[band]-shares[band+1])));
   return 0;
+}
+/** The 96 representative daily scores, in month then original selected-date order. */
+export function placeSampleScores(packet,taste=DEFAULT_FINE_TASTE) {
+  return Array.from({length:12},(_,monthIndex)=>packet.replay.selectedIndices
+    .filter(index=>Number(packet.replay.dates[index].slice(5,7))===monthIndex+1)
+    .map(index=>judgeDay(correctedDay(packet,index),taste).score));
 }
 /** Every named climate number is derived here, using the exact pixel and own native point. */
 export function placeNumbers(packet,period,taste=DEFAULT_FINE_TASTE) {

@@ -22,6 +22,8 @@ export function finePixel(latitude:number,longitude:number):FinePixel;
 export function nativeFineIndex(latitude:number,longitude:number):number;
 export function placeNumbers(packet:FinePacket,period:Period,taste?:Taste):FineVerdict;
 export function placeNumbers(packet:ForecastPlacePacket,period?:Period,taste?:Taste):ForecastPlaceVerdict;
+export function typicalScore(shares:readonly number[]):number;
+export function placeSampleScores(packet:FinePacket,taste?:Taste):number[][];
 export function placeMonths(packet:FinePacket,taste?:Taste):FineMonth[];
 export function createFinePlaceLoader(readBytes:(key:string)=>Promise<Uint8Array|null>):{
  enabled():Promise<boolean>;
