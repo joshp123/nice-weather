@@ -33,3 +33,7 @@ Network bytes fall 63.6%; map tiles fall 92.8%. Captures: `/tmp/nwf-agents/round
 | 3840 × 1080 | 877,855 | 877,855 | 861,561 |
 
 Full frame paths and timings are in `taste-retention.json`. Screenshots use `/tmp/nwf-agents/round5/cold-fixes/taste-{before,0.1,0.5,1.5,4.5}-{width}x{height}-light.png`.
+
+## Chromium sheet paint correction
+
+A fresh Chromium place link showed a blank rectangle over the correctly positioned pin. Browser-only instrumentation verified that the map projected Chania to (195, 241), its rendered feature was present, and exporting the WebGL canvas produced the correct island and pin. The composited page screenshot differed: the scrolling sheet painted outside its rectangle. Adding paint containment and an overflow clip to the fixed card slot restored the same visible map in the composited screenshot. This is a CSS correction; no GL depth workaround is used. Diagnostic evidence: `/tmp/nwf-agents/round5/cold-fixes/pin-canvas.png` and `/tmp/nwf-agents/round5/cold-fixes/pin-css.png`.
