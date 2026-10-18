@@ -46,6 +46,7 @@ let periodProblem: string | null = null;
 let placeRequest = 0;
 let weatherLoading = true;
 let remainingCitiesRequested = false;
+let remainingCitiesReady = false;
 
 const app = document.getElementById('app')!;
 const mapContainer = el('div', 'map');
@@ -222,6 +223,7 @@ function afterRedraw(): void {
   if (!remainingCitiesRequested) {
     remainingCitiesRequested = true;
     void weatherMap.loadRemainingCities().then(() => {
+      remainingCitiesReady = true;
       labelCities();
       updateHeadline();
       render();
@@ -241,6 +243,7 @@ function afterRedraw(): void {
 }
 
 function updateHeadline(): void {
+  if (!remainingCitiesReady) return;
   headlineRegion = viewportRegion(map.getBounds(), weatherMap.visibleCities());
   rankedPlaces = nicestPlaces(engine, weatherMap.visibleCities(), map.getBounds(), 8, map.getZoom() >= 5 ? 0 : undefined);
   headlineText = headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion)
