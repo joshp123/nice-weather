@@ -2,7 +2,7 @@ Written by AI (GPT-6.1 Sol), 2026-10-18.
 
 # Compact named-place upload handoff
 
-**Prepared locally only. Nothing uploaded, activated, pushed or deployed.** The 18.54 GB / 484,004-file worldwide replay remains on hold. Upload only the compact folders below after Josh authorises deployment. Do not run the full-release sealer or uploader.
+**The compact B1 data are live.** The original upload is recorded in [the release report](../site/named-live-deploy-20261018.md). The 18.54 GB / 484,004-file worldwide replay remains on hold. Do not run the full-release sealer or uploader.
 
 The compact delivery covers **170,513 distinct catalogue coordinates**, including every label and every place-list entry. At the default taste, supported named places use their accepted 1 km temperature model: unchanged daytime correction and the uniform evening shift. There are 31 unsupported climate coordinates; those, unnamed areas outside the place-naming rule and changed tastes use the current 25 km calculation. The map remains the 25 km overview. A click named after a town or city uses that place’s canonical coordinate and numbers, under the same existing naming rule. Other cards identify the fallback as “Area estimate”.
 
@@ -21,13 +21,25 @@ The **19 payload objects total 117,728,981 bytes (117.7 MB)**. Twelve score/fact
 
 This exceeds the original “tens of MB plus a few MB” aim. Full-precision facts account for most of it. The climate sample scores are one byte each; the forecast retains canonical scores, fractional nice/perfect/awful shares and the existing full-fortnight judgement. Those extra forecast fields preserve the app's spatially blended counts and typical-day calculation. No model or fact precision was changed to obtain the size reduction. The data upload is more than 150 times smaller than the held worldwide release.
 
-The browser fetches the climate score table and the current forecast table, then approximately 4 KB of facts for a selected place. It never fetches the facts shards or the full replay. Decompressed score tables occupy about 57 MB together. Slider changes make no new named-data requests.
+The view-scoped transport replaces whole-table browser downloads. The browser posts exact coordinates to `/api/named/points` for the visible labels and existing headline-ranking candidates, receiving only their original packed day records. Climate views request climate rows; forecast views request forecast rows. The Worker reads the existing full storage tables, and the browser caches requested rows for instant stretch changes. Selected cards fetch their facts separately. The world map and its day-record path are unchanged; changed tastes use the overview without new named requests.
 
 The rebuilt daily runner is `fine-runner-named-b1-20261018/runner/`: **5 files, 35,416,693 bytes**. Its sibling manifest binds the executable, notices, refresh instructions and compiled source inputs.
 
 The matched Sites package is `fine-named-code-b1-20261018/`: **18 files, 5,307,019 bytes**. The separately staged outlooks are `fine-named-outlooks-b1-20261018/`: **9 files, 1,502,098 bytes**, for forecast run `20261017T0000Z` and **19 October 2026**. Their nine winners pass 36 comparisons with the shared compact values. Each folder has a sibling checksum inventory.
 
-## Safe order for a later authorised upload
+## View-scoped transport update
+
+This is a code-only update; no new weather files, pointer changes or runner replacement are needed. Keep the existing named activation and forecast pointers.
+
+1. Read the live Site and source revision, preserving its public audience, `WEATHER` binding and latest interface.
+2. Build the committed app with `devenv shell -- npm run build`. Package that build with `hosting/sites/build.mjs` into the Sites source checkout opened by the Sites skill.
+3. Commit and synchronize that exact generated source through the Sites workflow helper, package its `dist`, save that source revision and deploy the saved version. Supply its short-lived source credential through hidden stdin only at use time. This update does not need the weather publisher token.
+4. Repeat the headless WebKit phone/laptop cold-view measurements and the named-place correctness checks. Confirm the browser makes no requests for whole `climate.bin.gz` or `named.bin.gz` tables.
+5. On a product regression, redeploy the preceding saved Site version; the weather data and activation remain compatible with that version.
+
+The original data-upload order below is retained for rebuilding B1, rather than repeated for this code-only update.
+
+## Original compact-data upload order
 
 Keep `v6/fine/current.json` absent. This release activates only through `v6/named/current.json`; the old full-replay activation key is not used.
 
