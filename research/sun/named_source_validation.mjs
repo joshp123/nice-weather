@@ -4,9 +4,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {parseArgs} from 'node:util';
 import {createFinePlaceLoader} from '../../hosting/sites/fine-place.mjs';
-const {values}=parseArgs({options:{targets:{type:'string'},normal:{type:'string'},native:{type:'string'},tiles:{type:'string'},output:{type:'string'}}});
+const {values}=parseArgs({options:{targets:{type:'string'},normal:{type:'string'},native:{type:'string'},tiles:{type:'string'},output:{type:'string'},'since-year':{type:'string'}}});
 for(const key of ['targets','normal','native','tiles','output'])if(!values[key])throw Error(`Missing --${key}`);
 const targets=JSON.parse(await fs.readFile(values.targets)),normal=JSON.parse(await fs.readFile(values.normal));
+if(values['since-year'])for(const control of normal.places){
+  const since=Number(values['since-year']);
+  control.monthly=Array.from({length:12},(_,month)=>{
+    const rows=control.annualMonthly.filter(row=>row.month===month+1&&row.year>=since),days=rows.reduce((sum,row)=>sum+row.days,0);
+    if(!days)throw Error(`No source reference days since ${since}`);
+    return {month:month+1,days,sunnyShare:rows.reduce((sum,row)=>sum+row.sunnyShare*row.days,0)/days,hourlyDni:Array.from({length:12},(_,hour)=>rows.reduce((sum,row)=>sum+row.hourlyDni[hour]*row.days,0)/days)};
+  });
+}
 const records=targets.records??targets,coordinates=place=>`${Math.round(place.latitude*1e5)},${Math.round(place.longitude*1e5)}`;
 const indexed=new Map(records.map(place=>[coordinates(place),place]));
 const manifest=JSON.parse(await fs.readFile(path.join(values.native,'manifest.json')));
@@ -38,5 +46,5 @@ for(const control of normal.places){
   entry.improvedDni=entry.dniHourlyMonthlyMaeAfter<=entry.dniHourlyMonthlyMaeBefore;
   result.push(entry);
 }
-await fs.writeFile(values.output,JSON.stringify({writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:result.every(row=>row.improvedSun&&row.improvedDni),caveat:'The TMY source uses months from its climatology, so the 19-year series is a separate full-time-series check, not an independent satellite instrument. It diagnoses a poor typical-year choice and differences from ERA5, not satellite retrieval error.',places:result},null,2)+'\n');
+await fs.writeFile(values.output,JSON.stringify({writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:result.every(row=>row.improvedSun&&row.improvedDni),referencePeriod:values['since-year']?[Number(values['since-year']),2023]:[2005,2023],caveat:'The TMY source uses months from its climatology, so the 19-year series is a separate full-time-series check, not an independent satellite instrument. It diagnoses a poor typical-year choice and differences from ERA5, not satellite retrieval error.',places:result},null,2)+'\n');
 console.log(JSON.stringify(result.map(({place,...row})=>({name:place.validationName,...Object.fromEntries(Object.entries(row).filter(([key])=>key!=='months'))})),null,2));
