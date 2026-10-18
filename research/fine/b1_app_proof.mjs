@@ -8,17 +8,29 @@ import {gunzipSync} from 'node:zlib';
 import {pathToFileURL} from 'node:url';
 import { spawn } from 'node:child_process';
 import { localWorkerFixture } from './local_worker_fixture.mjs';
+import { legacyBrowserNumbers } from './legacy_browser_numbers.mjs';
 
 const output = process.argv[2];
+const fineState = process.argv[5] ?? 'active';
+if (!['active', 'inactive'].includes(fineState)) throw Error('Fine state must be active or inactive');
 const packagedWorker = process.argv[4] ? path.resolve(process.argv[4], 'worker/index.js') : undefined;
 const packagedFetch = packagedWorker ? (await import(pathToFileURL(packagedWorker).href)).default.fetch : undefined;
 const fixture = process.argv[3] ? localWorkerFixture(path.resolve(process.argv[3]), undefined, packagedFetch) : undefined;
 const localFetch = fixture ?? fetch;
 const browserEvents = [];
 let pageReads = [];
-if (!output) throw Error('Usage: node research/fine/b1_app_proof.mjs <output-folder> [read-only-data-overlay] [prepared-sites-package]');
+if (!output) throw Error('Usage: node research/fine/b1_app_proof.mjs <output-folder> [read-only-data-overlay] [prepared-sites-package] [active|inactive]');
 await fs.mkdir(output, { recursive: true });
 await fs.writeFile(path.join(output,'results.json'),JSON.stringify({passes:false,status:'running'},null,2)+'\n');
+const status = await (await localFetch('http://127.0.0.1:5198/api/fine/replay')).json();
+if (Boolean(status.enabled) !== (fineState === 'active')) throw Error(`Expected ${fineState} fine data, got ${JSON.stringify(status)}`);
+if (fineState === 'inactive') {
+  for (const root of [process.argv[3], 'artifacts']) {
+    try { await fs.access(path.join(root, 'v6/fine/current.json')); throw Error(`Inactive proof requires absent pointer in ${root}`); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+const legacyNumbers = fineState === 'inactive' ? await legacyBrowserNumbers(localFetch) : undefined;
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'nwf-b1-cards-'));
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new', '--no-first-run', '--no-default-browser-check',
@@ -87,6 +99,7 @@ try {
     ['world-desktop','/july',1440,1080],
     ['funchal-cold','/portugal/funchal/july',1440,1080],
     ['san-francisco-phone','/united-states/san-francisco/july',390,844],
+    ['san-francisco-laptop','/united-states/san-francisco/july',1440,1080],
     ['san-diego-desktop','/united-states/san-diego/july',1440,1080],
   ]) {
     await command('Network.clearBrowserCache');
@@ -118,8 +131,17 @@ try {
       const place=await(await localFetch(`http://127.0.0.1:5198/api/slug/${slug}`)).json();
       const numbers=await(await localFetch(`http://127.0.0.1:5198/api/place?lat=${place.latitude}&lon=${place.longitude}&period=july`)).json();
       const judgement=numbers.judgement;
-      cardApi={score:Math.floor(judgement.meanScore),nice:Math.round(judgement.niceDayCount),perfect:Math.round(judgement.perfectDayCount),awful:Math.round(judgement.awfulDayCount)};
-      if(!state.card.includes(`\n\n${cardApi.score}\n`)||!state.card.includes(`Nice on ${cardApi.nice} of the 31 days of July. Perfect on ${cardApi.perfect}; awful on ${cardApi.awful}.`))throw Error(`${name}: displayed card and Worker API disagree`);
+      if (fineState === 'active') {
+        cardApi={score:Math.floor(judgement.meanScore),nice:Math.round(judgement.niceDayCount),perfect:Math.round(judgement.perfectDayCount),awful:Math.round(judgement.awfulDayCount)};
+      } else {
+        const html=await(await localFetch('http://127.0.0.1:5198'+pathname)).text();
+        const description=html.match(/property="og:description" content="([^"]+)"/)?.[1];
+        const labels=description?.match(/nice score (\d+) out of 100\. Nice or better on (\d+) of 31 days, perfect on (\d+), awful on (\d+)\./);
+        if(!labels)throw Error(`${name}: legacy preview has no complete judgement: ${description}`);
+        const reference=legacyNumbers(place.latitude,place.longitude);
+        cardApi={score:Math.floor(reference.meanScore),nice:Math.round(reference.niceDayCount),perfect:Math.round(reference.perfectDayCount),awful:Math.round(reference.awfulDayCount),source:'Unchanged browser PointSampler over published 25 km files',legacyPreview:{score:Number(labels[1]),nice:Number(labels[2]),perfect:Number(labels[3]),awful:Number(labels[4])}};
+      }
+      if(!state.card.includes(`\n\n${cardApi.score}\n`)||!state.card.includes(`Nice on ${cardApi.nice} of the 31 days of July. Perfect on ${cardApi.perfect}; awful on ${cardApi.awful}.`))throw Error(`${name}: displayed card and its weather reference disagree`);
     }
     const defaultShot=await command('Page.captureScreenshot',{format:'png'});
     await fs.writeFile(path.join(output,name+'-default.png'),Buffer.from(defaultShot.data,'base64'));
@@ -135,7 +157,7 @@ try {
       const url=new URL(x.url);
       return url.pathname==='/api/fine/replay'&&url.searchParams.has('lat');
     });
-    const r={name,cardApi,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste:JSON.parse(after.result.value),firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
+    const r={name,fineState,cardApi,readyMilliseconds:ready,settledMilliseconds:performance.now()-began,requests:reads.length,bytes:reads.reduce((s,r)=>s+r.bytes,0),nativeRequests:native.length,nativeDistinct:new Set(native.map(x=>x.url)).size,correctionDistinct:new Set(reads.filter(x=>x.url.endsWith('.nwf.gz')).map(x=>x.url)).size,tasteExtraRequests:reads.length-beforeTaste,state,afterTaste:JSON.parse(after.result.value),firstNativeRequests:native.slice(0,8),errors:browserEvents.filter(x=>x.method==='Runtime.exceptionThrown')};
     await fs.writeFile(path.join(output,name+'-reads.json'),JSON.stringify(reads,null,2));
     if(r.errors.length)throw Error(`${name}: runtime exceptions`);
     const missing=native.filter(read=>read.status!==200);
@@ -143,18 +165,19 @@ try {
     const labelReads=reads.filter(read=>/\/api\/fine\/labels-[12]\.json$/.test(new URL(read.url).pathname));
     if(labelReads.length!==2||labelReads.some(read=>read.status!==200))throw Error(`${name}: canonical label files are unavailable`);
     if(reads.some(read=>read.url.includes('/native/')||read.url.endsWith('.nwf.gz')||read.url.endsWith('.nwz.gz')))throw Error(`${name}: browser downloaded full correction or native carrier tiles`);
+    if(fineState==='inactive'&&r.nativeRequests!==0)throw Error(`${name}: inactive app requested fine weather`);
     if(r.nativeDistinct>512)throw Error(`${name}: catalogue weather fanout returned`);
     results.push(r);console.log(JSON.stringify({...r,state:{headline:r.state.headline,card:r.state.card.slice(0,300)},afterTaste:{headline:r.afterTaste.headline,card:r.afterTaste.card.slice(0,300),url:r.afterTaste.url}}));
   }
   const sources={};
-  for(const file of ['hosting/sites/worker.mjs','hosting/sites/fine-place.mjs','hosting/sites/fine-candidates.mjs','src/engine/finePlaces.ts','src/engine/weatherEngine.ts','src/ui/map.ts','src/ui/home.ts','dist/index.html']) {
+  for(const file of ['research/fine/b1_app_proof.mjs','research/fine/legacy_browser_numbers.mjs','research/fine/local_worker_fixture.mjs','hosting/sites/worker.mjs','hosting/sites/fine-place.mjs','hosting/sites/fine-candidates.mjs','src/engine/finePlaces.ts','src/engine/weatherEngine.ts','src/engine/sampling.ts','src/engine/data.ts','src/engine/taste.ts','src/engine/shaders.ts','src/ui/map.ts','src/ui/home.ts','dist/index.html']) {
     sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
   }
   if(packagedWorker) for(const name of await fs.readdir(path.dirname(packagedWorker))) {
     const file=path.join(path.dirname(packagedWorker),name);
     sources[file]=crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
   }
-  await fs.writeFile(path.join(output,'results.json'),JSON.stringify({written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,sources,views:results},null,2));
+  await fs.writeFile(path.join(output,'results.json'),JSON.stringify({written_by:'AI, GPT-6.1 Sol, 2026.10.18',passes:true,fineState,status,sources,views:results},null,2));
   await send('Target.closeTarget', { targetId });
 } catch(error) {
   await fs.writeFile(path.join(output,'results.json'),JSON.stringify({passes:false,error:error.message},null,2)+'\n');
