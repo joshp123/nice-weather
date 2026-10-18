@@ -160,7 +160,8 @@ def summarize_cached(args,points):
     source=args.source
     typical=source in ('tmy','tdy')
     zones=TargetTimezones(args.root.parent/'target-timezones.json')
-    locations=json.loads((args.root/f'{source}-selected.json').read_text())
+    location_cache=args.root/f'{source}-selected.json'
+    locations=json.loads(location_cache.read_text()) if location_cache.exists() else {}
     years=np.load(args.root/f'{source}-selected-years.npy',mmap_mode='r') if typical else None
     records=[]
     for lat,lon in points:
@@ -168,7 +169,8 @@ def summarize_cached(args,points):
         raw=args.root/source/f'{key}.npz'
         data=np.load(raw)
         zone=zones.timezone_at(lat=lat,lng=lon)
-        index,selected=locations.get(key,[None,data['selected'].tolist()])
+        index=int(data['sourceIndex']) if 'sourceIndex' in data else locations.get(key,[None])[0]
+        selected=data['selected'].tolist()
         if typical and index is None:
             raise ValueError('Typical-year replay requires the cached native source index')
         selection=years[:,index].astype(int).tolist() if typical else None

@@ -36,13 +36,19 @@ def main():
         elapsed=time.monotonic()-started
         current=[transferred(path) for path in args.progress]
         additional=sum(value-old for value,old in zip(current,baseline))
-        reason='wire-budget' if additional>=args.maximum_additional_bytes else 'time-budget' if elapsed>=args.maximum_seconds else None
+        alive=[]
+        for pid in args.pid:
+            try:
+                os.kill(pid,0);alive.append(pid)
+            except ProcessLookupError:
+                pass
+        reason='workers-finished' if not alive else 'wire-budget' if additional>=args.maximum_additional_bytes else 'time-budget' if elapsed>=args.maximum_seconds else None
         status=dict(processIds=args.pid,progressFiles=[str(path) for path in args.progress],baselineTransferredBytes=baseline,
                     currentTransferredBytes=current,additionalTransferredBytes=additional,seconds=elapsed,
                     maximumAdditionalBytes=args.maximum_additional_bytes,maximumSeconds=args.maximum_seconds,
                     stopped=reason is not None,reason=reason)
-        if reason:
-            for pid in args.pid:
+        if reason and reason!='workers-finished':
+            for pid in alive:
                 try:
                     os.kill(pid,signal.SIGTERM)
                 except ProcessLookupError:
