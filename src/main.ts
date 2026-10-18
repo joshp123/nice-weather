@@ -51,6 +51,8 @@ let barMessage: AnswerLine | null = null;
 /** The camera is remembered only once the visitor has moved the map, so a first visit always frames the world. */
 let cameraChosen = Boolean(saved.camera);
 let placeRequest = 0;
+/** While the poster moves the camera to frame its places, the answer must not change under it. */
+let framingPoster = false;
 let weatherLoading = true;
 let remainingCitiesRequested = false;
 let remainingCitiesReady = false;
@@ -194,16 +196,15 @@ function selectPlace(place: Place): void {
   });
 }
 
-/** On a phone the card covers the lower map; keep the chosen spot above it. */
+/** On a phone the card covers the lower map; keep the chosen spot in the part of the map still showing above it. */
 function keepPlaceInView(place: Place): void {
   if (!phone.matches) return;
-  const ease = () => requestAnimationFrame(() => {
-    const sheet = cardSlot.getBoundingClientRect();
-    const top = topBar.getBoundingClientRect().bottom + 16;
-    const targetY = (top + sheet.top) / 2;
-    map.easeTo({ duration: 0, center: [place.longitude, place.latitude], padding: { top: 0, bottom: 0, left: 0, right: 0 }, offset: [0, targetY - window.innerHeight / 2] });
+  requestAnimationFrame(() => {
+    const mapArea = mapContainer.getBoundingClientRect();
+    const showingBottom = Math.min(cardSlot.getBoundingClientRect().top, mapArea.bottom);
+    const offsetFromMapMiddle = (mapArea.top + showingBottom) / 2 - (mapArea.top + mapArea.height / 2);
+    map.easeTo({ duration: 0, center: [place.longitude, place.latitude], padding: { top: 0, bottom: 0, left: 0, right: 0 }, offset: [0, offsetFromMapMiddle] });
   });
-  ease();
 }
 
 // ---------------------------------------------------------------- the engine
@@ -259,7 +260,7 @@ function afterRedraw(): void {
 }
 
 function updateHeadline(): void {
-  if (!remainingCitiesReady || shareOpen) return;
+  if (!remainingCitiesReady || shareOpen || framingPoster) return;
   const population = rankingPopulation(map.getZoom());
   const candidates = listOpen && listCandidates ? listCandidates : weatherMap.rankingCandidates(population);
   headlineRegion = viewportRegion(map.getBounds());
@@ -342,7 +343,8 @@ async function openPoster(): Promise<void> {
   if (playing) { stopPlaying(); render(); }
   const request = ++posterRequest;
   const context = shareContext();
-  const poster = await renderPoster(context, () => { shareOpen = false; posterSlot.replaceChildren(); render(); });
+  framingPoster = true;
+  const poster = await renderPoster(context, () => { shareOpen = false; posterSlot.replaceChildren(); render(); }).finally(() => { framingPoster = false; });
   if (request !== posterRequest) return;
   shareOpen = true;
   posterSlot.replaceChildren(poster);
@@ -356,7 +358,7 @@ tasteSlot.append(tastePanel.element);
 const search = createSearch(actions);
 
 function shareContext(): ShareContext {
-  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, link: new URL(buildLink(state.place ? state : { ...state, place: { name: '', region: '', slug: null, latitude: map.getCenter().lat, longitude: map.getCenter().lng } }, map.getZoom()), PUBLIC_ORIGIN).href };
+  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, subjects: state.place ? [state.place] : rankedPlaces.slice(0, 3), link: new URL(buildLink(state.place ? state : { ...state, place: { name: '', region: '', slug: null, latitude: map.getCenter().lat, longitude: map.getCenter().lng } }, map.getZoom()), PUBLIC_ORIGIN).href };
 }
 
 /** Taste and Share: words in the top bar on a computer, icons beside the time on a phone. */

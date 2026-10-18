@@ -320,18 +320,24 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
             choices.sort((a, b) => Math.hypot(a.box.x - a.point.x, a.box.y - a.point.y) - Math.hypot(b.box.x - b.point.x, b.box.y - b.point.y));
             return [choices];
           });
-          const placeLabels = (index: number, placed: Placement[]): Placement[] | null => {
+          // The chosen place's ring stays visible: no answer label or leader line may cover it.
+          const ringPoint = chosenPlace ? map.project([chosenPlace.longitude, chosenPlace.latitude]) : null;
+          const ring = ringPoint ? {x: ringPoint.x, y: ringPoint.y, width: design.ringSize / 2, height: design.ringSize / 2} : null;
+          const coversRing = (choice: Placement) => Boolean(ring && !insideBox(choice.point, ring)
+            && (boxesOverlap(choice.box, ring) || (choice.point.dist(choice.end) > 0 && crossesBox(choice.point, choice.end, ring))));
+          const placeLabels = (index: number, placed: Placement[], keepRingClear: boolean): Placement[] | null => {
             if (index === options.length) return placed;
             for (const choice of options[index]) {
+              if (keepRingClear && coversRing(choice)) continue;
               if (placed.some(other => boxesOverlap(choice.box, other.box)
                 || linesCross(choice.point, choice.end, other.point, other.end)
                 || crossesBox(choice.point, choice.end, other.box) || crossesBox(other.point, other.end, choice.box))) continue;
-              const result = placeLabels(index + 1, [...placed, choice]);
+              const result = placeLabels(index + 1, [...placed, choice], keepRingClear);
               if (result) return result;
             }
             return null;
           };
-          const placed = placeLabels(0, []) ?? [];
+          const placed = placeLabels(0, [], true) ?? placeLabels(0, [], false) ?? [];
           const offsets = new Map(placed.map(({slug, point, box}) => [slug, [(box.x - point.x) / fontSize, (box.y - point.y) / fontSize]]));
           const pointers: GeoJSON.Feature<GeoJSON.LineString>[] = placed.filter(({point, end}) => point.dist(end) > 0).map(({point, end}) => ({
             type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: [map.unproject(point).toArray(), map.unproject(end).toArray()]},
