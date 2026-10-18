@@ -1,12 +1,12 @@
 // Written by AI on 2026.10.17 by model Claude Fable 5.1.
-// Sharing, as on moneymap: copy the link, copy an image of the map with the place and its score, post on X,
-// or hand it to the phone's share sheet. The same card is what a pasted link shows as its preview.
+// Share the poster and its sentence together. Link previews use the same poster template.
 import type maplibregl from 'maplibre-gl';
 import type { Period, PointVerdict } from '../engine';
 import { button, el } from './dom';
 import { bandSentence, dayCountsSentence, periodPhrase, type ForecastIndex } from './periods';
 import type { Place } from './state';
 import { countryFlag } from './countries';
+import { shareImage } from '../../hosting/sites/share-image.mjs';
 
 export type ShareContext = Readonly<{
   map: maplibregl.Map;
@@ -26,7 +26,7 @@ export function shareText(context: ShareContext): string {
     const days = dayCountsSentence(period, forecast, verdict);
     return `${place.name} ${periodPhrase(period, forecast)}: ${bandSentence(period, verdict.band)}, ${Math.floor(verdict.meanScore)} out of 100.${days ? ` ${days}.` : ''}`;
   }
-  return `Where the weather is nice ${periodPhrase(period, forecast)}. ${context.headline}`.trim();
+  return context.headline;
 }
 
 /** Copy the map after its next render so the poster includes the latest weather. */
@@ -92,10 +92,9 @@ export async function renderPoster(context: ShareContext, close: () => void): Pr
     placeLink.style.width = `${bounds.width / 1200 * 100}%`; placeLink.style.height = `${bounds.height / 630 * 100}%`;
     artwork.append(placeLink);
   }
-  const menu = renderShareMenu(() => context, () => Promise.resolve(blob));
-  const save = button('menu-button', 'Download image', () => download(blob, 'nice-weather.png'));
+  const menu = renderShareMenu(() => context, blob);
   return el('section', 'poster-overlay', el('h2', 'poster-title', 'Your weather, as a poster.'), artwork,
-    el('div', 'poster-toolbar panel', menu, save, button('menu-button', 'Back to the map', dismiss)));
+    el('div', 'poster-toolbar panel', menu, button('menu-button', 'Back to the map', dismiss)));
 }
 
 function download(blob: Blob, name: string): void {
@@ -109,7 +108,7 @@ function download(blob: Blob, name: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function renderShareMenu(context: () => ShareContext, capture?: () => Promise<Blob>): HTMLElement {
+export function renderShareMenu(context: () => ShareContext, image: Blob): HTMLElement {
   const status = el('p', 'share-status');
   status.setAttribute('role', 'status');
   const say = (text: string) => { status.textContent = text; };
@@ -130,49 +129,25 @@ export function renderShareMenu(context: () => ShareContext, capture?: () => Pro
     }
   });
 
-  const copyImage = button('menu-button', 'Copy image', async () => {
+  const share = button('menu-button', 'Share image', async () => {
     const current = context();
-    // Safari only accepts a promise made inside the click; the same PNG downloads when the clipboard refuses.
-    const image = capture ? capture() : drawShareCard(innerWidth, innerHeight, current);
-    copyImage.disabled = true;
-    say('Copying image…');
+    share.disabled = true;
     try {
-      if ('ClipboardItem' in window && navigator.clipboard?.write) {
-        try {
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]);
-          say('Image copied. Paste it into your post.');
-          return;
-        } catch {
-          // Fall through to the download.
-        }
-      }
-      download(await image, 'nice-weather.png');
-      say('Image downloaded.');
+      const result = await shareImage(image, `${shareText(current)}\n${current.link}`, 'nice-weather.png');
+      say(result === 'shared' ? 'Shared.' : 'Image and sentence copied. Paste them into your post.');
     } catch (error) {
-      say(`Could not make the image: ${error instanceof Error ? error.message : String(error)}`);
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        say('Could not share the image. Download it below; the sentence is ready to copy.');
+        const sentence = el('textarea', 'copy-link-fallback');
+        sentence.value = `${shareText(current)}\n${current.link}`;
+        sentence.readOnly = true;
+        sentence.setAttribute('aria-label', 'Sentence to share with the image');
+        status.append(sentence);
+      }
     } finally {
-      copyImage.disabled = false;
+      share.disabled = false;
     }
   });
-
-  const post = el('a', 'menu-button', 'Post on X');
-  post.target = '_blank';
-  post.rel = 'noopener';
-  const current = context();
-  post.href = `https://x.com/intent/tweet?${new URLSearchParams({ text: shareText(current), url: current.link })}`;
-
-  const items = [copyLink, copyImage, post];
-  if (typeof navigator.share === 'function') {
-    items.push(button('menu-button', 'Share with another app…', async () => {
-      const current = context();
-      try {
-        // Call in the tap: awaiting an image first loses Safari's user activation.
-        await navigator.share({ text: shareText(current), url: current.link });
-        say('Shared.');
-      } catch (error) {
-        if (!(error instanceof Error && error.name === 'AbortError')) say('Could not open the share sheet. Use Copy link instead.');
-      }
-    }));
-  }
-  return el('div', 'share-menu panel', ...items, status);
+  const save = button('menu-button', 'Download image', () => download(image, 'nice-weather.png'));
+  return el('div', 'share-menu panel', share, save, copyLink, status);
 }

@@ -1,0 +1,91 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026-10-18",
+  "results": [
+    {
+      "kind": "native",
+      "active": true,
+      "text": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf8\ud83c\uddf4 Boorama.\nhttps://nice.jjpcodes.com/@14.388364773130604,12.5,1.1z/year",
+      "name": "nice-weather.png",
+      "type": "image/png",
+      "size": 202807,
+      "signature": [
+        137,
+        80,
+        78,
+        71,
+        13,
+        10,
+        26,
+        10
+      ],
+      "download": "nice-weather.png",
+      "page": "app",
+      "native": true,
+      "errors": []
+    },
+    {
+      "kind": "clipboard",
+      "types": [
+        "image/png",
+        "text/plain"
+      ],
+      "text": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf8\ud83c\uddf4 Boorama.\nhttps://nice.jjpcodes.com/@14.388364773130604,12.5,1.1z/year",
+      "size": 202807,
+      "readBack": {
+        "types": [
+          "text/plain",
+          "image/png"
+        ],
+        "text": "Nicest on this map all year: \ud83c\uddf2\ud83c\udde6 Agadir, \ud83c\uddea\ud83c\uddf9 Adama and \ud83c\uddf8\ud83c\uddf4 Boorama.\nhttps://nice.jjpcodes.com/@14.388364773130604,12.5,1.1z/year",
+        "bytes": 248223
+      },
+      "download": "nice-weather.png",
+      "page": "app",
+      "native": false,
+      "errors": []
+    },
+    {
+      "kind": "native",
+      "active": true,
+      "text": "The nicest weather in the world tomorrow, Monday 19 October, will be in and around Chengdu, Lahore and Delhi.\nhttp://127.0.0.1:5198/outlook/world?date=2026-10-19",
+      "name": "nice-weather-world-2026-10-19.png",
+      "type": "image/png",
+      "size": 243014,
+      "signature": [
+        137,
+        80,
+        78,
+        71,
+        13,
+        10,
+        26,
+        10
+      ],
+      "download": "nice-weather-world-2026-10-19.png",
+      "page": "outlook",
+      "native": true,
+      "errors": []
+    },
+    {
+      "kind": "clipboard",
+      "types": [
+        "image/png",
+        "text/plain"
+      ],
+      "text": "The nicest weather in the world tomorrow, Monday 19 October, will be in and around Chengdu, Lahore and Delhi.\nhttp://127.0.0.1:5198/outlook/world?date=2026-10-19",
+      "size": 243014,
+      "readBack": {
+        "types": [
+          "text/plain",
+          "image/png"
+        ],
+        "text": "The nicest weather in the world tomorrow, Monday 19 October, will be in and around Chengdu, Lahore and Delhi.\nhttp://127.0.0.1:5198/outlook/world?date=2026-10-19",
+        "bytes": 284924
+      },
+      "download": "nice-weather-world-2026-10-19.png",
+      "page": "outlook",
+      "native": false,
+      "errors": []
+    }
+  ]
+}
