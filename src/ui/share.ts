@@ -6,6 +6,7 @@ import type { Period, PointVerdict } from '../engine';
 import { button, el } from './dom';
 import { bandSentence, dayCountsSentence, periodPhrase, type ForecastIndex } from './periods';
 import type { Place } from './state';
+import { countryFlag } from './countries';
 
 export type ShareContext = Readonly<{
   map: maplibregl.Map;
@@ -31,107 +32,65 @@ export function shareText(context: ShareContext): string {
 /** Copy the map after its next render so the poster includes the latest weather. */
 async function captureMap(map: maplibregl.Map): Promise<HTMLCanvasElement> {
   if (!map.areTilesLoaded()) await new Promise<void>(resolve => { map.once('idle', () => resolve()); map.triggerRepaint(); });
-  await new Promise<void>(resolve => { map.once('render', () => requestAnimationFrame(() => resolve())); map.triggerRepaint(); });
-  const source = map.getCanvas();
-  const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height;
-  copy.getContext('2d')!.drawImage(source, 0, 0);
-  return copy;
+  const screenPixelRatio = map.getPixelRatio();
+  const exportPixelRatio = Math.max(screenPixelRatio, 1200 / map.getContainer().clientWidth);
+  try {
+    map.setPixelRatio(exportPixelRatio);
+    await new Promise<void>(resolve => { map.once('render', () => requestAnimationFrame(() => resolve())); map.triggerRepaint(); });
+    const source = map.getCanvas();
+    const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height;
+    copy.getContext('2d')!.drawImage(source, 0, 0);
+    return copy;
+  } finally {
+    map.setPixelRatio(screenPixelRatio);
+  }
 }
 
-/** Capture the screen layout itself, including its type, map, key and place comparisons. */
-export async function drawShareCard(width: number, height: number, context: ShareContext): Promise<Blob> {
-  await document.fonts.ready;
-  const mapImage = await captureMap(context.map);
-  const app = document.getElementById('app')!;
-  const bounds = app.getBoundingClientRect();
-  const clone = app.cloneNode(true) as HTMLElement;
-  const originalElements = [app, ...app.querySelectorAll('*')];
-  const cloneElements = [clone, ...clone.querySelectorAll('*')];
-  originalElements.forEach((original, index) => {
-    const target = cloneElements[index] as HTMLElement | SVGElement;
-    const style = getComputedStyle(original);
-    target.setAttribute('style', Array.from(style).map(name => `${name}:${style.getPropertyValue(name)}`).join(';'));
-    if (original instanceof HTMLCanvasElement) {
-      if (original === context.map.getCanvas()) { target.remove(); return; }
-      const bitmap = document.createElement('img');
-      bitmap.setAttribute('style', target.getAttribute('style')!);
-      bitmap.src = original === context.map.getCanvas() ? mapImage.toDataURL() : original.toDataURL();
-      bitmap.width = original.clientWidth; bitmap.height = original.clientHeight;
-      target.replaceWith(bitmap);
-    }
+/** Draw the same control-free template used by link previews. */
+export async function drawShareCard(_width: number, _height: number, context: ShareContext): Promise<Blob> {
+  const [{ shareImagePng }, mapImage] = await Promise.all([
+    import('../../hosting/sites/share-template.mjs'), captureMap(context.map),
+  ]);
+  const source = mapImage.getContext('2d')!.getImageData(0, 0, mapImage.width, mapImage.height).data;
+  const pixels = new Uint8Array(mapImage.width * mapImage.height * 3);
+  for (let index = 0; index < pixels.length / 3; index++) pixels.set(source.subarray(index * 4, index * 4 + 3), index * 3);
+  const { place, verdict, period, forecast } = context;
+  let dates = periodPhrase(period, forecast);
+  if (forecast && (period.kind === 'forecast' || period.kind === 'forecast-day')) {
+    const date = (day: number) => {
+      const value = new Date(`${forecast.firstDate}T12:00:00Z`); value.setUTCDate(value.getUTCDate() + day);
+      return value.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+    };
+    dates = period.kind === 'forecast-day' ? date(period.day) : `${date(0)} to ${date(forecast.days - 1)}`;
+  } else dates = `${dates[0].toUpperCase()}${dates.slice(1)}, typical weather`;
+  const png = await shareImagePng({
+    title: place ? `${countryFlag(place)} ${place.name}`.trim() : context.headline,
+    dates,
+    numbers: verdict ? { score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount, totalDays: verdict.totalDays, countedDays: verdict.countedDays, countBasis: verdict.countBasis } : undefined,
+    detail: 'Colours show the typical day. Find your nice weather.',
+    map: { pixels, width: mapImage.width, height: mapImage.height,
+      ...(place ? {focusX: context.map.project([place.longitude, place.latitude]).x * mapImage.width / context.map.getContainer().clientWidth,
+        focusY: context.map.project([place.longitude, place.latitude]).y * mapImage.height / context.map.getContainer().clientHeight} : {}) },
+    dark: matchMedia('(prefers-color-scheme: dark)').matches,
   });
-  clone.querySelector('.poster-slot')?.remove();
-  clone.style.background = 'transparent';
-  const posterHeadline = clone.querySelector<HTMLElement>('.slot-headline');
-  if (posterHeadline) { posterHeadline.style.background = 'transparent'; posterHeadline.style.boxShadow = 'none'; }
-  const mapClone = clone.querySelector<HTMLElement>('.map');
-  if (mapClone) mapClone.style.background = 'transparent';
-  clone.style.position = 'relative'; clone.style.width = `${bounds.width}px`; clone.style.height = `${bounds.height}px`;
-  // Fonts are embedded so the SVG is self-contained, including when Safari loads it as an image.
-  let fonts = '';
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList;
-    try { rules = sheet.cssRules; } catch { continue; }
-    for (const rule of Array.from(rules)) {
-      if (!(rule instanceof CSSFontFaceRule)) continue;
-      let text = rule.cssText;
-      const source = /url\(["']?([^"')]+)["']?\)/.exec(text);
-      if (source) {
-        const blob = await fetch(new URL(source[1], sheet.href ?? location.href)).then(response => response.blob());
-        const encoded = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsDataURL(blob); });
-        text = text.replace(source[0], `url(${encoded})`);
-      }
-      fonts += text;
-    }
-  }
-  const markup = new XMLSerializer().serializeToString(clone);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${bounds.width}" height="${bounds.height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${fonts}</style>${markup}</div></foreignObject></svg>`;
-  const bitmap = new Image();
-  const ready = new Promise<void>((resolve, reject) => { bitmap.onload = () => resolve(); bitmap.onerror = () => reject(new Error('The poster could not be rendered')); });
-  bitmap.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  await ready;
-  const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-  const draw = canvas.getContext('2d')!;
-  const tokens = getComputedStyle(app);
-  draw.fillStyle = tokens.getPropertyValue('--page'); draw.fillRect(0, 0, width, height);
-  const mapBounds = context.map.getContainer().getBoundingClientRect();
-  const scaleX = width / bounds.width, scaleY = height / bounds.height;
-  const measure = document.createElement('div');
-  measure.style.cssText = 'position:absolute;visibility:hidden;height:0;';
-  app.append(measure);
-  const length = (name: string) => { measure.style.width = `var(${name})`; return measure.getBoundingClientRect().width; };
-  const edge = length('--edge');
-  const masthead = length('--masthead-height');
-  const footer = length('--footer-height');
-  const radius = length('--poster-frame-radius');
-  measure.remove();
-  const frameTop = Math.max(edge, masthead);
-  const frameBottom = Math.max(edge, footer);
-  draw.save();
-  draw.beginPath();
-  draw.roundRect(edge * scaleX, frameTop * scaleY, (bounds.width - edge * 2) * scaleX,
-    (bounds.height - frameTop - frameBottom) * scaleY, radius * scaleX);
-  draw.clip();
-  draw.fillStyle = tokens.getPropertyValue('--map-sea');
-  draw.fillRect(0, 0, width, height);
-  draw.drawImage(mapImage, mapBounds.x * scaleX, mapBounds.y * scaleY, mapBounds.width * scaleX, mapBounds.height * scaleY);
-  draw.restore();
-  draw.drawImage(bitmap, 0, 0, width, height);
-  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('The poster could not be saved')), 'image/png'));
+  return new Blob([png as BlobPart], { type: 'image/png' });
 }
 
 export async function renderPoster(context: ShareContext, close: () => void): Promise<HTMLElement> {
-  const blob = await drawShareCard(innerWidth, innerHeight, context);
+  const blob = await drawShareCard(1200, 630, context);
   const url = URL.createObjectURL(blob);
-  const preview = el('img', 'poster-preview'); preview.src = url; preview.alt = 'Your Nice Weather poster with the current map and headline';
+  const preview = el('img', 'poster-preview'); preview.src = url; preview.alt = 'Nice! weather map with the place, figures and dates';
   const dismiss = () => { URL.revokeObjectURL(url); close(); };
-  const namedPlaces = Array.from(document.querySelectorAll<HTMLElement>('#app .inline-place')).map(element => ({ element, bounds: element.getBoundingClientRect() })).filter(entry => entry.bounds.width && entry.bounds.height);
   const artwork = el('div', 'poster-artwork', preview);
-  for (const { element, bounds } of namedPlaces) {
-    const hotspot = button('poster-place-link', '', () => { dismiss(); element.click(); }, `Open ${element.textContent}`);
-    hotspot.style.left = `${bounds.x / innerWidth * 100}%`; hotspot.style.top = `${bounds.y / innerHeight * 100}%`;
-    hotspot.style.width = `${bounds.width / innerWidth * 100}%`; hotspot.style.height = `${bounds.height / innerHeight * 100}%`;
-    artwork.append(hotspot);
+  const { shareHeadingLinks } = await import('../../hosting/sites/share-template.mjs');
+  const title = context.place ? `${countryFlag(context.place)} ${context.place.name}`.trim() : context.headline;
+  const namedElements = new Map<string, HTMLElement | null>(Array.from(document.querySelectorAll<HTMLElement>('#app .inline-place')).map(element => [element.textContent?.trim() ?? '', element]));
+  if (context.place) namedElements.set(title, null);
+  for (const bounds of shareHeadingLinks(title, Array.from(namedElements.keys()))) {
+    const placeLink = button('poster-place-link', '', () => { dismiss(); if (bounds.label !== title || !context.place) namedElements.get(bounds.label)?.click(); }, `Open ${bounds.label}`);
+    placeLink.style.left = `${bounds.x / 1200 * 100}%`; placeLink.style.top = `${bounds.y / 630 * 100}%`;
+    placeLink.style.width = `${bounds.width / 1200 * 100}%`; placeLink.style.height = `${bounds.height / 630 * 100}%`;
+    artwork.append(placeLink);
   }
   const menu = renderShareMenu(() => context, () => Promise.resolve(blob));
   const save = button('menu-button', 'Download image', () => download(blob, 'nice-weather.png'));

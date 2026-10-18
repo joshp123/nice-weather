@@ -23,7 +23,7 @@ import (
 	"golang.org/x/image/vector"
 )
 
-//go:embed assets/*.bin assets/*.ttf
+//go:embed assets/*.bin assets/*.ttf assets/nice-wordmark.png
 var assets embed.FS
 
 type coordinate struct{ longitude, latitude float64 }
@@ -31,10 +31,19 @@ type posterRenderer struct {
 	land, borders, states [][]coordinate
 	regular, bold         *opentype.Font
 	faces                 map[string]font.Face
+	wordmark              image.Image
 }
 
 func newPosterRenderer() (*posterRenderer, error) {
 	renderer := &posterRenderer{faces: map[string]font.Face{}}
+	brand, err := assets.ReadFile("assets/nice-wordmark.png")
+	if err != nil {
+		return nil, err
+	}
+	renderer.wordmark, err = png.Decode(bytes.NewReader(brand))
+	if err != nil {
+		return nil, err
+	}
 	for name, target := range map[string]*[][]coordinate{"land.bin": &renderer.land, "borders.bin": &renderer.borders, "states.bin": &renderer.states} {
 		body, err := assets.ReadFile("assets/" + name)
 		if err != nil {
@@ -115,7 +124,12 @@ func (renderer *posterRenderer) fittedText(canvas *image.NRGBA, text string, x, 
 func (renderer *posterRenderer) write(directory string, outlook Outlook, scores *image.Gray) error {
 	canvas := image.NewNRGBA(image.Rect(0, 0, Style.Width*Style.RenderScale, Style.Height*Style.RenderScale))
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(Style.Background), image.Point{}, draw.Src)
-	renderer.text(canvas, "Nice!", float64(Style.Margin), Layout.BrandBaseline, Style.BrandSize, Style.BrandBold, Style.Text)
+	brandWidth := 182 * Style.RenderScale
+	brandHeight := brandWidth * renderer.wordmark.Bounds().Dy() / renderer.wordmark.Bounds().Dx()
+	brand := image.NewNRGBA(image.Rect(0, 0, brandWidth, brandHeight))
+	resample.CatmullRom.Scale(brand, brand.Bounds(), renderer.wordmark, renderer.wordmark.Bounds(), draw.Src, nil)
+	brandTop := int(Layout.BrandBaseline*float64(Style.RenderScale)) - brandHeight
+	draw.DrawMask(canvas, image.Rect(Style.Margin*Style.RenderScale, brandTop, Style.Margin*Style.RenderScale+brandWidth, brandTop+brandHeight), image.NewUniform(Style.Text), image.Point{}, brand, image.Point{}, draw.Over)
 	renderer.text(canvas, strings.ToUpper(outlook.Title)+" / ONE-DAY FORECAST", Layout.HeadingX, Layout.EyebrowBaseline, Style.KeySize, Style.EyebrowBold, Style.Accent)
 	renderer.text(canvas, "The nicest weather tomorrow", Layout.HeadingX, Layout.HeadingBaseline, Style.HeadingSize, Style.HeadingBold, Style.Text)
 	date, _ := time.Parse("2006-01-02", outlook.Date)
