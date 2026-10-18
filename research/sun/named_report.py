@@ -15,12 +15,16 @@ def main(args):
     'The compact default-taste climate records keep eight scores per month. Cards, map labels, headlines and previews aggregate those same records. The native replay applies the same coefficients before offline computation. The JavaScript/Go arithmetic proof covers the same formula.','',
     '## Annual day counts','',table(['Place','Nice before','Nice after','Perfect before','Perfect after'],[[row['place']['validationName'],row['before']['year']['niceDayCount'],row['after']['year']['niceDayCount'],row['before']['year']['perfectDayCount'],row['after']['year']['perfectDayCount']] for row in rows]),'',
     'Counts estimate a typical year from 96 representative days, weighted to 365 calendar days; they are not 365 independently observed days. A lower count after correcting an over-sunny source is not, by itself, a weather-data regression.','',
+    'Chiclayo still has 365 nice days after correction: its independent July target is about 64% sunny, much brighter than Lima. The existing taste rule permits warm, partly cloudy days to be nice. Antofagasta still has 151 nice days in November–March, with fewer perfect days. The correction does not force coastal places down the ranking or change the taste rule.','',
     '## Monthly sunny share','',
     'Percent of daylight clock hours after 10:00 meeting the app\'s direct-normal-radiation threshold of 300 W/m². **Before** is the published card\'s monthly fact; **satellite** is the actual fitted independent-source target; **after** is the new card fact. Agreement with the fitted target establishes transport and fitting, not independent source accuracy.','']
     months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
     for row in rows:
         place=row['place']; target=indexed.get((round(place['latitude']*1e5),round(place['longitude']*1e5)))
         satellite=[month['sunnyShare']*100 if month else None for month in target['months']] if target else [None]*12
+        for month,expected in enumerate(satellite):
+            if expected is not None and abs(row['after']['months'][month]['sunnyPercent']-expected)>0.001:
+                raise ValueError(f"Published monthly sunshine differs from fitted satellite target: {place['slug']}/{month+1}")
         lines=[['Before']+[f"{month['sunnyPercent']:.1f}" for month in row['before']['months']],['Satellite']+['—' if value is None else f'{value:.1f}' for value in satellite],['After']+[f"{month['sunnyPercent']:.1f}" for month in row['after']['months']]]
         out+=['### '+place['validationName'],'',f"Exact named point: {place['latitude']:.5f}, {place['longitude']:.5f}. Source: {target.get('source','see source manifest') if target else 'not covered; unchanged'}.",'',table(['% sunny']+months,lines),'']
     if args.controls:
@@ -44,7 +48,11 @@ def main(args):
             out+=['**Partial probe: this is not a worldwide ranking comparison.**',''];continue
         before=ranks['before']['places'];after=ranks['after']['places'];length=max(len(before),len(after))
         out+=[table(['Rank','Before','Nice / perfect','After','Nice / perfect'],[[index+1,before[index]['name'] if index<len(before) else '—',f"{before[index]['niceDayCount']} / {before[index]['perfectDayCount']}" if index<len(before) else '—',after[index]['name'] if index<len(after) else '—',f"{after[index]['niceDayCount']} / {after[index]['perfectDayCount']}" if index<len(after) else '—'] for index in range(length)]),'']
-    out+=['## Retained evidence','',f'- Exact release comparison: `{args.comparison}`.',f'- Satellite input targets: `{args.targets}`.']
+    out+=['## Source and model limits','',
+    'The common northern GOES TMY choice improves sunny-share and direct-radiation errors at Lima, San Francisco and San Diego against independently integrated 2022/2024 full-disc data. TDY failed that common control comparison at San Diego. Iquique improves too, but retains 15.64 percentage points of monthly sunshine error against those two years. Antofagasta and Valparaíso use the two full-disc years themselves; reproducing their monthly means proves the calculation, not held-out climatology accuracy. The approximately 4 km typical-year and 2 km full-disc pixels can resolve coastal fog differently. [Detailed controls and limitations](NAMED_CONTROL_CHECKS.md).','',
+    'The model keeps a native zero-radiation sample at zero heating. A monthly multiplicative correction cannot create unsupported native sunlight. The final fourteen-place build records 27 month/hour combinations with this limitation; the largest omitted daytime heating bound is 0.24 °C.','',
+    'The actual fitted fourteen-place coefficient packets also pass JavaScript/Go parity across twelve months, four seasons, November–March and the year, before and after binary packet transport: 15,624 numeric comparisons differ by at most 2.85e−14; displayed nice/perfect/awful counts agree. Air high, evening, dew point, wet-day fraction and wind remain unchanged. SSD evidence: `sun/named-validation/final-fourteen-model-parity/`.','',
+    '## Retained evidence','',f'- Exact release comparison: `{args.comparison}`.',f'- Satellite input targets: `{args.targets}`.']
     if args.controls:out+=[f'- Full-period source validation: `{args.controls}`.']
     out+=['- Baseline live API and headless WebKit screenshots: SSD `sun/named-validation/before-api/` and `before-webkit/`.','- The cold baseline laptop year headline read “Chiclayo, Chimbote and Najran”; its November–March headline included Antofagasta. Phone headlines rank the smaller visible map extent.','']
     args.output.write_text('\n'.join(out)+'\n')
