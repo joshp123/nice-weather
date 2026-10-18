@@ -29,7 +29,7 @@ The matched Sites package is `fine-named-code-b1-20261018/`: **18 files, 5,307,0
 
 ## View-scoped transport update
 
-This is a code-only update; no new weather files, pointer changes or runner replacement are needed. Keep the existing named activation and forecast pointers.
+Published on 2026-10-18 as Sites version 21, preserving public access. This was a code-only update: no new weather files, pointer changes or runner replacement. The source/archive receipt is `deployments/named-viewport-20261018/deployment.json` on the data volume. Measurements and rerun instructions are in [NAMED_VIEW_LOADING.md](NAMED_VIEW_LOADING.md). Keep the existing named activation and forecast pointers.
 
 1. Read the live Site and source revision, preserving its public audience, `WEATHER` binding and latest interface.
 2. Build the committed app with `devenv shell -- npm run build`. Package that build with `hosting/sites/build.mjs` into the Sites source checkout opened by the Sites skill.
