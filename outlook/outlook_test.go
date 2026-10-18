@@ -126,7 +126,7 @@ func TestNearbyNamesKeepBothCitiesAndWinningSpotsSeparated(t *testing.T) {
 	}
 }
 
-func TestRankingUsesWholeNiceDaysThenPerfectDaysThenPopulation(t *testing.T) {
+func TestRankingCountsPerfectDaysTwiceThenPopulation(t *testing.T) {
 	places := []Place{
 		{Name: "More perfect days", Slug: "perfect", Population: 500000, Longitude: 20, NiceDayCount: 1, PerfectDayCount: 1, Score: 80, FloatScore: 80},
 		{Name: "Larger city", Slug: "large", Population: 1000000, Longitude: 40, NiceDayCount: .9999, PerfectDayCount: 0, Score: 100, FloatScore: 100},
@@ -134,10 +134,21 @@ func TestRankingUsesWholeNiceDaysThenPerfectDaysThenPopulation(t *testing.T) {
 		{Name: "More nice days", Slug: "nice", Population: 300000, Longitude: 80, NiceDayCount: 2, PerfectDayCount: 0, Score: 70, FloatScore: 70},
 	}
 	chosen := rankPlaces(places, "world")
-	if len(chosen) != 3 || chosen[0].Name != "More nice days" || chosen[1].Name != "More perfect days" || chosen[2].Name != "Larger city" {
+	if len(chosen) != 3 || chosen[0].Name != "More perfect days" || chosen[1].Name != "More nice days" || chosen[2].Name != "Larger city" {
 		t.Fatalf("wrong count ranking: %+v", chosen)
 	}
 	if populationThreshold("europe") != 50000 || populationThreshold("usa") != 50000 {
 		t.Fatal("continent population floor differs")
+	}
+}
+
+func TestYearRankingPrefersPerfectDaysToMerelyNiceDays(t *testing.T) {
+	places := []Place{
+		{Name: "Every day nice", Slug: "nice", Population: 500000, Longitude: 20, NiceDayCount: 365, PerfectDayCount: 0, FloatScore: 60},
+		{Name: "Tenerife", Slug: "tenerife", Population: 300000, Longitude: -16, NiceDayCount: 342, PerfectDayCount: 259, FloatScore: 80},
+	}
+	chosen := rankPlaces(places, "world")
+	if len(chosen) != 2 || chosen[0].Name != "Tenerife" {
+		t.Fatalf("perfect days lost their extra weight: %+v", chosen)
 	}
 }

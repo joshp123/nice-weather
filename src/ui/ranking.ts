@@ -14,9 +14,9 @@ export function rankingSeparationKM(visibleWidthKM: number): number {
 const NEARBY_KM = 50;
 const SIMILAR_SCORE = 5;
 
-export function mostNiceDaysFirst(a: RankedPlace, b: RankedPlace): number {
-  return Math.round(b.niceDayCount) - Math.round(a.niceDayCount) || Math.round(b.perfectDayCount) - Math.round(a.perfectDayCount)
-    || b.score - a.score || (b.population ?? 0) - (a.population ?? 0) || ((a.slug ?? a.name) < (b.slug ?? b.name) ? -1 : (a.slug ?? a.name) > (b.slug ?? b.name) ? 1 : 0);
+export function bestDaysFirst(a: RankedPlace, b: RankedPlace): number {
+  return (Math.round(b.niceDayCount) + Math.round(b.perfectDayCount)) - (Math.round(a.niceDayCount) + Math.round(a.perfectDayCount))
+    || (b.population ?? 0) - (a.population ?? 0) || ((a.slug ?? a.name) < (b.slug ?? b.name) ? -1 : (a.slug ?? a.name) > (b.slug ?? b.name) ? 1 : 0);
 }
 
 function distanceKM(a: RankedPlace, b: RankedPlace): number {
@@ -28,7 +28,7 @@ function distanceKM(a: RankedPlace, b: RankedPlace): number {
 export function rankPlaces<T extends RankedPlace>(places: readonly T[], minimumPopulation: number, limit = 3, resolve?: (place: T) => T | null, separationKM = 250): T[] {
   const candidates = places.filter(place => (place.population ?? 0) >= minimumPopulation);
   const chosen: T[] = [], winners: T[] = [];
-  for (const winner of candidates.filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount)).sort(mostNiceDaysFirst)) {
+  for (const winner of candidates.filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount)).sort(bestDaysFirst)) {
     let named = winner;
     for (const candidate of candidates) {
       if ((candidate.population ?? 0) < (named.population ?? 0) || distanceKM(winner, candidate) > NEARBY_KM) continue;
@@ -40,7 +40,7 @@ export function rankPlaces<T extends RankedPlace>(places: readonly T[], minimumP
     chosen.push(named); winners.push(winner);
     if (chosen.length === limit) break;
   }
-  return chosen.sort(mostNiceDaysFirst);
+  return chosen.sort(bestDaysFirst);
 }
 
 const EUROPE_CODES = new Set('AL AD AT BY BE BA BG HR CY CZ DK EE FO FI FR DE GI GR GG VA HU IS IE IM IT JE XK LV LI LT LU MT MD MC ME NL MK NO PL PT RO RU SM RS SK SI ES SE CH UA GB TR'.split(' '));

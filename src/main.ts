@@ -291,7 +291,7 @@ function toggleList(): void {
 }
 
 function renderList(stretchLabel: string): void {
-  const trigger = button('list-trigger panel', `${state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'} ${listOpen ? '⌄' : '›'}`, toggleList);
+  const trigger = button('list-trigger panel', `${state.period.kind === 'forecast-day' ? 'Highest scores' : 'Nicest places'} ${listOpen ? '⌄' : '›'}`, toggleList);
   trigger.setAttribute('aria-expanded', String(listOpen));
   if (!listOpen) {
     listSlot.replaceChildren(trigger);
@@ -300,16 +300,16 @@ function renderList(stretchLabel: string): void {
   }
   const reference = home ? judge(home, state.period) : null;
   const days = reference?.countedDays ?? daysInPeriod(state.period, forecast);
-  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
+  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Nicest places'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
   if (!rankedPlaces.length) list.append(el('p', 'home-line', headlineText));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
     const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.round(place.score) : Math.round(place.niceDayCount));
     count.style.background = bandColour(place.score);
     count.style.color = place.score < 40 ? 'var(--on-low-band)' : 'var(--on-high-band)';
     list.append(button('ranked-place', el('span', 'rank-number', index + 1), () => chooseRankedPlace(place)));
-    list.lastElementChild!.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `${place.niceDayCount} nice · ${place.perfectDayCount} perfect${state.period.kind === 'forecast-day' ? '' : ` · score ${Math.round(place.score)}`}`)), count);
+    list.lastElementChild!.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `nice ${place.niceDayCount} · perfect ${place.perfectDayCount}`)), count);
   });
-  list.append(el('p', 'home-line', state.period.kind === 'forecast-day' ? 'The label shows the day’s score. Ties favour perfect days, then the typical-day score and population.' : `Nice days out of ${days} days in ${stretchLabel}. Ties favour perfect days, then the typical-day score and population.`));
+  list.append(el('p', 'home-line', state.period.kind === 'forecast-day' ? 'The label shows the day’s score. A perfect day counts twice. Ties favour larger places.' : `Nice days out of ${days} days in ${stretchLabel}. A perfect day counts twice. Ties favour larger places.`));
   const homeVerdict = home ? judge(home, state.period) : null;
   if (home && homeVerdict) {
     const homeButton = button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!));
@@ -317,12 +317,8 @@ function renderList(stretchLabel: string): void {
     const regional = regionalComparison(home);
     const regionalVerdict = judge(regional, state.period);
     const comparison = regionalVerdict && regional.name !== home.name ? el('p', 'home-line', button('inline-place', `${countryFlag(regional)} ${regional.name}`, () => actions.selectSearchResult(regional)), `: ${Math.round(regionalVerdict.niceDayCount)} nice days over the same stretch.`) : null;
-    // A European van trip includes ferries to Morocco and the Canary Islands.
-    const byVan = home.latitude > 35 && home.longitude > -12 && home.longitude < 40
-      ? nicestPlaces(engine, weatherMap.visibleCities().filter(place => place.latitude > 27 && place.latitude < 60 && place.longitude > -18 && place.longitude < 35 && (place.latitude > 35 || place.longitude < 0)), undefined, 1, 50000)[0] : null;
-    const travel = byVan ? el('p', 'home-line', `Best by van from ${home.name}: `, button('inline-place', `${countryFlag(byVan)} ${byVan.name}`, () => chooseRankedPlace(byVan)), `. Swap ${Math.round(homeVerdict.awfulDayCount)} awful ${Math.round(homeVerdict.awfulDayCount) === 1 ? 'day' : 'days'} at home for ${Math.round(byVan.niceDayCount)} nice ones in ${stretchLabel}.`) : null;
-    list.append(el('div', 'home-lines', homeLine, comparison, travel));
-    weatherMap.showHomeConnection(home, byVan);
+    list.append(el('div', 'home-lines', homeLine, comparison));
+    weatherMap.showHomeConnection(null, null);
   } else weatherMap.showHomeConnection(null, null);
   listSlot.replaceChildren(list, trigger);
 }
@@ -374,7 +370,7 @@ function render(): void {
   const answer = el('div', 'dock-answer');
   if (rankedPlaces.length) answer.append(placeSentence(state.period, forecast, rankedPlaces, chooseRankedPlace, headlineRegion));
   else answer.append(headlineText);
-  answer.append(button('list-toggle', '›', toggleList, 'Most nice days'));
+  answer.append(button('list-toggle', '›', toggleList, 'Nicest places'));
   bar.insertBefore(answer, bar.querySelector('.bar-meta'));
   headline.element.querySelector('.home-summary')?.remove();
   const comparisonCity = regionalComparison(home);

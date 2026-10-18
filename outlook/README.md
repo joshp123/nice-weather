@@ -23,9 +23,9 @@ full-stretch slot preserve the existing median-before-spatial-blend rule.
 The producer judges actual forecast `days.bin`, geometric cells and monthly felt
 offsets with `internal/placenumbers.PlaceNumbers`, the Go port of the shared
 app/Worker function, then applies the same normalized 4 × 4 B-spline footprint.
-A retained run without the compact file still uses that calculation directly. The score image supplies only the painted overview. Rank by the
-floored default score, then population, then slug. Select three at least 250 km apart.
-This deliberately resolves equal displayed scores in favour of larger places.
+A retained run without the compact file still uses that calculation directly. The score image supplies only the painted overview. Rank by
+nice days plus perfect days, then population, then slug. A perfect day counts twice. Select three at least 250 km apart.
+Equal totals favour larger places.
 Name each winning spot after the largest eligible place within 50 km whose score
 is within five points. Both winning spots and the named places stay at least
 250 km apart. The poster shows the named place’s own score and location.

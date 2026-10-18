@@ -386,11 +386,10 @@ func rankPlaces(places []Place, region string) []Place {
 func RankPlaces(places []Place, region string) []Place { return rankPlaces(places, region) }
 
 func rankedBefore(a, b Place) bool {
-	if math.Round(a.NiceDayCount) != math.Round(b.NiceDayCount) {
-		return math.Round(a.NiceDayCount) > math.Round(b.NiceDayCount)
-	}
-	if math.Round(a.PerfectDayCount) != math.Round(b.PerfectDayCount) {
-		return math.Round(a.PerfectDayCount) > math.Round(b.PerfectDayCount)
+	aGoodDays := math.Round(a.NiceDayCount) + math.Round(a.PerfectDayCount)
+	bGoodDays := math.Round(b.NiceDayCount) + math.Round(b.PerfectDayCount)
+	if aGoodDays != bGoodDays {
+		return aGoodDays > bGoodDays
 	}
 	if a.Population != b.Population {
 		return a.Population > b.Population
