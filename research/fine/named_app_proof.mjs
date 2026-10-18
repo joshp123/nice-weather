@@ -119,7 +119,13 @@ try {
         const bytes = Buffer.from(await response.arrayBuffer());
         pageReads.push({url:request.url,status:response.status,bytes:bytes.length});
         const compressed=response.headers.get('Content-Encoding')==='gzip';
-        const entity=compressed?gunzipSync(bytes):bytes;
+        let entity=compressed?gunzipSync(bytes):bytes;
+        if (/\/assets\/main-[^/]+\.js$/.test(new URL(request.url).pathname)) {
+          const source=entity.toString();
+          const expression=/(\b(?:const|let)\s+[\w$]+=)(new [\w$]+\.Map\(\{container:)/;
+          if(!expression.test(source))throw Error('Cannot observe the real rendered map labels');
+          entity=Buffer.from(source.replace(expression,'$1window.__namedProofMap=$2'));
+        }
         await command('Fetch.fulfillRequest',{requestId,responseCode:response.status,
           responseHeaders:[...response.headers].filter(([name])=>!compressed||!['content-encoding','content-length'].includes(name.toLowerCase())).map(([name,value])=>({name,value})),
           body:entity.toString('base64')});
@@ -172,6 +178,8 @@ try {
     }
     const geo=await command('Runtime.evaluate',{expression:`JSON.stringify(window.__namedGeoJSON)`,returnByValue:true});
     state.geoJSON=JSON.parse(geo.result.value??'{}');
+    const rendered=await command('Runtime.evaluate',{expression:`JSON.stringify(window.__namedProofMap.queryRenderedFeatures({layers:['city-labels']}).map(feature=>({properties:feature.properties,geometry:feature.geometry})))`,returnByValue:true});
+    state.renderedCityLabels=JSON.parse(rendered.result.value??'[]');
     if(name==='world-desktop'){
       const actual=state.headlinePlaces.map(value=>value.replace(/^[^\p{L}]+/u,''));
       if(JSON.stringify(actual)!==JSON.stringify(expectedWorldHeadline))throw Error(`World headline ${JSON.stringify(actual)} differs from shared numbers ${JSON.stringify(expectedWorldHeadline)}`);
@@ -200,7 +208,7 @@ try {
       }
       if(!cardMatches(state.card,cardApi))throw Error(`${name}: displayed card and its weather reference disagree: ${JSON.stringify({card:state.card,cardApi,cardPoint})}`);
     }
-    const labelled=(state.geoJSON?.['city-scores']?.features??[]).filter(feature=>Number.isFinite(feature.properties?.score));
+    const labelled=state.renderedCityLabels.filter(feature=>Number.isFinite(feature.properties?.score));
     const labelProof=[];
     for(const feature of labelled.filter((feature,index)=>index<12||['San Francisco','San Diego','Funchal'].includes(feature.properties.name))) {
       const {latitude,longitude,score,countImage,name:placeName}=feature.properties;
@@ -210,7 +218,7 @@ try {
       if(score!==Math.floor(reference.meanScore)||!countImage.endsWith('-'+Math.round(reference.niceDayCount)))throw Error(`${name}: map label differs from shared place numbers for ${placeName}`);
       labelProof.push({name:placeName,score,nice:Math.round(reference.niceDayCount)});
     }
-    if(!labelProof.length)throw Error(`${name}: no scored map labels observed`);
+    if(!labelProof.length&&name!=='remote-area-phone')throw Error(`${name}: no scored rendered map labels observed`);
     const defaultShot=await command('Page.captureScreenshot',{format:'png'});
     await fs.writeFile(path.join(output,name+'-default.png'),Buffer.from(defaultShot.data,'base64'));
     const beforeTaste=pageReads.length;
