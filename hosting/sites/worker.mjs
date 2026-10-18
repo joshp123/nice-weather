@@ -691,8 +691,8 @@ export async function handleRequest(request, env, serveAsset) {
     const filename = url.pathname.slice('/api/fine/'.length);
     const object = await bucket.get(`${configuration?.labelsRoot ?? 'v6'}/${filename}`);
     if (!object) return new Response('City labels unavailable', {status: 503});
-    return new Response(request.method === 'HEAD' ? null : object.body.pipeThrough(new CompressionStream('gzip')), {
-      headers: {'Content-Type': 'application/json', 'Content-Encoding': 'gzip', 'Cache-Control': 'public, max-age=60'},
+    return new Response(request.method === 'HEAD' ? null : object.body, {
+      headers: {'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60'},
     });
   }
   if (url.pathname.startsWith('/data/')) {
