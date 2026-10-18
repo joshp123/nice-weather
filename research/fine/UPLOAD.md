@@ -25,7 +25,7 @@ The browser fetches the climate score table and the current forecast table, then
 
 The rebuilt daily runner is `fine-runner-named-b1-20261018/runner/`: **5 files, 35,416,693 bytes**. Its sibling manifest binds the executable, notices, refresh instructions and compiled source inputs.
 
-The matched Sites package is `fine-named-code-b1-20261018/`: **18 files, 5,306,287 bytes**. The separately staged outlooks are `fine-named-outlooks-b1-20261018/`: **9 files, 1,502,098 bytes**, for forecast run `20261017T0000Z` and **19 October 2026**. Their nine winners pass 36 comparisons with the shared compact values. Each folder has a sibling checksum inventory.
+The matched Sites package is `fine-named-code-b1-20261018/`: **18 files, 5,306,145 bytes**. The separately staged outlooks are `fine-named-outlooks-b1-20261018/`: **9 files, 1,502,098 bytes**, for forecast run `20261017T0000Z` and **19 October 2026**. Their nine winners pass 36 comparisons with the shared compact values. Each folder has a sibling checksum inventory.
 
 ## Safe order for a later authorised upload
 
@@ -41,7 +41,7 @@ Keep `v6/fine/current.json` absent. This release activates only through `v6/name
      v6-named-b1-20261018 v6/forecast/20261017T0000Z/named.bin.gz
    ```
 
-3. **Deploy the matching code package** from `fine-named-code-b1-20261018/` using the existing Sites source/deployment workflow in [hosting/sites/README.md](../../hosting/sites/README.md). Include the embedded app and `named-place.mjs` beside both Worker entry points, preserving the existing `WEATHER` binding and public audience. Build on the latest interface commits; do not restore an older interface. While the named pointer is absent, cards, labels and headlines continue to use today's numbers.
+3. **Wait for tonight’s parallel deployment to finish, then deploy the matching code package** from `fine-named-code-b1-20261018/` using the existing Sites source/deployment workflow in [hosting/sites/README.md](../../hosting/sites/README.md). Include the embedded app and `named-place.mjs` beside both Worker entry points, preserving the existing `WEATHER` binding and public audience. Build on the latest interface commits; do not restore an older interface. While the named pointer is absent, cards, labels and headlines continue to use today's numbers.
 4. **Upload the rebuilt daily runner and its notices.** The unchanged daily command now builds all named forecast judgements before the outlooks. It uploads `named.bin.gz` with the complete run before switching `v6/forecast/current.json`. Tomorrow's app, previews and outlooks therefore read the same table. See [hosting/sites/refresh.md](../../hosting/sites/refresh.md). The nine staged outlooks can be uploaded only while that forecast run and tomorrow’s UTC date still match. Otherwise regenerate them with this runner; do not reuse a dated poster bundle blindly.
    ```sh
    devenv shell -- node hosting/sites/publish.mjs files \
@@ -94,9 +94,11 @@ The shared JavaScript decoder/aggregate is used by the app and Worker. The Go da
 - **Forecast:** all fourteen days and the total agree with the Go port and current Worker. Canonical scores are exact; maximum raw count difference from float32 storage is 0.000000413 days and every visible day count is identical. Unavailable cases agree.
 - **Facts:** maximum numerical difference is 0.000003815. All thirteen cities' displayed facts agree. Forty-six fields at random validation points round differently at numerical ties, such as 12.499999999999998% versus 12.5%; these are enumerated in the validation report. Scores and day counts are unaffected.
 - The actual Worker API, climate/forecast preview PNGs, facts endpoint, unnamed fallback and warm removal of the activation pointer are exercised independently of the browser.
-- Rendered phone/laptop checks cover cards, actual map-label updates, headline ranking, changed taste, forecast, and genuinely absent activation data. Slider redraw timings and screenshots are recorded in [NAMED_DELIVERY.md](NAMED_DELIVERY.md).
+- Rendered phone/laptop checks cover cards, actual map-label updates, headline ranking, changed taste, forecast, and genuinely absent activation data. Paired warm slider redraw medians are 31.25 ms active versus 31.40 ms inactive, with zero requests/errors. The first transition is slower (32.3 versus 21.6 ms); the earlier eight-view cold-start gap remains recorded. Full timings and screenshots are recorded in [NAMED_DELIVERY.md](NAMED_DELIVERY.md).
 
 The Tenerife south airport validation coordinate is not a catalogue place and therefore uses the public area fallback; named Arona and Adeje receive their own fine rows. Existing places outside the overview land coverage retain its existing unavailable state.
+
+An independent review checked the final phone/laptop images, current Worker cards and label routes, the parity evidence and the paired slider measurements. The eight-view traces precede a subsequent label-response compression-only change; current labels were checked separately and final timing-run source hashes match.
 
 The accepted station comparison and Rotterdam's May regression remain in [B1_EVENING_RESULT.md](B1_EVENING_RESULT.md). Named scores do not improve the surrounding overview or non-temperature weather variables. Custom-taste link previews use neutral place/period text rather than advertising the default score.
 
