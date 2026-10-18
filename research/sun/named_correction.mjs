@@ -2,7 +2,7 @@
 // Fit the satellite month to the exact representative weather used by the card.
 const clamp=value=>Math.max(0,Math.min(1,value));
 export const sunshineCoordinateKey=(latitude,longitude)=>`${Math.round(latitude*1e5)},${Math.round(longitude*1e5)}`;
-export function fitNamedSunshine(packet,months) {
+export function fitNamedSunshine(packet,months,diagnostics) {
   const replay=packet.replay;
   return months.map((target,monthIndex)=> {
     if(target===null)return null;
@@ -14,14 +14,19 @@ export function fitNamedSunshine(packet,months) {
       if(mean<target.sunnyShare)lower=offset;else upper=offset;
     }
     const dniScale=Array.from({length:12},(_,hour)=> {
-      let total=0;
+      let total=0,minimumScoredWind=Infinity;
       for(const index of indices) {
         const at=index*12+hour,air=replay.airC[at],dew=Math.min(air,replay.dewC[at]);
         const vapour=6.105*Math.exp(17.27*dew/(237.7+dew));
         const windMetresPerSecond=(air+.33*vapour-4-replay.shadeC[at])/.7;
         total+=Math.max(0,(replay.sunC[at]-replay.shadeC[at])*(windMetresPerSecond+10)/.105);
+        if(hour<Math.max(1,replay.daylightHours[index]))minimumScoredWind=Math.min(minimumScoredWind,windMetresPerSecond);
       }
       const nativeMean=total/indices.length;
+      if(diagnostics&&nativeMean===0&&target.hourlyDni[hour]>0&&Number.isFinite(minimumScoredWind)) {
+        diagnostics.scoredHoursWithoutNativeSun++;
+        diagnostics.maximumUnappliedScoredHeatingC=Math.max(diagnostics.maximumUnappliedScoredHeatingC,.105*target.hourlyDni[hour]/(minimumScoredWind+10));
+      }
       return nativeMean>0?target.hourlyDni[hour]/nativeMean:1;
     });
     return {sunnyShareOffset:(lower+upper)/2,dniScale,sunnyShare:target.sunnyShare};

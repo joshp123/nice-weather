@@ -1,0 +1,53 @@
+
+SATELLITE SUNSHINE CORRECTION FOR NAMED PLACES
+
+Sunshine and direct-sun warmth in the typical year are modified using independent
+satellite radiation where the source-support table identifies coverage. The
+accepted local high/low air-temperature corrections and uniform evening shift
+are retained. The default-taste score samples and facts are derived together;
+the overview map, changed tastes and ECMWF forecasts retain their existing data.
+Sunshine is the mean daily share of daylight clock hours after 10:00 whose
+hour-mean direct-normal irradiance reaches 300 W/m². It is not total cloud-free
+sky fraction or the same metric as all-day ground-station sunshine duration.
+
+PVGIS / CM SAF SARAH-3
+PVGIS © European Communities, 2001–2026. European Commission, Joint Research
+Centre, Photovoltaic Geographical Information System (PVGIS), version 5.3.
+CM SAF Surface Solar Radiation Data Set - Heliosat, Edition 3 (SARAH-3),
+Pfeifroth et al. (2023), DOI:10.5676/EUM_SAF_CM/SARAH/V003.
+https://re.jrc.ec.europa.eu/pvg_tools/en/
+https://doi.org/10.5676/EUM_SAF_CM/SARAH/V003
+PVGIS information is free with no restrictions on its use:
+https://joint-research-centre.ec.europa.eu/photovoltaic-geographical-information-system-pvgis/general-information/usage-conditions-data-protection_en
+Accessed October 2026. The source period is 2005–2023. Each selected TMY month’s
+hourly direct radiation is normalized to the long-period monthly/hourly profile,
+then the sunshine threshold is recalculated. Native satellite detail is about
+5 km. SARAH-3 takes priority where it covers the exact requested coordinate.
+
+National Solar Radiation Database (NSRDB)
+National Laboratory of the Rockies (formerly National Renewable Energy
+Laboratory), US Department of Energy. NSRDB satellite radiation, anonymously
+accessed in October 2026 from https://registry.opendata.aws/nrel-pds-nsrdb/ .
+Creative Commons Attribution 3.0 United States:
+https://creativecommons.org/licenses/by/3.0/us/
+The source-support table and manifest distinguish source products and periods.
+Typical direct years select representative observed months; they are not the
+complete hourly record or exact long-period sunshine-threshold climatology.
+Two-year observed averages are likewise not long-term climate normals.
+
+MODIFICATIONS AND LIMITS
+Instantaneous radiation observations are linearly interpolated and integrated
+at minute midpoints into local civil clock hours, using each source month’s
+actual historical time-zone offsets. Monthly sunny-share offsets are fitted to
+the exact eight representative weather days used by the shared place model.
+Monthly/hourly radiation ratios adjust the direct-sun felt heating, preserving
+zero native direct heating. No place-specific scoring exception is applied.
+Air highs, 21:00 shade feels-like, dew point, rain and wind are not changed by
+this correction. Radiation has coarser spatial detail than the 1 km temperature
+anchors. Monthly bias correction cannot recover cloud/weather covariance on
+individual days, and satellite retrievals have their own uncertainties.
+
+These are modified, combined and rounded derived values, not original satellite
+maps. No endorsement by the European Commission, CM SAF, NLR or any other source
+provider is implied. The derived weather values retain the CC BY-SA 4.0 licence
+stated above; the original inputs retain their respective reuse terms.

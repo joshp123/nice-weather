@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {parseArgs} from 'node:util';
 
-const {values}=parseArgs({options:{source:{type:'string'},output:{type:'string'},configuration:{type:'string'},attribution:{type:'string'}}});
+const {values}=parseArgs({options:{source:{type:'string'},output:{type:'string'},configuration:{type:'string'},attribution:{type:'string'},support:{type:'string'}}});
 for(const name of ['source','output','configuration','attribution'])if(!values[name])throw Error(`Missing --${name}`);
 const manifest=JSON.parse(await fs.readFile(path.join(values.source,'BUILD.json'),'utf8'));
 if(!manifest.sourceHashes.sunshine)throw Error('This build has no satellite correction');
@@ -22,6 +22,7 @@ async function write(key,bytes,expected) {
 for(const [name,entry] of Object.entries(manifest.files))await write(`${root}/${name}`,await fs.readFile(path.join(values.source,name)),entry.sha256);
 const attribution=await fs.readFile(values.attribution,'utf8');
 await write(`${root}/ATTRIBUTION.txt`,Buffer.from(attribution));
+if(values.support)await write(`${root}/SOURCE_SUPPORT.tsv.gz`,await fs.readFile(values.support));
 const {workers,...publicManifest}=manifest;
 await write(`${root}/MANIFEST.json`,Buffer.from(JSON.stringify(publicManifest,null,2)+'\n'));
 const configuration={...previous,generation:manifest.generation,root,attribution:`${root}/ATTRIBUTION.txt`,sunshine:{method:'satellite-monthly',correctedPlaces:manifest.satellitePlaces}};

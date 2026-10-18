@@ -18,6 +18,7 @@ async function compute({data,pointer,coordinates,groups,scoresBuffer,factsBuffer
  const sunshine=sunshineFile?new Map(JSON.parse(await fs.readFile(sunshineFile,'utf8')).records.map(row=>[sunshineCoordinateKey(row.latitude,row.longitude),row.months])):null;
  const loader=createFinePlaceLoader(async key=>{if(key==='v6/fine/current.json')return new Uint8Array(pointer);try{return new Uint8Array(await fs.readFile(path.join(data,key)));}catch(error){if(error.code==='ENOENT')return null;throw error;}});
  let done=0,unsupported=0,satellitePlaces=0;const start=performance.now();
+ const sunshineDiagnostics={scoredHoursWithoutNativeSun:0,maximumUnappliedScoredHeatingC:0};
  for(let groupIndex=worker;groupIndex<groups.length;groupIndex+=workers){
   const cached=new Map();
   for(const row of groups[groupIndex]){
@@ -28,7 +29,7 @@ async function compute({data,pointer,coordinates,groups,scoresBuffer,factsBuffer
     if(!packet)record=null;
     else{
      const satelliteMonths=sunshine?.get(sunshineCoordinateKey(lat,lon));
-     if(satelliteMonths?.some(month=>month!==null)){packet.sunshine=fitNamedSunshine(packet,satelliteMonths);satellitePlaces++;}
+     if(satelliteMonths?.some(month=>month!==null)){packet.sunshine=fitNamedSunshine(packet,satelliteMonths,sunshineDiagnostics);satellitePlaces++;}
      const samples=placeSampleScores(packet),months=placeMonths(packet);
      if(samples.some(days=>days.length!==8))throw Error(`Expected eight representative days per month at ${lat},${lon}`);
      const judgement=Array.from({length:12},(_,month)=>placeNumbers(packet,{months:[month+1]}));
@@ -45,7 +46,7 @@ async function compute({data,pointer,coordinates,groups,scoresBuffer,factsBuffer
   }
   if(done>=1000&&(groupIndex<workers||done%1000<groups[groupIndex].length))parentPort?.postMessage({worker,done,unsupported,seconds:(performance.now()-start)/1000});
  }
- return {worker,done,unsupported,satellitePlaces,seconds:(performance.now()-start)/1000};
+ return {worker,done,unsupported,satellitePlaces,sunshineDiagnostics,seconds:(performance.now()-start)/1000};
 }
 if(!isMainThread){try{parentPort.postMessage({complete:await compute(workerData)});}catch(error){throw error;}}
 else{
