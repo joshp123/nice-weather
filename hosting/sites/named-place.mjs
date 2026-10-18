@@ -110,6 +110,7 @@ export function namedPlaceMonths(row) {
 /** readBytes returns a Uint8Array or null, including for absent activation. */
 export function createNamedPlaceLoader(readBytes) {
   let configurationPromise,expires=0,climatePromise,forecastPromise,forecastRun;
+  let factsRead=Promise.resolve();
   const factsCache=new Map();
   const configuration=async()=> {
     if(!configurationPromise||Date.now()>=expires) {
@@ -153,14 +154,19 @@ export function createNamedPlaceLoader(readBytes) {
       if(!climateNumbers(row,{kind:'year'}))return null;
       const shard=Math.floor(row.climateIndex/(config.factsRows??16384));
       const key=`${config.root}/facts-${String(shard).padStart(3,'0')}.bin.gz`;
-      if(!factsCache.has(key)) {
-        factsCache.clear();
-        factsCache.set(key,(async()=> {
-          const bytes=await readBytes(key);return bytes?decodeNamedTable(await namedUncompressed(bytes)):null;
-        })());
-      }
-      const facts=await factsCache.get(key);if(!facts)return null;
-      row.months=monthlyFacts(facts,row.climateIndex);
+      const task=factsRead.then(async()=> {
+        if(!factsCache.has(key)) {
+          factsCache.clear();
+          factsCache.set(key,(async()=> {
+            const bytes=await readBytes(key);return bytes?decodeNamedTable(await namedUncompressed(bytes)):null;
+          })());
+        }
+        const facts=await factsCache.get(key);
+        return facts?monthlyFacts(facts,row.climateIndex):null;
+      });
+      factsRead=task.then(()=>{},()=>{});
+      row.months=await task;
+      if(!row.months)return null;
     }
     return row;
   };
