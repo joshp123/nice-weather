@@ -1,5 +1,6 @@
 // Written by AI on 2026.10.18 by model GPT-6.1 Sol, building on Claude Fable 5.1.
 // The place card: the answer first (score, band, nice days), then why, in real units, then the year at a glance.
+import { placeReasons, type PlaceReason } from '../../hosting/sites/place-presentation.mjs';
 import { DEFAULT_TASTE, type Period, type PointVerdict, type Taste } from '../engine';
 import { COLD_GRADE_BY_FEELS_IN_SUN, HEAT_GRADE_BY_FEELS_IN_SHADE, EVENING_GRADE_BY_FEELS_AT_21, RAIN_FACTOR_BY_MM, WIND_FACTOR_BY_KMH, HUMIDITY_FACTOR_BY_DEW_POINT, SUN_FACTOR_BY_SUNNY_SHARE, readCurve } from '../engine/taste';
 import type { Actions } from './actions';
@@ -33,33 +34,6 @@ export type CardView = Readonly<{
 
 const round = Math.round;
 
-export function humidityWord(dewPointC: number): string {
-  if (dewPointC <= 13) return 'dry';
-  if (dewPointC <= 16) return 'comfortable';
-  if (dewPointC <= 18) return 'humid';
-  if (dewPointC <= 21) return 'muggy';
-  if (dewPointC <= 24) return 'oppressive';
-  return 'miserable';
-}
-
-function afternoonWords(temperatureC: number): string {
-  if (temperatureC >= 31) return 'Hot';
-  if (temperatureC >= 23) return 'Warm';
-  if (temperatureC >= 19) return 'Mild';
-  if (temperatureC >= 15) return 'Cool';
-  if (temperatureC >= 9) return 'Chilly';
-  return 'Cold';
-}
-
-function eveningWords(temperatureC: number): string {
-  if (temperatureC >= 26) return 'Hot evening';
-  if (temperatureC >= 19) return 'Warm evening';
-  if (temperatureC >= 16) return 'Comfortable in a t-shirt';
-  if (temperatureC >= 12) return 'Cool evening';
-  if (temperatureC >= 8) return 'Chilly, bring a layer';
-  return 'Cold';
-}
-
 function factorScore(factor: number): number {
   return factor >= 0.97 ? 85 : factor >= 0.9 ? 70 : factor >= 0.8 ? 55 : factor >= 0.65 ? 40 : factor >= 0.45 ? 25 : 0;
 }
@@ -84,7 +58,8 @@ function physicalScale(scale: PhysicalScale): HTMLElement {
   return el('div', 'reason-range', track, ticks);
 }
 
-function row(label: string, value: string, detail: string, scale: PhysicalScale): HTMLElement {
+function row(reason: PlaceReason, scale: PhysicalScale): HTMLElement {
+  const {label, value, detail} = reason;
   return el('div', 'why-row', el('dt', '', label),
     el('dd', '', el('span', 'why-value', value), el('span', 'why-detail', detail)),
     physicalScale(scale));
@@ -93,20 +68,21 @@ function row(label: string, value: string, detail: string, scale: PhysicalScale)
 function why(verdict: PointVerdict, taste: Taste, singleDay: boolean): HTMLElement {
   const typical = verdict.typical;
   const afternoonShade = typical.feelsInShadeAt15C;
+  const reasons = new Map(placeReasons(typical, singleDay).map(reason => [reason.key, reason]));
   return el('dl', 'why physical-why',
-    row('Afternoon in the sun', `${round(typical.feelsInSunAt14C)} °C feels-like`, afternoonWords(typical.feelsInSunAt14C),
+    row(reasons.get('afternoonSun')!,
       { value: typical.feelsInSunAt14C, minimum: 0, maximum: 40, ticks: ['0 °C', '20 °C', '40 °C'], score: value => readCurve(COLD_GRADE_BY_FEELS_IN_SUN, value - taste.warmShift) }),
-    afternoonShade === undefined ? null : row('Afternoon in the shade', `${round(afternoonShade)} °C feels-like at 15:00`, afternoonWords(afternoonShade),
+    afternoonShade === undefined ? null : row(reasons.get('afternoonShade')!,
       { value: afternoonShade, minimum: 10, maximum: 45, ticks: ['10 °C', '28 °C', '45 °C'], score: value => readCurve(HEAT_GRADE_BY_FEELS_IN_SHADE, value + taste.heatShift) }),
-    row('Walk home at 21:00', `${round(typical.feelsInShadeAt21C)} °C in the shade`, eveningWords(typical.feelsInShadeAt21C),
+    row(reasons.get('walkHome')!,
       { value: typical.feelsInShadeAt21C, minimum: 0, maximum: 40, ticks: ['0 °C', '20 °C', '40 °C'], score: value => Math.min(readCurve(EVENING_GRADE_BY_FEELS_AT_21, value - taste.eveningShift), readCurve(HEAT_GRADE_BY_FEELS_IN_SHADE, value + taste.heatShift)) }),
-    row('Rain, 10:00 to 21:00', `${typical.rainMmPerDay.toFixed(1)} mm${singleDay ? '' : ' a day'}`, `${typical.rainMmPerDay < 0.5 ? 'Mostly dry' : typical.rainMmPerDay < 2 ? 'Some rain' : 'Wet'}${singleDay ? '' : ` · ${round(typical.wetDayShare * 100)}% of days wet`}`,
+    row(reasons.get('rain')!,
       { value: typical.rainMmPerDay, minimum: 0, maximum: 10, ticks: ['0 mm', '5 mm', '10 mm'], score: value => factorScore(readCurve(RAIN_FACTOR_BY_MM, value * taste.rainScale)) }),
-    row('Wind', `${round(typical.windKmh)} km/h`, typical.windKmh <= 15 ? 'Light wind' : typical.windKmh <= 25 ? 'Breezy' : typical.windKmh <= 40 ? 'Windy' : 'Strong wind',
+    row(reasons.get('wind')!,
       { value: typical.windKmh, minimum: 0, maximum: 70, ticks: ['Calm', '35 km/h', '70 km/h'], score: value => factorScore(readCurve(WIND_FACTOR_BY_KMH, value - taste.windShift)) }),
-    row('Humidity', `${typical.dewPointC.toFixed(1)} °C dew point`, humidityWord(typical.dewPointC),
+    row(reasons.get('humidity')!,
       { value: typical.dewPointC, minimum: 5, maximum: 30, ticks: ['5 °C · dry', '18 °C', '30 °C · sticky'], score: value => factorScore(readCurve(HUMIDITY_FACTOR_BY_DEW_POINT, value - taste.humidityShift)) }),
-    row('Sun', `${round(typical.sunnyShare * 100)}% of daylight`, typical.sunnyShare >= 0.8 ? 'Mostly sunny' : typical.sunnyShare >= 0.4 ? 'Sun and cloud' : 'Mostly cloudy',
+    row(reasons.get('sun')!,
       { value: typical.sunnyShare * 100, minimum: 0, maximum: 100, ticks: ['0% · grey', '50%', '100% · clear'], score: value => factorScore(readCurve(SUN_FACTOR_BY_SUNNY_SHARE, value / 100)) }),
   );
 }

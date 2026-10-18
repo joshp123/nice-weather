@@ -1,0 +1,361 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026-10-18",
+  "defaultRequest": {
+    "name": "Chiclayo",
+    "region": "Lambayeque, Peru",
+    "latitude": -6.77008,
+    "longitude": -79.85495,
+    "period": {
+      "word": "year",
+      "kind": "climate",
+      "when": "all year"
+    },
+    "card": {
+      "name": "Chiclayo",
+      "region": "Lambayeque, Peru",
+      "word": "Perfect most days",
+      "score": 91,
+      "days": {
+        "nice": 365,
+        "perfect": 267,
+        "awful": 0,
+        "total": 365
+      },
+      "sentence": "Chiclayo all year: Perfect most days. Nice on 365 of 365 days; perfect on 267; awful on 0.",
+      "reasons": [
+        {
+          "key": "afternoonSun",
+          "label": "Afternoon in the sun",
+          "figure": 30.07293301935065,
+          "unit": "\u00b0C",
+          "value": "30 \u00b0C feels-like",
+          "detail": "Warm"
+        },
+        {
+          "key": "afternoonShade",
+          "label": "Afternoon in the shade",
+          "figure": 24.74571295960309,
+          "unit": "\u00b0C",
+          "value": "25 \u00b0C feels-like at 15:00",
+          "detail": "Warm"
+        },
+        {
+          "key": "walkHome",
+          "label": "Walk home at 21:00",
+          "figure": 19.25558923172624,
+          "unit": "\u00b0C",
+          "value": "19 \u00b0C in the shade",
+          "detail": "Warm evening"
+        },
+        {
+          "key": "rain",
+          "label": "Rain, 10:00 to 21:00",
+          "figure": 0.06939898647674142,
+          "unit": "mm",
+          "value": "0.1 mm a day",
+          "detail": "Mostly dry \u00b7 2% of days wet"
+        },
+        {
+          "key": "wind",
+          "label": "Wind",
+          "figure": 14.298342453943539,
+          "unit": "km/h",
+          "value": "14 km/h",
+          "detail": "Light wind"
+        },
+        {
+          "key": "humidity",
+          "label": "Humidity",
+          "figure": 16.370237311271772,
+          "unit": "\u00b0C dew point",
+          "value": "16.4 \u00b0C dew point",
+          "detail": "humid"
+        },
+        {
+          "key": "sun",
+          "label": "Sun",
+          "figure": 79.7488587196559,
+          "unit": "% of daylight",
+          "value": "80% of daylight",
+          "detail": "Sun and cloud"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "slug": "peru/chiclayo",
+      "period": "year",
+      "point": [
+        -6.77008,
+        -79.85495
+      ],
+      "word": "Perfect most days",
+      "score": 91,
+      "days": {
+        "nice": 365,
+        "perfect": 267,
+        "awful": 0,
+        "total": 365
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "peru/chiclayo",
+      "period": "nov-mar",
+      "point": [
+        -6.77008,
+        -79.85495
+      ],
+      "word": "Perfect most days",
+      "score": 88,
+      "days": {
+        "nice": 151,
+        "perfect": 91,
+        "awful": 0,
+        "total": 151
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "peru/chiclayo",
+      "period": "next-14-days",
+      "point": [
+        -6.77008,
+        -79.85495
+      ],
+      "word": "Fair most days",
+      "score": 45,
+      "days": {
+        "nice": 4,
+        "perfect": 0,
+        "awful": 0,
+        "total": 14
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "peru/chiclayo",
+      "period": "2026-10-19",
+      "point": [
+        -6.77008,
+        -79.85495
+      ],
+      "word": "Poor",
+      "score": 25,
+      "days": {
+        "nice": 0,
+        "perfect": 0,
+        "awful": 0,
+        "total": 1
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "greece/chania",
+      "period": "year",
+      "point": [
+        35.51124,
+        24.02921
+      ],
+      "word": "Beautiful most days",
+      "score": 74,
+      "days": {
+        "nice": 241,
+        "perfect": 129,
+        "awful": 80,
+        "total": 365
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "greece/chania",
+      "period": "nov-mar",
+      "point": [
+        35.51124,
+        24.02921
+      ],
+      "word": "Poor most days",
+      "score": 30,
+      "days": {
+        "nice": 46,
+        "perfect": 11,
+        "awful": 68,
+        "total": 151
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "greece/chania",
+      "period": "next-14-days",
+      "point": [
+        35.51124,
+        24.02921
+      ],
+      "word": "Beautiful most days",
+      "score": 84,
+      "days": {
+        "nice": 13,
+        "perfect": 8,
+        "awful": 1,
+        "total": 14
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "greece/chania",
+      "period": "2026-10-19",
+      "point": [
+        35.51124,
+        24.02921
+      ],
+      "word": "Beautiful",
+      "score": 80,
+      "days": {
+        "nice": 1,
+        "perfect": 0,
+        "awful": 0,
+        "total": 1
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "spain/malaga",
+      "period": "year",
+      "point": [
+        36.72016,
+        -4.42034
+      ],
+      "word": "Beautiful most days",
+      "score": 79,
+      "days": {
+        "nice": 270,
+        "perfect": 160,
+        "awful": 34,
+        "total": 365
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "spain/malaga",
+      "period": "nov-mar",
+      "point": [
+        36.72016,
+        -4.42034
+      ],
+      "word": "Nice most days",
+      "score": 56,
+      "days": {
+        "nice": 79,
+        "perfect": 22,
+        "awful": 30,
+        "total": 151
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "spain/malaga",
+      "period": "next-14-days",
+      "point": [
+        36.72016,
+        -4.42034
+      ],
+      "word": "Perfect most days",
+      "score": 85,
+      "days": {
+        "nice": 11,
+        "perfect": 7,
+        "awful": 0,
+        "total": 14
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "spain/malaga",
+      "period": "2026-10-19",
+      "point": [
+        36.72016,
+        -4.42034
+      ],
+      "word": "Nice",
+      "score": 56,
+      "days": {
+        "nice": 1,
+        "perfect": 0,
+        "awful": 0,
+        "total": 1
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "united-kingdom/london",
+      "period": "year",
+      "point": [
+        51.50853,
+        -0.12574
+      ],
+      "word": "Awful most days",
+      "score": 21,
+      "days": {
+        "nice": 92,
+        "perfect": 38,
+        "awful": 212,
+        "total": 365
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "united-kingdom/london",
+      "period": "nov-mar",
+      "point": [
+        51.50853,
+        -0.12574
+      ],
+      "word": "Awful most days",
+      "score": 12,
+      "days": {
+        "nice": 0,
+        "perfect": 0,
+        "awful": 151,
+        "total": 151
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "united-kingdom/london",
+      "period": "next-14-days",
+      "point": [
+        51.50853,
+        -0.12574
+      ],
+      "word": "Awful most days",
+      "score": 12,
+      "days": {
+        "nice": 0,
+        "perfect": 0,
+        "awful": 14,
+        "total": 14
+      },
+      "reasonsMatched": 7
+    },
+    {
+      "slug": "united-kingdom/london",
+      "period": "2026-10-19",
+      "point": [
+        51.50853,
+        -0.12574
+      ],
+      "word": "Awful",
+      "score": 15,
+      "days": {
+        "nice": 0,
+        "perfect": 0,
+        "awful": 1,
+        "total": 1
+      },
+      "reasonsMatched": 7
+    }
+  ],
+  "pageErrors": [],
+  "invalidRequestsRejected": 7
+}
