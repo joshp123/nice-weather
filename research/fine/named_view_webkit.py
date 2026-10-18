@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+import re
 import time
 
 from playwright.async_api import async_playwright
@@ -84,7 +85,7 @@ class Fixture:
         self.process.stdin.close()
         await self.process.wait()
 
-async def measure(browser, base, view, output, settle_ms, fixture=None):
+async def measure(browser, base, view, output, settle_ms, fixture=None, reference=None):
     name, pathname, width, height = view
     context = await browser.new_context(viewport={'width':width,'height':height}, color_scheme='light', locale='en-GB', timezone_id='Europe/Amsterdam')
     await context.add_init_script(INSTRUMENT)
@@ -116,7 +117,7 @@ async def measure(browser, base, view, output, settle_ms, fixture=None):
         signature = json.dumps([state['proof'],len(requests),len(pending)])
         if signature != last_signature:
             last_signature, stable_since = signature, time.monotonic()
-        usable = state['proof']['headlines'] and state['proof']['labels']
+        usable = ('Walk home' in state['card']) if name=='remote-area-phone' else state['proof']['headlines'] and state['proof']['labels']
         if usable and not pending and (time.monotonic()-stable_since)*1000>settle_ms:
             break
     await asyncio.gather(*tasks)
@@ -132,7 +133,22 @@ async def measure(browser, base, view, output, settle_ms, fixture=None):
       'labelsFirstMs':proof['labels'][0]['ms'] if proof['labels'] else None,'labelsSettledMs':proof['labels'][-1]['ms'] if proof['labels'] else None,
       'rankedHeadlineFirstMs':ranked_headlines[0]['ms'] if ranked_headlines else None,'scoredLabelsFirstMs':scored_labels[0]['ms'] if scored_labels else None,
       'cardFirstMs':proof['cards'][0]['ms'] if proof['cards'] else None,'cardSettledMs':proof['cards'][-1]['ms'] if proof['cards'] else None,
-      'passes':bool(ranked_headlines and scored_labels and not errors and not pending and (name.startswith(('world','nov-mar')) or 'Walk home' in state['card']))}
+      'passes':bool((name=='remote-area-phone' or ranked_headlines and scored_labels) and not errors and not pending and (name.startswith(('world','nov-mar')) or 'Walk home' in state['card']))}
+    if reference and name in reference:
+        expected = reference[name]
+        wanted = expected.get('cardApi')
+        if wanted:
+            correct_score = str(wanted['score']) in state['card'].splitlines()
+            correct_counts = re.search(rf"Nice on {wanted['nice']} of the \d+ days .*Perfect on {wanted['perfect']}; awful on {wanted['awful']}\.",state['card'],re.S) is not None
+            result['cardReference'] = {'expected':wanted,'passes':correct_score and correct_counts}
+            result['passes'] = result['passes'] and result['cardReference']['passes']
+        final_features = proof['labels'][-1]['value'] if proof['labels'] else []
+        comparisons = []
+        for expected_label in expected.get('labelProof',[]):
+            matches = [f for f in final_features if f.get('name')==expected_label['name'] and f.get('score')==expected_label['score'] and f.get('countImage','').endswith('-'+str(expected_label['nice']))]
+            comparisons.append({'name':expected_label['name'],'passes':bool(matches)})
+        result['labelReference'] = comparisons
+        result['passes'] = result['passes'] and all(r['passes'] for r in comparisons)
     if fixture: result['fixtureEncodedResponses'] = list(fixture.reads)
     (output/(name+'.json')).write_text(json.dumps(result,indent=2)+'\n')
     await context.close()
@@ -143,11 +159,12 @@ async def main(args):
     args.out.mkdir(parents=True,exist_ok=True)
     fixture = Fixture() if args.fixture else None
     if fixture: await fixture.start(args.fixture)
+    reference = {r['name']:r for r in json.loads(args.reference.read_text())['views']} if args.reference else None
     async with async_playwright() as playwright:
         browser = await playwright.webkit.launch(headless=True)
         views = VIEWS + (CORRECTNESS if args.correctness else [])
         if args.view: views = [v for v in views if v[0] in args.view]
-        results = [await measure(browser,args.base,v,args.out,args.settle_ms,fixture) for v in views]
+        results = [await measure(browser,args.base,v,args.out,args.settle_ms,fixture,reference) for v in views]
         await browser.close()
     if fixture: await fixture.close()
     summary = {'writtenBy':'AI, GPT-6.1 Sol, 2026-10-18','base':args.base,'browser':'headless WebKit','scriptSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'measurement':'request.sizes responseBodySize; compressed entity bytes, excluding HTTP headers, protocol and TLS overhead','passes':all(r['passes'] for r in results),'views':[{k:v for k,v in r.items() if k not in ['requests','state','namedRequests']} for r in results]}
@@ -162,4 +179,5 @@ if __name__ == '__main__':
     parser.add_argument('--view',action='append')
     parser.add_argument('--settle-ms',type=int,default=3000)
     parser.add_argument('--fixture',type=Path,help='Read-only local Worker overlay; compression is decoded by route fulfillment, so use live runs for wire bytes')
+    parser.add_argument('--reference',type=Path,help='Exact current Worker/overview nine-view proof results to check rendered card and label values')
     asyncio.run(main(parser.parse_args()))
