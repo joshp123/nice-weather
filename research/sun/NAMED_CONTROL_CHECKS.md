@@ -3,6 +3,26 @@
 
 The monthly satellite means improve all six European and African controls against their complete 2005–2023 SARAH-3 series. That does **not** prove every sampled day's score or nice-day count improves. A monthly correction cannot recover the observed relationship between cloud and the other weather on a particular day.
 
+## Americas: one typical-year choice
+
+Both GOES typical-year products were checked against independently integrated full-disc observations at the exact named coordinates of Lima, San Francisco and San Diego, for 2022 and 2024. The ordinary typical meteorological year (TMY) improves both sunny share and direct radiation at all three controls. The direct-radiation typical year (TDY) worsens San Diego's direct-radiation error. These controls support using TMY throughout the eligible northern GOES domain; they do not support choosing a different source for each city.
+
+| Monthly sunshine error (percentage points) | Native samples | TMY | TDY |
+| --- | --- | --- | --- |
+| Lima | 29.83 | 3.71 | 3.56 |
+| San Francisco | 10.14 | 5.98 | 8.79 |
+| San Diego | 12.91 | 5.23 | 6.98 |
+
+| Hourly direct-normal radiation error (W/m²) | Native samples | TMY | TDY |
+| --- | --- | --- | --- |
+| Lima | 133.70 | 31.97 | 33.12 |
+| San Francisco | 64.70 | 54.34 | 63.53 |
+| San Diego | 56.26 | 45.79 | 62.49 |
+
+The two observed years are a stability check, not a long-term normal or an independent satellite instrument. They use approximately 2 km full-disc pixels, whereas TMY and TDY use approximately 4 km pixels; fog gradients can differ within that distance. Complete series were integrated from instantaneous samples into sixty minute-midpoint samples per civil hour. An independent replay of both typical-year products at all five northern validation cities agrees with production to less than 1e−12 sunny share and 1e−8 W/m². It uses the actual selected source year for each month's daylight-saving clock.
+
+Evidence: SSD `sun/named-validation/goes-two-year-normal.json`, `goes-{tmy,tdy}-final-two-year-accuracy.json`, and `goes-typical-integration-proof.json`. Rerun with `named_goes_validation.py`, `named_source_validation.mjs`, and `named_goes_typical_proof.py`. This comparison concerns the satellite inputs; it does not replace the final fourteen-place score/count comparison.
+
 ## Rotterdam: the remaining count regression
 
 The exact-date radiation diagnostic substitutes satellite radiation on the retained ERA5 sample dates, while retaining the accepted temperature anchors and ERA5 rain, humidity and wind. All scenarios exclude the same seventeen samples from 2024, beyond SARAH-3's available period. Seventy-nine samples remain; they are reweighted within each month. This is a radiation diagnostic, not a complete observed-weather reference.
