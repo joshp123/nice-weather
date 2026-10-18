@@ -51,7 +51,10 @@ function rank(release,period){
   return {candidates:candidates.length,places:ranking.rankPlaces(candidates,ranking.WORLD_POPULATION,10)};
 }
 const rankings={};
-for(const [name,period]of [['year',{kind:'year'}],['nov-mar',{kind:'months',startMonth:11,endMonth:3}]])rankings[name]={before:rank(before,period),after:rank(after,period)};
+for(const [name,period]of [['year',{kind:'year'}],['nov-mar',{kind:'months',startMonth:11,endMonth:3}]]){
+  const previous=rank(before,period),corrected=rank(after,period);
+  rankings[name]={completeWorldComparison:before.count===after.count&&previous.candidates===corrected.candidates,before:previous,after:corrected};
+}
 const report={writtenBy:'AI, GPT-6.1 Sol, 2026-10-18',passes:true,comparison:'Both releases use the same current shared named-place and ranking functions; no ranking-rule change is included in this before/after.',rankingSha256:crypto.createHash('sha256').update(rankingSource).digest('hex'),beforeRoot:values.before,afterRoot:values.after,places:rows,rankings};
 await fs.writeFile(path.join(values.output,'comparison.json'),JSON.stringify(report,null,2)+'\n');
 console.log(JSON.stringify({passes:true,places:rows.map(row=>({name:row.place.validationName,before:[row.before.year.niceDayCount,row.before.year.perfectDayCount],after:[row.after.year.niceDayCount,row.after.year.perfectDayCount]})),rankings},null,2));
