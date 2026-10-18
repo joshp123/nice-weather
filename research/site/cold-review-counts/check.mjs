@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
-import {createNamedPlaceLoader,namedPlaceNumbers} from '../../../hosting/sites/named-place.mjs';
+import {createNamedPlaceLoader,namedPlaceNumbers,namedPeriodMonths} from '../../../hosting/sites/named-place.mjs';
 import {blendPlaceNumbers} from '../../../hosting/sites/fine-place.mjs';
 const [data,output]=process.argv.slice(2);
 if(!output)throw Error('Usage: check.mjs DATA_ROOT OUTPUT_JSON');
@@ -35,10 +35,12 @@ for(const name of queries) {
     assert.equal(numbers.band,preceding.band,`${name}: changed band`);
     const daily=period.kind==='forecast'?Array.from({length:14},(_,day)=>namedPlaceNumbers(row,{kind:'forecast-day',day}).meanScore):numbers.dayScores;
     assert.deepEqual(numbers.dayScores,daily,`${name}: aggregate/daily sources differ`);
-    assert.equal(numbers.countedDays,daily.length);
+    const monthDays=[31,28,31,30,31,30,31,31,30,31,30,31];
+    const weights=period.kind==='forecast'?daily.map(()=>1):namedPeriodMonths(period).flatMap(month=>Array(8).fill(monthDays[month-1]/8));
+    assert.equal(numbers.countedDays,Math.round(weights.reduce((sum,weight)=>sum+weight,0)));
     for(const [field,predicate]of [['niceDayCount',score=>score>=55],['perfectDayCount',score=>score>=85],['awfulDayCount',score=>score<25]]) {
       assert(Number.isInteger(numbers[field]));
-      assert.equal(numbers[field],daily.filter(predicate).length,`${name}/${field}`);
+      assert.equal(numbers[field],Math.round(daily.reduce((sum,score,index)=>sum+(predicate(score)?weights[index]:0),0)),`${name}/${field}`);
     }
     cases.push({name:place.name,latitude:place.latitude,longitude:place.longitude,period,score:numbers.meanScore,band:numbers.band,nice:numbers.niceDayCount,perfect:numbers.perfectDayCount,awful:numbers.awfulDayCount,countedDays:numbers.countedDays,countBasis:numbers.countBasis,daily});
   }

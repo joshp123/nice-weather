@@ -135,7 +135,7 @@ export function daysInPeriod(period: Period, forecast: ForecastIndex | null): nu
 export function dayCountsSentence(period: Period, forecast: ForecastIndex | null, verdict: PointVerdict): string {
   if (period.kind === 'forecast-day') return '';
   const days = verdict.countedDays ?? daysInPeriod(period, forecast);
-  return `Nice or better on ${verdict.niceDayCount} of ${days} ${verdict.countBasis === 'sample' ? 'sampled ' : ''}days, perfect on ${verdict.perfectDayCount}, awful on ${verdict.awfulDayCount}`;
+  return `Nice or better on ${verdict.niceDayCount} of ${days} days, perfect on ${verdict.perfectDayCount}, awful on ${verdict.awfulDayCount}`;
 }
 
 export function bandSentence(period: Period, band: string): string {

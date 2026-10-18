@@ -86,14 +86,14 @@ export function placeNumbers(packet,period,taste=DEFAULT_FINE_TASTE) {
   const parts={warmth:0,evening:0,rainFactor:0,windFactor:0,humidityFactor:0,sunFactor:0};
   const typical={feelsInSunAt14C:0,feelsInShadeAt15C:0,feelsInShadeAt21C:0,dewPointC:0,rainMmPerDay:0,wetDayShare:0,windKmh:0,sunnyShare:0,daylightHours:0};
   let sampleDays=0;
-  const dayScores=[];
+  const dayScores=[],dayWeights=[];
   for(const month of months) {
     const indices=packet.replay.selectedIndices.filter(index=>Number(packet.replay.dates[index].slice(5,7))===month);
     if(!indices.length)throw new Error(`Fine replay has no representative days for month ${month}`);
     const weight=MONTH_DAYS[month-1]/totalDays/indices.length;
     for(const index of indices) {
       const day=correctedDay(packet,index),judgement=judgeDay(day,taste);sampleDays++;
-      dayScores.push(judgement.score);
+      dayScores.push(judgement.score);dayWeights.push(MONTH_DAYS[month-1]/indices.length);
       for(let threshold=0;threshold<THRESHOLDS.length;threshold++)if(judgement.score>=THRESHOLDS[threshold])shares[threshold]+=weight;
       for(const name of Object.keys(parts))parts[name]+=judgement[name]*weight;
       const values={feelsInSunAt14C:day.sun[4],feelsInShadeAt15C:day.shade[5],feelsInShadeAt21C:day.shade[11],dewPointC:day.dew,rainMmPerDay:day.rain,wetDayShare:day.rain>=1?1:0,windKmh:day.wind,sunnyShare:day.sunny/day.daylight,daylightHours:day.daylight};
@@ -101,7 +101,7 @@ export function placeNumbers(packet,period,taste=DEFAULT_FINE_TASTE) {
     }
   }
   const score=typicalScore(shares),niceDayShare=shares[3],perfectDayShare=shares[5],awfulDayShare=Math.max(0,1-shares[1]);
-  return {meanScore:score,score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],niceDayShare,perfectDayShare,awfulDayShare,...countDayScores(dayScores,'sample'),totalDays,sampleDays,parts,typical,pixel:packet.pixel,resolutionArcSeconds:30,status:packet.status};
+  return {meanScore:score,score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],niceDayShare,perfectDayShare,awfulDayShare,...countDayScores(dayScores,'sample',dayWeights),totalDays,sampleDays,parts,typical,pixel:packet.pixel,resolutionArcSeconds:30,status:packet.status};
 }
 function forecastNumbers(packet,taste) {
   const totalDays=packet.weights.reduce((sum,weight)=>sum+weight,0),shares=THRESHOLDS.map(()=>0);
@@ -131,7 +131,7 @@ function forecastNumbers(packet,taste) {
     }
   }
   const score=totalDays===1?singleDayScore:typicalScore(shares);
-  return {score,meanScore:score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],totalDays,sampleDays:packet.records.length,niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),...countDayScores(dayScores,packet.weights.every(weight=>weight===1)?'forecast':'sample'),parts,typical};
+  return {score,meanScore:score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],totalDays,sampleDays:packet.records.length,niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),...countDayScores(dayScores,packet.weights.every(weight=>weight===1)?'forecast':'sample',packet.weights),parts,typical};
 }
 /** The map's normalized 4 × 4 B-spline footprint, excluding missing land. */
 export function mapPointWeights(latitude,longitude,valid) {
@@ -155,7 +155,7 @@ export function blendPlaceNumbers(points) {
   const result={score,meanScore:score,band:BANDS[Math.min(5,THRESHOLDS.findLastIndex(value=>score>=value))],totalDays:first.totalDays,sampleDays:first.sampleDays};
   for(const name of ['niceDayShare','perfectDayShare','awfulDayShare'])result[name]=average(numbers=>numbers[name]);
   const dayScores=first.dayScores.map((_,day)=>canonical(average(numbers=>numbers.dayScores[day])));
-  Object.assign(result,countDayScores(dayScores,first.countBasis));
+  Object.assign(result,countDayScores(dayScores,first.countBasis,first.dayWeights));
   for(const name of ['parts','typical'])if(first[name])result[name]=Object.fromEntries(Object.keys(first[name]).map(field=>[field,average(numbers=>numbers[name][field]??0)]));
   return result;
 }

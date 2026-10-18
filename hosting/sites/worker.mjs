@@ -501,7 +501,7 @@ async function previewFor(bucket, origin, pathname, view, search = '') {
     title = `${placeName} ${period.when}: Nice!`;
     const judgement = await defaultPeriodJudgement(bucket, place.latitude, place.longitude, period);
     description = judgement === null ? `How nice the weather is in ${placeName} ${period.when}.` : `${placeName} ${period.when}: ${bandWord(judgement.score)}${judgement.totalDays > 1 ? ' most days' : ''}, nice score ${Math.floor(judgement.score)} out of 100.`;
-    if (judgement && judgement.totalDays > 1) description += ` Nice or better on ${judgement.niceDayCount} of ${judgement.countedDays ?? judgement.totalDays} ${judgement.countBasis === 'sample' ? 'sampled ' : ''}days, perfect on ${judgement.perfectDayCount}, awful on ${judgement.awfulDayCount}.`;
+    if (judgement && judgement.totalDays > 1) description += ` Nice or better on ${judgement.niceDayCount} of ${judgement.countedDays ?? judgement.totalDays} days, perfect on ${judgement.perfectDayCount}, awful on ${judgement.awfulDayCount}.`;
   } else if (placeName) {
     title = `${placeName}: Nice!`;
     description = `How nice the weather will be in ${placeName} over the next 14 days, and in every month of a typical year.`;

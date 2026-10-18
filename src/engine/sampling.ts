@@ -74,10 +74,13 @@ function judgeCell(group: SampleGroup, cell: number, level: number, taste: Taste
 }
 
 export class PointSampler {
+  private dayWeights: number[];
   private cachedCells = new Map<number, CellJudgement>();
   private cachedGridPoints = new Map<number, PointVerdict>();
   private cachedPoints = new Map<string, PointVerdict | null>();
-  constructor(private cells: Cells, private data: PeriodData, private period: Period, private taste: Taste) {}
+  constructor(private cells: Cells, private data: PeriodData, private period: Period, private taste: Taste) {
+    this.dayWeights = data.groups.flatMap(group => Array(group.dayCount).fill(group.weight * data.totalDays / group.dayCount));
+  }
 
   judge(latitude: number, longitude: number): PointVerdict | null {
     const key = `${latitude},${longitude}`;
@@ -94,7 +97,7 @@ export class PointSampler {
     const dayScores = points[0].verdict.dayScores!.map((_, day) => canonicalScore(average(point => point.dayScores![day])));
     const verdict = {
       meanScore, band: bandOf(meanScore), niceDayShare: average(point => point.niceDayShare), perfectDayShare: average(point => point.perfectDayShare), awfulDayShare: average(point => point.awfulDayShare),
-      ...countDayScores(dayScores, this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? 'forecast' : 'sample'),
+      ...countDayScores(dayScores, this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? 'forecast' : 'sample', this.dayWeights),
       totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
     };
     this.cachedPoints.set(key, verdict);
@@ -134,7 +137,7 @@ export class PointSampler {
     const niceDayShare = shares[3], perfectDayShare = shares[5], awfulDayShare = Math.max(0, 1 - shares[1]);
     const verdict = {
       meanScore, band: bandOf(meanScore), niceDayShare, perfectDayShare, awfulDayShare,
-      ...countDayScores(dayScores.flatMap(scores => Array.from(scores, canonicalScore)), this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? 'forecast' : 'sample'),
+      ...countDayScores(dayScores.flatMap(scores => Array.from(scores, canonicalScore)), this.period.kind === 'forecast' || this.period.kind === 'forecast-day' ? 'forecast' : 'sample', this.dayWeights),
       totalDays: this.data.totalDays, sampleDays: this.data.sampleDays, parts, typical,
     };
     this.cachedGridPoints.set(index, verdict);

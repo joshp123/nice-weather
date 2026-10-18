@@ -120,7 +120,7 @@ export async function shareImagePng(content) {
   dates.lines.forEach(line=>drawText(pixels,mask,line,40,148,dates.size,muted));
   if(content.map)copyMap(pixels,content.map);
   const numbers=content.numbers;
-  const detail=numbers?`${Math.floor(numbers.score)} / 100, ${bandFor(numbers.score)[0]}${numbers.totalDays>1?' most days':''}.${(numbers.countedDays??numbers.totalDays)>1?` Nice on ${numbers.niceDayCount} of ${numbers.countedDays??numbers.totalDays} ${numbers.countBasis==='sample'?'sampled ':''}days; perfect on ${numbers.perfectDayCount}.`:''}`:(content.detail||'A world of weather, by your taste.');
+  const detail=numbers?`${Math.floor(numbers.score)} / 100, ${bandFor(numbers.score)[0]}${numbers.totalDays>1?' most days':''}.${(numbers.countedDays??numbers.totalDays)>1?` Nice on ${numbers.niceDayCount} of ${numbers.countedDays??numbers.totalDays} days; perfect on ${numbers.perfectDayCount}.`:''}`:(content.detail||'A world of weather, by your taste.');
   const figures=fitLines(detail,1120,26,'Bold',1);
   figures.lines.forEach(line=>drawText(pixels,mask,line,40,554,figures.size,ink,'Bold'));
   BANDS.forEach(([name,minimum,colour],index)=>{const x=40+index*141;rectangle(pixels,x,590,16,10,colour);drawText(pixels,mask,`${name} ${minimum}+`,x+23,602,16,muted);});

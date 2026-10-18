@@ -120,7 +120,7 @@ function comparisons(view: CardView, actions: Actions): HTMLElement | null {
     if (!entry?.verdict || entry.place.slug === view.place.slug && entry.place.name === view.place.name) continue;
     const place = button('inline-place', `${countryFlag(entry.place)} ${entry.place.name}`.trim(), () => actions.selectSearchResult(entry.place));
     const stretch = isForecast(view.period) ? 'in this forecast' : (view.stretchLabel ?? `in ${periodTitle(view.period, view.forecast).toLowerCase()}`);
-    const comparisonText = view.period.kind === 'forecast-day' ? `${entry.verdict.band}, ${Math.floor(entry.verdict.meanScore)} out of 100 that day` : `nice on ${entry.verdict.niceDayCount} of ${entry.verdict.countedDays ?? entry.verdict.sampleDays} ${entry.verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${stretch}`;
+    const comparisonText = view.period.kind === 'forecast-day' ? `${entry.verdict.band}, ${Math.floor(entry.verdict.meanScore)} out of 100 that day` : `nice on ${entry.verdict.niceDayCount} of ${entry.verdict.countedDays ?? entry.verdict.totalDays} days ${stretch}`;
     comparison.append(el('p', '', `${label}: `, place, `, ${comparisonText}.`));
   }
   return comparison.childElementCount ? comparison : null;
@@ -179,7 +179,7 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   const score = el('span', 'score-badge', String(Math.floor(verdict.meanScore)));
   score.style.background = bandColour(verdict.meanScore);
   const countPeriod = isForecast(view.period) ? 'in this forecast' : (view.stretchLabel ?? (view.period.kind === 'month' ? `in ${periodTitle(view.period, view.forecast)}` : view.period.kind === 'year' ? 'across the year' : `from ${periodTitle(view.period, view.forecast)}`));
-  const niceDays = view.period.kind === 'forecast-day' ? '' : `Nice on ${verdict.niceDayCount} of ${verdict.countedDays ?? verdict.sampleDays} ${verdict.countBasis === 'sample' ? 'sampled ' : ''}days ${countPeriod}. Perfect on ${verdict.perfectDayCount}; awful on ${verdict.awfulDayCount}.`;
+  const niceDays = view.period.kind === 'forecast-day' ? '' : `Nice on ${verdict.niceDayCount} of ${verdict.countedDays ?? verdict.totalDays} days ${countPeriod}. Perfect on ${verdict.perfectDayCount}; awful on ${verdict.awfulDayCount}.`;
   const answer = el('div', 'verdict', score,
     el('div', 'verdict-text', el('strong', 'band-word', bandSentence(view.period, verdict.band)), niceDays ? el('p', 'verdict-days', niceDays) : null));
   const periodLabel = isForecast(view.period) ? periodTitle(view.period, view.forecast) : `${periodTitle(view.period, view.forecast)}, in a typical year`;

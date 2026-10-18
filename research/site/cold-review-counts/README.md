@@ -1,12 +1,12 @@
 Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 
-Cards, map-label counts and sharing now count actual daily scores. They do not round an interpolated proportion of land into a number of days. Spatial interpolation happens to each day's score before its threshold is counted. Typical-day scores, curves and bands are unchanged.
+Typical-year counts now represent the real days of the chosen stretch, as Josh requested after the cold-review fixes. Each daily score represents its calendar month's length divided by the number of sampled days in that month. We add the qualifying days' weights and round once to whole days. November to March has 151 days, the whole year 365. Thresholds, typical-day scores and bands are unchanged.
 
-The next forecast contains the same 14 explicitly dated days in its total and calendar. The first stored day was previously hidden after midnight, even though the aggregate still included it. With the current run, Chania has 13 nice, 8 perfect and 1 awful day. Santa Cruz de Tenerife has 14 nice, 5 perfect and no awful days.
+Forecast days still count exactly once, after spatial interpolation. Chania has 13 nice, 8 perfect and 1 awful day out of the same 14 dates listed in its card. Santa Cruz de Tenerife has 14 nice, 5 perfect and no awful days.
 
-Typical-year counts describe the daily data actually available to the app: 8 sampled days per month, 40 for November to March, 96 for the year. The interface names that denominator as sampled days. It no longer presents a rounded extrapolation as a count of 151 or 365 observed days. The calendar-length weighted typical-day score is retained. Collecting 20 to 25 complete years is outside this change, as Josh instructed.
+The shared count function supplies browser labels, ranking, cards, home comparisons, posters and Worker previews. The interface no longer describes counts as sampled days. The method page explains how the calendar-day estimates are made.
 
-`check.mjs` loads the prepared published-format climate and forecast tables through the production shared loader. It checks 30 places and four stretches (120 cases), including every forecast day separately, and proves all whole counts match their daily scores. It also compares every score and band to the preceding committed implementation and checks an explicit spatial case where averaging area counts would give the wrong answer. The complete daily values are in `results.json`.
+`check.mjs` checks the actual daily tables for 30 places and four stretches (120 comparisons), using independent calendar weights. It also proves scores and bands unchanged against the earlier implementation and checks interpolation before forecast counting. Results are in `results.json`.
 
 Run from the repository:
 
@@ -14,4 +14,4 @@ Run from the repository:
 devenv shell -- node research/site/cold-review-counts/check.mjs '/Volumes/Josh Extreme Pro USB4 4TB/Code/nice-weather-data' /tmp/nwf-counts-results.json
 ```
 
-The preceding-version comparison uses the parent of the whole-day-count commit (`a4c8a54^:hosting/sites/named-place.mjs`), so it remains reproducible after later commits. No data files, scoring curves or bands were changed.
+November-to-March screenshots at 1512 × 982 and 390 × 844, plus list, card, poster and preview checks: `/tmp/nwf-agents/round5/calendar-days/`. Both browser checks report no page errors; Lisbon's card and preview agree on 34 nice and 4 perfect days out of 151. Agadir's home comparison reports 136 nice days out of 151. No scoring curves, bands or data files changed.

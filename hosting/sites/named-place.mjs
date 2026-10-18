@@ -81,13 +81,13 @@ function climateNumbers(row,period) {
   if(!row?.climate||row.climateIndex<0)return null;
   const months=namedPeriodMonths(period),totalDays=months.reduce((sum,month)=>sum+MONTH_DAYS[month-1],0),shares=THRESHOLDS.map(()=>0);
   const {climate:table,climateIndex:index}=row,parts=zeroObject(NAMED_PART_FIELDS),typical=zeroObject(NAMED_TYPICAL_FIELDS);
-  const dayScores=[];
+  const dayScores=[],dayWeights=[];
   for(const month of months) {
     const weight=MONTH_DAYS[month-1]/totalDays/8;
     for(let sample=0;sample<8;sample++) {
       const score=table.bytes[32+8*table.count+((month-1)*8+sample)*table.count+index];
       if(score===255)return null;
-      dayScores.push(score);
+      dayScores.push(score);dayWeights.push(MONTH_DAYS[month-1]/8);
       for(let threshold=0;threshold<THRESHOLDS.length;threshold++)if(score>=THRESHOLDS[threshold])shares[threshold]+=weight;
     }
     const facts=row.months?.[month-1];
@@ -98,7 +98,7 @@ function climateNumbers(row,period) {
     }
   }
   const score=typicalScore(shares);
-  return {score,meanScore:score,band:band(score),niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),...countDayScores(dayScores,'sample'),totalDays,sampleDays:months.length*8,parts,typical,resolutionArcSeconds:30,status:'named-default',factsAvailable:!!row.months};
+  return {score,meanScore:score,band:band(score),niceDayShare:shares[3],perfectDayShare:shares[5],awfulDayShare:Math.max(0,1-shares[1]),...countDayScores(dayScores,'sample',dayWeights),totalDays,sampleDays:months.length*8,parts,typical,resolutionArcSeconds:30,status:'named-default',factsAvailable:!!row.months};
 }
 
 function forecastNumbers(row,period) {

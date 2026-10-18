@@ -45,8 +45,9 @@ export type PointVerdict = Readonly<{
   awfulDayCount: number;
   totalDays: number;
   sampleDays: number;
-  /** Denominator for the whole-day counts; typical-year counts describe sampled days. */
+  /** Calendar-day denominator for the rounded day counts. */
   countedDays?: number;
+  dayWeights?: readonly number[];
   countBasis?: 'sample' | 'forecast';
   dayScores?: readonly number[];
   parts: Omit<DayJudgement, 'score'>;

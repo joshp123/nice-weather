@@ -11,7 +11,7 @@ import { countryFlag } from './ui/countries';
 import { requestHome, inferredHome, timeZoneHome, isHomeWinter, regionalComparison } from './ui/home';
 import { createHeadline, forecastFreshness, headlineSentence, nicestPlaces, placeSentence, rankLabelledPlaces, viewportRegion, type HeadlinePlace } from './ui/headline';
 import { createMap, type WeatherMap } from './ui/map';
-import { DEFAULT_PERIOD, datedForecastPeriod, daysInPeriod, isForecast, monthsOfPeriod, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
+import { DEFAULT_PERIOD, datedForecastPeriod, daysInPeriod, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
 import { inOutlookRegion } from './ui/ranking';
 import { drawShareCard, renderPoster, type ShareContext } from './ui/share';
@@ -294,9 +294,8 @@ function renderList(stretchLabel: string): void {
     return;
   }
   const reference = home ? judge(home, state.period) : null;
-  const sample = !isForecast(state.period);
-  const days = reference?.countedDays ?? (sample ? monthsOfPeriod(state.period, forecast).length * 8 : daysInPeriod(state.period, forecast));
-  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}${sample ? ' sampled' : ''}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
+  const days = reference?.countedDays ?? daysInPeriod(state.period, forecast);
+  const list = el('section', 'place-list panel', el('div', 'list-title', el('span', '', state.period.kind === 'forecast-day' ? 'Highest scores' : 'Most nice days'), el('span', '', state.period.kind === 'forecast-day' ? 'out of 100' : `of ${days}`), phone.matches ? button('icon-button', '×', toggleList, 'Close list') : null));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
     const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.round(place.score) : Math.round(place.niceDayCount));
     count.style.background = bandColour(place.score);
@@ -304,11 +303,11 @@ function renderList(stretchLabel: string): void {
     list.append(button('ranked-place', el('span', 'rank-number', index + 1), () => chooseRankedPlace(place)));
     list.lastElementChild!.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `${place.niceDayCount} nice · ${place.perfectDayCount} perfect${state.period.kind === 'forecast-day' ? '' : ` · score ${Math.round(place.score)}`}`)), count);
   });
-  list.append(el('p', 'home-line', state.period.kind === 'forecast-day' ? 'The label shows the day’s score. Ties favour perfect days, then the typical-day score and population.' : `Nice days out of ${days}${sample ? ' sampled days' : ' days'} in ${stretchLabel}. Ties favour perfect days, then the typical-day score and population.`));
+  list.append(el('p', 'home-line', state.period.kind === 'forecast-day' ? 'The label shows the day’s score. Ties favour perfect days, then the typical-day score and population.' : `Nice days out of ${days} days in ${stretchLabel}. Ties favour perfect days, then the typical-day score and population.`));
   const homeVerdict = home ? judge(home, state.period) : null;
   if (home && homeVerdict) {
     const homeButton = button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!));
-    const homeLine = el('p', 'home-line', homeButton, `: awful on ${Math.round(homeVerdict.awfulDayCount)} of ${homeVerdict.countedDays ?? days}${homeVerdict.countBasis === 'sample' ? ' sampled' : ''} days in ${stretchLabel}.`);
+    const homeLine = el('p', 'home-line', homeButton, `: awful on ${Math.round(homeVerdict.awfulDayCount)} of ${homeVerdict.countedDays ?? days} days in ${stretchLabel}.`);
     const regional = regionalComparison(home);
     const regionalVerdict = judge(regional, state.period);
     const comparison = regionalVerdict && regional.name !== home.name ? el('p', 'home-line', button('inline-place', `${countryFlag(regional)} ${regional.name}`, () => actions.selectSearchResult(regional)), `: ${Math.round(regionalVerdict.niceDayCount)} nice days over the same stretch.`) : null;

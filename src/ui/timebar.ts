@@ -131,7 +131,7 @@ function yearDial(view: TimeBarView, actions: Actions): SVGSVGElement {
   const days = daysInPeriod(view.period, view.forecast);
   dial.append(dialText('year-dial-place', view.scorePlaceName ?? 'Your stretch', 120, 99));
   dial.append(dialText('year-dial-count', String(Math.round(view.niceDayCount ?? days)), 120, 124));
-  dial.append(dialText('year-dial-caption', view.niceDayCount === undefined ? 'days selected' : `of ${view.countedDays ?? monthsOfPeriod(view.period, view.forecast).length * 8} ${view.countBasis === 'sample' ? 'sampled ' : ''}days nice`, 120, 149));
+  dial.append(dialText('year-dial-caption', view.niceDayCount === undefined ? 'days selected' : `of ${view.countedDays ?? daysInPeriod(view.period, view.forecast)} days nice`, 120, 149));
   return dial;
 }
 
@@ -229,7 +229,7 @@ function legend(view: TimeBarView): HTMLElement {
     const from = index === 0 ? '' : String(band.minimum);
     scale.append(el('span', 'legend-step', swatch(colourOnLand(bands[index].colour), 'legend-colour'), el('span', 'legend-text', band.name, from ? el('span', 'legend-from', ` ${from}`) : null)));
   }
-  const caption = el('span', 'legend-caption', view.period.kind === 'forecast-day' ? 'Colours and label numbers: score out of 100' : `Label numbers: out of ${isForecast(view.period) ? daysInPeriod(view.period, view.forecast) : monthsOfPeriod(view.period, view.forecast).length * 8} ${isForecast(view.period) ? '' : 'sampled '}days (${view.stretchLabel ?? periodTitle(view.period, view.forecast)})`);
+  const caption = el('span', 'legend-caption', view.period.kind === 'forecast-day' ? 'Colours and label numbers: score out of 100' : `Label numbers: out of ${daysInPeriod(view.period, view.forecast)} days (${view.stretchLabel ?? periodTitle(view.period, view.forecast)})`);
   return el('div', 'legend-block', caption, scale);
 }
 
