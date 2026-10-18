@@ -10,6 +10,7 @@
 import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket, mapPointWeights, blendPlaceNumbers } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
 import { finePreviewPng } from './fine-preview.mjs';
+import { createNamedPlaceLoader, namedPlaceNumbers, namedPlaceMonths } from './named-place.mjs';
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -45,6 +46,14 @@ async function siteTool(request, env) {
 
 const memo = new Map();
 const fineLoaders = new WeakMap();
+const namedLoaders = new WeakMap();
+function namedPlaces(bucket) {
+  if (!namedLoaders.has(bucket)) namedLoaders.set(bucket, createNamedPlaceLoader(async key => {
+    const object = await bucket.get(key);
+    return object ? new Uint8Array(await object.arrayBuffer()) : null;
+  }));
+  return namedLoaders.get(bucket);
+}
 function finePlaces(bucket) {
   if (!fineLoaders.has(bucket)) fineLoaders.set(bucket, createFinePlaceLoader(async key => {
     const object = await bucket.get(key);
@@ -233,11 +242,17 @@ async function nearestLandPoint(bucket, latitude, longitude) {
 
 /** A place's typical year with the default taste's score for each month (null where unknown), or null at sea. */
 async function typicalYearForPlace(bucket, latitude, longitude) {
+  const named = await namedPlaces(bucket).load(latitude, longitude);
+  if (named) return namedPlaceMonths(named);
   const fine = finePlaces(bucket);
   if (await fine.enabled()) {
     const packet = await fine.load(latitude, longitude);
     return packet ? placeMonths(packet) : null;
   }
+  return overviewYearForPlace(bucket, latitude, longitude);
+}
+
+async function overviewYearForPlace(bucket, latitude, longitude) {
   const point = await nearestLandPoint(bucket, latitude, longitude);
   if (!point) return null;
   const scores = await readBytes(bucket, 'v6/climate/scores.bin', (point.row * FINE_WIDTH + point.column) * 12, 12);
@@ -391,6 +406,9 @@ function nearestFineIndex(latitude, longitude, offsets) {
 }
 
 async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
+  const named = await namedPlaces(bucket).load(latitude, longitude, period);
+  const namedJudgement = named && namedPlaceNumbers(named, period);
+  if (namedJudgement && period.kind !== 'forecast') return namedJudgement;
   const fine = finePlaces(bucket);
   if (period.kind === 'climate' && await fine.enabled()) {
     const packet = await fine.load(latitude, longitude);
@@ -428,17 +446,27 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
     const days = packets.flat();
     return {numbers: placeNumbers({source: 'forecast', fineIndex: point.index, records: days.map(day => day.record), offsetsC: days.map(day => day.offset), weights: days.map(day => day.weight)}, period), weight: point.weight};
   }));
-  return period.kind === 'forecast' ? blendPlaceNumbers(judgements) : judgements[0].numbers;
+  const overview = period.kind === 'forecast' ? blendPlaceNumbers(judgements) : judgements[0].numbers;
+  return namedJudgement ? {...overview, ...namedJudgement, parts: overview.parts, typical: overview.typical, factsAvailable: true} : overview;
 }
 
 const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];
 const bandWord = (score) => BAND_WORDS.find(([minimum]) => score >= minimum)[1];
 const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
 
-async function previewFor(bucket, origin, pathname, view) {
+async function previewFor(bucket, origin, pathname, view, search = '') {
   const { place } = view;
   const period = view.period ?? (place ? { word: 'next-14-days', kind: 'forecast', when: 'over the next 14 days' } : null);
   const placeName = place ? place.name : null;
+  const query = new URLSearchParams(search);
+  const sliderDefaults = {perfectFrom: 23, tooHotFrom: 28, walkHome: 19, humidity: 23, wind: 46, rain: 4};
+  const customTaste = Object.entries(sliderDefaults).some(([name, value]) => query.has(name) && Number.isFinite(Number(query.get(name))) && Number(query.get(name)) !== value);
+  if (customTaste) return {
+    title: placeName && period ? `${placeName} ${period.when}: Nice Weather` : 'Nice Weather: where on earth is the weather nice?',
+    description: placeName && period ? `Weather in ${placeName} ${period.when}, with your own taste. Open the map to see its score and nice-day counts.` : 'Find weather by your own taste. Open the map to see scores and nice-day counts.',
+    image: null,
+    url: `${origin}${pathname}${search}`,
+  };
   let title = 'Nice Weather: where on earth is the weather nice?';
   let description = 'A map of the whole world coloured by how nice the weather feels, for the next 14 days or any month of a typical year. Set your own taste.';
   if (placeName && period) {
@@ -454,9 +482,14 @@ async function previewFor(bucket, origin, pathname, view) {
   }
   const card = async (key) => ((await bucket.head(key)) ? `${origin}/data/${key}` : null);
   const namedPlace = place?.slug && !pathname.startsWith('/@') && !place.slug.startsWith('palestine/');
+  const namedRow = place && period ? await namedPlaces(bucket).load(place.latitude, place.longitude, period) : null;
+  const namedJudgement = namedRow && namedPlaceNumbers(namedRow, period);
+  const namedConfiguration = namedJudgement ? await namedPlaces(bucket).configuration() : null;
   const fineClimate = place && period?.kind === 'climate' && await finePlaces(bucket).enabled();
   const configuration = fineClimate ? await finePlaces(bucket).configuration() : null;
-  const image = fineClimate
+  const image = namedConfiguration
+    ? `${origin}/preview/named.png?path=${encodeURIComponent(pathname)}&generation=${namedConfiguration.generation}&run=${namedRow.forecastRun ?? ''}`
+    : fineClimate
     ? `${origin}/preview/fine.png?path=${encodeURIComponent(pathname)}&generation=${configuration.generation}&model=${configuration.eveningModel ?? 'ordered'}&style=1`
     : period && (!place || namedPlace)
       ? await card(`v6/cards/typical-day/${namedPlace ? place.slug + '/' : 'world-'}${period.word}.png`) : null;
@@ -647,13 +680,14 @@ export async function handleRequest(request, env, serveAsset) {
     memo.delete(key);
     weatherFiles.delete(key);
     if (key.startsWith('v6/fine/') || key.startsWith('fine-')) fineLoaders.delete(bucket);
+    if (key.startsWith('v6/named/') || key.startsWith('named-') || key === 'v6/forecast/current.json') namedLoaders.delete(bucket);
     if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
 
   if (/^\/api\/fine\/labels-[12]\.json$/.test(url.pathname)) {
-    const configuration = await finePlaces(bucket).configuration();
+    const configuration = await namedPlaces(bucket).configuration() ?? await finePlaces(bucket).configuration();
     const filename = url.pathname.slice('/api/fine/'.length);
     const object = await bucket.get(`${configuration?.labelsRoot ?? 'v6'}/${filename}`);
     if (!object) return new Response('City labels unavailable', {status: 503});
@@ -667,6 +701,31 @@ export async function handleRequest(request, env, serveAsset) {
     return serveData(request, bucket, key);
   }
   if (url.pathname.startsWith('/outlook/')) return outlookPage(request, bucket, url);
+  if (url.pathname === '/api/named') {
+    const configuration = await namedPlaces(bucket).configuration();
+    return json({enabled: Boolean(configuration), configuration}, 60);
+  }
+  if (url.pathname === '/api/named/place') {
+    const latitude = Number(url.searchParams.get('lat')), longitude = Number(url.searchParams.get('lon'));
+    if (!url.searchParams.has('lat') || !url.searchParams.has('lon') || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return new Response('Bad coordinates', {status: 400});
+    if (url.searchParams.get('kind') !== 'climate') return new Response('Unknown place data', {status: 400});
+    const row = await namedPlaces(bucket).load(latitude, longitude);
+    return json(row ? {months: row.months} : null, 60);
+  }
+  if (url.pathname === '/preview/named.png') {
+    const view = await viewFromPath(bucket, url.searchParams.get('path') ?? '');
+    const configuration = await namedPlaces(bucket).configuration();
+    const row = view?.place && configuration ? await namedPlaces(bucket).load(view.place.latitude, view.place.longitude, view.period) : null;
+    const judgement = row && view.period ? namedPlaceNumbers(row, view.period) : null;
+    if (!judgement) return new Response('Preview unavailable', {status: 404});
+    if (url.searchParams.get('generation') !== configuration.generation || url.searchParams.get('run') !== (row.forecastRun ?? '')) {
+      url.searchParams.set('generation', configuration.generation);
+      url.searchParams.set('run', row.forecastRun ?? '');
+      return Response.redirect(url.href, 302);
+    }
+    const image = await finePreviewPng(view.place, view.period, judgement);
+    return new Response(image, {headers: {'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=60'}});
+  }
   if (url.pathname === '/preview/fine.png') {
     const view = await viewFromPath(bucket, url.searchParams.get('path') ?? '');
     const configuration = await finePlaces(bucket).configuration();
@@ -710,10 +769,14 @@ export async function handleRequest(request, env, serveAsset) {
     const longitude = Number(url.searchParams.get('lon'));
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90) return new Response('Bad coordinates', { status: 400 });
     const fine = finePlaces(bucket);
-    const [where, months, fineEnabled] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude), fine.enabled()]);
     const period = periodFromWord(url.searchParams.get('period') ?? 'year');
-    const judgement = fineEnabled && period?.kind === 'climate' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : undefined;
-    return json({ ...where, latitude, longitude, months, ...(fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true, judgement } : {}) }, 60);
+    const [where, months, fineEnabled, named] = await Promise.all([nameForPoint(bucket, latitude, longitude), typicalYearForPlace(bucket, latitude, longitude), fine.enabled(), namedPlaces(bucket).load(latitude, longitude, period)]);
+    const namedJudgement = named && period ? namedPlaceNumbers(named, period) : null;
+    let judgement;
+    if (namedJudgement) judgement = period.kind === 'forecast' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : namedJudgement;
+    else if (fineEnabled && period?.kind === 'climate') judgement = await defaultPeriodJudgement(bucket, latitude, longitude, period);
+    const overviewMonths = named ? await overviewYearForPlace(bucket, latitude, longitude) : undefined;
+    return json({ ...where, latitude, longitude, months, ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {}), judgement} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true, judgement } : {}) }, 60);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
   if (url.pathname.startsWith('/api/slug/')) {
@@ -726,7 +789,7 @@ export async function handleRequest(request, env, serveAsset) {
   if (url.pathname === '/method') {
     const page = await serveAsset('/method', request);
     if (request.method === 'HEAD') return page;
-    const configuration = await finePlaces(bucket).configuration();
+    const configuration = await namedPlaces(bucket).configuration() ?? await finePlaces(bucket).configuration();
     return configuration?.attribution ? new Response(fineMethodHtml(await page.text(), configuration), {status: page.status, headers: page.headers}) : page;
   }
   if (isAppPath && url.pathname !== '/method') {
@@ -734,8 +797,8 @@ export async function handleRequest(request, env, serveAsset) {
     const page = await serveAsset('/index.html', request);
     if (request.method === 'HEAD') return new Response(null, { status: view ? page.status : 404, headers: page.headers });
     const html = await page.text();
-    if (!view) return new Response(withPreview(html, await previewFor(bucket, url.origin, '/', { place: null, period: null })), { status: 404, headers: page.headers });
-    return new Response(withPreview(html, await previewFor(bucket, url.origin, url.pathname, view)), { headers: page.headers });
+    if (!view) return new Response(withPreview(html, await previewFor(bucket, url.origin, '/', { place: null, period: null }, url.search)), { status: 404, headers: page.headers });
+    return new Response(withPreview(html, await previewFor(bucket, url.origin, url.pathname, view, url.search)), { headers: page.headers });
   }
   return serveAsset(url.pathname, request);
 }

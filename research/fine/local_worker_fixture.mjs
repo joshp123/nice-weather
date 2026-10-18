@@ -8,18 +8,28 @@ export function localWorkerFixture(overlay, finePointer, packagedWorkerFetch) {
   const artifacts=path.resolve('artifacts'),dist=path.resolve('dist');
   const media={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'};
   const bucket={async get(key,options) {
-    let bytes;
+    let bytes,size,ranged=false;
     if(key==='v6/fine/current.json'&&finePointer) {
       const value=finePointer();
       if(value===null)return null;
       bytes=Buffer.from(JSON.stringify(value));
     }
     for(const root of bytes?[]:[overlay,artifacts]) {
-      try {bytes=await fs.readFile(path.join(root,key));break;}catch(error){if(error.code!=='ENOENT')throw error;}
+      try {
+        if(options?.range) {
+          const file=await fs.open(path.join(root,key),'r');
+          try {
+            size=(await file.stat()).size;
+            bytes=Buffer.alloc(Math.max(0,Math.min(options.range.length,size-options.range.offset)));
+            await file.read(bytes,0,bytes.length,options.range.offset);ranged=true;
+          } finally {await file.close();}
+        } else bytes=await fs.readFile(path.join(root,key));
+        break;
+      }catch(error){if(error.code!=='ENOENT')throw error;}
     }
     if(!bytes)return null;
-    const size=bytes.length;
-    if(options?.range)bytes=bytes.subarray(options.range.offset,options.range.offset+options.range.length);
+    size??=bytes.length;
+    if(options?.range&&!ranged)bytes=bytes.subarray(options.range.offset,options.range.offset+options.range.length);
     return {size,httpEtag:`"${size}"`,body:new Blob([bytes]).stream(),
       arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),
       text:async()=>bytes.toString('utf8'),json:async()=>JSON.parse(bytes.toString('utf8'))};

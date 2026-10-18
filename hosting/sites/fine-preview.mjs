@@ -75,7 +75,7 @@ export async function finePreviewPng(place,period,judgement) {
   drawText(pixels,mask,when,58,207,32,MUTED);
   drawText(pixels,mask,band,56,332,88,INK,'Bold');
   const bandWidth=textWidth(band,88,'Bold');
-  drawText(pixels,mask,'most days',56+bandWidth+24,329,34,MUTED);
+  if(judgement.totalDays>1)drawText(pixels,mask,'most days',56+bandWidth+24,329,34,MUTED);
   drawText(pixels,mask,`${score}`,56,411,61,GOLD,'Bold');
   drawText(pixels,mask,'/ 100 nice score',56+textWidth(`${score}`,61,'Bold')+15,407,29,MUTED);
   rectangle(pixels,56,447,1088,1,[208,216,204]);
@@ -84,7 +84,7 @@ export async function finePreviewPng(place,period,judgement) {
     drawText(pixels,mask,String(count),x,515,47,INK,'Bold');
     drawText(pixels,mask,label,x+textWidth(String(count),47,'Bold')+13,511,26,MUTED);
   }
-  drawText(pixels,mask,`Out of ${judgement.totalDays} days in a typical year`,56,571,24,MUTED);
+  drawText(pixels,mask,period.kind==='forecast'?`Out of ${judgement.totalDays} forecast days`:`Out of ${judgement.totalDays} days in a typical year`,56,571,24,MUTED);
   const site='nice.jjpcodes.com';drawText(pixels,mask,site,WIDTH-56-textWidth(site,24),571,24,MUTED);
   return encodePng(pixels,{place:place.name,when:period.when,score:judgement.score,niceDayCount:judgement.niceDayCount,perfectDayCount:judgement.perfectDayCount,awfulDayCount:judgement.awfulDayCount,totalDays:judgement.totalDays,labels:{score,nice,perfect,awful,band}});
 }
