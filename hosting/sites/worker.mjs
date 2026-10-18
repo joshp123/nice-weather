@@ -9,8 +9,10 @@
 
 import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket, mapPointWeights, blendPlaceNumbers } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
+import { placeCardSummary } from './place-presentation.mjs';
 import { shareImagePng, decodeScorePng, previewMap, sharePlaceTitle } from './share-template.mjs';
 import { shareWordmark } from './share-assets.mjs';
+import { shareImage } from './share-image.mjs';
 import { createNamedPlaceLoader, namedPlaceNumbers, namedPlaceMonths } from './named-place.mjs';
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
@@ -605,21 +607,44 @@ async function outlookPage(request, bucket, url) {
     <h1>${escapeHtml(sentence)}</h1>
     <img class="poster" src="${escapeHtml(image)}" width="1200" height="630" alt="${escapeHtml(sentence)} Map coloured by the day’s nice weather scores." />
     <div class="actions">
-      <button id="copy-post" type="button">Copy post</button>
+      <button id="share-image" type="button" disabled>Preparing image…</button>
       <a href="${escapeHtml(outlook.fullImage ?? image)}" download="nice-weather-${region}-${outlook.date}.png">Download image</a>
       ${explore}
     </div>
-    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by the default taste; tied whole-number scores favour larger places. Each winning spot is named after the largest eligible place within 50 km and five score points. Forecast from ECMWF. Dates use UTC.</p>
+    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by nice days plus perfect days for the default taste. A perfect day counts twice; ties favour larger places. Forecast from ECMWF. Dates use UTC.</p>
     <p class="status" id="copy-status" role="status"></p>
     <script>
-      document.getElementById('copy-post').addEventListener('click', async () => {
-        const status = document.getElementById('copy-status');
+      const shareImage = ${shareImage.toString()};
+      const shareButton = document.getElementById('share-image');
+      const status = document.getElementById('copy-status');
+      const sentence = document.querySelector('h1').textContent + '\\n' + document.querySelector('link[rel="canonical"]').href;
+      let image;
+      fetch(document.querySelector('.poster').src).then(response => {
+        if (!response.ok) throw new Error('Image unavailable');
+        return response.blob();
+      }).then(blob => {
+        image = blob;
+        shareButton.textContent = 'Share image';
+        shareButton.disabled = false;
+      }).catch(() => {
+        shareButton.textContent = 'Share image';
+        status.textContent = 'Could not load the image. Please reload to try again.';
+      });
+      shareButton.addEventListener('click', async () => {
+        shareButton.disabled = true;
         try {
-          await navigator.clipboard.writeText(document.querySelector('h1').textContent + '\\n' + document.querySelector('link[rel="canonical"]').href);
-          status.textContent = 'Post copied.';
-        } catch {
-          status.textContent = 'Select the sentence above and copy this page’s address to share it.';
-        }
+          const result = await shareImage(image, sentence, 'nice-weather-${region}-${outlook.date}.png');
+          status.textContent = result === 'shared' ? 'Shared.' : 'Image and sentence copied. Paste them into your post.';
+        } catch (error) {
+          if (error.name !== 'AbortError') {
+            status.textContent = 'Could not share the image. Download it above; the sentence is ready to copy.';
+            const field = document.createElement('textarea');
+            field.value = sentence;
+            field.readOnly = true;
+            field.setAttribute('aria-label', 'Sentence to share with the image');
+            status.append(field);
+          }
+        } finally { shareButton.disabled = false; }
       });
     </script>` : `
     <div class="unavailable"><p class="eyebrow">${settings.name} · ${escapeHtml(fullDate)}</p>
@@ -789,20 +814,24 @@ export async function handleRequest(request, env, serveAsset) {
     }});
   }
   if (url.pathname === '/api/place') {
-    const requestedLatitude = Number(url.searchParams.get('lat'));
-    const requestedLongitude = Number(url.searchParams.get('lon'));
-    if (!Number.isFinite(requestedLatitude) || !Number.isFinite(requestedLongitude) || Math.abs(requestedLatitude) > 90) return new Response('Bad coordinates', { status: 400 });
+    const latitudeText = url.searchParams.get('lat'), longitudeText = url.searchParams.get('lon');
+    const requestedLatitude = Number(latitudeText), requestedLongitude = Number(longitudeText);
+    if (!latitudeText?.trim() || !longitudeText?.trim() || !Number.isFinite(requestedLatitude) || !Number.isFinite(requestedLongitude) || Math.abs(requestedLatitude) > 90 || Math.abs(requestedLongitude) > 180) return new Response('Supply lat and lon in degrees', { status: 400 });
+    const periodWord = url.searchParams.get('period') ?? 'year';
+    const requestedPeriod = periodFromWord(periodWord);
+    if (!requestedPeriod) return new Response('Unknown period', {status: 400});
+    const period = await datedPeriod(bucket, requestedPeriod);
+    if (!period) return new Response('Forecast date unavailable', {status: 404});
     const where = await placeForPoint(bucket, requestedLatitude, requestedLongitude);
     const {latitude, longitude} = where;
     const fine = finePlaces(bucket);
-    const period = await datedPeriod(bucket, periodFromWord(url.searchParams.get('period') ?? 'year'));
     const [months, fineEnabled, named] = await Promise.all([typicalYearForPlace(bucket, latitude, longitude), fine.enabled(), namedPlaces(bucket).load(latitude, longitude, period)]);
     const namedJudgement = named && period ? namedPlaceNumbers(named, period) : null;
     let judgement;
     if (namedJudgement) judgement = period.kind === 'forecast' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : namedJudgement;
     else if (period) judgement = await defaultPeriodJudgement(bucket, latitude, longitude, period);
     const overviewMonths = named ? await overviewYearForPlace(bucket, latitude, longitude) : undefined;
-    return json({ ...where, latitude, longitude, months, judgement, ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {})} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true } : {}) }, 60);
+    return json({ ...where, latitude, longitude, requestedPoint: {latitude: requestedLatitude, longitude: requestedLongitude}, period: {word: period.word, kind: period.kind, when: period.when, ...(period.date ? {date: period.date} : {})}, card: judgement ? placeCardSummary(where, judgement, period) : null, months, judgement, ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {})} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true } : {}) }, 60);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
   if (url.pathname.startsWith('/api/slug/')) {
