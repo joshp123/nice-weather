@@ -7,6 +7,7 @@ import { bandSentence, dayCountsSentence, periodPhrase, type ForecastIndex } fro
 import type { Place } from './state';
 import { countryFlag } from './countries';
 import { shareImage } from '../../hosting/sites/share-image.mjs';
+import { constrainWholeWorld } from './map';
 import { bands, colourOnLand } from '../palette';
 
 export type ShareContext = Readonly<{
@@ -32,14 +33,14 @@ export function shareText(context: ShareContext): string {
   return context.headline;
 }
 
-/** Copy the map after its next render so the poster includes the latest weather. */
+/** Copy the map once it has drawn everything, at a resolution the poster can use. */
 async function captureMap(map: maplibregl.Map): Promise<HTMLCanvasElement> {
-  if (!map.areTilesLoaded()) await new Promise<void>(resolve => { map.once('idle', () => resolve()); map.triggerRepaint(); });
+  const settled = () => new Promise<void>(resolve => { const done = () => resolve(); map.once('idle', done); window.setTimeout(done, 3000); map.triggerRepaint(); });
+  await settled();
   const screenPixelRatio = map.getPixelRatio();
-  const exportPixelRatio = Math.max(screenPixelRatio, 1200 / map.getContainer().clientWidth);
   try {
-    map.setPixelRatio(exportPixelRatio);
-    await new Promise<void>(resolve => { map.once('render', () => requestAnimationFrame(() => resolve())); map.triggerRepaint(); });
+    map.setPixelRatio(Math.max(screenPixelRatio, 1200 / map.getContainer().clientWidth));
+    await settled();
     const source = map.getCanvas();
     const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height;
     // Beyond the world's edge the map is transparent; on the poster it is sea, not black.
@@ -53,42 +54,41 @@ async function captureMap(map: maplibregl.Map): Promise<HTMLCanvasElement> {
   }
 }
 
-/** Move the camera so the places the poster names fit its wide map frame (zooming out past the usual limit if a
- *  phone is too narrow for them); returns the way back. */
-function frameSubjects(map: maplibregl.Map, subjects: readonly Point[], aspect: number): () => void {
-  const before = { center: map.getCenter(), zoom: map.getZoom() }, minimumZoom = map.getMinZoom();
-  if (!subjects.length) return () => {};
-  const { clientWidth: width, clientHeight: height } = map.getContainer();
-  const frameWidth = Math.min(width, height * aspect), frameHeight = frameWidth / aspect;
-  const margin = Math.min(frameWidth, frameHeight) * 0.15;
-  const across = (width - frameWidth) / 2 + margin, down = (height - frameHeight) / 2 + margin;
-  const longitudes = subjects.map(place => place.longitude), latitudes = subjects.map(place => place.latitude);
-  map.setMinZoom(0);
-  const camera = map.cameraForBounds([[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]],
-    { padding: { top: down, bottom: down, left: across, right: across }, maxZoom: before.zoom });
-  if (camera) map.jumpTo(camera);
-  return () => { map.setMinZoom(minimumZoom); map.jumpTo(before); };
-}
-
-/** The middle of the named places on screen, where the poster's crop is centred. */
-function subjectsCentre(map: maplibregl.Map, subjects: readonly Point[]): { x: number; y: number } | null {
-  if (!subjects.length) return null;
-  const points = subjects.map(place => map.project([place.longitude, place.latitude]));
-  const xs = points.map(point => point.x), ys = points.map(point => point.y);
-  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+/** The poster's map is drawn at the poster's own shape and size, the same from a phone as from a computer: the map
+ *  briefly takes a poster-sized box, frames what the poster names with room for their labels, is copied, and goes back. */
+async function capturePosterMap(map: maplibregl.Map, subjects: readonly Point[], frame: Readonly<{ width: number; height: number }>): Promise<HTMLCanvasElement> {
+  const container = map.getContainer(), app = document.getElementById('app')!;
+  const tokens = getComputedStyle(document.documentElement), token = (name: string) => Number.parseFloat(tokens.getPropertyValue(`--map-${name}`));
+  const scale = token('label-scale');
+  const labelRoom = (token('label-large') * token('label-line-height') + token('count-height') + token('label-padding')) * scale;
+  const before = { center: map.getCenter(), zoom: map.getZoom(), minimumZoom: map.getMinZoom(), constrain: map.transformConstrain };
+  app.classList.add('making-poster');
+  Object.assign(container.style, { top: '0', left: '0', right: 'auto', bottom: 'auto', width: `${frame.width * scale}px`, height: `${frame.height * scale}px` });
+  map.resize();
+  try {
+    if (subjects.length) {
+      // Far-apart places may need more of the world than the map's usual limits show: sea fills the sides.
+      map.setMinZoom(0);
+      map.setTransformConstrain(constrainWholeWorld);
+      const longitudes = subjects.map(place => place.longitude), latitudes = subjects.map(place => place.latitude);
+      const camera = map.cameraForBounds([[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]], { padding: labelRoom, maxZoom: before.zoom });
+      if (camera) map.jumpTo(camera);
+    }
+    return await captureMap(map);
+  } finally {
+    for (const property of ['top', 'left', 'right', 'bottom', 'width', 'height'] as const) container.style[property] = '';
+    map.resize();
+    map.setTransformConstrain(before.constrain);
+    map.setMinZoom(before.minimumZoom);
+    map.jumpTo({ center: before.center, zoom: before.zoom });
+    app.classList.remove('making-poster');
+  }
 }
 
 /** Draw the same control-free template used by link previews. */
 export async function drawShareCard(_width: number, _height: number, context: ShareContext): Promise<Blob> {
   const { shareImagePng, SHARE_MAP } = await import('../../hosting/sites/share-template.mjs');
-  const restoreCamera = frameSubjects(context.map, context.subjects, SHARE_MAP.width / SHARE_MAP.height);
-  let mapImage: HTMLCanvasElement, focus: { x: number; y: number } | null;
-  try {
-    mapImage = await captureMap(context.map);
-    focus = subjectsCentre(context.map, context.subjects);
-  } finally {
-    restoreCamera();
-  }
+  const mapImage = await capturePosterMap(context.map, context.subjects, SHARE_MAP);
   const source = mapImage.getContext('2d')!.getImageData(0, 0, mapImage.width, mapImage.height).data;
   const pixels = new Uint8Array(mapImage.width * mapImage.height * 3);
   for (let index = 0; index < pixels.length / 3; index++) pixels.set(source.subarray(index * 4, index * 4 + 3), index * 3);
@@ -106,8 +106,7 @@ export async function drawShareCard(_width: number, _height: number, context: Sh
     dates,
     numbers: verdict ? { score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount, totalDays: verdict.totalDays, countedDays: verdict.countedDays, countBasis: verdict.countBasis } : undefined,
     detail: 'Colours show the typical day. Find your nice weather.',
-    map: { pixels, width: mapImage.width, height: mapImage.height,
-      ...(focus ? { focusX: focus.x * mapImage.width / context.map.getContainer().clientWidth, focusY: focus.y * mapImage.height / context.map.getContainer().clientHeight } : {}) },
+    map: { pixels, width: mapImage.width, height: mapImage.height },
     dark: matchMedia('(prefers-color-scheme: dark)').matches,
     bandColours: bands.map(band => colourOnLand(band.colour).match(/\d+/g)!.map(Number) as [number, number, number]),
   });

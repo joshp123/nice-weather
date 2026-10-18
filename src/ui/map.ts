@@ -126,6 +126,12 @@ export type WeatherMap = Readonly<{
   labelCities(cities: readonly CityPoint[], scores: ArrayLike<number>, niceCounts?: ArrayLike<number>, prioritySlugs?: readonly string[]): void;
 }>;
 
+/** Lets the whole world sit inside a frame wider than itself, with sea at the sides: the 57-inch ultrawide, and posters.
+ *  MapLibre has already held the zoom between minZoom and maxZoom. */
+export const constrainWholeWorld = (center: maplibregl.LngLat, zoom: number) => ({
+  center: new maplibregl.LngLat(center.wrap().lng, Math.max(-85, Math.min(85, center.lat))), zoom,
+});
+
 /** The inhabited world: Alaska to Fiji, Cape Horn to the North Cape. Greenland's ice and Antarctica are left out. */
 const INHABITED_WORLD: [[number, number], [number, number]] = [[-168, -56], [180, 72]];
 
@@ -151,10 +157,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
     dragRotate: false, pitchWithRotate: false, touchPitch: false,
     renderWorldCopies: false,
     canvasContextAttributes: { preserveDrawingBuffer: true },
-    transformConstrain: wide ? (center, zoom) => ({
-      center: new maplibregl.LngLat(center.wrap().lng, Math.max(-85, Math.min(85, center.lat))),
-      zoom: Math.max(1.1, Math.min(11, zoom)),
-    }) : undefined,
+    transformConstrain: wide ? constrainWholeWorld : undefined,
   });
   map.touchZoomRotate.disableRotation();
   if (!camera) {

@@ -340,15 +340,24 @@ function renderList(stretchLabel: string): void {
 }
 
 async function openPoster(): Promise<void> {
-  if (playing) { stopPlaying(); render(); }
+  if (playing) stopPlaying();
   const request = ++posterRequest;
   const context = shareContext();
-  framingPoster = true;
-  const poster = await renderPoster(context, () => { shareOpen = false; posterSlot.replaceChildren(); render(); }).finally(() => { framingPoster = false; });
-  if (request !== posterRequest) return;
+  const closePoster = () => { shareOpen = false; posterSlot.replaceChildren(); render(); };
+  // The overlay goes up first: behind it the map is briefly redrawn at the poster's size.
   shareOpen = true;
-  posterSlot.replaceChildren(poster);
+  posterSlot.replaceChildren(el('section', 'poster-overlay making', el('p', 'poster-status', 'Making the poster…')));
   render();
+  framingPoster = true;
+  try {
+    const poster = await renderPoster(context, closePoster);
+    if (request === posterRequest) posterSlot.replaceChildren(poster);
+  } catch (error) {
+    if (request === posterRequest) closePoster();
+    throw error;
+  } finally {
+    framingPoster = false;
+  }
 }
 
 // ---------------------------------------------------------------- the interface
