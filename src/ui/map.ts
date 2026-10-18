@@ -91,7 +91,7 @@ function style(colours: MapDesign): StyleSpecification {
         id: 'chosen-place', type: 'symbol', source: 'chosen-place',
         layout: {
           'icon-image': 'chosen-place', 'icon-allow-overlap': true,
-          'text-field': scoredLabel, 'text-font': ['Noto Sans Bold'], 'text-size': colours.chosenSize * colours.labelScale,
+          'text-field': '', 'text-font': ['Noto Sans Bold'], 'text-size': colours.chosenSize * colours.labelScale,
           'text-max-width': colours.labelWidth,
           'text-anchor': 'left', 'text-offset': [colours.chosenOffset, 0], 'text-optional': true,
         },
@@ -139,6 +139,8 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   const design = mapDesign();
   container.style.backgroundColor = design.sea;
   let cities: CityPoint[] = [];
+  let chosenPlace: {latitude: number; longitude: number; name: string; score?: number} | null = null;
+  let previousLabels: {cities: readonly CityPoint[]; scores: ArrayLike<number>; niceCounts?: ArrayLike<number>; prioritySlugs: readonly string[]} | undefined;
   const fetchLabels = (file: string) => fetch(`/api/fine/${file}`).then(response => {
     if (!response.ok) throw new Error(`City labels: HTTP ${response.status}`);
     return response.json() as Promise<[string, string, number, number, number][]>;
@@ -177,10 +179,8 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         const halfWidth = fontSize * design.labelWidth / 2 + design.labelHaloWidth;
         const halfHeight = (fontSize * design.labelLineHeight * 3 + design.countHeight * design.labelScale) / 2;
         const minimumPopulation = minimumLabelPopulations[Math.min(5, Math.max(0, Math.floor(zoom) - 1))];
-        map.setFilter('city-labels', ['all', ['!', ['has', 'headlineRank']], ['>=', ['get', 'population'], minimumPopulation], viewportLabelFilter(halfWidth, halfWidth, halfHeight)]);
-        const chosenFontSize = design.chosenSize * design.labelScale;
-        const chosenOffset = chosenFontSize * design.chosenOffset;
-        map.setFilter('chosen-place', viewportLabelFilter(design.ringSize / 2, chosenOffset + chosenFontSize * design.labelWidth + design.chosenHalo, chosenFontSize * design.labelLineHeight * 2));
+        map.setFilter('city-labels', ['all', ['!', ['has', 'headlineRank']], ['!', ['has', 'chosen']], ['>=', ['get', 'population'], minimumPopulation], viewportLabelFilter(halfWidth, halfWidth, halfHeight)]);
+        map.setFilter('chosen-place', viewportLabelFilter(design.ringSize / 2, design.ringSize / 2, design.ringSize / 2));
         const countryFontSize = design.countFontSize * design.labelScale;
         const countryHalfWidth = countryFontSize * design.labelWidth / 2 + design.labelHaloWidth;
         map.setFilter('palestine-label', viewportLabelFilter(countryHalfWidth, countryHalfWidth, countryFontSize * design.labelLineHeight));
@@ -230,10 +230,13 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
           }).catch(error => { console.error(error); });
         },
         showChosenPlace(place) {
+          const changed = chosenPlace?.latitude !== place?.latitude || chosenPlace?.longitude !== place?.longitude || chosenPlace?.name !== place?.name;
+          chosenPlace = place;
           (map.getSource('chosen-place') as GeoJSONSource).setData({
             type: 'FeatureCollection',
             features: place ? [{ type: 'Feature', properties: { name: place.name, longitude: place.longitude, latitude: place.latitude, ...(Number.isFinite(place.score) ? { score: Math.floor(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
           });
+          if (changed && previousLabels) weatherMap.labelCities(previousLabels.cities, previousLabels.scores, previousLabels.niceCounts, previousLabels.prioritySlugs);
         },
         showHomeConnection(home, destination) {
           (map.getSource('home-connection') as GeoJSONSource).setData({
@@ -278,34 +281,60 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
           return cities.filter(city => city.population >= minimumPopulation);
         },
         labelCities(cities, scores, niceCounts, prioritySlugs = []) {
+          previousLabels = {cities, scores, niceCounts, prioritySlugs};
+          const isChosen = (city: CityPoint) => Boolean(chosenPlace && kilometresBetween(city, chosenPlace) < 1);
           const fontSize = (design.labelSmall + (design.labelLarge - design.labelSmall) * Math.max(0, Math.min(1, (map.getZoom() - 1) / 8))) * design.labelScale;
-          const occupied: {x: number; y: number; width: number; height: number}[] = [];
-          const pointers: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-          const offsets = new Map<string, number[]>();
-          for (const slug of prioritySlugs) {
+          type LabelBox = {x: number; y: number; width: number; height: number};
+          type Placement = {slug: string; point: maplibregl.Point; box: LabelBox; end: maplibregl.Point};
+          const insideBox = (point: maplibregl.Point, box: LabelBox) => Math.abs(point.x - box.x) < box.width / 2 && Math.abs(point.y - box.y) < box.height / 2;
+          const cross = (a: maplibregl.Point, b: maplibregl.Point, c: maplibregl.Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+          const linesCross = (a: maplibregl.Point, b: maplibregl.Point, c: maplibregl.Point, d: maplibregl.Point) => cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0;
+          const crossesBox = (start: maplibregl.Point, end: maplibregl.Point, box: LabelBox) => {
+            if (insideBox(start, box) || insideBox(end, box)) return true;
+            const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => new maplibregl.Point(box.x + x * box.width / 2, box.y + y * box.height / 2));
+            return corners.some((corner, index) => linesCross(start, end, corner, corners[(index + 1) % 4]));
+          };
+          const boxesOverlap = (a: LabelBox, b: LabelBox) => Math.abs(a.x - b.x) < (a.width + b.width) / 2 && Math.abs(a.y - b.y) < (a.height + b.height) / 2;
+          const options = prioritySlugs.flatMap(slug => {
             const city = cities.find(place => place.slug === slug);
-            if (!city) continue;
+            if (!city) return [];
             const point = map.project([city.longitude, city.latitude]);
             const textWidth = city.name.length * fontSize * 0.65;
             const width = Math.min(textWidth, fontSize * design.labelWidth) + design.labelPadding * 2;
             const height = fontSize * design.labelLineHeight * Math.ceil(textWidth / (fontSize * design.labelWidth)) + design.countHeight * design.labelScale + design.labelPadding * 2;
-            const choices = [[0, 0], [0, -height], [0, height], [-width, 0], [width, 0], [-width, -height], [width, height]];
-            const offset = choices.find(([x, y]) => {
-              const centre = {x: point.x + x, y: point.y + y};
-              if (occupied.some(other => Math.abs(centre.x - other.x) < (width + other.width) / 2 && Math.abs(centre.y - other.y) < (height + other.height) / 2)) return false;
-              return [[-width / 2, -height / 2], [width / 2, height / 2]].every(([dx, dy]) => {
-                const px = centre.x + dx, py = centre.y + dy;
+            const choices: Placement[] = [];
+            for (let row = -4; row <= 4; row++) for (let column = -4; column <= 4; column++) {
+              const box = {x: point.x + column * width / 2, y: point.y + row * height / 2, width, height};
+              const clear = [-1, 0, 1].every(x => [-1, 0, 1].every(y => {
+                const px = box.x + x * width / 2, py = box.y + y * height / 2;
                 const element = document.elementFromPoint(px, py);
                 return px > 0 && px < container.clientWidth && py > 0 && py < container.clientHeight && (!element || container.contains(element));
-              });
-            }) ?? [0, 0];
-            occupied.push({x: point.x + offset[0], y: point.y + offset[1], width, height});
-            if (offset[0] || offset[1]) {
-              const end = map.unproject([point.x + offset[0], point.y + offset[1]]);
-              pointers.push({type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: [[city.longitude, city.latitude], [end.lng, end.lat]]}});
+              }));
+              if (!clear) continue;
+              const dx = point.x - box.x, dy = point.y - box.y;
+              const edge = Math.max(Math.abs(dx) / (width / 2), Math.abs(dy) / (height / 2));
+              const end = edge <= 1 ? point : new maplibregl.Point(box.x + dx / edge, box.y + dy / edge);
+              choices.push({slug, point, box, end});
             }
-            offsets.set(slug, offset.map(value => value / fontSize));
-          }
+            choices.sort((a, b) => Math.hypot(a.box.x - a.point.x, a.box.y - a.point.y) - Math.hypot(b.box.x - b.point.x, b.box.y - b.point.y));
+            return [choices];
+          });
+          const placeLabels = (index: number, placed: Placement[]): Placement[] | null => {
+            if (index === options.length) return placed;
+            for (const choice of options[index]) {
+              if (placed.some(other => boxesOverlap(choice.box, other.box)
+                || linesCross(choice.point, choice.end, other.point, other.end)
+                || crossesBox(choice.point, choice.end, other.box) || crossesBox(other.point, other.end, choice.box))) continue;
+              const result = placeLabels(index + 1, [...placed, choice]);
+              if (result) return result;
+            }
+            return null;
+          };
+          const placed = placeLabels(0, []) ?? [];
+          const offsets = new Map(placed.map(({slug, point, box}) => [slug, [(box.x - point.x) / fontSize, (box.y - point.y) / fontSize]]));
+          const pointers: GeoJSON.Feature<GeoJSON.LineString>[] = placed.filter(({point, end}) => point.dist(end) > 0).map(({point, end}) => ({
+            type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: [map.unproject(point).toArray(), map.unproject(end).toArray()]},
+          }));
           (map.getSource('headline-pointers') as GeoJSONSource).setData({type: 'FeatureCollection', features: pointers});
           (map.getSource('city-scores') as GeoJSONSource).setData({
             type: 'FeatureCollection',
@@ -316,6 +345,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
                 type: 'Feature',
                 properties: {
                   name: city.name, population: city.population, slug: city.slug, longitude: city.longitude, latitude: city.latitude,
+                  ...(isChosen(city) ? {chosen: true} : {}),
                   ...(offsets.has(city.slug) ? {headlineRank: prioritySlugs.indexOf(city.slug), headlineOffset: offsets.get(city.slug)} : {}),
                   ...(Number.isFinite(score) ? { score: Math.floor(score) } : {}),
                   ...(Number.isFinite(score) && count !== undefined && Number.isFinite(count) ? { countImage: countImage(score, count), displayedNumber: Math.round(count) } : {}),

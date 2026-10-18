@@ -463,6 +463,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
       gl.uniform4fv(gl.getUniformLocation(program, 'u_band_colours'), bands.flatMap(band => premultipliedRgba(band.colour)));
       gl.uniform4fv(gl.getUniformLocation(program, 'u_land_colour'), this.landColour);
       gl.uniform1f(gl.getUniformLocation(program, 'u_edge_pixels'), this.edgePixels);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_overview_smoothing'), 1 - Math.min(1, Math.max(0, (this.map.getZoom() - 2.5) / 2.5)));
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       const centreWorld = Math.floor((this.map.getCenter().lng + 180) / 360);

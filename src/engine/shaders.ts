@@ -156,34 +156,43 @@ uniform bool u_round_scores;
 uniform vec4 u_band_colours[6];
 uniform vec4 u_land_colour;
 uniform float u_edge_pixels;
+uniform float u_overview_smoothing;
 in vec2 v_mercator;
 out vec4 fragColour;
 ${splineFunctions}
-void main() {
-  if (v_mercator.x < 0.0 || v_mercator.x > 1.0) discard;
-  float latitude = degrees(atan(sinh(3.141592653589793 * (1.0 - 2.0 * v_mercator.y))));
-  if (latitude < -60.0) discard;
-  vec2 cell = vec2(v_mercator.x * 1440.0, (90.0 - latitude) * 4.0);
-  ivec2 base = ivec2(floor(cell));
-  vec4 wx = cubicBSplineWeights(fract(cell.x));
-  vec4 wy = cubicBSplineWeights(fract(cell.y));
-  float score = 0.0;
-  float landWeight = 0.0;
+vec2 sampleScoreSpline(vec2 cell, float spacing) {
+  vec2 coarseCell = (cell - vec2(floor(spacing / 2.0))) / spacing;
+  ivec2 base = ivec2(floor(coarseCell));
+  vec4 wx = cubicBSplineWeights(fract(coarseCell.x));
+  vec4 wy = cubicBSplineWeights(fract(coarseCell.y));
+  vec2 weighted = vec2(0.0);
   for (int row = 0; row < 4; row++) {
     for (int column = 0; column < 4; column++) {
-      ivec2 position = base + ivec2(column - 1, row - 1);
+      ivec2 position = ivec2(vec2(base + ivec2(column - 1, row - 1)) * spacing + vec2(floor(spacing / 2.0)));
       position.x = (position.x % 1440 + 1440) % 1440;
       position.y = clamp(position.y, 0, 720);
       float value = texelFetch(u_grid, position, 0).r * u_grid_scale;
       if (value > 100.5) continue;
       if (u_round_scores) value = floor(value);
       float weight = wx[column] * wy[row];
-      score += value * weight;
-      landWeight += weight;
+      weighted += vec2(value, 1.0) * weight;
     }
   }
-  if (landWeight < 0.00001) discard;
-  score /= landWeight;
+  return weighted;
+}
+void main() {
+  if (v_mercator.x < 0.0 || v_mercator.x > 1.0) discard;
+  float latitude = degrees(atan(sinh(3.141592653589793 * (1.0 - 2.0 * v_mercator.y))));
+  if (latitude < -60.0) discard;
+  vec2 cell = vec2(v_mercator.x * 1440.0, (90.0 - latitude) * 4.0);
+  vec2 local = sampleScoreSpline(cell, 1.0);
+  if (local.y < 0.00001) discard;
+  float score = local.x / local.y;
+  if (u_overview_smoothing > 0.0) {
+    vec2 overview = sampleScoreSpline(cell, 4.0);
+    if (overview.y > 0.00001) score = mix(score, overview.x / overview.y, u_overview_smoothing);
+  }
+  float landWeight = local.y;
   float edgeWidth = max(fwidth(score) * u_edge_pixels, 0.02);
   vec4 colour = u_band_colours[0];
   float contour = 0.0;

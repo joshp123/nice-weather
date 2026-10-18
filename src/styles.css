@@ -271,7 +271,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 @media (max-width: 720px) {
   .icon-button, .picker-close, .period-shortcut, .segmented button, .text-button, .small-link, .picker-links a { min-width: var(--touch-target); min-height: var(--touch-target); }
-  .inline-place { display: inline-flex; align-items: center; min-height: var(--touch-target); }
+  .inline-place { display: inline; position: relative; padding: 0; }
+  .inline-place::before { content: ""; position: absolute; inset-inline: 0; top: 50%; height: var(--touch-target); transform: translateY(-50%); }
   .dock-answer .list-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: var(--touch-target); min-height: var(--touch-target); }
   .slot-card { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); max-height: var(--phone-sheet-height); }
   .place-open .slot-bar { display: none; }
