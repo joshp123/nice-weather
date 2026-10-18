@@ -1,0 +1,134 @@
+{
+  "written_by": "AI, GPT-6.1 Sol, 2026-10-18",
+  "cases": [
+    {
+      "viewport": [
+        390,
+        844
+      ],
+      "case": "novmar",
+      "headline": "Nicest on this map from November to March: 🇪🇹 Bahir Dar, 🇪🇹 Adama and 🇦🇪 Dubai.",
+      "spacing": {
+        "widthKM": 14210.229630589845,
+        "separationKM": 250
+      },
+      "checks": [
+        {
+          "name": "Bahir Dar",
+          "label": 151,
+          "card": 151,
+          "perfect": 151
+        },
+        {
+          "name": "Adama",
+          "label": 151,
+          "card": 151,
+          "perfect": 147
+        },
+        {
+          "name": "Dubai",
+          "label": 151,
+          "card": 151,
+          "perfect": 117
+        }
+      ]
+    },
+    {
+      "viewport": [
+        390,
+        844
+      ],
+      "case": "spain",
+      "headline": "Nicest on this map from November to March: 🇪🇸 Talavera de la Reina, 🇪🇸 Madrid and 🇪🇸 Ávila.",
+      "spacing": {
+        "widthKM": 318.0491984218138,
+        "separationKM": 39.756149802726725
+      },
+      "checks": [
+        {
+          "name": "Talavera de la Reina",
+          "label": 23,
+          "card": 23,
+          "perfect": 4
+        },
+        {
+          "name": "Madrid",
+          "label": 8,
+          "card": 8,
+          "perfect": 0
+        },
+        {
+          "name": "Ávila",
+          "label": 8,
+          "card": 8,
+          "perfect": 0
+        }
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "case": "novmar",
+      "headline": "Nicest on this map from November to March: 🇪🇹 Bahir Dar, 🇨🇱 Antofagasta and 🇪🇹 Adama.",
+      "spacing": {
+        "widthKM": 30416.475780603934,
+        "separationKM": 250
+      },
+      "checks": [
+        {
+          "name": "Bahir Dar",
+          "label": 151,
+          "card": 151,
+          "perfect": 151
+        },
+        {
+          "name": "Antofagasta",
+          "label": 151,
+          "card": 151,
+          "perfect": 147
+        },
+        {
+          "name": "Adama",
+          "label": 151,
+          "card": 151,
+          "perfect": 147
+        }
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "case": "spain",
+      "headline": "Nicest on this map from November to March: 🇪🇸 Gandia, 🇪🇸 Seville and 🇪🇸 Lorca.",
+      "spacing": {
+        "widthKM": 1233.4971127110584,
+        "separationKM": 154.1871390888823
+      },
+      "checks": [
+        {
+          "name": "Gandia",
+          "label": 79,
+          "card": 79,
+          "perfect": 27
+        },
+        {
+          "name": "Seville",
+          "label": 60,
+          "card": 60,
+          "perfect": 23
+        },
+        {
+          "name": "Lorca",
+          "label": 60,
+          "card": 60,
+          "perfect": 15
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

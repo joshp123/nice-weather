@@ -8,7 +8,9 @@ export function rankingPopulation(zoom: number): number {
   return zoom < 3 ? WORLD_POPULATION : zoom < 5 ? CONTINENT_POPULATION : 0;
 }
 
-const SEPARATION_KM = 250;
+export function rankingSeparationKM(visibleWidthKM: number): number {
+  return Math.max(30, Math.min(250, visibleWidthKM / 8));
+}
 const NEARBY_KM = 50;
 const SIMILAR_SCORE = 5;
 
@@ -23,7 +25,7 @@ function distanceKM(a: RankedPlace, b: RankedPlace): number {
   return 6371 * 2 * Math.asin(Math.sqrt(Math.min(1, squared)));
 }
 
-export function rankPlaces<T extends RankedPlace>(places: readonly T[], minimumPopulation: number, limit = 3, resolve?: (place: T) => T | null): T[] {
+export function rankPlaces<T extends RankedPlace>(places: readonly T[], minimumPopulation: number, limit = 3, resolve?: (place: T) => T | null, separationKM = 250): T[] {
   const candidates = places.filter(place => (place.population ?? 0) >= minimumPopulation);
   const chosen: T[] = [], winners: T[] = [];
   for (const winner of candidates.filter(place => Number.isFinite(place.score) && Number.isFinite(place.niceDayCount)).sort(mostNiceDaysFirst)) {
@@ -34,7 +36,7 @@ export function rankPlaces<T extends RankedPlace>(places: readonly T[], minimumP
       if (!numbered || Math.abs(numbered.score - winner.score) > SIMILAR_SCORE) continue;
       if ((numbered.population ?? 0) > (named.population ?? 0) || numbered.population === named.population && (numbered.slug ?? numbered.name) < (named.slug ?? named.name)) named = numbered;
     }
-    if (chosen.some((place, index) => distanceKM(winner, winners[index]) < SEPARATION_KM || distanceKM(named, place) < SEPARATION_KM)) continue;
+    if (chosen.some((place, index) => distanceKM(winner, winners[index]) < separationKM || distanceKM(named, place) < separationKM)) continue;
     chosen.push(named); winners.push(winner);
     if (chosen.length === limit) break;
   }

@@ -6,7 +6,7 @@ import { periodPhrase, type ForecastIndex } from './periods';
 import { type NamedPlace } from './places';
 import { countryCode, countryFlag } from './countries';
 
-import { CONTINENT_POPULATION, WORLD_POPULATION, inOutlookRegion, rankPlaces } from './ranking';
+import { CONTINENT_POPULATION, WORLD_POPULATION, inOutlookRegion, rankPlaces, rankingSeparationKM } from './ranking';
 
 type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): number; getNorth(): number }>;
 export type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number; region?: string; slug?: string | null; population?: number }>;
@@ -26,10 +26,11 @@ export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace
   const scores = engine.scorePoints(visible, population > 0 ? 'all' : undefined);
   const counts = engine.countPoints(visible, population > 0 ? 'all' : undefined);
   const candidates = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }));
+  const visibleWidthKM = bounds ? 6371 * Math.PI / 180 * (bounds.getEast() - bounds.getWest()) * Math.cos((bounds.getSouth() + bounds.getNorth()) / 2 * Math.PI / 180) : Infinity;
   return rankPlaces(candidates.filter(place => place.niceDayCount > 0), population, limit, place => {
     const verdict = engine.judgePoint(place.latitude, place.longitude);
     return verdict ? { ...place, score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount } : null;
-  });
+  }, rankingSeparationKM(visibleWidthKM));
 }
 
 const REGION_COUNTRIES: Record<string, ReadonlySet<string>> = Object.fromEntries(Object.entries({
