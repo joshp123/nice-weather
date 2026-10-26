@@ -49,6 +49,7 @@ func Publish(ctx context.Context, directory, site, token string) (PublicationRep
 		return report, fmt.Errorf("forecast directory does not match its v6 pointer")
 	}
 	paths := append([]string{"days.bin"}, v6ScoreImageNames()...)
+	paths = append(paths, v6ReasonImageNames()...)
 	paths = append(paths, outlook.FileNames()...)
 	if _, statErr := os.Stat(filepath.Join(directory, "named.bin.gz")); statErr == nil {
 		paths = append(paths, "named.bin.gz")
@@ -155,4 +156,12 @@ func v6ScoreImageNames() []string {
 		names = append(names, fmt.Sprintf("scores-typical-day-day-%02d.png", day))
 	}
 	return append(names, "scores-typical-day-all.png")
+}
+
+func v6ReasonImageNames() []string {
+	names := make([]string, 0, v6Days+1)
+	for day := range v6Days {
+		names = append(names, fmt.Sprintf("reasons-typical-day-day-%02d.png", day))
+	}
+	return append(names, "reasons-typical-day-all.png")
 }

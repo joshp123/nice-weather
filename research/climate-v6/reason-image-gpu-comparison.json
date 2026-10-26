@@ -1,0 +1,726 @@
+{
+  "browser": "chromium",
+  "candidate": "ebb11bcedc20c61de1adf91b6beb4f2e8ff6dab4",
+  "periods": [
+    {
+      "period": "day-00",
+      "path": "forecast/20261026T0000Z/reasons-typical-day-day-00.png",
+      "renderer": "WebKit WebGL",
+      "poorThreshold": 15,
+      "scoreResolveReadbackMilliseconds": 452.7999999821186,
+      "drawingGrid": {
+        "count": 865440,
+        "reasonMatches": 865309,
+        "severityMatches": 865440,
+        "fullByteMatches": 865309,
+        "reasonPercent": 99.984863190978,
+        "severityPercent": 100,
+        "fullBytePercent": 99.984863190978
+      },
+      "measuredLand": {
+        "count": 250011,
+        "reasonMatches": 249932,
+        "severityMatches": 250011,
+        "fullByteMatches": 249932,
+        "reasonPercent": 99.96840139033883,
+        "severityPercent": 100,
+        "fullBytePercent": 99.96840139033883
+      },
+      "landCellCentres": {
+        "count": 18667,
+        "reasonMatches": 18661,
+        "severityMatches": 18667,
+        "fullByteMatches": 18661,
+        "reasonPercent": 99.96785771682649,
+        "severityPercent": 100,
+        "fullBytePercent": 99.96785771682649
+      },
+      "mismatchExamples": [
+        {
+          "index": 369692,
+          "latitude": 26,
+          "longitude": 83,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.9773941040039,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 369693,
+          "latitude": 26,
+          "longitude": 83.25,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.42759704589844,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 369694,
+          "latitude": 26,
+          "longitude": 83.5,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 81.87779998779297,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 369695,
+          "latitude": 26,
+          "longitude": 83.75,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 81.87779998779297,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 371132,
+          "latitude": 25.75,
+          "longitude": 83,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 83.22889709472656,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 371133,
+          "latitude": 25.75,
+          "longitude": 83.25,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 83.22889709472656,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 371134,
+          "latitude": 25.75,
+          "longitude": 83.5,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.9773941040039,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 371135,
+          "latitude": 25.75,
+          "longitude": 83.75,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.42759704589844,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 372572,
+          "latitude": 25.5,
+          "longitude": 83,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.9773941040039,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 372573,
+          "latitude": 25.5,
+          "longitude": 83.25,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.9773941040039,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 372574,
+          "latitude": 25.5,
+          "longitude": 83.5,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.9773941040039,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 372575,
+          "latitude": 25.5,
+          "longitude": 83.75,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82.42759704589844,
+          "gpuSeverity": 0
+        }
+      ]
+    },
+    {
+      "period": "january",
+      "path": "climate/reasons-typical-day-january.png",
+      "renderer": "WebKit WebGL",
+      "poorThreshold": 15,
+      "scoreResolveReadbackMilliseconds": 436.5,
+      "drawingGrid": {
+        "count": 865440,
+        "reasonMatches": 865395,
+        "severityMatches": 865440,
+        "fullByteMatches": 865395,
+        "reasonPercent": 99.99480033277871,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99480033277871
+      },
+      "measuredLand": {
+        "count": 250011,
+        "reasonMatches": 249998,
+        "severityMatches": 250011,
+        "fullByteMatches": 249998,
+        "reasonPercent": 99.99480022878993,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99480022878993
+      },
+      "landCellCentres": {
+        "count": 18667,
+        "reasonMatches": 18665,
+        "severityMatches": 18667,
+        "fullByteMatches": 18665,
+        "reasonPercent": 99.98928590560882,
+        "severityPercent": 100,
+        "fullBytePercent": 99.98928590560882
+      },
+      "mismatchExamples": [
+        {
+          "index": 381112,
+          "latitude": 24,
+          "longitude": 58,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 381113,
+          "latitude": 24,
+          "longitude": 58.25,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 381114,
+          "latitude": 24,
+          "longitude": 58.5,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 381115,
+          "latitude": 24,
+          "longitude": 58.75,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 382552,
+          "latitude": 23.75,
+          "longitude": 58,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 382553,
+          "latitude": 23.75,
+          "longitude": 58.25,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 382554,
+          "latitude": 23.75,
+          "longitude": 58.5,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 382555,
+          "latitude": 23.75,
+          "longitude": 58.75,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 383992,
+          "latitude": 23.5,
+          "longitude": 58,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 383993,
+          "latitude": 23.5,
+          "longitude": 58.25,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 383994,
+          "latitude": 23.5,
+          "longitude": 58.5,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 383995,
+          "latitude": 23.5,
+          "longitude": 58.75,
+          "imageByte": 20,
+          "gpuReason": 4,
+          "gpuScore": 96.25,
+          "gpuSeverity": 0
+        }
+      ]
+    },
+    {
+      "period": "year",
+      "path": "climate/reasons-typical-day-year.png",
+      "renderer": "WebKit WebGL",
+      "poorThreshold": 15,
+      "scoreResolveReadbackMilliseconds": 1306,
+      "drawingGrid": {
+        "count": 865440,
+        "reasonMatches": 865423,
+        "severityMatches": 865440,
+        "fullByteMatches": 865423,
+        "reasonPercent": 99.99803568127196,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99803568127196
+      },
+      "measuredLand": {
+        "count": 250011,
+        "reasonMatches": 249997,
+        "severityMatches": 250011,
+        "fullByteMatches": 249997,
+        "reasonPercent": 99.99440024638916,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99440024638916
+      },
+      "landCellCentres": {
+        "count": 18667,
+        "reasonMatches": 18665,
+        "severityMatches": 18667,
+        "fullByteMatches": 18665,
+        "reasonPercent": 99.98928590560882,
+        "severityPercent": 100,
+        "fullBytePercent": 99.98928590560882
+      },
+      "mismatchExamples": [
+        {
+          "index": 389856,
+          "latitude": 22.5,
+          "longitude": 84,
+          "imageByte": 9,
+          "gpuReason": 1,
+          "gpuScore": 49.34429931640625,
+          "gpuSeverity": 1
+        },
+        {
+          "index": 428792,
+          "latitude": 15.75,
+          "longitude": 98,
+          "imageByte": 11,
+          "gpuReason": 1,
+          "gpuScore": 14.047499656677246,
+          "gpuSeverity": 3
+        },
+        {
+          "index": 428793,
+          "latitude": 15.75,
+          "longitude": 98.25,
+          "imageByte": 11,
+          "gpuReason": 1,
+          "gpuScore": 13.773599624633789,
+          "gpuSeverity": 3
+        },
+        {
+          "index": 428826,
+          "latitude": 15.75,
+          "longitude": 106.5,
+          "imageByte": 6,
+          "gpuReason": 2,
+          "gpuScore": 28.467899322509766,
+          "gpuSeverity": 2
+        },
+        {
+          "index": 445339,
+          "latitude": 12.75,
+          "longitude": -85.25,
+          "imageByte": 9,
+          "gpuReason": 4,
+          "gpuScore": 53.67129898071289,
+          "gpuSeverity": 1
+        },
+        {
+          "index": 473066,
+          "latitude": 8,
+          "longitude": 6.5,
+          "imageByte": 18,
+          "gpuReason": 1,
+          "gpuScore": 27.72760009765625,
+          "gpuSeverity": 2
+        },
+        {
+          "index": 475946,
+          "latitude": 7.5,
+          "longitude": 6.5,
+          "imageByte": 18,
+          "gpuReason": 1,
+          "gpuScore": 28.965700149536133,
+          "gpuSeverity": 2
+        },
+        {
+          "index": 477385,
+          "latitude": 7.25,
+          "longitude": 6.25,
+          "imageByte": 18,
+          "gpuReason": 1,
+          "gpuScore": 32.563499450683594,
+          "gpuSeverity": 2
+        },
+        {
+          "index": 478996,
+          "latitude": 7,
+          "longitude": 49,
+          "imageByte": 12,
+          "gpuReason": 4,
+          "gpuScore": 59.90339660644531,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 480436,
+          "latitude": 6.75,
+          "longitude": 49,
+          "imageByte": 12,
+          "gpuReason": 4,
+          "gpuScore": 61.988197326660156,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 551281,
+          "latitude": -5.5,
+          "longitude": 120.25,
+          "imageByte": 19,
+          "gpuReason": 1,
+          "gpuScore": 13.37809944152832,
+          "gpuSeverity": 3
+        },
+        {
+          "index": 551282,
+          "latitude": -5.5,
+          "longitude": 120.5,
+          "imageByte": 19,
+          "gpuReason": 1,
+          "gpuScore": 13.37809944152832,
+          "gpuSeverity": 3
+        }
+      ]
+    },
+    {
+      "period": "all",
+      "path": "forecast/20261026T0000Z/reasons-typical-day-all.png",
+      "renderer": "WebKit WebGL",
+      "poorThreshold": 15,
+      "scoreResolveReadbackMilliseconds": 521.8000000119209,
+      "drawingGrid": {
+        "count": 865440,
+        "reasonMatches": 865423,
+        "severityMatches": 865440,
+        "fullByteMatches": 865423,
+        "reasonPercent": 99.99803568127196,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99803568127196
+      },
+      "measuredLand": {
+        "count": 250011,
+        "reasonMatches": 249994,
+        "severityMatches": 250011,
+        "fullByteMatches": 249994,
+        "reasonPercent": 99.99320029918684,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99320029918684
+      },
+      "landCellCentres": {
+        "count": 18667,
+        "reasonMatches": 18665,
+        "severityMatches": 18667,
+        "fullByteMatches": 18665,
+        "reasonPercent": 99.98928590560882,
+        "severityPercent": 100,
+        "fullBytePercent": 99.98928590560882
+      },
+      "mismatchExamples": [
+        {
+          "index": 358841,
+          "latitude": 27.75,
+          "longitude": -109.75,
+          "imageByte": 8,
+          "gpuReason": 1,
+          "gpuScore": 89.28569793701172,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 360282,
+          "latitude": 27.5,
+          "longitude": -109.5,
+          "imageByte": 8,
+          "gpuReason": 1,
+          "gpuScore": 91.42859649658203,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 360283,
+          "latitude": 27.5,
+          "longitude": -109.25,
+          "imageByte": 8,
+          "gpuReason": 1,
+          "gpuScore": 89.28569793701172,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 368913,
+          "latitude": 26,
+          "longitude": -111.75,
+          "imageByte": 8,
+          "gpuReason": 4,
+          "gpuScore": 91.42859649658203,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 380820,
+          "latitude": 24,
+          "longitude": -15,
+          "imageByte": 8,
+          "gpuReason": 5,
+          "gpuScore": 97.8572006225586,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 382260,
+          "latitude": 23.75,
+          "longitude": -15,
+          "imageByte": 8,
+          "gpuReason": 5,
+          "gpuScore": 97.8572006225586,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 480417,
+          "latitude": 6.75,
+          "longitude": 44.25,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 87.14289855957031,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 480419,
+          "latitude": 6.75,
+          "longitude": 44.75,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 87.14289855957031,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 481859,
+          "latitude": 6.5,
+          "longitude": 44.75,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 82,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 487624,
+          "latitude": 5.5,
+          "longitude": 46,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 75.625,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 487625,
+          "latitude": 5.5,
+          "longitude": 46.25,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 75.625,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 487626,
+          "latitude": 5.5,
+          "longitude": 46.5,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 75.625,
+          "gpuSeverity": 0
+        }
+      ]
+    },
+    {
+      "period": "nov-mar",
+      "path": "climate/reasons-typical-day-nov-mar.png",
+      "renderer": "WebKit WebGL",
+      "poorThreshold": 15,
+      "scoreResolveReadbackMilliseconds": 919,
+      "drawingGrid": {
+        "count": 865440,
+        "reasonMatches": 865410,
+        "severityMatches": 865440,
+        "fullByteMatches": 865410,
+        "reasonPercent": 99.9965335551858,
+        "severityPercent": 100,
+        "fullBytePercent": 99.9965335551858
+      },
+      "measuredLand": {
+        "count": 250011,
+        "reasonMatches": 249986,
+        "severityMatches": 250011,
+        "fullByteMatches": 249986,
+        "reasonPercent": 99.99000043998065,
+        "severityPercent": 100,
+        "fullBytePercent": 99.99000043998065
+      },
+      "landCellCentres": {
+        "count": 18667,
+        "reasonMatches": 18665,
+        "severityMatches": 18667,
+        "fullByteMatches": 18665,
+        "reasonPercent": 99.98928590560882,
+        "severityPercent": 100,
+        "fullBytePercent": 99.98928590560882
+      },
+      "mismatchExamples": [
+        {
+          "index": 374024,
+          "latitude": 25.25,
+          "longitude": 86,
+          "imageByte": 4,
+          "gpuReason": 0,
+          "gpuScore": 90.91059875488281,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 374687,
+          "latitude": 25,
+          "longitude": -108.25,
+          "imageByte": 0,
+          "gpuReason": 4,
+          "gpuScore": 89.5447006225586,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 386244,
+          "latitude": 23,
+          "longitude": -99,
+          "imageByte": 0,
+          "gpuReason": 4,
+          "gpuScore": 77.47919464111328,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 387686,
+          "latitude": 22.75,
+          "longitude": -98.5,
+          "imageByte": 0,
+          "gpuReason": 4,
+          "gpuScore": 79.56189727783203,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 389125,
+          "latitude": 22.5,
+          "longitude": -98.75,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 74.94409942626953,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 410073,
+          "latitude": 19,
+          "longitude": 98.25,
+          "imageByte": 8,
+          "gpuReason": 4,
+          "gpuScore": 92.42549896240234,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 411513,
+          "latitude": 18.75,
+          "longitude": 98.25,
+          "imageByte": 8,
+          "gpuReason": 4,
+          "gpuScore": 92.42549896240234,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 411514,
+          "latitude": 18.75,
+          "longitude": 98.5,
+          "imageByte": 8,
+          "gpuReason": 4,
+          "gpuScore": 90.19039916992188,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 415834,
+          "latitude": 18,
+          "longitude": 98.5,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 87.21029663085938,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 417272,
+          "latitude": 17.75,
+          "longitude": 98,
+          "imageByte": 4,
+          "gpuReason": 4,
+          "gpuScore": 86.44039916992188,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 448711,
+          "latitude": 12.25,
+          "longitude": 37.75,
+          "imageByte": 8,
+          "gpuReason": 1,
+          "gpuScore": 98.48509979248047,
+          "gpuSeverity": 0
+        },
+        {
+          "index": 464586,
+          "latitude": 9.5,
+          "longitude": 46.5,
+          "imageByte": 4,
+          "gpuReason": 0,
+          "gpuScore": 98.48509979248047,
+          "gpuSeverity": 0
+        }
+      ]
+    }
+  ]
+}

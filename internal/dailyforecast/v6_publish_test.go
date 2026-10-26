@@ -55,8 +55,8 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if report.Files != 26 {
-				t.Fatalf("uploaded files=%d, want 26: v6 day, fifteen score images, nine outlook files, pointer", report.Files)
+			if report.Files != 41 {
+				t.Fatalf("uploaded files=%d, want 41: v6 day, fifteen score images, fifteen reason images, nine outlook files, pointer", report.Files)
 			}
 			if len(uploaded["/__publish/v6/forecast/"+runID+"/days.bin"]) != 14*15 {
 				t.Fatal("v6 day records were not uploaded intact")
@@ -75,7 +75,7 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 			if positions["PUT /__publish/v6/forecast/"+runID+"/days.bin"] >= positions["PUT /__publish/v6/forecast/current.json"] {
 				t.Fatal("v6 pointer was published before its data")
 			}
-			for _, name := range v6ScoreImageNames() {
+			for _, name := range append(v6ScoreImageNames(), v6ReasonImageNames()...) {
 				key := "/__publish/v6/forecast/" + runID + "/" + name
 				if string(uploaded[key]) != "score image" {
 					t.Fatalf("score image %s was not uploaded intact", name)
@@ -98,7 +98,7 @@ func TestPublishSwitchesV6PointerAfterData(t *testing.T) {
 }
 
 func TestPublishDoesNotSwitchForecastPointersWhenV6DataUploadFails(t *testing.T) {
-	for _, failedName := range []string{"days.bin", "scores-typical-day-day-06.png", "outlook/europe.png"} {
+	for _, failedName := range []string{"days.bin", "scores-typical-day-day-06.png", "reasons-typical-day-day-06.png", "outlook/europe.png"} {
 		t.Run(failedName, func(t *testing.T) {
 			directory := publicationFixture(t, "20261016T0000Z")
 			var mutex sync.Mutex
@@ -186,7 +186,7 @@ func publicationFixture(t *testing.T, runID string) string {
 		filepath.Join(v6Directory, "days.bin"):                   make([]byte, 14*15),
 		filepath.Join(filepath.Dir(v6Directory), "current.json"): []byte(`{"run":"` + runID + `","firstDate":"2026-10-16","days":14,"previousRun":"local-state-must-not-win"}`),
 	}
-	for _, name := range v6ScoreImageNames() {
+	for _, name := range append(v6ScoreImageNames(), v6ReasonImageNames()...) {
 		files[filepath.Join(v6Directory, name)] = []byte("score image")
 	}
 	for _, name := range outlook.FileNames() {

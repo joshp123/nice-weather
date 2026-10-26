@@ -4,6 +4,7 @@ import { bands } from '../palette';
 import type { EngineOptions, Period, Point, PointVerdict, RedrawTiming, WeatherEngine } from './index';
 import { DEFAULT_TASTE, type Taste } from './taste';
 import { WeatherData, type Cells, type PeriodData, type Records, type ScoreImage } from './data';
+import type { ReasonImage } from './reasonImages';
 import { PointSampler, readMapPoint } from './sampling';
 import { DefaultPlaces } from './defaultPlaces';
 import { NamedPlaces } from './namedPlaces';
@@ -94,6 +95,12 @@ export class BrowserWeatherEngine implements WeatherEngine {
   get loading(): boolean { return this.loadState || (this.isDefaultTaste() && this.defaultPlaces.loading(this.period)); }
 
   get recordProgress(): number | null { return this.source.recordProgress; }
+
+  async reasonImage(): Promise<ReasonImage | null> {
+    if (!this.isDefaultTaste() || this.destroyed || !this.hasPeriod) return null;
+    const period = this.period, image = await (await import('./reasonImages')).loadReasonImage(this.source, period);
+    return period === this.period && this.isDefaultTaste() && !this.destroyed ? image : null;
+  }
 
   private setLoading(loading: boolean): void {
     if (this.loadState === loading) return;

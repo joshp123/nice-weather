@@ -1,0 +1,147 @@
+{
+  "writtenBy": "AI, GPT-6, 2026.10.26",
+  "browser": "webkit",
+  "initialRedraws": [
+    13,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "reasonRequestsBeforeCall": [],
+  "periods": [
+    {
+      "period": {
+        "kind": "year"
+      },
+      "redrawMs": 48,
+      "reasonMs": 24,
+      "path": "climate/reasons-typical-day-year.png",
+      "byteCount": 1038240,
+      "pixel": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "cell": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "point": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "sameBytes": true,
+      "mask": null
+    },
+    {
+      "period": {
+        "kind": "month",
+        "month": 1
+      },
+      "redrawMs": 110,
+      "reasonMs": 28,
+      "path": "climate/reasons-typical-day-january.png",
+      "byteCount": 1038240,
+      "pixel": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "cell": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "point": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "sameBytes": true,
+      "mask": null
+    },
+    {
+      "period": {
+        "kind": "forecast-day",
+        "day": 0
+      },
+      "redrawMs": 41,
+      "reasonMs": 13,
+      "path": "forecast/20261026T0000Z/reasons-typical-day-day-00.png",
+      "byteCount": 1038240,
+      "pixel": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "cell": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "point": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "sameBytes": true,
+      "mask": null
+    },
+    {
+      "period": {
+        "kind": "forecast"
+      },
+      "redrawMs": 42,
+      "reasonMs": 18,
+      "path": "forecast/20261026T0000Z/reasons-typical-day-all.png",
+      "byteCount": 1038240,
+      "pixel": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "cell": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "point": {
+        "reason": "muggy",
+        "severity": 2
+      },
+      "sameBytes": true,
+      "mask": null
+    },
+    {
+      "staleResult": null
+    },
+    {
+      "cachedRedrawMs": 26
+    },
+    {
+      "cachedRedrawMs": 22
+    },
+    {
+      "cachedRedrawMs": 33
+    },
+    {
+      "cachedRedrawMs": 26
+    }
+  ],
+  "dataRequests": [
+    "http://127.0.0.1:5199/data/v6/forecast/current.json",
+    "http://127.0.0.1:5199/data/v6/climate/scores-typical-day-year.png",
+    "http://127.0.0.1:5199/data/v6/climate/reasons-typical-day-year.png",
+    "http://127.0.0.1:5199/data/v6/climate/scores-typical-day-january.png",
+    "http://127.0.0.1:5199/data/v6/climate/reasons-typical-day-january.png",
+    "http://127.0.0.1:5199/data/v6/forecast/current.json",
+    "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/scores-typical-day-day-00.png",
+    "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/reasons-typical-day-day-00.png",
+    "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/scores-typical-day-all.png",
+    "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/reasons-typical-day-all.png"
+  ],
+  "recordRequests": [],
+  "errors": [],
+  "pinnedForecastAfterRollover": {
+    "image": "forecast/20261026T0000Z/reasons-typical-day-all.png",
+    "sampleDays": 14
+  },
+  "metadataRequestsAfterRollover": [],
+  "prefetchedRecordURLs": [
+    "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+  ]
+}

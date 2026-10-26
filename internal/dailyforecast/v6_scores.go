@@ -86,6 +86,80 @@ func v6DefaultDayLevels(record []byte) (scores [11]float64) {
 	return
 }
 
+// v6DefaultDayReasonLevels follows the browser's packed day-reason pass without changing its scores.
+func v6DefaultDayReasonLevels(record []byte) (reasons [11]byte) {
+	daylight := max(1, int(record[14]))
+	var decodedSun [6]float64
+	var decodedShade [4]float64
+	for i := range decodedSun {
+		decodedSun[i] = float64(record[i])/3 - 30
+	}
+	for i := range decodedShade {
+		decodedShade[i] = float64(record[6+i])/3 - 30
+	}
+	rainFactor := v6RainFactor.at(math.Pow(float64(record[11])/50, 2))
+	windFactor := v6WindFactor.at(float64(record[12]) / 2)
+	humidityFactor := v6HumidityFactor.at(float64(record[10])/3 - 30)
+	sunFactor := v6SunFactor.at(float64(record[13]) / float64(daylight))
+	for level := range reasons {
+		offset := float64(-15 + 3*level)
+		daytime, lostToCold, lostToHeat := 0.0, 0.0, 0.0
+		for hour := 0; hour < daylight; hour++ {
+			cold := v6ColdGrade.at(v6HourlyFelt(decodedSun[:], []int{0, 2, 4, 6, 8, 10}, hour) + offset)
+			heat := v6HeatGrade.at(v6HourlyFelt(decodedShade[:], []int{2, 5, 8, 11}, hour) + offset)
+			if cold <= heat {
+				lostToCold += 100 - cold
+			} else {
+				lostToHeat += 100 - heat
+			}
+			daytime += min(cold, heat)
+		}
+		at21 := decodedShade[3] + offset
+		eveningCold, eveningHeat := v6EveningGrade.at(at21), v6HeatGrade.at(at21)
+		if eveningCold <= eveningHeat {
+			lostToCold += 2 * (100 - eveningCold)
+		} else {
+			lostToHeat += 2 * (100 - eveningHeat)
+		}
+		warmth := (daytime + 2*min(eveningCold, eveningHeat)) / float64(daylight+2)
+		if lostToHeat > lostToCold {
+			reasons[level] = 1
+		}
+		smallest := warmth / 100
+		for index, factor := range [...]float64{rainFactor, windFactor, humidityFactor, sunFactor} {
+			if factor < smallest {
+				reasons[level], smallest = byte(index+2), factor
+			}
+		}
+	}
+	return
+}
+
+func v6FineDefaultReason(index int, offset byte, ordinals []int, reasons [][11]byte) byte {
+	row, column := index/Width, index%Width
+	ordinal := ordinals[min(row/4, 179)*360+column/4]
+	level := max(0, min(10, ((float64(offset)-128)/10+15)/3))
+	lower := min(int(math.Floor(level)), 9)
+	if level-float64(lower) < .5 {
+		return reasons[ordinal][lower]
+	}
+	return reasons[ordinal][lower+1]
+}
+
+func v6ReasonImageByte(reason byte, score float64) byte {
+	severity := byte(0)
+	if score < v6ScoreThresholds[3] {
+		severity = 1
+		if score < v6ScoreThresholds[2] {
+			severity = 2
+			if score < v6ScoreThresholds[1] {
+				severity = 3
+			}
+		}
+	}
+	return reason*4 + severity
+}
+
 func v6NearestLandOrdinals(cells [][2]uint16) []int {
 	land := make([]int, 180*360)
 	for i := range land {
@@ -310,6 +384,8 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 	}
 	ordinals := v6NearestLandOrdinals(cells)
 	levels := make([][11]float64, len(cells))
+	reasonLevels := make([][11]byte, len(cells))
+	pointsLostByReason := make([][6]float64, Width*Height)
 	thresholdCounts := make([][7]byte, Width*Height)
 	counts := make([]byte, Width*Height)
 	var totalBytes int64
@@ -332,14 +408,19 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 		for cell := range cells {
 			start := (cell*v6Days + day) * 15
 			levels[cell] = v6DefaultDayLevels(records[start : start+15])
+			reasonLevels[cell] = v6DefaultDayReasonLevels(records[start : start+15])
 		}
 		pixels := bytes.Repeat([]byte{255}, Width*Height)
+		reasonPixels := bytes.Repeat([]byte{255}, Width*Height)
 		for index, offset := range offsets[run.AddDate(0, 0, day).Month()] {
 			if offset == 255 {
 				continue
 			}
 			score := v6CanonicalScore(v6FineDefaultScore(index, offset, ordinals, levels))
 			pixels[index] = byte(math.Floor(score))
+			reason := v6FineDefaultReason(index, offset, ordinals, reasonLevels)
+			reasonPixels[index] = v6ReasonImageByte(reason, score)
+			pointsLostByReason[index][reason] += max(0, 100-score) / v6Days
 			for threshold, minimum := range v6ScoreThresholds {
 				if score >= minimum {
 					thresholdCounts[index][threshold]++
@@ -350,16 +431,31 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 		if err := writeImage(fmt.Sprintf("scores-typical-day-day-%02d.png", day), pixels); err != nil {
 			return err
 		}
+		if err := writeImage(fmt.Sprintf("reasons-typical-day-day-%02d.png", day), reasonPixels); err != nil {
+			return err
+		}
 	}
 	pixels := bytes.Repeat([]byte{255}, Width*Height)
+	reasonPixels := bytes.Repeat([]byte{255}, Width*Height)
 	for index, count := range counts {
 		if count == v6Days {
-			pixels[index] = byte(math.Floor(v6TypicalDayScore(thresholdCounts[index], count)))
+			score := v6TypicalDayScore(thresholdCounts[index], count)
+			pixels[index] = byte(math.Floor(score))
+			leading := byte(0)
+			for reason := byte(1); reason < 6; reason++ {
+				if pointsLostByReason[index][reason] > pointsLostByReason[index][leading] {
+					leading = reason
+				}
+			}
+			reasonPixels[index] = v6ReasonImageByte(leading, score)
 		}
 	}
 	if err := writeImage("scores-typical-day-all.png", pixels); err != nil {
 		return err
 	}
-	fmt.Fprintf(log, "v6 score images: %d images; %d bytes; %s\n", v6Days+1, totalBytes, time.Since(started).Round(time.Millisecond))
+	if err := writeImage("reasons-typical-day-all.png", reasonPixels); err != nil {
+		return err
+	}
+	fmt.Fprintf(log, "v6 score and reason images: %d images; %d bytes; %s\n", 2*(v6Days+1), totalBytes, time.Since(started).Round(time.Millisecond))
 	return nil
 }
