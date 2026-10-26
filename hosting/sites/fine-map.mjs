@@ -47,7 +47,7 @@ export function fineMapNumbers(tile,pixelIndex,period) {
 
 const splineWeights=t=>{const u=1-t;return [u*u*u,(3*t*t*t-6*t*t+4),(-3*t*t*t+3*t*t+3*t+1),t*t*t].map(value=>value/6);};
 
-/** The displayed field is a land-normalized cubic B-spline of pixel-centre scores and day shares. */
+/** Complete cubic B-spline footprints supply the fine overlay; gaps leave the global field visible. */
 export function fineMapPointNumbers(tile,latitude,longitude,period) {
   const longitudeWrapped=((longitude+180)%360+360)%360;
   const x=longitudeWrapped*120-.5-tile.column*FINE_MAP_TILE_SIZE+(tile.halo??0);
@@ -57,7 +57,7 @@ export function fineMapPointNumbers(tile,latitude,longitude,period) {
   let weight=0,reference;
   for(let row=0;row<4;row++)for(let column=0;column<4;column++) {
     const index=Math.max(0,Math.min(tile.size-1,baseY+row-1))*tile.size+Math.max(0,Math.min(tile.size-1,baseX+column-1));
-    const value=fineMapNumbers(tile,index,period);if(!value)continue;
+    const value=fineMapNumbers(tile,index,period);if(!value)return null;
     const contribution=wx[column]*wy[row];weight+=contribution;reference=value;
     for(const key of Object.keys(sums))sums[key]+=value[key]*contribution;
   }

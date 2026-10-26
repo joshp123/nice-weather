@@ -18,24 +18,39 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: niceweather forecast|publish [flags]")
+		fmt.Fprintln(os.Stderr, "usage: niceweather forecast|forecast-scores|publish [flags]")
 		os.Exit(2)
 	}
 	var err error
 	switch os.Args[1] {
 	case "forecast":
 		err = runForecast(os.Args[2:])
+	case "forecast-scores":
+		err = runForecastScores(os.Args[2:])
 	case "publish":
 		err = runPublish(os.Args[2:])
 	case "named-forecast":
 		err = runNamedForecast(os.Args[2:])
 	default:
-		err = fmt.Errorf("unknown command %q; use forecast or publish", os.Args[1])
+		err = fmt.Errorf("unknown command %q; use forecast, forecast-scores or publish", os.Args[1])
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func runForecastScores(arguments []string) error {
+	flags := flag.NewFlagSet("forecast-scores", flag.ContinueOnError)
+	source := flags.String("source", "./artifacts", "existing forecast artifact root or URL")
+	static := flags.String("v6-static", "https://nice.jjpcodes.com/data/v6", "v6 static directory or URL")
+	out := flags.String("out", "./artifacts", "output artifact root")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return dailyforecast.RegenerateScoreImages(ctx, *source, *static, *out, os.Stdout)
 }
 
 func runForecast(arguments []string) error {

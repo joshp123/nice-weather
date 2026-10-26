@@ -26,6 +26,49 @@ SHIFT_MINIMUM, SHIFT_STEP, SHIFT_LEVELS = -15, 3, 11
 FINE_WIDTH, FINE_HEIGHT = 1440, 721
 
 
+def nearest_temperature_offsets(offsets):
+    """Extend measured offsets to the wrapped drawing grid; preserve the Antarctic cutoff."""
+    offsets = offsets.reshape(FINE_HEIGHT, FINE_WIDTH)
+    nearest_in_row = np.full(offsets.shape, -1, dtype=np.int32)
+    row_distance = np.full(offsets.shape, np.inf)
+    rows = np.arange(FINE_HEIGHT)
+    nearest = np.full(FINE_HEIGHT, -3 * FINE_WIDTH)
+    for column in range(-FINE_WIDTH, 2 * FINE_WIDTH):
+        nearest = np.where(offsets[:, column % FINE_WIDTH] != 255, column, nearest)
+        if 0 <= column < FINE_WIDTH:
+            valid = nearest != -3 * FINE_WIDTH
+            nearest_in_row[valid, column] = rows[valid] * FINE_WIDTH + nearest[valid] % FINE_WIDTH
+            row_distance[valid, column] = (column - nearest[valid]) ** 2
+    nearest.fill(3 * FINE_WIDTH)
+    for column in range(2 * FINE_WIDTH - 1, -FINE_WIDTH - 1, -1):
+        nearest = np.where(offsets[:, column % FINE_WIDTH] != 255, column, nearest)
+        if 0 <= column < FINE_WIDTH:
+            valid = (nearest != 3 * FINE_WIDTH) & ((column - nearest) ** 2 < row_distance[:, column])
+            nearest_in_row[valid, column] = rows[valid] * FINE_WIDTH + nearest[valid] % FINE_WIDTH
+            row_distance[valid, column] = (column - nearest[valid]) ** 2
+    source_rows = np.empty(FINE_HEIGHT, dtype=int)
+    boundaries = np.empty(FINE_HEIGHT + 1)
+    result = offsets.copy().reshape(-1)
+    for column in range(FINE_WIDTH):
+        last = -1
+        for row in np.flatnonzero(np.isfinite(row_distance[:, column])):
+            boundary = -np.inf
+            while last >= 0:
+                previous = source_rows[last]
+                boundary = (row_distance[row, column] + row * row - row_distance[previous, column] - previous * previous) / (2 * (row - previous))
+                if boundary > boundaries[last]:
+                    break
+                last -= 1
+            last += 1
+            source_rows[last] = row
+            boundaries[last] = -np.inf if last == 0 else boundary
+            boundaries[last + 1] = np.inf
+        nearest_rows = source_rows[np.searchsorted(boundaries[1:last + 1], np.arange(601), side='left')]
+        result[np.arange(601) * FINE_WIDTH + column] = offsets.reshape(-1)[nearest_in_row[nearest_rows, column]]
+    result[601 * FINE_WIDTH:] = 255
+    return result
+
+
 def nearest_land_ordinals(cells):
     """Match data.ts's wrapped Euclidean nearest cell, including deterministic ties."""
     land = np.full((180, 360), -1, dtype=np.int32)
@@ -91,7 +134,8 @@ def cell_level_scores(records):
 
 
 def fine_scores(level_scores, offsets, ordinals):
-    """Owning cell and selected fine point's own felt shift, matching the browser."""
+    """Nearest land cell and nearest measured felt shift, matching the browser."""
+    offsets = nearest_temperature_offsets(offsets)
     indices = np.flatnonzero(offsets != 255)
     rows, columns = np.divmod(indices, FINE_WIDTH)
     cells = ordinals[np.minimum(rows // 4, 179), columns // 4]

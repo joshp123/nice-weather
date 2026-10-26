@@ -1,0 +1,1255 @@
+{
+  "written_by": "AI GPT-6, 2026-10-26",
+  "base": "http://127.0.0.1:5199",
+  "anchors": [
+    {
+      "name": "malaga",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/spain/malaga/year",
+      "score": "79",
+      "days": "Nice on 278 of 365 days of the whole year. Perfect on 160; awful on 19.",
+      "card": "\ud83c\uddea\ud83c\uddf8 M\u00e1laga\n\nAndalusia, Spain\n\n79\nBeautiful most days\n\nNice on 278 of 365 days of the whole year. Perfect on 160; awful on 19.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n27 \u00b0C feels-likeWarm\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n21 \u00b0C feels-like at 15:00Mild\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n19 \u00b0C in the shadeWarm evening\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 10% of days wet\n0 mm\n10 mm\nWind\n9 km/hLight wind\nCalm\n70 km/h\nHumidity\n11.6 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n80% of daylightSun and cloud\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n17\u00b0\nFeb\n17\u00b0\nMar\n19\u00b0\nApr\n22\u00b0\nMay\n25\u00b0\nJun\n29\u00b0\nJul\n31\u00b0\nAug\n31\u00b0\nSep\n28\u00b0\nOct\n25\u00b0\nNov\n20\u00b0\nDec\n18\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "malaga-year.png"
+    },
+    {
+      "name": "chania",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/greece/chania/year",
+      "score": "71",
+      "days": "Nice on 214 of 365 days of the whole year. Perfect on 122; awful on 68.",
+      "card": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n71\nBeautiful most days\n\nNice on 214 of 365 days of the whole year. Perfect on 122; awful on 68.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n23 \u00b0C feels-likeMild\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n18 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n18 \u00b0C in the shadeComfortable in a t-shirt\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.5 mm a daySome rain \u00b7 17% of days wet\n0 mm\n10 mm\nWind\n16 km/hBreezy\nCalm\n70 km/h\nHumidity\n12.8 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n75% of daylightSun and cloud\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n15\u00b0\nFeb\n15\u00b0\nMar\n17\u00b0\nApr\n20\u00b0\nMay\n24\u00b0\nJun\n28\u00b0\nJul\n29\u00b0\nAug\n30\u00b0\nSep\n27\u00b0\nOct\n24\u00b0\nNov\n20\u00b0\nDec\n16\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "chania-year.png"
+    },
+    {
+      "name": "rotterdam",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/the-netherlands/rotterdam/year",
+      "score": "12",
+      "days": "Nice on 73 of 365 days of the whole year. Perfect on 31; awful on 220.",
+      "card": "Rotterdam\n\nSouth Holland, The Netherlands\n\n12\nAwful most days\n\nNice on 73 of 365 days of the whole year. Perfect on 31; awful on 220.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n13 \u00b0C feels-likeChilly\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n10 \u00b0C feels-like at 15:00Chilly\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n8 \u00b0C in the shadeCold\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n1.0 mm a daySome rain \u00b7 28% of days wet\n0 mm\n10 mm\nWind\n17 km/hBreezy\nCalm\n70 km/h\nHumidity\n8.0 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n50% of daylightSun and cloud\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n6\u00b0\nFeb\n7\u00b0\nMar\n9\u00b0\nApr\n12\u00b0\nMay\n17\u00b0\nJun\n21\u00b0\nJul\n22\u00b0\nAug\n22\u00b0\nSep\n20\u00b0\nOct\n15\u00b0\nNov\n10\u00b0\nDec\n7\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "rotterdam-year.png"
+    },
+    {
+      "name": "singapore",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/singapore/singapore/year",
+      "score": "26",
+      "days": "Nice on 7 of 365 days of the whole year. Perfect on 0; awful on 65.",
+      "card": "\ud83c\uddf8\ud83c\uddec Singapore\n\nSingapore\n\n26\nPoor most days\n\nNice on 7 of 365 days of the whole year. Perfect on 0; awful on 65.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n35 \u00b0C feels-likeHot\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n32 \u00b0C feels-like at 15:00Hot\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n31 \u00b0C in the shadeHot evening\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n2.3 mm a dayWet \u00b7 51% of days wet\n0 mm\n10 mm\nWind\n14 km/hLight wind\nCalm\n70 km/h\nHumidity\n23.7 \u00b0C dew pointoppressive\n5 \u00b0C\n30 \u00b0C\nSun\n64% of daylightSun and cloud\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n30\u00b0\nFeb\n31\u00b0\nMar\n31\u00b0\nApr\n31\u00b0\nMay\n31\u00b0\nJun\n31\u00b0\nJul\n31\u00b0\nAug\n30\u00b0\nSep\n31\u00b0\nOct\n31\u00b0\nNov\n31\u00b0\nDec\n30\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "singapore-year.png"
+    },
+    {
+      "name": "cape-town",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/south-africa/cape-town/year",
+      "score": "72",
+      "days": "Nice on 239 of 365 days of the whole year. Perfect on 91; awful on 42.",
+      "card": "\ud83c\uddff\ud83c\udde6 Cape Town\n\nWestern Cape, South Africa\n\n72\nBeautiful most days\n\nNice on 239 of 365 days of the whole year. Perfect on 91; awful on 42.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n23 \u00b0C feels-likeMild\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n18 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n14 \u00b0C in the shadeCool evening\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.7 mm a daySome rain \u00b7 16% of days wet\n0 mm\n10 mm\nWind\n20 km/hBreezy\nCalm\n70 km/h\nHumidity\n12.9 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n81% of daylightMostly sunny\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n26\u00b0\nFeb\n27\u00b0\nMar\n26\u00b0\nApr\n23\u00b0\nMay\n20\u00b0\nJun\n18\u00b0\nJul\n18\u00b0\nAug\n18\u00b0\nSep\n20\u00b0\nOct\n22\u00b0\nNov\n24\u00b0\nDec\n25\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "cape-town-year.png"
+    },
+    {
+      "name": "san-diego",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/united-states/san-diego/year",
+      "score": "87",
+      "days": "Nice on 293 of 365 days of the whole year. Perfect on 210; awful on 15.",
+      "card": "\ud83c\uddfa\ud83c\uddf8 San Diego\n\nCalifornia, United States\n\n87\nPerfect most days\n\nNice on 293 of 365 days of the whole year. Perfect on 210; awful on 15.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n24 \u00b0C feels-likeWarm\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n18 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n16 \u00b0C in the shadeComfortable in a t-shirt\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.1 mm a dayMostly dry \u00b7 2% of days wet\n0 mm\n10 mm\nWind\n13 km/hLight wind\nCalm\n70 km/h\nHumidity\n12.6 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n84% of daylightMostly sunny\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n19\u00b0\nFeb\n19\u00b0\nMar\n19\u00b0\nApr\n20\u00b0\nMay\n20\u00b0\nJun\n21\u00b0\nJul\n23\u00b0\nAug\n24\u00b0\nSep\n24\u00b0\nOct\n23\u00b0\nNov\n21\u00b0\nDec\n19\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "san-diego-year.png"
+    },
+    {
+      "name": "san-francisco",
+      "period": "year",
+      "url": "http://127.0.0.1:5199/united-states/san-francisco/year",
+      "score": "51",
+      "days": "Nice on 171 of 365 days of the whole year. Perfect on 69; awful on 57.",
+      "card": "\ud83c\uddfa\ud83c\uddf8 San Francisco\n\nCalifornia, United States\n\n51\nFair most days\n\nNice on 171 of 365 days of the whole year. Perfect on 69; awful on 57.\n\nThe whole year, in a typical year\n\nAfternoon in the sun\n20 \u00b0C feels-likeMild\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n15 \u00b0C feels-like at 15:00Chilly\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n12 \u00b0C in the shadeChilly, bring a layer\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.9 mm a daySome rain \u00b7 12% of days wet\n0 mm\n10 mm\nWind\n16 km/hBreezy\nCalm\n70 km/h\nHumidity\n9.7 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n76% of daylightSun and cloud\n0%\n100%\n\nMonth by month: typical high, coloured by score\n\nJan\n14\u00b0\nFeb\n16\u00b0\nMar\n17\u00b0\nApr\n18\u00b0\nMay\n19\u00b0\nJun\n20\u00b0\nJul\n20\u00b0\nAug\n21\u00b0\nSep\n22\u00b0\nOct\n22\u00b0\nNov\n18\u00b0\nDec\n15\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 221 of 365 days of the whole year.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 84 of 365 days of the whole year.",
+      "screenshot": "san-francisco-year.png"
+    },
+    {
+      "name": "malaga",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/spain/malaga",
+      "score": "89",
+      "days": "Nice on 10 of 14 days in this forecast. Perfect on 9; awful on 0.",
+      "card": "\ud83c\uddea\ud83c\uddf8 M\u00e1laga\n\nAndalusia, Spain\n\n89\nPerfect most days\n\nNice on 10 of 14 days in this forecast. Perfect on 9; awful on 0.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n25 \u00b0C feels-likeWarm\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n21 \u00b0C feels-like at 15:00Mild\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n18 \u00b0C in the shadeComfortable in a t-shirt\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n1.3 mm a daySome rain \u00b7 29% of days wet\n0 mm\n10 mm\nWind\n10 km/hLight wind\nCalm\n70 km/h\nHumidity\n13.3 \u00b0C dew pointcomfortable\n5 \u00b0C\n30 \u00b0C\nSun\n60% of daylightSun and cloud\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n97\nTue 27\n82\nWed 28\n97\nThu 29\n97\nFri 30\n96\nSat 31\n95\nSun 1\n95\nMon 2\n96\nTue 3\n91\nWed 4\n91\nThu 5\n54\nFri 6\n22\nSat 7\n17\nSun 8\n15\n\nMonth by month: typical high, coloured by score\n\nJan\n17\u00b0\nFeb\n17\u00b0\nMar\n19\u00b0\nApr\n22\u00b0\nMay\n25\u00b0\nJun\n29\u00b0\nJul\n31\u00b0\nAug\n31\u00b0\nSep\n28\u00b0\nOct\n25\u00b0\nNov\n20\u00b0\nDec\n18\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "malaga-forecast.png"
+    },
+    {
+      "name": "chania",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/greece/chania",
+      "score": "36",
+      "days": "Nice on 3 of 14 days in this forecast. Perfect on 0; awful on 1.",
+      "card": "\ud83c\uddec\ud83c\uddf7 Chania\n\nCrete, Greece\n\n36\nPoor most days\n\nNice on 3 of 14 days in this forecast. Perfect on 0; awful on 1.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n19 \u00b0C feels-likeCool\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n15 \u00b0C feels-like at 15:00Chilly\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n12 \u00b0C in the shadeChilly, bring a layer\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n2.4 mm a dayWet \u00b7 70% of days wet\n0 mm\n10 mm\nWind\n8 km/hLight wind\nCalm\n70 km/h\nHumidity\n13.3 \u00b0C dew pointcomfortable\n5 \u00b0C\n30 \u00b0C\nSun\n63% of daylightSun and cloud\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n22\nTue 27\n22\nWed 28\n4\nThu 29\n16\nFri 30\n49\nSat 31\n69\nSun 1\n37\nMon 2\n16\nTue 3\n41\nWed 4\n43\nThu 5\n35\nFri 6\n44\nSat 7\n61\nSun 8\n81\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "chania-forecast.png"
+    },
+    {
+      "name": "rotterdam",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/the-netherlands/rotterdam",
+      "score": "9",
+      "days": "Nice on 0 of 14 days in this forecast. Perfect on 0; awful on 11.",
+      "card": "Rotterdam\n\nSouth Holland, The Netherlands\n\n9\nAwful most days\n\nNice on 0 of 14 days in this forecast. Perfect on 0; awful on 11.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n10 \u00b0C feels-likeChilly\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n7 \u00b0C feels-like at 15:00Cold\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n5 \u00b0C in the shadeCold\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 15% of days wet\n0 mm\n10 mm\nWind\n13 km/hLight wind\nCalm\n70 km/h\nHumidity\n6.8 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n36% of daylightMostly cloudy\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n2\nTue 27\n11\nWed 28\n16\nThu 29\n32\nFri 30\n15\nSat 31\n2\nSun 1\n5\nMon 2\n6\nTue 3\n0\nWed 4\n0\nThu 5\n0\nFri 6\n0\nSat 7\n0\nSun 8\n0\n\nMonth by month: typical high, coloured by score\n\nJan\n6\u00b0\nFeb\n7\u00b0\nMar\n9\u00b0\nApr\n12\u00b0\nMay\n17\u00b0\nJun\n21\u00b0\nJul\n22\u00b0\nAug\n22\u00b0\nSep\n20\u00b0\nOct\n15\u00b0\nNov\n10\u00b0\nDec\n7\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "rotterdam-forecast.png"
+    },
+    {
+      "name": "singapore",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/singapore/singapore",
+      "score": "10",
+      "days": "Nice on 0 of 14 days in this forecast. Perfect on 0; awful on 13.",
+      "card": "\ud83c\uddf8\ud83c\uddec Singapore\n\nSingapore\n\n10\nAwful most days\n\nNice on 0 of 14 days in this forecast. Perfect on 0; awful on 13.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n36 \u00b0C feels-likeHot\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n33 \u00b0C feels-like at 15:00Hot\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n31 \u00b0C in the shadeHot evening\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n6.0 mm a dayWet \u00b7 93% of days wet\n0 mm\n10 mm\nWind\n5 km/hLight wind\nCalm\n70 km/h\nHumidity\n24.5 \u00b0C dew pointmiserable\n5 \u00b0C\n30 \u00b0C\nSun\n52% of daylightSun and cloud\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n24\nTue 27\n4\nWed 28\n4\nThu 29\n5\nFri 30\n12\nSat 31\n13\nSun 1\n12\nMon 2\n8\nTue 3\n12\nWed 4\n11\nThu 5\n9\nFri 6\n9\nSat 7\n6\nSun 8\n6\n\nMonth by month: typical high, coloured by score\n\nJan\n30\u00b0\nFeb\n31\u00b0\nMar\n31\u00b0\nApr\n31\u00b0\nMay\n31\u00b0\nJun\n31\u00b0\nJul\n31\u00b0\nAug\n30\u00b0\nSep\n31\u00b0\nOct\n31\u00b0\nNov\n31\u00b0\nDec\n30\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "singapore-forecast.png"
+    },
+    {
+      "name": "cape-town",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/south-africa/cape-town",
+      "score": "92",
+      "days": "Nice on 14 of 14 days in this forecast. Perfect on 10; awful on 0.",
+      "card": "\ud83c\uddff\ud83c\udde6 Cape Town\n\nWestern Cape, South Africa\n\n92\nPerfect most days\n\nNice on 14 of 14 days in this forecast. Perfect on 10; awful on 0.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n30 \u00b0C feels-likeWarm\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n23 \u00b0C feels-like at 15:00Warm\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n17 \u00b0C in the shadeComfortable in a t-shirt\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.0 mm a dayMostly dry \u00b7 0% of days wet\n0 mm\n10 mm\nWind\n17 km/hBreezy\nCalm\n70 km/h\nHumidity\n11.8 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n78% of daylightSun and cloud\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n77\nTue 27\n88\nWed 28\n95\nThu 29\n95\nFri 30\n93\nSat 31\n94\nSun 1\n96\nMon 2\n99\nTue 3\n94\nWed 4\n69\nThu 5\n97\nFri 6\n84\nSat 7\n82\nSun 8\n88\n\nMonth by month: typical high, coloured by score\n\nJan\n26\u00b0\nFeb\n27\u00b0\nMar\n26\u00b0\nApr\n23\u00b0\nMay\n20\u00b0\nJun\n18\u00b0\nJul\n18\u00b0\nAug\n18\u00b0\nSep\n20\u00b0\nOct\n22\u00b0\nNov\n24\u00b0\nDec\n25\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "cape-town-forecast.png"
+    },
+    {
+      "name": "san-diego",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/united-states/san-diego",
+      "score": "93",
+      "days": "Nice on 12 of 14 days in this forecast. Perfect on 11; awful on 0.",
+      "card": "\ud83c\uddfa\ud83c\uddf8 San Diego\n\nCalifornia, United States\n\n93\nPerfect most days\n\nNice on 12 of 14 days in this forecast. Perfect on 11; awful on 0.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n27 \u00b0C feels-likeWarm\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n21 \u00b0C feels-like at 15:00Mild\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n17 \u00b0C in the shadeComfortable in a t-shirt\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n0.4 mm a dayMostly dry \u00b7 8% of days wet\n0 mm\n10 mm\nWind\n9 km/hLight wind\nCalm\n70 km/h\nHumidity\n8.4 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n73% of daylightSun and cloud\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n96\nTue 27\n95\nWed 28\n95\nThu 29\n97\nFri 30\n48\nSat 31\n21\nSun 1\n79\nMon 2\n90\nTue 3\n94\nWed 4\n98\nThu 5\n99\nFri 6\n96\nSat 7\n98\nSun 8\n99\n\nMonth by month: typical high, coloured by score\n\nJan\n19\u00b0\nFeb\n19\u00b0\nMar\n19\u00b0\nApr\n20\u00b0\nMay\n20\u00b0\nJun\n21\u00b0\nJul\n23\u00b0\nAug\n24\u00b0\nSep\n24\u00b0\nOct\n23\u00b0\nNov\n21\u00b0\nDec\n19\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "san-diego-forecast.png"
+    },
+    {
+      "name": "san-francisco",
+      "period": "forecast",
+      "url": "http://127.0.0.1:5199/united-states/san-francisco",
+      "score": "69",
+      "days": "Nice on 8 of 14 days in this forecast. Perfect on 3; awful on 1.",
+      "card": "\ud83c\uddfa\ud83c\uddf8 San Francisco\n\nCalifornia, United States\n\n69\nNice most days\n\nNice on 8 of 14 days in this forecast. Perfect on 3; awful on 1.\n\nNext 14 days, Mon 26 to Sun 8\n\nForecast from Mon 26 Oct, 02:00\n\nAfternoon in the sun\n22 \u00b0C feels-likeMild\n0 \u00b0C\n40 \u00b0C\nAfternoon in the shade\n17 \u00b0C feels-like at 15:00Cool\n10 \u00b0C\n45 \u00b0C\nWalk home at 21:00\n12 \u00b0C in the shadeCool evening\n0 \u00b0C\n40 \u00b0C\nRain, 10:00 to 21:00\n1.3 mm a daySome rain \u00b7 14% of days wet\n0 mm\n10 mm\nWind\n9 km/hLight wind\nCalm\n70 km/h\nHumidity\n7.7 \u00b0C dew pointdry\n5 \u00b0C\n30 \u00b0C\nSun\n65% of daylightSun and cloud\n0%\n100%\n\nDay by day: score out of 100\n\nMon 26\n73\nTue 27\n46\nWed 28\n78\nThu 29\n79\nFri 30\n43\nSat 31\n31\nSun 1\n47\nMon 2\n75\nTue 3\n93\nWed 4\n86\nThu 5\n66\nFri 6\n1\nSat 7\n15\nSun 8\n89\n\nMonth by month: typical high, coloured by score\n\nJan\n14\u00b0\nFeb\n16\u00b0\nMar\n17\u00b0\nApr\n18\u00b0\nMay\n19\u00b0\nJun\n20\u00b0\nJul\n20\u00b0\nAug\n21\u00b0\nSep\n22\u00b0\nOct\n22\u00b0\nNov\n18\u00b0\nDec\n15\u00b0\n\nHome: \ud83c\uddec\ud83c\uddf7 Athens, nice on 4 of 14 days in this forecast.\n\nCompare: \ud83c\uddec\ud83c\udde7 London, nice on 0 of 14 days in this forecast.",
+      "screenshot": "san-francisco-forecast.png"
+    }
+  ],
+  "islands": [
+    {
+      "region": "aegean",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,6z/year",
+      "screenshot": "aegean-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "aegean",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,8z/year",
+      "screenshot": "aegean-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "akamas",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,6z/year",
+      "screenshot": "akamas-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "akamas",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,8z/year",
+      "screenshot": "akamas-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "canaries-west",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,6z/year",
+      "screenshot": "canaries-west-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "canaries-west",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,8z/year",
+      "screenshot": "canaries-west-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "canaries-east",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,6z/year",
+      "screenshot": "canaries-east-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "canaries-east",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,8z/year",
+      "screenshot": "canaries-east-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "aegean",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,6z",
+      "screenshot": "aegean-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "aegean",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,8z",
+      "screenshot": "aegean-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "akamas",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,6z",
+      "screenshot": "akamas-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "akamas",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,8z",
+      "screenshot": "akamas-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "canaries-west",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,6z",
+      "screenshot": "canaries-west-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "canaries-west",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,8z",
+      "screenshot": "canaries-west-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "region": "canaries-east",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,6z",
+      "screenshot": "canaries-east-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "region": "canaries-east",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,8z",
+      "screenshot": "canaries-east-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "aegean",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,6z/year?perfectFrom=21",
+      "screenshot": "aegean-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "aegean",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,8z/year?perfectFrom=21",
+      "screenshot": "aegean-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "aegean",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,6z?perfectFrom=21",
+      "screenshot": "aegean-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "aegean",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@38.1,26.0,8z?perfectFrom=21",
+      "screenshot": "aegean-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "lesbos",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,6z/year",
+      "screenshot": "lesbos-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "lesbos",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,8z/year",
+      "screenshot": "lesbos-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "samothrace",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,6z/year",
+      "screenshot": "samothrace-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "samothrace",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,8z/year",
+      "screenshot": "samothrace-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "dodecanese",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,6z/year",
+      "screenshot": "dodecanese-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "dodecanese",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,8z/year",
+      "screenshot": "dodecanese-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "kastellorizo",
+      "period": "year",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,6z/year",
+      "screenshot": "kastellorizo-year-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "kastellorizo",
+      "period": "year",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,8z/year",
+      "screenshot": "kastellorizo-year-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "lesbos",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,6z",
+      "screenshot": "lesbos-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "lesbos",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,8z",
+      "screenshot": "lesbos-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "samothrace",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,6z",
+      "screenshot": "samothrace-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "samothrace",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,8z",
+      "screenshot": "samothrace-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "dodecanese",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,6z",
+      "screenshot": "dodecanese-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "dodecanese",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,8z",
+      "screenshot": "dodecanese-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "kastellorizo",
+      "period": "forecast",
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,6z",
+      "screenshot": "kastellorizo-forecast-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "region": "kastellorizo",
+      "period": "forecast",
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,8z",
+      "screenshot": "kastellorizo-forecast-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "lesbos",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,6z/year?perfectFrom=21",
+      "screenshot": "lesbos-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "lesbos",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,8z/year?perfectFrom=21",
+      "screenshot": "lesbos-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "samothrace",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,6z/year?perfectFrom=21",
+      "screenshot": "samothrace-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "samothrace",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,8z/year?perfectFrom=21",
+      "screenshot": "samothrace-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "dodecanese",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,6z/year?perfectFrom=21",
+      "screenshot": "dodecanese-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "dodecanese",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,8z/year?perfectFrom=21",
+      "screenshot": "dodecanese-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "kastellorizo",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,6z/year?perfectFrom=21",
+      "screenshot": "kastellorizo-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "kastellorizo",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,8z/year?perfectFrom=21",
+      "screenshot": "kastellorizo-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "akamas",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,6z/year?perfectFrom=21",
+      "screenshot": "akamas-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "akamas",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,8z/year?perfectFrom=21",
+      "screenshot": "akamas-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "canaries-west",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,6z/year?perfectFrom=21",
+      "screenshot": "canaries-west-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "canaries-west",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,8z/year?perfectFrom=21",
+      "screenshot": "canaries-west-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "canaries-east",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,6z/year?perfectFrom=21",
+      "screenshot": "canaries-east-year-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-01.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-02.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-03.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-04.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-05.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-06.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-07.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-08.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-09.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-10.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-11.bin",
+        "http://127.0.0.1:5199/data/v6/climate/month-12.bin"
+      ],
+      "region": "canaries-east",
+      "period": "year",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,8z/year?perfectFrom=21",
+      "screenshot": "canaries-east-year-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "lesbos",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,6z?perfectFrom=21",
+      "screenshot": "lesbos-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "lesbos",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@39.22,26.24,8z?perfectFrom=21",
+      "screenshot": "lesbos-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "samothrace",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,6z?perfectFrom=21",
+      "screenshot": "samothrace-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "samothrace",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@40.45,25.6,8z?perfectFrom=21",
+      "screenshot": "samothrace-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "dodecanese",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,6z?perfectFrom=21",
+      "screenshot": "dodecanese-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "dodecanese",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.45,27.35,8z?perfectFrom=21",
+      "screenshot": "dodecanese-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "kastellorizo",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,6z?perfectFrom=21",
+      "screenshot": "kastellorizo-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "kastellorizo",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@36.15,29.5,8z?perfectFrom=21",
+      "screenshot": "kastellorizo-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "akamas",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,6z?perfectFrom=21",
+      "screenshot": "akamas-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "akamas",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@35.02,32.3,8z?perfectFrom=21",
+      "screenshot": "akamas-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "canaries-west",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,6z?perfectFrom=21",
+      "screenshot": "canaries-west-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "canaries-west",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.2,-17.0,8z?perfectFrom=21",
+      "screenshot": "canaries-west-forecast-custom-z8.png",
+      "actualZoom": 8
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "canaries-east",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 6,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,6z?perfectFrom=21",
+      "screenshot": "canaries-east-forecast-custom-z6.png",
+      "actualZoom": 6
+    },
+    {
+      "requestedAppScripts": [
+        "http://127.0.0.1:5199/assets/main-IbiYp3SH.js",
+        "http://127.0.0.1:5199/assets/scoreCurve-Bz9XBCaX.js"
+      ],
+      "warmEnoughSlider": "21",
+      "requestedWeatherFiles": [
+        "http://127.0.0.1:5199/data/v6/cells.bin",
+        "http://127.0.0.1:5199/data/v6/forecast/20261026T0000Z/days.bin"
+      ],
+      "region": "canaries-east",
+      "period": "forecast",
+      "taste": {
+        "perfectFrom": 21
+      },
+      "zoom": 8,
+      "url": "http://127.0.0.1:5199/@28.7,-14.4,8z?perfectFrom=21",
+      "screenshot": "canaries-east-forecast-custom-z8.png",
+      "actualZoom": 8
+    }
+  ],
+  "errors": []
+}

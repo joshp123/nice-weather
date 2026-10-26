@@ -1,5 +1,6 @@
 // Written by AI on 2026.10.17 by model gpt-6.1-sol.
 import { loadGreyscaleImage } from './greyscaleImage';
+import { nearestTemperatureOffsets } from './temperatureOffsets';
 import type { Period, Month } from './index';
 
 /** ECMWF's free forecast ends at 360 hours, so every time zone gets 14 whole local days (.agent/v6-contract.md). */
@@ -174,6 +175,7 @@ export class WeatherData {
     if (!request) {
       request = loadGreyscaleImage(this.url(`climate/offsets-${String(month).padStart(2, '0')}.png`)).then(bytes => {
         if (bytes.length !== 1440 * 721) throw new Error(`v6 offsets ${month}: expected the 1440 × 721 fine grid`);
+        bytes = nearestTemperatureOffsets(bytes);
         this.loadedOffsets.set(month, bytes);
         return bytes;
       }).catch(error => {

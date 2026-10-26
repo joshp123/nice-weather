@@ -1,6 +1,6 @@
 # Written by AI on 2026.10.18 by model claude opus 5.5.
-# Serves a local build of the app on 127.0.0.1:5198 and forwards data and API requests to the live site,
-# so the interface can be checked locally against real data. usage: live_data_proxy.py <dist-dir>
+# Serves the build and regenerated artifacts/v6 locally; forwards other data and APIs to the live site.
+# Updated by AI on 2026.10.26 by model GPT-6. usage: live_data_proxy.py <dist-dir> [port]
 import sys, os, urllib.request, urllib.error
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -16,6 +16,8 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def local_file(self, path):
+        if path.startswith('/data/v6/'):
+            return os.path.join(os.path.dirname(os.path.abspath(DIST)), 'artifacts', path.removeprefix('/data/'))
         if path.startswith('/assets/'):
             return os.path.join(DIST, path.lstrip('/'))
         if path == '/method':

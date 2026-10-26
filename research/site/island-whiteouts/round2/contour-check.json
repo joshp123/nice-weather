@@ -1,0 +1,1031 @@
+{
+  "written_by": "AI on 2026.10.26 by model GPT-6",
+  "method": {
+    "source": "Actual locally regenerated 8-bit score textures, evaluated with the current mapFragment cubic B-spline, at zoom 8 (fine detail weight 1).",
+    "geography": "MapLibre unproject of the screenshot positions; camera centres @38.1,26.0,8z; @28.7,-14.4,8z; @36.45,27.35,8z. Viewport 1512x982, map begins at y=64.",
+    "finePixel": "x=(longitude+180)*4; y=(90-latitude)*4",
+    "lattice": "c=(finePixel-2)/4; four by four tensor cubic B-spline; samples at 4*integer+2",
+    "fineResidual": "Four by four tensor cubic B-spline at finePixel; each fine score minus score at its owning cell centre ((pixel/4 integer)*4+2), y centre capped at600",
+    "weights": "[(1-t)^3, 3*t^3-6*t^2+4, -3*t^3+3*t^2+3*t+1, t^3] / 6",
+    "finalScore": "cellLattice + fineResidual",
+    "contourRoots": "40 bisection steps solving finalScore=threshold, then repeat with fineResidual set to zero"
+  },
+  "conclusion": "All three remaining nearly straight band edges occur in the broad 1 degree cell-lattice field itself. Fine residuals are small at the sampled crossings. Removing fine detail does not remove these contours; it makes the Fuerteventura contour more vertical. The rendering origin is established; this does not establish finer physical weather resolution than the source data.",
+  "cases": [
+    {
+      "name": "Tinos",
+      "reportedAs": "Naxos",
+      "latitude": 37.59249,
+      "longitude": 25.19,
+      "threshold": 55,
+      "path": "artifacts/v6/climate/scores-typical-day-year.png",
+      "screenshot": "research/site/island-whiteouts/round2/aegean-year-z8.png",
+      "axis": "longitude",
+      "sha256": "1be6cc4b285ff9381e6057105ad1d9819a89fb514015965ff8a574915cf89d6d",
+      "cellLattice": {
+        "value": 55.38629496746507,
+        "taps": [
+          {
+            "row": 202,
+            "column": 814,
+            "score": 62,
+            "cellCentreScore": 62,
+            "value": 62,
+            "weight": 6.547370526731088e-07
+          },
+          {
+            "row": 202,
+            "column": 818,
+            "score": 46,
+            "cellCentreScore": 46,
+            "value": 46,
+            "weight": 4.6788875477029264e-05
+          },
+          {
+            "row": 202,
+            "column": 822,
+            "score": 40,
+            "cellCentreScore": 40,
+            "value": 40,
+            "weight": 7.720259946727601e-05
+          },
+          {
+            "row": 202,
+            "column": 826,
+            "score": 59,
+            "cellCentreScore": 59,
+            "value": 59,
+            "weight": 7.219865544512889e-06
+          },
+          {
+            "row": 206,
+            "column": 814,
+            "score": 67,
+            "cellCentreScore": 67,
+            "value": 67,
+            "weight": 0.0010764147102347008
+          },
+          {
+            "row": 206,
+            "column": 818,
+            "score": 68,
+            "cellCentreScore": 68,
+            "value": 68,
+            "weight": 0.07692284044898762
+          },
+          {
+            "row": 206,
+            "column": 822,
+            "score": 59,
+            "cellCentreScore": 59,
+            "value": 59,
+            "weight": 0.12692425668541477
+          },
+          {
+            "row": 206,
+            "column": 826,
+            "score": 65,
+            "cellCentreScore": 65,
+            "value": 65,
+            "weight": 0.01186975663940385
+          },
+          {
+            "row": 210,
+            "column": 814,
+            "score": 71,
+            "cellCentreScore": 71,
+            "value": 71,
+            "weight": 0.0032696013000393545
+          },
+          {
+            "row": 210,
+            "column": 818,
+            "score": 72,
+            "cellCentreScore": 72,
+            "value": 72,
+            "weight": 0.2336525288472612
+          },
+          {
+            "row": 210,
+            "column": 822,
+            "score": 43,
+            "cellCentreScore": 43,
+            "value": 43,
+            "weight": 0.38553144129243294
+          },
+          {
+            "row": 210,
+            "column": 826,
+            "score": 53,
+            "cellCentreScore": 53,
+            "value": 53,
+            "weight": 0.03605429335955806
+          },
+          {
+            "row": 214,
+            "column": 814,
+            "score": 66,
+            "cellCentreScore": 66,
+            "value": 66,
+            "weight": 0.0006184959193400474
+          },
+          {
+            "row": 214,
+            "column": 818,
+            "score": 49,
+            "cellCentreScore": 49,
+            "value": 49,
+            "weight": 0.044199008494942287
+          },
+          {
+            "row": 214,
+            "column": 822,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 51,
+            "weight": 0.07292926608935063
+          },
+          {
+            "row": 214,
+            "column": 826,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 51,
+            "weight": 0.0068202301354930404
+          }
+        ]
+      },
+      "fineResidual": {
+        "value": -0.34577227149119977,
+        "taps": [
+          {
+            "row": 208,
+            "column": 819,
+            "score": 70,
+            "cellCentreScore": 72,
+            "value": -2,
+            "weight": 1.944444432996035e-05
+          },
+          {
+            "row": 208,
+            "column": 820,
+            "score": 42,
+            "cellCentreScore": 43,
+            "value": -1,
+            "weight": 0.002604025190429212
+          },
+          {
+            "row": 208,
+            "column": 821,
+            "score": 42,
+            "cellCentreScore": 43,
+            "value": -1,
+            "weight": 0.005198508199844518
+          },
+          {
+            "row": 208,
+            "column": 822,
+            "score": 42,
+            "cellCentreScore": 43,
+            "value": -1,
+            "weight": 0.0006174511280517503
+          },
+          {
+            "row": 209,
+            "column": 819,
+            "score": 71,
+            "cellCentreScore": 72,
+            "value": -1,
+            "weight": 0.0009095352896534127
+          },
+          {
+            "row": 209,
+            "column": 820,
+            "score": 42,
+            "cellCentreScore": 43,
+            "value": -1,
+            "weight": 0.12180614501760084
+          },
+          {
+            "row": 209,
+            "column": 821,
+            "score": 42,
+            "cellCentreScore": 43,
+            "value": -1,
+            "weight": 0.24316594401342126
+          },
+          {
+            "row": 209,
+            "column": 822,
+            "score": 42,
+            "cellCentreScore": 43,
+            "value": -1,
+            "weight": 0.0288819562580177
+          },
+          {
+            "row": 210,
+            "column": 819,
+            "score": 72,
+            "cellCentreScore": 72,
+            "value": 0,
+            "weight": 0.0012789839277036338
+          },
+          {
+            "row": 210,
+            "column": 820,
+            "score": 43,
+            "cellCentreScore": 43,
+            "value": 0,
+            "weight": 0.17128318554018293
+          },
+          {
+            "row": 210,
+            "column": 821,
+            "score": 43,
+            "cellCentreScore": 43,
+            "value": 0,
+            "weight": 0.34193872156028055
+          },
+          {
+            "row": 210,
+            "column": 822,
+            "score": 43,
+            "cellCentreScore": 43,
+            "value": 0,
+            "weight": 0.040613660926471805
+          },
+          {
+            "row": 211,
+            "column": 819,
+            "score": 72,
+            "cellCentreScore": 72,
+            "value": 0,
+            "weight": 9.603633831325523e-05
+          },
+          {
+            "row": 211,
+            "column": 820,
+            "score": 43,
+            "cellCentreScore": 43,
+            "value": 0,
+            "weight": 0.012861310918459589
+          },
+          {
+            "row": 211,
+            "column": 821,
+            "score": 45,
+            "cellCentreScore": 43,
+            "value": 2,
+            "weight": 0.02567549289311666
+          },
+          {
+            "row": 211,
+            "column": 822,
+            "score": 45,
+            "cellCentreScore": 43,
+            "value": 2,
+            "weight": 0.003049598354122773
+          }
+        ]
+      },
+      "finalScore": 55.04052269597387,
+      "scan": [
+        {
+          "latitude": 37.59249,
+          "longitude": 24.990000000000002,
+          "cellLattice": 58.20277338101249,
+          "fineResidual": -0.3924921997917242,
+          "finalScore": 57.810281181220766
+        },
+        {
+          "latitude": 37.59249,
+          "longitude": 25.09,
+          "cellLattice": 56.74999287020335,
+          "fineResidual": -0.37056635632667256,
+          "finalScore": 56.37942651387668
+        },
+        {
+          "latitude": 37.59249,
+          "longitude": 25.19,
+          "cellLattice": 55.38629496746507,
+          "fineResidual": -0.34577227149119977,
+          "finalScore": 55.04052269597387
+        },
+        {
+          "latitude": 37.59249,
+          "longitude": 25.290000000000003,
+          "cellLattice": 54.1599226181586,
+          "fineResidual": -0.32779799528917236,
+          "finalScore": 53.83212462286943
+        },
+        {
+          "latitude": 37.59249,
+          "longitude": 25.39,
+          "cellLattice": 53.11911876764499,
+          "fineResidual": -0.3092202081932344,
+          "finalScore": 52.80989855945176
+        }
+      ],
+      "contourRoots": [
+        {
+          "fixedLatitude": 37.55,
+          "final": 25.18597070632804,
+          "latticeOnly": 25.198943812514525
+        },
+        {
+          "fixedLatitude": 37.6,
+          "final": 25.1945935852882,
+          "latticeOnly": 25.223982807832183
+        },
+        {
+          "fixedLatitude": 37.65,
+          "final": 25.205410031666723,
+          "latticeOnly": 25.25040450709621
+        },
+        {
+          "fixedLatitude": 37.7,
+          "final": 25.218942618599797,
+          "latticeOnly": 25.278519490271172
+        }
+      ]
+    },
+    {
+      "name": "Fuerteventura",
+      "latitude": 28.31625,
+      "longitude": -14.12809,
+      "threshold": 85,
+      "path": "artifacts/v6/forecast/20261026T0000Z/scores-typical-day-all.png",
+      "screenshot": "research/site/island-whiteouts/round2/canaries-east-forecast-z8.png",
+      "axis": "longitude",
+      "sha256": "1b792f7a6fef4774450595db0589d92342a80828de0c8667986f30a42f3a3575",
+      "cellLattice": {
+        "value": 84.70120995735907,
+        "taps": [
+          {
+            "row": 242,
+            "column": 658,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 79,
+            "weight": 0.00374311111031523
+          },
+          {
+            "row": 242,
+            "column": 662,
+            "score": 85,
+            "cellCentreScore": 85,
+            "value": 85,
+            "weight": 0.05022075700337403
+          },
+          {
+            "row": 242,
+            "column": 666,
+            "score": 85,
+            "cellCentreScore": 85,
+            "value": 85,
+            "weight": 0.03589869869515795
+          },
+          {
+            "row": 242,
+            "column": 670,
+            "score": 85,
+            "cellCentreScore": 85,
+            "value": 85,
+            "weight": 0.0007771066937558191
+          },
+          {
+            "row": 246,
+            "column": 658,
+            "score": 80,
+            "cellCentreScore": 80,
+            "value": 80,
+            "weight": 0.02626483616088008
+          },
+          {
+            "row": 246,
+            "column": 662,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 79,
+            "weight": 0.35239134391014787
+          },
+          {
+            "row": 246,
+            "column": 666,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 93,
+            "weight": 0.25189565893963484
+          },
+          {
+            "row": 246,
+            "column": 670,
+            "score": 95,
+            "cellCentreScore": 95,
+            "value": 95,
+            "weight": 0.005452838398190349
+          },
+          {
+            "row": 250,
+            "column": 658,
+            "score": 77,
+            "cellCentreScore": 77,
+            "value": 77,
+            "weight": 0.011245959517593272
+          },
+          {
+            "row": 250,
+            "column": 662,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 79,
+            "weight": 0.15088534204779977
+          },
+          {
+            "row": 250,
+            "column": 666,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 93,
+            "weight": 0.10785555126789315
+          },
+          {
+            "row": 250,
+            "column": 670,
+            "score": 95,
+            "cellCentreScore": 95,
+            "value": 95,
+            "weight": 0.002334771841195145
+          },
+          {
+            "row": 254,
+            "column": 658,
+            "score": 77,
+            "cellCentreScore": 77,
+            "value": 77,
+            "weight": 4.2701701396834815e-05
+          },
+          {
+            "row": 254,
+            "column": 662,
+            "score": 95,
+            "cellCentreScore": 95,
+            "value": 95,
+            "weight": 0.0005729222847730203
+          },
+          {
+            "row": 254,
+            "column": 666,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 93,
+            "weight": 0.0004095351345545499
+          },
+          {
+            "row": 254,
+            "column": 670,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 93,
+            "weight": 8.865293338152587e-06
+          }
+        ]
+      },
+      "fineResidual": {
+        "value": 0.3048091408287631,
+        "taps": [
+          {
+            "row": 245,
+            "column": 662,
+            "score": 78,
+            "cellCentreScore": 79,
+            "value": -1,
+            "weight": 6.952816570816923e-05
+          },
+          {
+            "row": 245,
+            "column": 663,
+            "score": 78,
+            "cellCentreScore": 79,
+            "value": -1,
+            "weight": 0.0015100238360667793
+          },
+          {
+            "row": 245,
+            "column": 664,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 0.0014621099082410358
+          },
+          {
+            "row": 245,
+            "column": 665,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 5.994225665020307e-05
+          },
+          {
+            "row": 246,
+            "column": 662,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 0,
+            "weight": 0.0072848982440242
+          },
+          {
+            "row": 246,
+            "column": 663,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 0,
+            "weight": 0.15821458656006332
+          },
+          {
+            "row": 246,
+            "column": 664,
+            "score": 95,
+            "cellCentreScore": 93,
+            "value": 2,
+            "weight": 0.15319434641526902
+          },
+          {
+            "row": 246,
+            "column": 665,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 0.006280522947301128
+          },
+          {
+            "row": 247,
+            "column": 662,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 0,
+            "weight": 0.013578922169784827
+          },
+          {
+            "row": 247,
+            "column": 663,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 0,
+            "weight": 0.29490920601205417
+          },
+          {
+            "row": 247,
+            "column": 664,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 0.2855515666990122
+          },
+          {
+            "row": 247,
+            "column": 665,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 0.011706784285821293
+          },
+          {
+            "row": 248,
+            "column": 662,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 0,
+            "weight": 0.0014834918591848122
+          },
+          {
+            "row": 248,
+            "column": 663,
+            "score": 79,
+            "cellCentreScore": 79,
+            "value": 0,
+            "weight": 0.03221871374231992
+          },
+          {
+            "row": 248,
+            "column": 664,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 0.031196395360307612
+          },
+          {
+            "row": 248,
+            "column": 665,
+            "score": 93,
+            "cellCentreScore": 93,
+            "value": 0,
+            "weight": 0.0012789615381913462
+          }
+        ]
+      },
+      "finalScore": 85.00601909818783,
+      "scan": [
+        {
+          "latitude": 28.31625,
+          "longitude": -14.32809,
+          "cellLattice": 82.89563861056469,
+          "fineResidual": 0.03228825107208143,
+          "finalScore": 82.92792686163676
+        },
+        {
+          "latitude": 28.31625,
+          "longitude": -14.22809,
+          "cellLattice": 83.76866892659324,
+          "fineResidual": 0.13664529373293388,
+          "finalScore": 83.90531422032618
+        },
+        {
+          "latitude": 28.31625,
+          "longitude": -14.12809,
+          "cellLattice": 84.70120995735907,
+          "fineResidual": 0.3048091408287631,
+          "finalScore": 85.00601909818783
+        },
+        {
+          "latitude": 28.31625,
+          "longitude": -14.02809,
+          "cellLattice": 85.67012044415748,
+          "fineResidual": 0.4248453744194722,
+          "finalScore": 86.09496581857695
+        },
+        {
+          "latitude": 28.31625,
+          "longitude": -13.928090000000001,
+          "cellLattice": 86.65225912828465,
+          "fineResidual": 0.3870714859921398,
+          "finalScore": 87.03933061427679
+        }
+      ],
+      "contourRoots": [
+        {
+          "fixedLatitude": 28.2,
+          "final": -14.108850926656624,
+          "latticeOnly": -14.099956426154813
+        },
+        {
+          "fixedLatitude": 28.25,
+          "final": -14.115449560374737,
+          "latticeOnly": -14.098378435342193
+        },
+        {
+          "fixedLatitude": 28.3,
+          "final": -14.12520693587535,
+          "latticeOnly": -14.097249657706152
+        },
+        {
+          "fixedLatitude": 28.35,
+          "final": -14.135489289090083,
+          "latticeOnly": -14.096463730248297
+        },
+        {
+          "fixedLatitude": 28.4,
+          "final": -14.143829851702458,
+          "latticeOnly": -14.095912363718663
+        }
+      ]
+    },
+    {
+      "name": "Santorini",
+      "reportedAs": "Astypalea",
+      "latitude": 36.4,
+      "longitude": 25.42,
+      "threshold": 55,
+      "path": "artifacts/v6/climate/scores-typical-day-year.png",
+      "screenshot": "research/site/island-whiteouts/round2/dodecanese-year-z8.png",
+      "axis": "latitude",
+      "sha256": "1be6cc4b285ff9381e6057105ad1d9819a89fb514015965ff8a574915cf89d6d",
+      "cellLattice": {
+        "value": 55.70002746844441,
+        "taps": [
+          {
+            "row": 210,
+            "column": 814,
+            "score": 71,
+            "cellCentreScore": 71,
+            "value": 71,
+            "weight": 1.0367999999993764e-05
+          },
+          {
+            "row": 210,
+            "column": 818,
+            "score": 72,
+            "cellCentreScore": 72,
+            "value": 72,
+            "weight": 0.025467695999998777
+          },
+          {
+            "row": 210,
+            "column": 822,
+            "score": 43,
+            "cellCentreScore": 43,
+            "value": 43,
+            "weight": 0.0802535039999999
+          },
+          {
+            "row": 210,
+            "column": 826,
+            "score": 53,
+            "cellCentreScore": 53,
+            "value": 53,
+            "weight": 0.01576843200000074
+          },
+          {
+            "row": 214,
+            "column": 814,
+            "score": 66,
+            "cellCentreScore": 66,
+            "value": 66,
+            "weight": 5.607822222218873e-05
+          },
+          {
+            "row": 214,
+            "column": 818,
+            "score": 49,
+            "cellCentreScore": 49,
+            "value": 49,
+            "weight": 0.1377491431111051
+          },
+          {
+            "row": 214,
+            "column": 822,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 51,
+            "weight": 0.43407347911111244
+          },
+          {
+            "row": 214,
+            "column": 826,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 51,
+            "weight": 0.08528796622222659
+          },
+          {
+            "row": 218,
+            "column": 814,
+            "score": 77,
+            "cellCentreScore": 77,
+            "value": 77,
+            "weight": 1.8872888888877697e-05
+          },
+          {
+            "row": 218,
+            "column": 818,
+            "score": 76,
+            "cellCentreScore": 76,
+            "value": 76,
+            "weight": 0.04635889244444261
+          },
+          {
+            "row": 218,
+            "column": 822,
+            "score": 78,
+            "cellCentreScore": 78,
+            "value": 78,
+            "weight": 0.14608559644444552
+          },
+          {
+            "row": 218,
+            "column": 826,
+            "score": 49,
+            "cellCentreScore": 49,
+            "value": 49,
+            "weight": 0.028703304888890484
+          },
+          {
+            "row": 222,
+            "column": 814,
+            "score": 77,
+            "cellCentreScore": 77,
+            "value": 77,
+            "weight": 1.4222222222214342e-08
+          },
+          {
+            "row": 222,
+            "column": 818,
+            "score": 76,
+            "cellCentreScore": 76,
+            "value": 76,
+            "weight": 3.493511111111109e-05
+          },
+          {
+            "row": 222,
+            "column": 822,
+            "score": 77,
+            "cellCentreScore": 77,
+            "value": 77,
+            "weight": 0.00011008711111111622
+          },
+          {
+            "row": 222,
+            "column": 826,
+            "score": 53,
+            "cellCentreScore": 53,
+            "value": 53,
+            "weight": 2.1630222222224266e-05
+          }
+        ]
+      },
+      "fineResidual": {
+        "value": -0.7942432284443537,
+        "taps": [
+          {
+            "row": 213,
+            "column": 820,
+            "score": 47,
+            "cellCentreScore": 51,
+            "value": -4,
+            "weight": 0.00019660799999987705
+          },
+          {
+            "row": 213,
+            "column": 821,
+            "score": 49,
+            "cellCentreScore": 51,
+            "value": -2,
+            "weight": 0.013013375999998099
+          },
+          {
+            "row": 213,
+            "column": 822,
+            "score": 49,
+            "cellCentreScore": 51,
+            "value": -2,
+            "weight": 0.020903424000000517
+          },
+          {
+            "row": 213,
+            "column": 823,
+            "score": 46,
+            "cellCentreScore": 51,
+            "value": -5,
+            "weight": 0.0018865920000004758
+          },
+          {
+            "row": 214,
+            "column": 820,
+            "score": 47,
+            "cellCentreScore": 51,
+            "value": -4,
+            "weight": 0.0029418382222204486
+          },
+          {
+            "row": 214,
+            "column": 821,
+            "score": 49,
+            "cellCentreScore": 51,
+            "value": -2,
+            "weight": 0.19471866311108707
+          },
+          {
+            "row": 214,
+            "column": 822,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 0,
+            "weight": 0.3127771591111259
+          },
+          {
+            "row": 214,
+            "column": 823,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 0,
+            "weight": 0.02822900622222998
+          },
+          {
+            "row": 215,
+            "column": 820,
+            "score": 49,
+            "cellCentreScore": 51,
+            "value": -2,
+            "weight": 0.002264632888887558
+          },
+          {
+            "row": 215,
+            "column": 821,
+            "score": 49,
+            "cellCentreScore": 51,
+            "value": -2,
+            "weight": 0.1498948124444282
+          },
+          {
+            "row": 215,
+            "column": 822,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 0,
+            "weight": 0.2407764764444595
+          },
+          {
+            "row": 215,
+            "column": 823,
+            "score": 51,
+            "cellCentreScore": 51,
+            "value": 0,
+            "weight": 0.02173074488889519
+          },
+          {
+            "row": 216,
+            "column": 820,
+            "score": 77,
+            "cellCentreScore": 78,
+            "value": -1,
+            "weight": 5.8254222222189944e-05
+          },
+          {
+            "row": 216,
+            "column": 821,
+            "score": 77,
+            "cellCentreScore": 78,
+            "value": -1,
+            "weight": 0.003855815111110823
+          },
+          {
+            "row": 216,
+            "column": 822,
+            "score": 77,
+            "cellCentreScore": 78,
+            "value": -1,
+            "weight": 0.006193607111111706
+          },
+          {
+            "row": 216,
+            "column": 823,
+            "score": 77,
+            "cellCentreScore": 78,
+            "value": -1,
+            "weight": 0.0005589902222224031
+          }
+        ]
+      },
+      "finalScore": 54.90578424000006,
+      "scan": [
+        {
+          "latitude": 36.199999999999996,
+          "longitude": 25.42,
+          "cellLattice": 58.7640106968889,
+          "fineResidual": -0.8095518008888253,
+          "finalScore": 57.95445889600008
+        },
+        {
+          "latitude": 36.3,
+          "longitude": 25.42,
+          "cellLattice": 57.16326813866665,
+          "fineResidual": -0.7615960319999153,
+          "finalScore": 56.40167210666674
+        },
+        {
+          "latitude": 36.4,
+          "longitude": 25.42,
+          "cellLattice": 55.70002746844441,
+          "fineResidual": -0.7942432284443537,
+          "finalScore": 54.90578424000006
+        },
+        {
+          "latitude": 36.5,
+          "longitude": 25.42,
+          "cellLattice": 54.420696888888834,
+          "fineResidual": -0.9802115555554813,
+          "finalScore": 53.440485333333356
+        },
+        {
+          "latitude": 36.6,
+          "longitude": 25.42,
+          "cellLattice": 53.36202628088881,
+          "fineResidual": -1.3722429297777452,
+          "finalScore": 51.989783351111065
+        }
+      ],
+      "contourRoots": [
+        {
+          "fixedLongitude": 25.35,
+          "final": 36.37992396838404,
+          "latticeOnly": 36.4704281468385
+        },
+        {
+          "fixedLongitude": 25.4,
+          "final": 36.39016894966429,
+          "latticeOnly": 36.45770680172494
+        },
+        {
+          "fixedLongitude": 25.45,
+          "final": 36.397733805443515,
+          "latticeOnly": 36.445187080529344
+        },
+        {
+          "fixedLongitude": 25.5,
+          "final": 36.40085191454024,
+          "latticeOnly": 36.43248418776334
+        }
+      ]
+    }
+  ]
+}

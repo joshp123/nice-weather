@@ -1,0 +1,20 @@
+{
+  "written_by": "AI GPT-6, 2026-10-26",
+  "forecastRun": "20261026T0000Z",
+  "imagesChecked": 160,
+  "comparisonToPublished": [
+    {
+      "period": "year",
+      "originalColouredPixels": 250011,
+      "originalPixelsChanged": 0,
+      "nowColouredPixels": 865440
+    },
+    {
+      "period": "forecast",
+      "originalColouredPixels": 250011,
+      "originalPixelsChanged": 0,
+      "nowColouredPixels": 865440
+    }
+  ],
+  "coverage": "Every pixel north of and including 60S has a valid weather score; every pixel farther south remains excluded."
+}

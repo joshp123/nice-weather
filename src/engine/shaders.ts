@@ -161,7 +161,7 @@ uniform float u_overview_smoothing;
 in vec2 v_mercator;
 out vec4 fragColour;
 ${splineFunctions}
-vec2 sampleScoreSpline(vec2 cell, float spacing) {
+vec2 sampleScoreSpline(vec2 cell, float spacing, bool subtractCellCentre) {
   vec2 coarseCell = (cell - vec2(floor(spacing / 2.0))) / spacing;
   ivec2 base = ivec2(floor(coarseCell));
   vec4 wx = cubicBSplineWeights(fract(coarseCell.x));
@@ -175,6 +175,12 @@ vec2 sampleScoreSpline(vec2 cell, float spacing) {
       float value = texelFetch(u_grid, position, 0).r * u_grid_scale;
       if (value > 100.5) continue;
       if (u_round_scores) value = floor(value);
+      if (subtractCellCentre) {
+        ivec2 centre = min((position / 4) * 4 + ivec2(2), ivec2(1439, 600));
+        float centreScore = texelFetch(u_grid, centre, 0).r * u_grid_scale;
+        if (u_round_scores) centreScore = floor(centreScore);
+        value -= centreScore;
+      }
       float weight = wx[column] * wy[row];
       weighted += vec2(value, 1.0) * weight;
     }
@@ -186,14 +192,10 @@ void main() {
   float latitude = degrees(atan(sinh(3.141592653589793 * (1.0 - 2.0 * v_mercator.y))));
   if (latitude < -60.0) discard;
   vec2 cell = vec2(v_mercator.x * 1440.0, (90.0 - latitude) * 4.0);
-  vec2 local = sampleScoreSpline(cell, 1.0);
-  if (local.y < 0.00001) discard;
-  float score = local.x / local.y;
-  if (u_overview_smoothing > 0.0) {
-    vec2 overview = sampleScoreSpline(cell, 4.0);
-    if (overview.y > 0.00001) score = mix(score, overview.x / overview.y, u_overview_smoothing);
-  }
-  float landWeight = local.y;
+  vec2 fineDetail = sampleScoreSpline(cell, 1.0, true);
+  if (fineDetail.y < 0.00001) discard;
+  vec2 cellLattice = sampleScoreSpline(cell, 4.0, false);
+  float score = cellLattice.x / cellLattice.y + fineDetail.x / fineDetail.y * (1.0 - u_overview_smoothing);
   float edgeWidth = max(fwidth(score) * u_edge_pixels, 0.02);
   vec4 colour = u_band_colours[0];
   float contour = 0.0;
@@ -204,9 +206,8 @@ void main() {
     contour = max(contour, 1.0 - smoothstep(0.0, edgeWidth * 2.0, abs(distanceToEdge)));
   }
   colour.rgb *= 1.0 - 0.14 * contour;
-  float landCoverage = smoothstep(0.0, 0.02, landWeight);
   vec3 landComposite = colour.rgb + u_land_colour.rgb * (1.0 - colour.a);
-  fragColour = vec4(landComposite * landCoverage, landCoverage);
+  fragColour = vec4(landComposite, 1.0);
 }`;
 
 /** Exact loaded 30 arc-second cells replace the overview at their real geographic area. */

@@ -211,7 +211,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
         this.fineMap.preparePoint(latitude, longitude);
         const numbers = this.fineMap.numbers(latitude, longitude, selectedPeriod);
         const facts = this.defaultPlaces.judge(latitude, longitude, selectedPeriod, true);
-        return numbers && facts ? {...facts, ...numbers} : null;
+        return numbers && facts ? {...facts, ...numbers} : facts;
       }
       this.namedPlaces.prepare([{ latitude, longitude }], selectedPeriod);
       if (this.namedPlaces.pending(latitude, longitude, selectedPeriod)) return null;
@@ -249,7 +249,14 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   scorePoints(points: readonly Point[], scope?: 'all'): Float32Array {
     if (this.isDefaultTaste()) {
-      if (this.isClimate() && this.fineMap.activeAtZoom) return Float32Array.from(points, point => this.fineMap.numbers(point.latitude, point.longitude)?.meanScore ?? NaN);
+      if (this.isClimate() && this.fineMap.activeAtZoom) {
+        const scores = this.overviewScores(points);
+        points.forEach((point, index) => {
+          const numbers = this.fineMap.numbers(point.latitude, point.longitude);
+          if (numbers) scores[index] = numbers.meanScore;
+        });
+        return scores;
+      }
       const visible = this.namedPointIndices(points, scope);
       this.namedPlaces.prepare(visible.map(index => points[index]), this.period);
       if (this.namedPlaces.enabled || visible.some(index => this.namedPlaces.pending(points[index].latitude, points[index].longitude, this.period))) {
@@ -298,13 +305,6 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   countPoints(points: readonly Point[], scope?: 'all'): Float32Array {
     const counts = new Float32Array(points.length * 3).fill(NaN);
-    if (this.isDefaultTaste() && this.isClimate() && this.fineMap.activeAtZoom) {
-      points.forEach((point, index) => {
-        const numbers = this.fineMap.numbers(point.latitude, point.longitude);
-        if (numbers) counts.set([numbers.niceDayCount, numbers.perfectDayCount, numbers.awfulDayCount], index * 3);
-      });
-      return counts;
-    }
     const visible = this.namedPointIndices(points, scope);
     if (this.isDefaultTaste()) this.namedPlaces.prepare(visible.map(index => points[index]), this.period);
     if (this.sampler && !this.destroyed) visible.forEach(ordinal => {
@@ -317,6 +317,10 @@ export class BrowserWeatherEngine implements WeatherEngine {
       const named = this.namedPlaces.numbers(point.latitude, point.longitude, this.period);
       if (named) counts.set([named.niceDayCount, named.perfectDayCount, named.awfulDayCount], index * 3);
       else if (this.namedPlaces.pending(point.latitude, point.longitude, this.period)) counts.fill(NaN, index * 3, index * 3 + 3);
+    });
+    if (this.isDefaultTaste() && this.isClimate() && this.fineMap.activeAtZoom) points.forEach((point, index) => {
+      const numbers = this.fineMap.numbers(point.latitude, point.longitude);
+      if (numbers) counts.set([numbers.niceDayCount, numbers.perfectDayCount, numbers.awfulDayCount], index * 3);
     });
     return counts;
   }

@@ -225,7 +225,7 @@ void main(){
  ivec2 maximum=textureSize(u_scores,0)-ivec2(1);
  for(int row=0;row<4;row++)for(int column=0;column<4;column++){
   float value=texelFetch(u_scores,clamp(base+ivec2(column-1,row-1),ivec2(0),maximum),0).r;
-  if(value>100.5)continue;
+  if(value>100.5)discard;
   weighted+=vec2(value,1.)*wx[column]*wy[row];
  }
  if(weighted.y<.00001)discard;
@@ -239,9 +239,8 @@ void main(){
   contour=max(contour,1.-smoothstep(0.,edgeWidth*2.,abs(distanceToEdge)));
  }
  colour.rgb*=1.-.14*contour;
- float landCoverage=smoothstep(0.,.02,weighted.y);
  vec3 composite=colour.rgb+u_land_colour.rgb*(1.-colour.a);
- fragColour=vec4(composite*landCoverage,landCoverage);
+ fragColour=vec4(composite,1.);
 }`;
 const resolveVertex=`#version 300 es
 in vec2 a_position;

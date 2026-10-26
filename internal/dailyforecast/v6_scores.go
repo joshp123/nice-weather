@@ -3,6 +3,8 @@ package dailyforecast
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
@@ -139,6 +141,127 @@ func v6FineDefaultScore(index int, offset byte, ordinals []int, levels [][11]flo
 
 var v6ScoreThresholds = scorebands.Thresholds
 
+func v6FillTemperatureOffsets(offsets []byte) ([]byte, error) {
+	const lastLatitudeRow = 600 // 60°S; Antarctica stays excluded.
+	const infinity = 1 << 30
+	nearestColumn := make([]int, Width*(lastLatitudeRow+1))
+	horizontalDistance := make([]int, len(nearestColumn))
+	for index := range horizontalDistance {
+		horizontalDistance[index] = infinity
+	}
+	for row := 0; row <= lastLatitudeRow; row++ {
+		lastSource := -infinity
+		for column := -Width; column < Width; column++ {
+			if offsets[row*Width+(column+Width)%Width] != 255 {
+				lastSource = column
+			}
+			if column >= 0 && lastSource != -infinity {
+				index := row*Width + column
+				nearestColumn[index] = (lastSource + Width) % Width
+				horizontalDistance[index] = (column - lastSource) * (column - lastSource)
+			}
+		}
+		lastSource = infinity
+		for column := 2*Width - 1; column >= 0; column-- {
+			if offsets[row*Width+column%Width] != 255 {
+				lastSource = column
+			}
+			if column < Width && lastSource != infinity {
+				index := row*Width + column
+				distance := (column - lastSource) * (column - lastSource)
+				if distance < horizontalDistance[index] {
+					nearestColumn[index] = lastSource % Width
+					horizontalDistance[index] = distance
+				}
+			}
+		}
+	}
+	filled := bytes.Repeat([]byte{255}, Width*Height)
+	sourceRows := make([]int, lastLatitudeRow+1)
+	firstRows := make([]int, len(sourceRows))
+	for column := range Width {
+		last := -1
+		for row := 0; row <= lastLatitudeRow; row++ {
+			if horizontalDistance[row*Width+column] == infinity {
+				continue
+			}
+			first := -infinity
+			for last >= 0 {
+				previous := sourceRows[last]
+				numerator := horizontalDistance[row*Width+column] + row*row - horizontalDistance[previous*Width+column] - previous*previous
+				first = int(math.Floor(float64(numerator)/float64(2*(row-previous)))) + 1
+				if first > firstRows[last] {
+					break
+				}
+				last--
+			}
+			if last < 0 {
+				first = -infinity
+			}
+			last++
+			sourceRows[last], firstRows[last] = row, first
+		}
+		if last < 0 {
+			return nil, fmt.Errorf("v6 temperature offsets have no land north of 60°S")
+		}
+		candidate := 0
+		for row := 0; row <= lastLatitudeRow; row++ {
+			for candidate < last && firstRows[candidate+1] <= row {
+				candidate++
+			}
+			sourceRow := sourceRows[candidate]
+			filled[row*Width+column] = offsets[sourceRow*Width+nearestColumn[sourceRow*Width+column]]
+		}
+	}
+	return filled, nil
+}
+
+// RegenerateScoreImages redraws an existing forecast without fetching ECMWF or changing its day records.
+func RegenerateScoreImages(ctx context.Context, source, staticSource, output string, log io.Writer) error {
+	encoded, err := readV6StaticFile(ctx, source, "v6/forecast/current.json")
+	if err != nil {
+		return err
+	}
+	var pointer v6Pointer
+	if err := json.Unmarshal(encoded, &pointer); err != nil {
+		return err
+	}
+	if pointer.Run == "" || filepath.Base(pointer.Run) != pointer.Run || pointer.Days != v6Days {
+		return fmt.Errorf("invalid v6 forecast pointer")
+	}
+	run, err := time.Parse("2006-01-02", pointer.FirstDate)
+	if err != nil {
+		return err
+	}
+	cellBytes, err := readV6StaticFile(ctx, staticSource, "cells.bin")
+	if err != nil {
+		return err
+	}
+	if len(cellBytes) == 0 || len(cellBytes)%4 != 0 {
+		return fmt.Errorf("invalid v6 cells.bin size")
+	}
+	cells := make([][2]uint16, len(cellBytes)/4)
+	for index := range cells {
+		cells[index] = [2]uint16{binary.LittleEndian.Uint16(cellBytes[index*4:]), binary.LittleEndian.Uint16(cellBytes[index*4+2:])}
+		if cells[index][0] >= 180 || cells[index][1] >= 360 {
+			return fmt.Errorf("invalid v6 cell %d", index)
+		}
+	}
+	relativeDirectory := "v6/forecast/" + pointer.Run
+	records, err := readV6StaticFile(ctx, source, relativeDirectory+"/days.bin")
+	if err != nil {
+		return err
+	}
+	if len(records) != len(cells)*v6Days*15 {
+		return fmt.Errorf("invalid v6 days.bin size: got %d, want %d", len(records), len(cells)*v6Days*15)
+	}
+	directory := filepath.Join(output, filepath.FromSlash(relativeDirectory))
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return err
+	}
+	return writeV6ScoreImages(ctx, staticSource, directory, cells, records, run, log)
+}
+
 func v6CanonicalScore(score float64) float64 {
 	return math.Floor(score*10000+.5) / 10000
 }
@@ -180,7 +303,10 @@ func writeV6ScoreImages(ctx context.Context, staticSource, outputDirectory strin
 		if !ok || gray.Bounds() != image.Rect(0, 0, Width, Height) {
 			return fmt.Errorf("v6 %s must be %d × %d, 8-bit greyscale", name, Width, Height)
 		}
-		offsets[month] = gray.Pix
+		offsets[month], err = v6FillTemperatureOffsets(gray.Pix)
+		if err != nil {
+			return fmt.Errorf("v6 %s: %w", name, err)
+		}
 	}
 	ordinals := v6NearestLandOrdinals(cells)
 	levels := make([][11]float64, len(cells))
