@@ -19,7 +19,7 @@ const [{PointSampler},{nearestLandOrdinals},{DEFAULT_TASTE},{placeNumbers,blendP
   bundled('src/engine/sampling.ts'),bundled('src/engine/data.ts','\nexport {nearestLandOrdinals};'),bundled('src/engine/taste.ts'),import(pathToFileURL(path.join(hosting,'fine-place.mjs')).href)]);
 let worker=await fs.readFile(path.join(hosting,'worker.mjs'),'utf8');
 worker=worker.replace(/from '\.\/([^']+)'/g,(_,name)=>`from '${pathToFileURL(path.join(hosting,name)).href}'`)
- .replace("numbers: placeNumbers({source: 'forecast'","numbers: captureNumbers({source: 'forecast'");
+ .replaceAll("placeNumbers({source: 'forecast'","captureNumbers({source: 'forecast'");
 worker+='\nexport {defaultPeriodJudgement,monthlyOffsets};export const capturedPackets=[];function captureNumbers(packet,period){capturedPackets.push(packet);return placeNumbers(packet,period);}\n';
 const shared=await import(`data:text/javascript;base64,${Buffer.from(worker).toString('base64')}`),consumed=new Map();
 const bucket={async get(key,options){

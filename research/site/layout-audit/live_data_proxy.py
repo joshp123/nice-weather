@@ -63,4 +63,4 @@ class Handler(BaseHTTPRequestHandler):
         return self.forward('HEAD')
 
 
-ThreadingHTTPServer(('127.0.0.1', 5198), Handler).serve_forever()
+ThreadingHTTPServer(("127.0.0.1", int(sys.argv[2]) if len(sys.argv) > 2 else 5198), Handler).serve_forever()

@@ -391,6 +391,10 @@ func rankedBefore(a, b Place) bool {
 	if aGoodDays != bGoodDays {
 		return aGoodDays > bGoodDays
 	}
+	// A single day gives every Perfect place the same two good days; the nicer place goes first, not the bigger one.
+	if math.Floor(a.FloatScore) != math.Floor(b.FloatScore) {
+		return math.Floor(a.FloatScore) > math.Floor(b.FloatScore)
+	}
 	if a.Population != b.Population {
 		return a.Population > b.Population
 	}
@@ -400,7 +404,8 @@ func rankedBefore(a, b Place) bool {
 func largestNearbyPlace(winner Place, candidates []Place) Place {
 	name := winner
 	for _, candidate := range candidates {
-		if math.Abs(candidate.FloatScore-winner.FloatScore) > nearbyNameScoreDifference || distanceKM(winner, candidate) > nearbyNameRadiusKM {
+		similar := math.Abs(candidate.FloatScore-winner.FloatScore) <= nearbyNameScoreDifference || bandIndex(int(math.Floor(candidate.FloatScore))) == bandIndex(int(math.Floor(winner.FloatScore)))
+		if !similar || distanceKM(winner, candidate) > nearbyNameRadiusKM {
 			continue
 		}
 		if candidate.Population > name.Population || candidate.Population == name.Population && candidate.Slug < name.Slug {

@@ -17,13 +17,16 @@ export function createSearch(actions: Actions): SearchControls {
   const results = el('ul', 'search-results panel');
   let latest = 0;
   let timer: number | undefined;
+  /** Enter pressed before the results arrived: take the first one when they do. */
+  let enterPending = false;
   const clear = () => results.replaceChildren();
   // Closing also drops a search still on its way, so late results never reopen the list.
-  const close = () => { latest++; window.clearTimeout(timer); clear(); input.blur(); app()?.classList.remove('search-open'); };
+  const close = () => { latest++; enterPending = false; window.clearTimeout(timer); clear(); input.blur(); app()?.classList.remove('search-open'); };
   input.oninput = () => {
     latest++;
     window.clearTimeout(timer);
     const query = input.value.trim();
+    enterPending = false;
     if (query.length < 2) { clear(); return; }
     timer = window.setTimeout(async () => {
       const request = ++latest;
@@ -34,10 +37,15 @@ export function createSearch(actions: Actions): SearchControls {
         pick.append(el('span', '', result.name), el('span', 'muted', result.region));
         return el('li', '', pick);
       }));
+      if (enterPending) { enterPending = false; results.querySelector('button')?.click(); }
     }, 120);
   };
   input.onkeydown = event => {
-    if (event.key === 'Enter') results.querySelector('button')?.click();
+    if (event.key === 'Enter') {
+      const first = results.querySelector('button');
+      if (first) first.click();
+      else enterPending = input.value.trim().length >= 2;
+    }
     if (event.key === 'Escape') close();
   };
   input.onblur = () => window.setTimeout(clear, 150);

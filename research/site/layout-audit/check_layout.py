@@ -18,6 +18,8 @@ ALL_SIZES = {
 }
 SIZES = {name: ALL_SIZES[name] for name in (sys.argv[4].split(',') if len(sys.argv) > 4 and sys.argv[4] else ALL_SIZES)}
 ONLY = set(sys.argv[5].split(',')) if len(sys.argv) > 5 and sys.argv[5] else None
+# DESIGN=<name> audits one candidate interface of the design audit (src/design.ts); unset audits the current one.
+DESIGN = os.environ.get('DESIGN', '')
 INVENTORY_JS = open(os.path.join(os.path.dirname(__file__), 'layout_audit.js')).read()
 os.makedirs(OUT, exist_ok=True)
 
@@ -33,6 +35,8 @@ def settle(page, seconds=40):
 
 
 def visit(page, path):
+    if DESIGN:
+        path += ('&' if '?' in path else '?') + 'design=' + DESIGN
     page.goto(BASE + path, wait_until='load')
     settle(page)
 

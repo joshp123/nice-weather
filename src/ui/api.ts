@@ -21,7 +21,7 @@ export type PlaceDetails = Place & Readonly<{ months: readonly MonthFacts[] | nu
 export type SearchResult = Readonly<{ name: string; region: string; latitude: number; longitude: number; slug?: string | null }>;
 
 async function json<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: 'no-cache' });
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   return response.json() as Promise<T>;
 }

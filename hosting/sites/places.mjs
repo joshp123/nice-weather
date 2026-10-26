@@ -16,7 +16,10 @@ const plain = (text) => text.normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 const countries = new Map((await lines('countryInfo.txt')).map((line) => { const fields = line.split('\t'); return [fields[0], fields[4]]; }));
 const regions = new Map((await lines('admin1CodesASCII.txt')).map((line) => { const [code, name] = line.split('\t'); return [code, name]; }));
-const cities = (await lines('cities1000.txt')).map((line) => line.split('\t'));
+// Towns and cities only. GeoNames also lists parts of cities (PPLX: "city center" in Las Palmas, Fès al Bali in Fez,
+// Puxi in Shanghai) and places that no longer exist (historical, abandoned, destroyed); a map names the city, as people do.
+const NOT_A_TOWN = new Set(['PPLX', 'PPLH', 'PPLQ', 'PPLW']);
+const cities = (await lines('cities1000.txt')).map((line) => line.split('\t')).filter((field) => !NOT_A_TOWN.has(field[7]));
 const wanted = new Set(cities.map((field) => field[0]));
 
 // English names: GeoNames' preferred English name, else its first everyday English name.

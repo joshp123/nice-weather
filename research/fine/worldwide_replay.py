@@ -12,6 +12,7 @@ import hashlib
 import importlib.metadata
 import json
 import multiprocessing as mp
+import mmap
 import os
 import pathlib
 import struct
@@ -21,9 +22,12 @@ import zoneinfo
 
 import numpy as np
 
-from native_normals import file_sha256, local_hour_indices
-from compare_step_a import climate_pipeline
-from tiles import POINT_DTYPE, TILE_SIZE
+from native_normals import file_sha256, local_hour_indices, pipeline
+from static import POINT_DTYPE
+
+
+def climate_pipeline():
+    return pipeline
 
 PACKET_HEADER = struct.Struct('<4sBBHIHH16s')
 ZONE_HEADER = struct.Struct('<4sHHHH16sI')
@@ -149,6 +153,65 @@ def sampling(chunk, zone):
     return epoch, dates, indices, fractions, utc, offsets
 
 
+def direct_normal_irradiance(epoch, utc, latitude, longitude, direct):
+    pipeline = climate_pipeline()
+    cosine = np.zeros_like(direct)
+    for midpoint in (.1127016654, .5, .8872983346):
+        weight = 8/18 if midpoint == .5 else 5/18
+        utc_dates = np.datetime64(epoch.date())+np.floor((utc+midpoint)/24).astype('timedelta64[D]')
+        day_numbers = (utc_dates-utc_dates.astype('datetime64[Y]')).astype(int)+1
+        value, _, _ = pipeline.solar(day_numbers[:, :, None], ((utc%24+midpoint)%24)[:, :, None], latitude, longitude)
+        cosine += weight*np.maximum(0, value)
+    return np.divide(direct, cosine, out=np.zeros_like(direct), where=cosine > .001)
+
+
+def apparent_temperatures(epoch, utc, latitude, longitude, air, dew, wind, direct):
+    dni = direct_normal_irradiance(epoch, utc, latitude, longitude, direct)
+    sun, shade, capped = climate_pipeline().taste.felt(air, dew, wind, dni)
+    return sun, shade, capped, dni
+
+
+def recover_selected_prefixes(args, name, config, selected_by_pair):
+    prefixes = {pair: np.empty((len(selected), 48), np.float32) for pair, selected in selected_by_pair.items()}
+    day_offset = 0
+    for chunk in config['chunks']:
+        count = len(climate_pipeline().chunk_dates(chunk)[1])
+        selections = {pair: np.flatnonzero((selected >= day_offset) & (selected < day_offset+count))
+                      for pair, selected in selected_by_pair.items()}
+        active = [pair for pair, positions in selections.items() if len(positions)]
+        if active:
+            path = args.reference_root/f'era5/chunk{chunk}'/name
+            fields = {'t2m', 'd2m', 'u10', 'v10', 'fdir'}
+            with np.load(path) as original:
+                raw = {field: original[field].astype(np.float32) for field in fields & set(original.files)}
+            missing = fields-set(raw)
+            if missing:
+                with np.load(args.weather_cache/f'chunk{chunk}'/name) as extra:
+                    raw.update({field: extra[field].astype(np.float32) for field in missing})
+            wind = np.hypot(raw['u10'], raw['v10'])*3.6
+            for zone in sorted({zone for _, zone in active}):
+                members = [pair for pair in active if pair[1] == zone]
+                days = np.unique(np.concatenate([selected_by_pair[pair][selections[pair]]-day_offset for pair in members]))
+                fine = np.array([pair[0] for pair in members])
+                latitude, longitude = 90-(fine//1440)*.25, -180+(fine%1440)*.25
+                rows, columns = (fine//1440)%12, ((fine%1440+720)%1440)%12
+                epoch, _, indices, fractions, utc, _ = sampling(chunk, config['timezoneNames'][zone])
+                indices, fractions, utc = indices[days, 10:22], fractions[days, 10:22], utc[days]
+                def sample(field, accumulation=False):
+                    base = indices+int(accumulation)
+                    return (field[base[:, :, None], rows, columns]*(1-fractions[:, :, None])+
+                            field[base[:, :, None]+1, rows, columns]*fractions[:, :, None])
+                air, dew = sample(raw['t2m']), sample(raw['d2m'])
+                sampled_wind, direct = sample(wind), sample(raw['fdir'], True)
+                sun, shade, _, _ = apparent_temperatures(epoch, utc, latitude, longitude, air, dew, sampled_wind, direct)
+                for position, pair in enumerate(members):
+                    prefix = np.column_stack((air[:, :, position], dew[:, :, position], sun[:, :, position], shade[:, :, position])).astype(np.float32)
+                    selected_days = selected_by_pair[pair][selections[pair]]-day_offset
+                    prefixes[pair][selections[pair]] = prefix[np.searchsorted(days, selected_days)]
+        day_offset += count
+    return prefixes
+
+
 def build_one_tile(job):
     args, name, keys = job
     pipeline = climate_pipeline()
@@ -165,9 +228,26 @@ def build_one_tile(job):
     required = sorted(set(pending) | {(fine, own_zones[fine]) for fine, _ in pending})
     records = {pair: [] for pair in required}
     own_scores = {pair: [] for pair in required}
+    two_pass_prefix = getattr(args, 'two_pass_prefix', False)
+    scratch_path = None if two_pass_prefix else getattr(args, 'record_scratch', None)
+    record_scratch = None
+    pair_positions = {pair: position for position, pair in enumerate(required)}
+    if scratch_path is not None:
+        scratch_path.parent.mkdir(parents=True, exist_ok=True)
+        record_scratch = np.memmap(scratch_path, mode='w+', dtype='<f4',
+            shape=(len(dates), len(required), 48))
     native_cells = np.fromfile(args.native_root/'v6/cells.bin', dtype='<u2').reshape(-1, 2)
     geometric_to_cell = {int(row)*360+int(column): index for index, (row, column) in enumerate(native_cells)}
+    native_score_cells = set(getattr(args, 'native_score_cells', None) or ()) if two_pass_prefix else set()
+    score_pairs = {pair for pair in pending if geometric_to_cell.get(
+        min(pair[0]//1440//4, 179)*360+(pair[0]%1440)//4) not in native_score_cells}
     cell_scores = {}
+    ram_prefix_budget = getattr(args, 'ram_prefix_bytes', 0)
+    ram_prefix_bytes = len(pending)*len(dates)*48*8
+    ram_prefix_inputs = (np.empty((len(pending),len(dates),48),np.float64)
+        if two_pass_prefix and 0 < ram_prefix_bytes <= ram_prefix_budget else None)
+    ram_pair_positions = {pair:position for position,pair in enumerate(pending)}
+    day_offset = 0
     for chunk in config['chunks']:
         path = args.reference_root/f'era5/chunk{chunk}'/name
         supplement = args.weather_cache/f'chunk{chunk}'/name
@@ -186,9 +266,13 @@ def build_one_tile(job):
         intermediate = args.native_root/f'climate-v6-work/chunk{chunk}'/name
         if intermediate.exists():
             with np.load(intermediate) as saved:
+                if not native_score_cells.issubset(saved['cells']):
+                    raise ValueError(f'Guaranteed native score cells missing: {intermediate}')
                 features = saved['sums']/saved['counts'][:, None, None]
                 scores = pipeline.score_features(pipeline.decode_records(pipeline.encode_records(features)))
                 for cell, score in zip(saved['cells'], scores): cell_scores.setdefault(int(cell), []).append(score)
+        elif native_score_cells:
+            raise ValueError(f'Guaranteed native score intermediate missing: {intermediate}')
         for zone_index in sorted({zone for _, zone in required}):
             members = [fine for fine, zone in required if zone == zone_index]
             latitude = np.array([90-(fine//1440)*.25 for fine in members])
@@ -207,15 +291,17 @@ def build_one_tile(job):
             sampled_wind = sample(wind, slice(10, 22))
             rain = sample(raw['tp'], slice(10, 22), True)
             direct = sample(raw['fdir'], slice(10, 22), True)
-            cosine = np.zeros_like(direct)
-            for midpoint in (.1127016654, .5, .8872983346):
-                weight = 8/18 if midpoint == .5 else 5/18
-                utc_dates = np.datetime64(epoch.date())+np.floor((utc+midpoint)/24).astype('timedelta64[D]')
-                day_numbers = (utc_dates-utc_dates.astype('datetime64[Y]')).astype(int)+1
-                value, _, _ = pipeline.solar(day_numbers[:, :, None], ((utc%24+midpoint)%24)[:, :, None], latitude, longitude)
-                cosine += weight*np.maximum(0, value)
-            dni = np.divide(direct, cosine, out=np.zeros_like(direct), where=cosine > .001)
-            sun, shade, capped = pipeline.taste.felt(air, dew, sampled_wind, dni)
+            if two_pass_prefix:
+                dni = direct_normal_irradiance(epoch, utc, latitude, longitude, direct)
+                score_positions = {position: index for index, position in enumerate(
+                    position for position, fine in enumerate(members) if (fine, zone_index) in score_pairs)}
+                positions = list(score_positions)
+                sun, shade, capped = pipeline.taste.felt(air[:, :, positions], dew[:, :, positions],
+                    sampled_wind[:, :, positions], dni[:, :, positions])
+                _, evening_shade, _ = pipeline.taste.felt(air[:, 11], dew[:, 11], sampled_wind[:, 11], dni[:, 11])
+            else:
+                sun, shade, capped, dni = apparent_temperatures(epoch, utc, latitude, longitude, air, dew, sampled_wind, direct)
+                evening_shade = shade[:, 11]
             day_numbers = np.array([date.timetuple().tm_yday for date in chunk_dates])[:, None]
             _, equation, declination = pipeline.solar(day_numbers, 12, latitude, longitude)
             lat_radians = np.deg2rad(latitude)
@@ -230,21 +316,36 @@ def build_one_tile(job):
             mean_wind = sampled_wind.mean(1)
             sunny = ((dni[:, :11] >= 300) & daylight_mask).sum(1)
             for position, fine in enumerate(members):
-                record = np.column_stack([air[:, :, position], dew[:, :, position], sun[:, :, position], shade[:, :, position],
-                    high[:, position], low[:, position], total_rain[:, position], mean_wind[:, position], sunny[:, position], daylight[:, position]])
-                physical = np.column_stack([high[:, position], low[:, position], air[:, :11, position].max(1), air[:, 11, position], dew[:, 11, position], shade[:, 11, position]])
+                suffix = np.column_stack([high[:, position], low[:, position], total_rain[:, position], mean_wind[:, position], sunny[:, position], daylight[:, position]])
+                physical = np.column_stack([high[:, position], low[:, position], air[:, :11, position].max(1), air[:, 11, position], dew[:, 11, position], evening_shade[:, position]])
                 native_dew = dew[:, :, position].mean(1)
-                records[(fine, zone_index)].append((record, physical, native_dew))
+                # These 48 columns are written directly as float32 packet
+                # fields; monthly arithmetic uses only the six trailing fields.
+                record_prefix = None if two_pass_prefix else np.column_stack([air[:, :, position], dew[:, :, position], sun[:, :, position], shade[:, :, position]]).astype(np.float32)
+                if record_scratch is not None:
+                    record_scratch[day_offset:day_offset+len(chunk_dates),
+                        pair_positions[(fine, zone_index)]] = record_prefix
+                    record_prefix = None
+                records[(fine, zone_index)].append((record_prefix,
+                    suffix, physical, native_dew))
+                if ram_prefix_inputs is not None and (fine,zone_index) in ram_pair_positions:
+                    ram_prefix_inputs[ram_pair_positions[(fine,zone_index)],day_offset:day_offset+len(chunk_dates)] = np.column_stack(
+                        (air[:,:,position],dew[:,:,position],sampled_wind[:,:,position],dni[:,:,position]))
+                if two_pass_prefix and position not in score_positions:
+                    continue
+                score_position = score_positions[position] if two_pass_prefix else position
                 features = np.zeros((len(chunk_dates), 29))
-                features[:, :11] = sun[:, :11, position]
-                features[:, 11:23] = shade[:, :, position]
-                features[:, 23:] = np.column_stack([capped[:, :, position].mean(1), total_rain[:, position], mean_wind[:, position], sunny[:, position], daylight[:, position], air[:, :11, position].max(1)])
+                features[:, :11] = sun[:, :11, score_position]
+                features[:, 11:23] = shade[:, :, score_position]
+                features[:, 23:] = np.column_stack([capped[:, :, score_position].mean(1), total_rain[:, position], mean_wind[:, position], sunny[:, position], daylight[:, position], air[:, :11, position].max(1)])
                 own_scores[(fine, zone_index)].append(pipeline.score_features(pipeline.decode_records(pipeline.encode_records(features))))
-    bytes_written = 0
+        day_offset += len(chunk_dates)
+        if record_scratch is not None:
+            record_scratch._mmap.madvise(mmap.MADV_DONTNEED)
+    if two_pass_prefix:
+        del raw, wind, air24, air, dew, sampled_wind, rain, direct, sun, shade, capped, dni
+    selected_by_pair = {}
     for fine, zone in pending:
-        record = np.concatenate([value[0] for value in records[(fine, zone)]])
-        physical = np.concatenate([value[1] for value in records[(fine, zone)]])
-        native_dew = np.concatenate([value[2] for value in records[(fine, zone)]])
         geometric = min(fine//1440//4, 179)*360+(fine%1440)//4
         cell = geometric_to_cell.get(geometric)
         if cell in cell_scores and len(cell_scores[cell]) == len(config['chunks']):
@@ -256,19 +357,44 @@ def build_one_tile(job):
             indices = np.flatnonzero(month_axis == month)
             order = np.argsort(scores[indices], kind='stable')
             selected.extend(indices[order[np.floor((np.arange(8)+.5)*len(order)/8).astype(int)]])
-        monthly = np.array([[native_dew[month_axis == month].mean(), (record[month_axis == month, 50] >= 1).mean()*100,
-            (record[month_axis == month, 52]/np.maximum(1, record[month_axis == month, 53])).mean()*100,
-            record[month_axis == month, 51].mean()] for month in range(1, 13)])
+        selected_by_pair[(fine, zone)] = np.array(selected)
+    if ram_prefix_inputs is not None:
+        recovered = {}
+        for pair,selected in selected_by_pair.items():
+            selected_inputs = ram_prefix_inputs[ram_pair_positions[pair],selected]
+            selected_air,selected_dew,selected_wind,selected_dni = np.split(selected_inputs,4,axis=1)
+            selected_sun,selected_shade,_ = pipeline.taste.felt(selected_air,selected_dew,selected_wind,selected_dni)
+            recovered[pair] = np.column_stack((selected_air,selected_dew,selected_sun,selected_shade)).astype(np.float32)
+        del ram_prefix_inputs
+    else:
+        recovered = recover_selected_prefixes(args, name, config, selected_by_pair) if two_pass_prefix else None
+    bytes_written = 0
+    for fine, zone in pending:
+        selected = selected_by_pair[(fine, zone)]
+        suffix = np.concatenate([value[1] for value in records[(fine, zone)]])
+        physical = np.concatenate([value[2] for value in records[(fine, zone)]])
+        native_dew = np.concatenate([value[3] for value in records[(fine, zone)]])
+        if two_pass_prefix:
+            prefix = recovered[(fine, zone)]
+        else:
+            prefix = (record_scratch[selected, pair_positions[(fine, zone)]] if record_scratch is not None else
+                np.concatenate([value[0] for value in records[(fine, zone)]])[selected])
+        selected_records = np.column_stack((prefix, suffix[selected]))
+        monthly = np.array([[native_dew[month_axis == month].mean(), (suffix[month_axis == month, 2] >= 1).mean()*100,
+            (suffix[month_axis == month, 4]/np.maximum(1, suffix[month_axis == month, 5])).mean()*100,
+            suffix[month_axis == month, 3].mean()] for month in range(1, 13)])
         clock_delta = np.zeros((12, 2))
         if zone != own_zones[fine]:
-            own_physical = np.concatenate([value[1] for value in records[(fine, own_zones[fine])]])
+            own_physical = np.concatenate([value[2] for value in records[(fine, own_zones[fine])]])
             for month in range(1, 13):
                 keep = month_axis == month
                 clock_delta[month-1] = own_physical[keep, :2].mean(0)-physical[keep, :2].mean(0)
-        payload = packet_bytes(fine, zone, config['generation'], selected, record[selected], physical, monthly, clock_delta)
+        payload = packet_bytes(fine, zone, config['generation'], selected, selected_records, physical, monthly, clock_delta)
         encoded = gzip.compress(payload, compresslevel=6, mtime=0)
         write_atomic(args.output/f'native/{fine}/{zone}.nwfp.gz', encoded)
         bytes_written += len(encoded)
+        if record_scratch is not None:
+            record_scratch._mmap.madvise(mmap.MADV_DONTNEED)
     return name, len(pending), bytes_written
 
 

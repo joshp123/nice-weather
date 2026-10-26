@@ -19,7 +19,12 @@ const COPY: Record<SliderId, Copy> = {
   rain: { name: 'Rain', readout: value => `halves a day at ${value} mm`, hint: 'Total from 10:00 to 21:00. Rain keeps a smaller share of the day.' },
 };
 
-export type TastePanel = Readonly<{ element: HTMLElement; update(values: SliderValues): void }>;
+export type TastePanel = Readonly<{
+  element: HTMLElement;
+  update(values: SliderValues): void;
+  /** While the weather for a new taste downloads: how far it has come, 0 to 1, or null when unknown. Hidden when not given. */
+  showProgress(progress: number | null | undefined): void;
+}>;
 
 export function createTastePanel(values: SliderValues, actions: Actions): TastePanel {
   const inputs = new Map<SliderId, { input: HTMLInputElement; readout: HTMLElement; chart: ReturnType<typeof createScoreCurve> }>();
@@ -54,12 +59,25 @@ export function createTastePanel(values: SliderValues, actions: Actions): TasteP
     inputs.set(slider.id, { input, readout, chart });
   }
   const reset = button('text-button', 'Reset to the default', actions.resetSliders);
+  const progressText = el('span', '', '');
+  const progressBar = el('span', 'progress-bar');
+  const progress = el('p', 'taste-progress', progressText, el('span', 'progress-track', progressBar));
+  progress.setAttribute('role', 'status');
+  progress.hidden = true;
   const element = el('section', 'taste panel',
     el('header', 'panel-header', el('div', '', el('h2', 'panel-title', 'Your taste'), el('p', 'panel-subtitle', 'Warm, sunny, dry and calm by default. Drag a slider and the map redraws.')), close),
+    progress,
     list,
     el('div', 'taste-foot', reset));
   return {
     element,
+    showProgress(fraction) {
+      progress.hidden = fraction === undefined;
+      progressText.textContent = fraction === null || fraction === undefined
+        ? 'Getting the weather for your taste…'
+        : `Getting the weather for your taste: ${Math.round(fraction * 100)}%`;
+      progressBar.style.width = `${Math.round((fraction ?? 0) * 100)}%`;
+    },
     update(next) {
       currentValues = next;
       const taste = tasteFromSliders(next);

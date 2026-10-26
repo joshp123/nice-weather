@@ -8,8 +8,8 @@ import numpy as np
 
 OPUS = pathlib.Path('/tmp/nwf-agents/round3/opus')
 YEARS = (2016, 2025)
-NICE, AWFUL = 55.0, 25.0
-BANDS = [(85, 'Perfect'), (70, 'Beautiful'), (55, 'Nice'), (40, 'Fair'), (25, 'Poor'), (-1, 'Awful')]
+NICE, AWFUL = 55.0, json.loads((pathlib.Path(__file__).resolve().parents[2] / 'hosting/sites/awful-maximum.json').read_text())
+BANDS = [(85, 'Perfect'), (70, 'Beautiful'), (55, 'Nice'), (40, 'Fair'), (AWFUL, 'Poor'), (0, 'Awful')]
 EVENING_HOURS_WORTH = 2.0  # the walk home at 21:00 counts like two daytime hours
 
 

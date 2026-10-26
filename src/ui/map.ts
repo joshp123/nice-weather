@@ -80,14 +80,24 @@ function style(colours: MapDesign): StyleSpecification {
       },
       cityLayer(colours),
       { id: 'headline-pointers', type: 'line', source: 'headline-pointers', layout: { 'line-cap': 'round' }, paint: { 'line-color': colours.text, 'line-width': colours.pointerWidth, 'line-opacity': colours.pointerOpacity } },
-      { id: 'headline-points', type: 'circle', source: 'city-scores', filter: ['has', 'headlineRank'], paint: { 'circle-radius': colours.pointRadius, 'circle-color': colours.text, 'circle-stroke-color': colours.halo, 'circle-stroke-width': colours.pointStroke } },
+      // A dot marks an answer's place only when its label had to move away, at the end of the pointer line.
+      { id: 'headline-points', type: 'circle', source: 'city-scores', filter: ['has', 'headlinePointer'], paint: { 'circle-radius': colours.pointRadius, 'circle-color': colours.text, 'circle-stroke-color': colours.halo, 'circle-stroke-width': colours.pointStroke } },
       { ...cityLayer(colours, 'Noto Sans Bold'), id: 'headline-labels', filter: ['has', 'headlineRank'], layout: {
         ...cityLayer(colours, 'Noto Sans Bold').layout, 'symbol-sort-key': ['get', 'headlineRank'],
         'text-allow-overlap': true, 'text-offset': ['get', 'headlineOffset'],
       } },
+      // The chosen place: a ring on the spot, and its name and number beside it in bold, like the answer's places.
       {
         id: 'chosen-place', type: 'symbol', source: 'chosen-place',
-        layout: { 'icon-image': 'chosen-place', 'icon-allow-overlap': true },
+        layout: {
+          'icon-image': 'chosen-place', 'icon-allow-overlap': true,
+          'text-field': scoredLabel, 'text-font': ['Noto Sans Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 1, colours.labelSmall * colours.labelScale, 9, colours.labelLarge * colours.labelScale],
+          'text-line-height': colours.labelLineHeight, 'text-max-width': colours.labelWidth,
+          'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': colours.ringSize / 2 / colours.labelLarge,
+          'text-justify': 'auto', 'text-allow-overlap': true,
+        },
+        paint: { 'text-color': colours.text, 'text-halo-color': colours.halo, 'text-halo-width': colours.labelHaloWidth },
       },
     ],
   };
@@ -109,14 +119,15 @@ function ringImage(design: MapDesign): ImageData {
 }
 
 export type CityPoint = Point & Readonly<{ name: string; slug: string; population: number }>;
+export type ChosenPlace = Point & Readonly<{ name: string; score?: number; displayedNumber?: number }>;
 
 export type WeatherMap = Readonly<{
   map: maplibregl.Map;
   theme: Theme;
   citiesReady: Promise<void>;
   loadRemainingCities(): Promise<void>;
-  /** Marks the chosen spot and writes its name beside it. */
-  showChosenPlace(place: { latitude: number; longitude: number; name: string; score?: number } | null): void;
+  /** Marks the chosen spot and writes its name beside it, with its number (nice days, or a single day's score) when known. */
+  showChosenPlace(place: ChosenPlace | null): void;
   /** All loaded cities, independent of basemap tile requests. */
   visibleCities(): CityPoint[];
   labelCandidates(): CityPoint[];
@@ -139,7 +150,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
   const design = mapDesign();
   container.style.backgroundColor = design.sea;
   let cities: CityPoint[] = [];
-  let chosenPlace: {latitude: number; longitude: number; name: string; score?: number} | null = null;
+  let chosenPlace: ChosenPlace | null = null;
   let previousLabels: {cities: readonly CityPoint[]; scores: ArrayLike<number>; niceCounts?: ArrayLike<number>; prioritySlugs: readonly string[]} | undefined;
   const fetchLabels = (file: string) => fetch(`/api/fine/${file}`).then(response => {
     if (!response.ok) throw new Error(`City labels: HTTP ${response.status}`);
@@ -157,6 +168,9 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
     dragRotate: false, pitchWithRotate: false, touchPitch: false,
     renderWorldCopies: false,
     canvasContextAttributes: { preserveDrawingBuffer: true },
+    // The 57-inch ultrawide needs a canvas 7,680 pixels wide in both its Retina and native modes; MapLibre's usual limit of
+    // 4,096 would stretch a smaller picture across it and blur the map.
+    maxCanvasSize: [8192, 8192],
     transformConstrain: wide ? constrainWholeWorld : undefined,
   });
   map.touchZoomRotate.disableRotation();
@@ -245,9 +259,10 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
         showChosenPlace(place) {
           const changed = chosenPlace?.latitude !== place?.latitude || chosenPlace?.longitude !== place?.longitude || chosenPlace?.name !== place?.name;
           chosenPlace = place;
+          const numbered = place && Number.isFinite(place.score) && Number.isFinite(place.displayedNumber);
           (map.getSource('chosen-place') as GeoJSONSource).setData({
             type: 'FeatureCollection',
-            features: place ? [{ type: 'Feature', properties: { name: place.name, longitude: place.longitude, latitude: place.latitude, ...(Number.isFinite(place.score) ? { score: Math.floor(place.score!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
+            features: place ? [{ type: 'Feature', properties: { name: place.name, longitude: place.longitude, latitude: place.latitude, ...(numbered ? { countImage: countImage(place.score!, place.displayedNumber!) } : {}) }, geometry: { type: 'Point', coordinates: [place.longitude, place.latitude] } }] : [],
           });
           if (changed && previousLabels) weatherMap.labelCities(previousLabels.cities, previousLabels.scores, previousLabels.niceCounts, previousLabels.prioritySlugs);
         },
@@ -259,25 +274,25 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
             const slug = properties.slug as string | undefined;
             const city = cities.find(candidate => slug ? candidate.slug === slug : candidate.name === properties.name && candidate.latitude === properties.latitude && candidate.longitude === properties.longitude);
             if (!city || seen.has(city.slug)) return [];
-            const screenPoint = map.project([city.longitude, city.latitude]);
-            const coveringElement = document.elementFromPoint(screenPoint.x, screenPoint.y);
+            const screenPoint = map.project([city.longitude, city.latitude]), frame = container.getBoundingClientRect();
+            const coveringElement = document.elementFromPoint(frame.left + screenPoint.x, frame.top + screenPoint.y);
             if (coveringElement && !container.contains(coveringElement)) return [];
             seen.add(city.slug);
             return [{ ...city, displayedNumber: Number.isFinite(properties.displayedNumber) ? properties.displayedNumber : undefined }];
           });
         },
         rankingCandidates(minimumPopulation) {
+          const bounds = map.getBounds(), closeZoom = map.getZoom() >= 8;
+          const longitudeWidth = bounds.getEast() - bounds.getWest();
           const fontSize = (design.labelSmall + (design.labelLarge - design.labelSmall) * Math.max(0, Math.min(1, (map.getZoom() - 1) / 8))) * design.labelScale;
           const halfWidth = fontSize * design.labelWidth / 2 + design.labelHaloWidth;
           const halfHeight = (fontSize * design.labelLineHeight * 3 + design.countHeight * design.labelScale) / 2;
           return cities.filter(city => {
             if (city.population < minimumPopulation) return false;
+            if (closeZoom && (city.latitude < bounds.getSouth() || city.latitude > bounds.getNorth() || longitudeWidth < 360 && ((city.longitude - bounds.getWest()) % 360 + 360) % 360 > longitudeWidth)) return false;
+            // Panels that happen to be open do not count: the answer is about the map, and must not change when a panel opens or closes.
             const point = map.project([city.longitude, city.latitude]);
-            if (point.x < halfWidth || point.x > container.clientWidth - halfWidth || point.y < halfHeight || point.y > container.clientHeight - halfHeight) return false;
-            return [[0, 0], [-halfWidth, -halfHeight], [halfWidth, halfHeight], [-halfWidth, halfHeight], [halfWidth, -halfHeight]].every(([x, y]) => {
-              const element = document.elementFromPoint(point.x + x, point.y + y);
-              return !element || container.contains(element);
-            });
+            return point.x >= halfWidth && point.x <= container.clientWidth - halfWidth && point.y >= halfHeight && point.y <= container.clientHeight - halfHeight;
           });
         },
         labelCandidates() {
@@ -299,10 +314,15 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
             return corners.some((corner, index) => linesCross(start, end, corner, corners[(index + 1) % 4]));
           };
           const boxesOverlap = (a: LabelBox, b: LabelBox) => Math.abs(a.x - b.x) < (a.width + b.width) / 2 && Math.abs(a.y - b.y) < (a.height + b.height) / 2;
+          // Map points are measured from the map's corner; the page measures from the window's, below the top bar.
+          const frame = container.getBoundingClientRect();
           const options = prioritySlugs.flatMap(slug => {
             const city = cities.find(place => place.slug === slug);
-            if (!city) return [];
+            if (!city || isChosen(city)) return [];
             const point = map.project([city.longitude, city.latitude]);
+            // A place under an open panel keeps its name in the answer but gets no label: a pointer would lead under the panel.
+            const atPoint = document.elementFromPoint(frame.left + point.x, frame.top + point.y);
+            if (atPoint && !container.contains(atPoint)) return [];
             const textWidth = city.name.length * fontSize * 0.65;
             const width = Math.min(textWidth, fontSize * design.labelWidth) + design.labelPadding * 2;
             const height = fontSize * design.labelLineHeight * Math.ceil(textWidth / (fontSize * design.labelWidth)) + design.countHeight * design.labelScale + design.labelPadding * 2;
@@ -311,7 +331,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
               const box = {x: point.x + column * width / 2, y: point.y + row * height / 2, width, height};
               const clear = [-1, 0, 1].every(x => [-1, 0, 1].every(y => {
                 const px = box.x + x * width / 2, py = box.y + y * height / 2;
-                const element = document.elementFromPoint(px, py);
+                const element = document.elementFromPoint(frame.left + px, frame.top + py);
                 return px > 0 && px < container.clientWidth && py > 0 && py < container.clientHeight && (!element || container.contains(element));
               }));
               if (!clear) continue;
@@ -342,6 +362,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
           };
           const placed = placeLabels(0, [], true) ?? placeLabels(0, [], false) ?? [];
           const offsets = new Map(placed.map(({slug, point, box}) => [slug, [(box.x - point.x) / fontSize, (box.y - point.y) / fontSize]]));
+          const withPointer = new Set(placed.filter(({point, end}) => point.dist(end) > 0).map(({slug}) => slug));
           const pointers: GeoJSON.Feature<GeoJSON.LineString>[] = placed.filter(({point, end}) => point.dist(end) > 0).map(({point, end}) => ({
             type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: [map.unproject(point).toArray(), map.unproject(end).toArray()]},
           }));
@@ -357,6 +378,7 @@ export function createMap(container: HTMLElement, theme: Theme, camera: Camera |
                   name: city.name, population: city.population, slug: city.slug, longitude: city.longitude, latitude: city.latitude,
                   ...(isChosen(city) ? {chosen: true} : {}),
                   ...(offsets.has(city.slug) ? {headlineRank: prioritySlugs.indexOf(city.slug), headlineOffset: offsets.get(city.slug)} : {}),
+                  ...(withPointer.has(city.slug) ? {headlinePointer: true} : {}),
                   ...(Number.isFinite(score) ? { score: Math.floor(score) } : {}),
                   ...(Number.isFinite(score) && count !== undefined && Number.isFinite(count) ? { countImage: countImage(score, count), displayedNumber: Math.round(count) } : {}),
                 },

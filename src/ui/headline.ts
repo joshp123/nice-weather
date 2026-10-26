@@ -11,7 +11,13 @@ import { CONTINENT_POPULATION, WORLD_POPULATION, inOutlookRegion, rankPlaces, ra
 type ViewBounds = Readonly<{ getWest(): number; getEast(): number; getSouth(): number; getNorth(): number }>;
 export type HeadlinePlace = NamedPlace & Readonly<{ score: number; niceDayCount: number; perfectDayCount: number; region?: string; slug?: string | null; population?: number }>;
 
-export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], bounds?: ViewBounds, limit = 3, minimumPopulation?: number): HeadlinePlace[] {
+/** A place is named only when at least a quarter of the period's days are nice (a single day: when that day is nice),
+ *  so a map that is Awful almost every day names nowhere, while the Alps' Bolzano, nice on 168 days a year, still counts. */
+export function enoughNiceDays(periodDays: number): number {
+  return Math.max(1, Math.ceil(periodDays / 4));
+}
+
+export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace & { slug?: string; region?: string; population?: number })[], periodDays: number, bounds?: ViewBounds, limit = 3, minimumPopulation?: number): HeadlinePlace[] {
   const region = bounds ? viewportRegion(bounds) : 'the world';
   const population = minimumPopulation ?? (region === 'the world' ? WORLD_POPULATION : CONTINENT_POPULATION);
   const countries = REGION_COUNTRIES[region];
@@ -27,7 +33,7 @@ export function nicestPlaces(engine: WeatherEngine, places: readonly (NamedPlace
   const counts = engine.countPoints(visible, population > 0 ? 'all' : undefined);
   const candidates = visible.map((place, index) => ({ ...place, score: scores[index], niceDayCount: counts[index * 3], perfectDayCount: counts[index * 3 + 1] }));
   const visibleWidthKM = bounds ? 6371 * Math.PI / 180 * (bounds.getEast() - bounds.getWest()) * Math.cos((bounds.getSouth() + bounds.getNorth()) / 2 * Math.PI / 180) : Infinity;
-  return rankPlaces(candidates.filter(place => place.niceDayCount > 0), population, limit, place => {
+  return rankPlaces(candidates.filter(place => Number.isFinite(place.score) && Math.round(place.niceDayCount) >= enoughNiceDays(periodDays)), population, limit, place => {
     const verdict = engine.judgePoint(place.latitude, place.longitude);
     return verdict ? { ...place, score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount } : null;
   }, rankingSeparationKM(visibleWidthKM));
@@ -49,14 +55,16 @@ export function viewportRegion(bounds: ViewBounds): string {
   return 'this map';
 }
 
-/** The first line of the answer: "Nicest on this map from December to February". */
-export function headlineContext(period: Period, forecast: ForecastIndex | null, region: string): string {
-  return `Nicest ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}`;
+/** The first line of the answer: "Nicest on this map from December to February", or "… in your winter" (the time button says which months). */
+export function headlineContext(period: Period, forecast: ForecastIndex | null, region: string, yourWinter = false): string {
+  return `Nicest ${region === 'this map' ? 'on this map' : `in ${region}`} ${yourWinter ? 'in your winter' : periodPhrase(period, forecast)}`;
 }
 
 export function headlineSentence(period: Period, forecast: ForecastIndex | null, nicest: readonly HeadlinePlace[], region = 'the world'): string {
-  if (nicest.length === 0) return `No nice days ${region === 'this map' ? 'on this map' : `in ${region}`} ${periodPhrase(period, forecast)}.`;
-  const names = nicest.map(place => `${countryFlag(place)} ${place.name}`.trim());
+  const where = region === 'this map' ? 'on this map' : `in ${region}`;
+  if (nicest.length === 0) return period.kind === 'forecast-day' ? `Nowhere ${where} is nice ${periodPhrase(period, forecast)}.` : `Few nice days ${where} ${periodPhrase(period, forecast)}.`;
+  // No-break spaces keep each flag and name together when the sentence wraps, as on the poster.
+  const names = nicest.map(place => `${countryFlag(place)} ${place.name}`.trim().replaceAll(' ', '\u00a0'));
   const last = names.pop();
   return `${headlineContext(period, forecast, region)}: ${names.length ? `${names.join(', ')} and ` : ''}${last}.`;
 }
@@ -78,8 +86,9 @@ export function placeNames(places: readonly HeadlinePlace[], select: (place: Hea
 export type AnswerLine = Readonly<{ text: string; warning: boolean }>;
 export type Headline = Readonly<{
   element: HTMLElement;
-  /** The context line, then either the places or a line of status (loading, a problem). */
-  set(context: string, places: DocumentFragment | null, status: AnswerLine | null): void;
+  /** The context line, then either the places or a line of status (loading, a problem). While a change of taste
+   *  loads, the last places stay, marked as updating. */
+  set(context: string, places: DocumentFragment | null, status: AnswerLine | null, updating?: boolean): void;
 }>;
 
 /** The answer at the top left: what the map shows, then the three nicest places. "More places" opens the list. */
@@ -91,9 +100,10 @@ export function createHeadline(openList: () => void): Headline {
   const element = el('div', 'answer', contextLine, places);
   return {
     element,
-    set(contextText, names, status) {
+    set(contextText, names, status, updating = false) {
       context.textContent = contextText;
-      more.hidden = !names;
+      element.classList.toggle('updating', updating);
+      more.hidden = !names || updating;
       places.classList.toggle('status', Boolean(status));
       places.classList.toggle('warning', Boolean(status?.warning));
       places.replaceChildren(status ? status.text : names ?? '');

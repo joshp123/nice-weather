@@ -1,4 +1,5 @@
 // Written by AI on 2026.10.17 by model gpt-6.1-sol.
+import { SCORE_THRESHOLDS } from '../../hosting/sites/score-bands.mjs';
 import { COLD_GRADE_BY_FEELS_IN_SUN, HEAT_GRADE_BY_FEELS_IN_SHADE, EVENING_GRADE_BY_FEELS_AT_21, RAIN_FACTOR_BY_MM, WIND_FACTOR_BY_KMH, HUMIDITY_FACTOR_BY_DEW_POINT, SUN_FACTOR_BY_SUNNY_SHARE, type Curve, BANDS, EVENING_WORTH_IN_HOURS } from './taste';
 
 export const SHIFT_MINIMUM = -15;
@@ -101,7 +102,7 @@ void main() {
   ivec2 cell = clamp(pixel / 4, ivec2(0), ivec2(359,179));
   int ordinal = int(texelFetch(u_cell_ordinals, cell, 0).r);
   float shares[7] = float[7](1.0,0.0,0.0,0.0,0.0,0.0,0.0);
-  float thresholds[7] = float[7](0.0,25.0,40.0,55.0,70.0,85.0,100.0);
+  float thresholds[7] = float[7](${SCORE_THRESHOLDS.map(value => `${value}.0`).join(',')});
   float singleScore = 0.0;
   for (int month = 0; month < 15; month++) {
     if (month >= u_month_count) break;

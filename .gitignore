@@ -21,3 +21,9 @@ __pycache__/
 /research/era5/benchmark_home.py
 /research/era5/performance-*.json
 /research/fine/HOME_JOB_HANDOFF.md
+
+# Local verification screenshots and agent notes, kept out of the public repo
+/research/site/island-whiteouts/**/*.png
+/research/site/island-whiteouts/handoff.md
+/research/site/island-whiteouts/round2/report.md
+/research/site/reason-images/handoff.md

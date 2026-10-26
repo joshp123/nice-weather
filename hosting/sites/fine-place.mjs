@@ -3,8 +3,8 @@
 import {decodeFineReplay,fineGeneration,targetFineZone} from './fine-replay.mjs';
 import {countDayScores} from './day-counts.mjs';
 const MONTH_DAYS = [31,28,31,30,31,30,31,31,30,31,30,31];
-const THRESHOLDS = [0,25,40,55,70,85,100];
-const BANDS = ['Awful','Poor','Fair','Nice','Beautiful','Perfect'];
+import {SCORE_THRESHOLDS as THRESHOLDS, SCORE_BANDS} from './score-bands.mjs';
+const BANDS = SCORE_BANDS.map(band=>band.name);
 export const DEFAULT_FINE_TASTE = {warmShift:0,heatShift:0,eveningShift:0,humidityShift:0,windShift:0,rainScale:1};
 const COLD=[[9,0],[11,3],[13,10],[15,22],[17,40],[19,62],[21,85],[23,100]];
 const HEAT=[[28,100],[31,85],[34,60],[37,30],[40,10],[43,0]];

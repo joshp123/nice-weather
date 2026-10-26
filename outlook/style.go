@@ -1,9 +1,12 @@
 package outlook
 
-import "image/color"
+import (
+	"image/color"
+	scorebands "nice-weather-finder/hosting/sites"
+)
 
 // PosterStyle holds the poster's visual choices in 1200 × 630 coordinates.
-// The score colours are src/palette.ts, composited over the site's dark land colour.
+// The score colours are the light theme's bands in src/design-tokens.css, composited over its land colour.
 type PosterStyle struct {
 	RegularFont, BoldFont                                                        string
 	Width, Height, RenderScale                                                   int
@@ -30,21 +33,23 @@ var Style = PosterStyle{
 	ScoreBold: true, AddressBold: true, InsetBold: true, MarkerBold: true,
 	EastEdgeFade: 24,
 	BorderWidth:  .8, StateWidth: .55, MarkerRadius: 12, MarkerRing: 2,
-	Background: color.NRGBA{14, 17, 22, 255}, Sea: color.NRGBA{14, 17, 22, 255},
-	Land: color.NRGBA{54, 59, 67, 255}, Text: color.NRGBA{246, 247, 249, 255},
-	Muted: color.NRGBA{168, 178, 190, 255}, Border: color.NRGBA{246, 247, 249, 110},
-	State: color.NRGBA{246, 247, 249, 65}, Accent: color.NRGBA{245, 197, 66, 255},
+	// The site's light paper and ink (src/design-tokens.css), so a poster looks like the map it came from.
+	// Colour means weather; the rank numbers and the eyebrow are muted ink.
+	Background: color.NRGBA{251, 250, 246, 255}, Sea: color.NRGBA{251, 250, 246, 255},
+	Land: color.NRGBA{220, 220, 215, 255}, Text: color.NRGBA{26, 25, 23, 255},
+	Muted: color.NRGBA{93, 90, 84, 255}, Border: color.NRGBA{26, 25, 23, 56},
+	State: color.NRGBA{26, 25, 23, 20}, Accent: color.NRGBA{93, 90, 84, 255},
 	Bands: [6]struct {
 		Name    string
 		Minimum int
 		Colour  color.NRGBA
 	}{
-		{"Awful", 0, color.NRGBA{74, 18, 34, 153}},
-		{"Poor", 25, color.NRGBA{156, 64, 64, 179}},
-		{"Fair", 40, color.NRGBA{111, 123, 138, 153}},
-		{"Nice", 55, color.NRGBA{59, 158, 219, 220}},
-		{"Beautiful", 70, color.NRGBA{85, 194, 122, 220}},
-		{"Perfect", 85, color.NRGBA{245, 197, 66, 230}},
+		{"Awful", 0, color.NRGBA{123, 45, 63, 128}},
+		{"Poor", scorebands.AwfulMaximum, color.NRGBA{194, 91, 79, 153}},
+		{"Fair", 40, color.NRGBA{142, 152, 164, 153}},
+		{"Nice", 55, color.NRGBA{47, 151, 216, 230}},
+		{"Beautiful", 70, color.NRGBA{60, 174, 102, 230}},
+		{"Perfect", 85, color.NRGBA{240, 180, 41, 240}},
 	},
 }
 

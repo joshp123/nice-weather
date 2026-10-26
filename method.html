@@ -6,8 +6,8 @@
 <title>How it works | Nice!</title>
 <meta name="description" content="How Nice Weather decides where and when the weather is nice: the rule, the data, and where it is wrong." />
 <style>
-  :root { color-scheme: light dark; --text: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --page: #fff; }
-  @media (prefers-color-scheme: dark) { :root { --text: #f2f2f0; --muted: #a1a1a6; --line: #33343a; --page: #121316; } }
+  /* Paper, ink and type come from the site's design tokens (src/design-tokens.css), so this page looks like the map. */
+  :root { color-scheme: light dark; }
   body { margin: 0; background: var(--page); color: var(--text); font: 17px/1.6 var(--font); }
   main { max-width: 720px; margin: 0 auto; padding: 40px 22px 80px; }
   h1 { font-family: var(--font-brand); letter-spacing: var(--brand-tracking); font-size: 72px; font-weight: var(--weight-brand); line-height: 1.2; margin: 0 0 8px; }
@@ -62,9 +62,9 @@
 </section>
 <p class="muted curve-source">The charts show how each condition affects a day’s score. A day with several kinds of bad weather loses marks for each one.</p>
 <p>The final score is warmth multiplied by the four shares kept. For example, warmth of 80 with rain keeping half becomes 40 before wind, humidity and sunshine count.</p>
-<p>The six words on the map follow the score: <b>Awful</b> under 25, <b>Poor</b> from 25, <b>Fair</b> from 40, <b>Nice</b> from 55, <b>Beautiful</b> from 70, <b>Perfect</b> from 85.</p>
+<p>The six words on the map follow the score: <b>Awful</b> under __AWFUL_MAXIMUM__, <b>Poor</b> from __AWFUL_MAXIMUM__, <b>Fair</b> from 40, <b>Nice</b> from 55, <b>Beautiful</b> from 70, <b>Perfect</b> from 85.</p>
 <p>For a stretch of days, the map describes the typical day: the middle of the daily scores, with half the days reaching at least that band. So “Perfect most days” means at least half the days score 85 or more. Each month counts its real number of days, so a short February does not count as much as a long January. You can choose one month, any run of months, the whole year or the next 14 days. One forecast day keeps its own score.</p>
-<p>The place card also counts the days: nice or better (55 or more), perfect (85 or more) and awful (under 25). Perfect days are included in nice or better. For the typical year, each sampled day represents a share of its calendar month. We add those shares across the chosen stretch and round once to whole days. These counts estimate how many days of that stretch will be nice. The forecast counts the individual days shown in its calendar, with the dates alongside them.</p>
+<p>The place card also counts the days: nice or better (55 or more), perfect (85 or more) and awful (under __AWFUL_MAXIMUM__). Perfect days are included in nice or better. For the typical year, each sampled day represents a share of its calendar month. We add those shares across the chosen stretch and round once to whole days. These counts estimate how many days of that stretch will be nice. The forecast counts the individual days shown in its calendar, with the dates alongside them.</p>
 
 <h2>Checking it against places people know</h2>
 <p>Useful checks include humid Singapore and Bangkok, northern Europe in winter, and dry winter escapes such as Cape Town and the Canary Islands. The rule aims for warm, sunny, dry and calm weather. It does not measure how good a place is to visit.</p>

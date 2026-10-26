@@ -4,8 +4,8 @@ import {typicalScore} from './fine-place.mjs';
 import {countDayScores} from './day-counts.mjs';
 
 const MONTH_DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
-const THRESHOLDS=[0,25,40,55,70,85,100];
-const BANDS=['Awful','Poor','Fair','Nice','Beautiful','Perfect'];
+import {SCORE_THRESHOLDS as THRESHOLDS, SCORE_BANDS} from './score-bands.mjs';
+const BANDS=SCORE_BANDS.map(band=>band.name);
 export const NAMED_PART_FIELDS=['warmth','evening','rainFactor','windFactor','humidityFactor','sunFactor'];
 export const NAMED_TYPICAL_FIELDS=['feelsInSunAt14C','feelsInShadeAt15C','feelsInShadeAt21C','dewPointC','rainMmPerDay','wetDayShare','windKmh','sunnyShare','daylightHours'];
 export const NAMED_PHYSICAL_FIELDS=['highC','feelsAt21C','dewPointC','wetDaysPercent','sunnyPercent','windKmh'];
@@ -209,7 +209,7 @@ export function createNamedPlaceClient(endpoint='/api/named') {
   const keyFor=(latitude,longitude)=>`${coordinate(latitude)},${coordinate(longitude)}`;
   const kindFor=period=>forecastPeriod(period)?'forecast':'climate';
   const readyPromise=(async()=> {
-    const response=await fetch(endpoint);if(!response.ok)return;
+    const response=await fetch(endpoint,{cache:'no-cache'});if(!response.ok)return;
     const status=await response.json();
     configuration=status.enabled?(status.configuration??status):null;
   })();
@@ -261,7 +261,7 @@ export function createNamedPlaceClient(endpoint='/api/named') {
       if(forecastPeriod(period))return row;
       if(!climateNumbers(row,period??{kind:'year'}))return null;
       if(!row.months) {
-        const response=await fetch(`${endpoint}/place?lat=${latitude}&lon=${longitude}&kind=climate`);
+        const response=await fetch(`${endpoint}/place?lat=${latitude}&lon=${longitude}&kind=climate`,{cache:'no-cache'});
         if(!response.ok)return null;
         const facts=await response.json();if(!facts?.months)return null;
         row.months=facts.months;

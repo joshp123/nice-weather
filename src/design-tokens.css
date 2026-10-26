@@ -33,6 +33,7 @@
   --search-width: calc(260px * var(--ui));
   --panel-padding: calc(16px * var(--ui));
   --swatch: calc(12px * var(--ui));
+  --miniature: calc(26px * var(--ui));
   --badge: calc(56px * var(--ui));
   --track: calc(6px * var(--ui)); --marker: calc(10px * var(--ui)); --marker-ring: calc(2px * var(--ui));
   --dial-size: calc(208px * var(--ui)); --dial-month-size: calc(12px * var(--ui)); --dial-count-size: calc(32px * var(--ui));
@@ -48,8 +49,9 @@
   --on-dark-band: #ffffff; --on-light-band: #121212;
 
   /* The six bands, #rrggbbaa: the alpha sets how strongly a band covers the land.
-     Bad bands are quiet (less colour, less cover) so the good places stand out. */
-  --band-awful: #4f2230b3; --band-poor: #9a4338c4; --band-fair: #5f6a78b8;
+     Bad bands are quiet (less colour, less cover) so the good places stand out; in the dark, Awful land still
+     stands 1.7 to 1 against the sea, so a northern winter does not lose its coastlines. */
+  --band-awful: #6b3043c0; --band-poor: #9a4338c4; --band-fair: #5f6a78b8;
   --band-nice: #3b9edbe6; --band-beautiful: #49b56ee6; --band-perfect: #f5c542f0;
 
   /* The base map. The sea is the paper. */
@@ -85,7 +87,9 @@
   :root { --margin: 12px; --gutter: 12px; --control: 44px; --bar-padding: 8px; --wordmark-size: 32px; --size-title: 18px; --line-title: 22px; }
 }
 
-/* The 57-inch ultrawide at full width: everything one and a half times. */
-@media (min-width: 2560px) {
+/* A big screen shown at its native pixels (the 57-inch ultrawide at 7680 wide, a 4K screen at 100%): everything one and a
+   half times, so text is as big to the eye as on a laptop. The same ultrawide in its Retina mode (3840 wide at two pixels
+   to the point) already draws each point large, and keeps the laptop's sizes. */
+@media (min-width: 2560px) and (max-resolution: 1.5dppx), (min-width: 2560px) and (-webkit-max-device-pixel-ratio: 1.5) {
   :root { --ui: 1.5; --map-label-scale: 1.5; }
 }

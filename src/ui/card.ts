@@ -29,6 +29,8 @@ export type CardView = Readonly<{
   dayScores: readonly (number | null)[] | null;
   /** The place's score for each month at the visitor's taste, when the engine has the months loaded. */
   monthScores: readonly (number | null)[] | null;
+  /** The figures are for the previous taste while the new taste's weather downloads. */
+  updating?: boolean;
 }>;
 
 const round = Math.round;
@@ -166,5 +168,5 @@ export function renderCard(view: CardView, actions: Actions): HTMLElement {
   const forecastTime = freshness ? el('p', `card-period${freshness.warning ? ' forecast-warning' : ''}`, freshness.text) : null;
 
   const strip = isForecast(view.period) ? dayStrip(view, actions) : null;
-  return el('section', 'card panel physical-card', header, answer, periodLine, forecastTime, why(verdict, view.taste ?? DEFAULT_TASTE, view.period.kind === 'forecast-day'), strip, monthStrip(view, actions), comparisons(view, actions));
+  return el('section', `card panel physical-card${view.updating ? ' updating' : ''}`, header, answer, periodLine, forecastTime, why(verdict, view.taste ?? DEFAULT_TASTE, view.period.kind === 'forecast-day'), strip, monthStrip(view, actions), comparisons(view, actions));
 }

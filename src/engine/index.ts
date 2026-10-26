@@ -67,6 +67,8 @@ export interface WeatherEngine {
   readonly layer: CustomLayerInterface;
   /** Current-period map or requested Worker place facts are loading. */
   readonly loading: boolean;
+  /** How far the weather records for a changed taste have downloaded, 0 to 1, or null when none are downloading. */
+  readonly recordProgress: number | null;
   /** Default taste loads only its precomputed map image; other tastes load the needed records. Resolves after a completed map frame. Latest call wins. */
   setPeriod(period: Period): Promise<void>;
   /** Loads records on demand for a changed taste, then resolves after its frame. Resetting to default uses the image. Before the first period, stores taste and resolves immediately. */

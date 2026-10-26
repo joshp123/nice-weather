@@ -3,7 +3,7 @@
 import type maplibregl from 'maplibre-gl';
 import type { Period, Point, PointVerdict } from '../engine';
 import { button, el } from './dom';
-import { bandSentence, dayCountsSentence, periodPhrase, type ForecastIndex } from './periods';
+import { bandSentence, dayCountsSentence, daysInPeriod, periodPhrase, type ForecastIndex } from './periods';
 import type { Place } from './state';
 import { countryFlag } from './countries';
 import { shareImage } from '../../hosting/sites/share-image.mjs';
@@ -19,7 +19,7 @@ export type ShareContext = Readonly<{
   headline: string;
   /** The absolute link to this view. */
   link: string;
-  /** What the poster names: the chosen place, or the places in the answer. Its map always shows them. */
+  /** The chosen place, which the poster's map is centred on; without one, the poster shows the map as it is on screen. */
   subjects: readonly Point[];
 }>;
 
@@ -55,25 +55,28 @@ async function captureMap(map: maplibregl.Map): Promise<HTMLCanvasElement> {
 }
 
 /** The poster's map is drawn at the poster's own shape and size, the same from a phone as from a computer: the map
- *  briefly takes a poster-sized box, frames what the poster names with room for their labels, is copied, and goes back. */
+ *  briefly takes a poster-sized box, frames the chosen place, or else everything on screen, is copied, and goes back. */
 async function capturePosterMap(map: maplibregl.Map, subjects: readonly Point[], frame: Readonly<{ width: number; height: number }>): Promise<HTMLCanvasElement> {
   const container = map.getContainer(), app = document.getElementById('app')!;
   const tokens = getComputedStyle(document.documentElement), token = (name: string) => Number.parseFloat(tokens.getPropertyValue(`--map-${name}`));
   const scale = token('label-scale');
   const labelRoom = (token('label-large') * token('label-line-height') + token('count-height') + token('label-padding')) * scale;
   const before = { center: map.getCenter(), zoom: map.getZoom(), minimumZoom: map.getMinZoom(), constrain: map.transformConstrain };
+  // What the visitor sees, within the inhabited world (a wide screen shows sea beyond the date line).
+  const seen = map.getBounds();
+  const onScreen: [[number, number], [number, number]] = [[Math.max(-180, seen.getWest()), Math.max(-60, seen.getSouth())], [Math.min(180, seen.getEast()), Math.min(78, seen.getNorth())]];
   app.classList.add('making-poster');
   Object.assign(container.style, { top: '0', left: '0', right: 'auto', bottom: 'auto', width: `${frame.width * scale}px`, height: `${frame.height * scale}px` });
   map.resize();
   try {
-    if (subjects.length) {
-      // Far-apart places may need more of the world than the map's usual limits show: sea fills the sides.
-      map.setMinZoom(0);
-      map.setTransformConstrain(constrainWholeWorld);
-      const longitudes = subjects.map(place => place.longitude), latitudes = subjects.map(place => place.latitude);
-      const camera = map.cameraForBounds([[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]], { padding: labelRoom, maxZoom: before.zoom });
-      if (camera) map.jumpTo(camera);
-    }
+    // The poster's shape may need more of the world than the map's usual limits show: sea fills the sides.
+    map.setMinZoom(0);
+    map.setTransformConstrain(constrainWholeWorld);
+    const longitudes = subjects.map(place => place.longitude), latitudes = subjects.map(place => place.latitude);
+    const camera = subjects.length
+      ? map.cameraForBounds([[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]], { padding: labelRoom, maxZoom: before.zoom })
+      : map.cameraForBounds(onScreen, { padding: labelRoom / 2 });
+    if (camera) map.jumpTo(camera);
     return await captureMap(map);
   } finally {
     for (const property of ['top', 'left', 'right', 'bottom', 'width', 'height'] as const) container.style[property] = '';
@@ -100,12 +103,13 @@ export async function drawShareCard(_width: number, _height: number, context: Sh
       return value.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
     };
     dates = period.kind === 'forecast-day' ? date(period.day) : `${date(0)} to ${date(forecast.days - 1)}`;
-  } else dates = `${dates[0].toUpperCase()}${dates.slice(1)}, typical weather`;
+  } else dates = place ? `${dates[0].toUpperCase()}${dates.slice(1)}, typical weather` : 'Typical weather, from real days';
   const png = await shareImagePng({
     title: place ? `${countryFlag(place)} ${place.name}`.trim() : context.headline,
     dates,
     numbers: verdict ? { score: verdict.meanScore, niceDayCount: verdict.niceDayCount, perfectDayCount: verdict.perfectDayCount, totalDays: verdict.totalDays, countedDays: verdict.countedDays, countBasis: verdict.countBasis } : undefined,
     detail: 'Colours show the typical day. Find your nice weather.',
+    numbersCaption: period.kind === 'forecast-day' ? 'Numbers: score out of 100' : `Numbers: nice days out of ${daysInPeriod(period, forecast)}`,
     map: { pixels, width: mapImage.width, height: mapImage.height },
     dark: matchMedia('(prefers-color-scheme: dark)').matches,
     bandColours: bands.map(band => colourOnLand(band.colour).match(/\d+/g)!.map(Number) as [number, number, number]),

@@ -60,13 +60,28 @@ def chunk_dates(chunk):
     dates=np.array([epoch.date()+dt.timedelta(days=i) for i in range(2,362)])
     return epoch,dates
 
-def process_tile(args, arrays=None):
+def aggregate_chunk_features(folder, points, cell_count, expected):
+    """Recover every scored day's full hourly features from the retained tile sums."""
+    chunk=int(folder.name[5:]); _,dates=chunk_dates(chunk)
+    sums=np.zeros((cell_count,len(dates),29),np.float32)
+    counts=np.zeros(cell_count,np.int32)
+    for name in sorted(expected):
+        with np.load(folder/name) as tile:
+            sums[tile['cells']]+=tile['sums']; counts[tile['cells']]+=tile['counts']
+    valid=counts==np.bincount(points['cell'],minlength=cell_count)
+    sums/=np.maximum(counts,1)[:,None,None].astype(np.float32)
+    sums[~valid,:,27]=1
+    return sums,valid,dates
+
+def process_tile(args, arrays=None, selected_cells=None):
     root,chunk,path,*remote=args; started=time.monotonic(); root=pathlib.Path(root)
     points=np.fromfile(root/'v6/points.bin',dtype=POINT_DTYPE,offset=4)
     zones=np.load(root/'climate-v6-work/timezones.npy')
     tile_row=int(path.stem[1:3]); tile_column=int(path.stem[4:7])
     native_row=points['fine']//1440; native_column=(points['fine']%1440+720)%1440
     selected=np.where((native_row//12==tile_row)&(native_column//12==tile_column))[0]
+    if selected_cells is not None:
+        selected=selected[np.isin(points['cell'][selected],list(selected_cells))]
     if not len(selected): return str(path),0
     p=points[selected]; latitude=90-(p['fine']//1440)*.25; longitude=-180+(p['fine']%1440)*.25
     rr=native_row[selected]%12; cc=native_column[selected]%12
@@ -157,13 +172,8 @@ def assemble(root, publish=True):
         coverage.append({'chunk':int(folder.name[5:]),'tiles':len(available & expected),'required':len(expected)})
         if not expected<=available: continue
         chunk=int(folder.name[5:]); _,dates=chunk_dates(chunk); D=len(dates)
-        sums=np.zeros((N,D,29),np.float32); counts=np.zeros(N,np.int32)
-        for name in sorted(expected & available):
-            with np.load(folder/name) as a:
-                sums[a['cells']]+=a['sums']; counts[a['cells']]+=a['counts']
-        valid=counts==expected_counts; cell_covered|=valid
-        features=sums/np.maximum(counts,1)[:,None,None].astype(np.float32); del sums
-        features[~valid,:,27]=1
+        features,valid,dates=aggregate_chunk_features(folder,points,N,expected)
+        cell_covered|=valid
         records=encode_records(features); months=np.array([d.month for d in dates])
         selected_chunks.append(chunk); all_records.append(records); all_scores.append((score_features(features),months,valid))
         for month in range(1,13): month_days[:,month-1]+=valid[points["cell"]]*np.sum(months==month)

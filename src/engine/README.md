@@ -29,6 +29,8 @@ Default labels and counts request compact named-place numbers for places in view
 
 Moving a taste slider loads the selected period's records and offsets, plus the year if a card or time picker has requested its calendar. While they load, the default image clears and the loading state is shown; no previous period's records are used. `setTaste` resolves after the resulting GPU frame. Later changes reuse cached records. `prepareTaste()` can prefetch those records when the visitor opens Your taste, without changing the map or loading state. Before selecting any period, `setTaste` simply stores the taste.
 
+`recordProgress` says how far the record files for a changed taste have downloaded, from 0 to 1, or null when none are downloading; the interface shows it while the last answer stays on screen.
+
 `loading` covers the selected map and requested current-period Worker facts. `pointLoading` also reports pending named-place numbers and card facts. Consumers refresh on `onRedraw` and `onLoadingChange`. The latest period and taste win: an earlier response cannot restore a previous map. A changed taste uses `scorePoints` and `countPoints` to read the resolved GPU grid once per completed revision; subsequent map moves sample memory without another readback.
 
 ## Point verdicts and scoring

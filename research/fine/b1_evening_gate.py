@@ -22,7 +22,7 @@ from native_normals import file_sha256
 from tiles import decode_tile
 
 MONTH_DAYS = (31,28,31,30,31,30,31,31,30,31,30,31)
-THRESHOLDS = np.array([0,25,40,55,70,85,100])
+THRESHOLDS = np.array([0,json.loads((pathlib.Path(__file__).resolve().parents[2]/'hosting/sites/awful-maximum.json').read_text()),40,55,70,85,100])
 MODELS = ('ordered','uniform','native')
 
 

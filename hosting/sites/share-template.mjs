@@ -1,4 +1,5 @@
 // Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+import {SCORE_BANDS} from './score-bands.mjs';
 import {previewFontMetadata as atlas, previewFontMask} from './fine-preview-font.mjs';
 import {shareLogo, shareLand, shareFlags} from './share-assets.mjs';
 
@@ -15,11 +16,13 @@ async function fontMask() {
 const textTokens=text=>text.match(/[\u{1F1E6}-\u{1F1FF}]{2}|[\s\S]/gu)??[];
 const flagCode=token=>[...token].map(character=>String.fromCharCode(character.codePointAt(0)-127397)).join('');
 const isFlag=token=>/^([\u{1F1E6}-\u{1F1FF}]{2})$/u.test(token);
+// A no-break space (U+00A0) joins the words of a place name so a line never breaks inside it; it is drawn as a space.
+const isSpace=token=>token===' '||token==='\u00a0';
 function supportedText(text, fallback) {
-  return textTokens(text).map(token=>isFlag(token)||atlas.fonts.Regular[token]?token:token.normalize('NFKD').replace(/\p{Mark}/gu,'').split('').map(character=>atlas.fonts.Regular[character]?character:'?').join('')).join('');
+  return textTokens(text).map(token=>isFlag(token)||token==='\u00a0'||atlas.fonts.Regular[token]?token:token.normalize('NFKD').replace(/\p{Mark}/gu,'').split('').map(character=>atlas.fonts.Regular[character]?character:'?').join('')).join('');
 }
 function textWidth(text,size,weight='Regular') {
-  return textTokens(text).reduce((width,token)=>width+(isFlag(token)?size*1.2:token===' '?size*.32:atlas.fonts[weight][token].Advance*size/atlas.size),0);
+  return textTokens(text).reduce((width,token)=>width+(isFlag(token)?size*1.2:isSpace(token)?size*.32:atlas.fonts[weight][token].Advance*size/atlas.size),0);
 }
 let flagPixels;
 function drawText(pixels,mask,text,x,baseline,size,colour=INK,weight='Regular') {
@@ -34,6 +37,7 @@ function drawText(pixels,mask,text,x,baseline,size,colour=INK,weight='Regular') 
       }
       x+=size*1.2;continue;
     }
+    if(isSpace(character)){x+=size*.32;continue;}
     const glyph=atlas.fonts[weight][character];
     const left=x+glyph.Left*scale, top=baseline+glyph.Top*scale;
     for(let y=Math.max(0,Math.floor(top));y<Math.min(HEIGHT,Math.ceil(top+glyph.Height*scale));y++) {
@@ -76,13 +80,13 @@ async function encodePng(pixels,metadata) {
 export const SHARE_WIDTH=WIDTH, SHARE_HEIGHT=HEIGHT;
 export const SHARE_MAP={x:40,y:174,width:1120,height:338};
 // The six bands as they look on the light map (src/design-tokens.css, each band over the land). The browser passes its own theme's colours.
-const BANDS=[['Awful',0,[172,133,139]],['Poor',25,[204,143,133]],['Fair',40,[173,179,184]],['Nice',55,[64,158,216]],['Beautiful',70,[76,179,113]],['Perfect',85,[239,182,51]]];
+const BANDS=SCORE_BANDS.map((band,index)=>[band.name,band.minimum,[[172,133,139],[204,143,133],[173,179,184],[64,158,216],[76,179,113],[239,182,51]][index]]);
 const bandFor=score=>BANDS.findLast(band=>score>=band[1])??BANDS[0];
 const unpack=async value=>new Uint8Array(await new Response(new Blob([Uint8Array.from(atob(value),character=>character.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
 let logoPromise,landPromise;
 const clean=value=>supportedText(String(value??''));
 function fitLines(value,maxWidth,size,weight='Bold',maxLines=2) {
-  const words=clean(value).split(/\s+/),lines=[];let line='';
+  const words=clean(value).split(/ +/),lines=[];let line='';
   for(const word of words) {
     if(line&&textWidth(`${line} ${word}`,size,weight)>maxWidth){lines.push(line);line=word;}else line=line?`${line} ${word}`:word;
   }
@@ -124,7 +128,9 @@ export async function shareImagePng(content) {
   const detail=numbers?`${Math.floor(numbers.score)} / 100, ${bandFor(numbers.score)[0]}${numbers.totalDays>1?' most days':''}.${(numbers.countedDays??numbers.totalDays)>1?` Nice on ${numbers.niceDayCount} of ${numbers.countedDays??numbers.totalDays} days; perfect on ${numbers.perfectDayCount}.`:''}`:(content.detail||'A world of weather, by your taste.');
   const figures=fitLines(detail,1120,26,'Bold',1);
   figures.lines.forEach(line=>drawText(pixels,mask,line,40,554,figures.size,ink,'Bold'));
-  BANDS.forEach(([name,minimum,colour],index)=>{const x=40+index*141;rectangle(pixels,x,590,16,10,content.bandColours?.[index]??colour);drawText(pixels,mask,`${name} ${minimum}+`,x+23,602,16,muted);});
+  let keyX=40;
+  BANDS.forEach(([name,,colour],index)=>{rectangle(pixels,keyX,590,16,10,content.bandColours?.[index]??colour);drawText(pixels,mask,name,keyX+23,602,16,muted);keyX+=Math.round(23+textWidth(name,16)+24);});
+  if(content.numbersCaption)drawText(pixels,mask,clean(content.numbersCaption),keyX+8,602,16,muted);
   const site='nice.jjpcodes.com';drawText(pixels,mask,site,1160-textWidth(site,20),602,20,ink,'Bold');
   return encodePng(pixels,{template:'nice-share-v1',title:content.title,dates:content.dates,numbers:content.numbers??null});
 }
@@ -172,7 +178,7 @@ export function sharePlaceTitle(place) {
 export function shareHeadingLinks(title,labels) {
   const heading=fitLines(title,856,35,'Bold',2),links=[];
   for(const [index,line] of heading.lines.entries())for(const label of labels) {
-    const text=clean(label),start=line.indexOf(text);
+    const text=clean(label).replaceAll('\u00a0',' '),start=line.replaceAll('\u00a0',' ').indexOf(text);
     if(start>=0)links.push({label,x:294+textWidth(line.slice(0,start),heading.size,'Bold'),y:65+index*(heading.size+4)-heading.size,width:textWidth(text,heading.size,'Bold'),height:heading.size+8});
   }
   return links;

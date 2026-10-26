@@ -59,8 +59,23 @@ export class WeatherData {
   private loadedMonthlyRecords = new Map<Month, Records>();
   private loadedOffsets = new Map<Month, Uint8Array>();
   private loadedForecast?: Forecast;
+  /** Bytes of the record files downloading now, counted from the first until the last one finishes. */
+  private recordDownloads = { active: 0, loaded: 0, expected: 0 };
 
   constructor(private baseUrl: string) {}
+
+  /** How far the record files downloading now have come, 0 to 1, or null when none are downloading. */
+  get recordProgress(): number | null {
+    const { active, loaded, expected } = this.recordDownloads;
+    return active && expected ? Math.min(1, loaded / expected) : null;
+  }
+
+  private url(path: string): string {
+    const release = import.meta.env.VITE_CLIMATE_RELEASE;
+    if (release && path.startsWith('climate/')) return `/data/${release}/v6/${path}`;
+    const url = `${this.baseUrl}/${path}`;
+    return release && path.startsWith('forecast/') ? `${url}?release=${encodeURIComponent(release)}` : url;
+  }
 
   get cells(): Promise<Cells> {
     return this.cellRequest ??= this.binary('cells.bin').then(bytes => {
@@ -91,7 +106,7 @@ export class WeatherData {
     }
     let request = this.scoreImages.get(path);
     if (!request) {
-      request = loadGreyscaleImage(`${this.baseUrl}/${path}`).then(bytes => {
+      request = loadGreyscaleImage(this.url(path)).then(bytes => {
         if (bytes.length !== 1440 * 721) throw new Error(`${path}: expected the 1440 × 721 fine grid`);
         return { bytes };
       }).catch(error => {
@@ -105,16 +120,38 @@ export class WeatherData {
   }
 
   private async binary(path: string): Promise<Uint8Array> {
-    const url = `${this.baseUrl}/${path}`;
+    const url = this.url(path);
     const response = await fetch(url);
     if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
     return new Uint8Array(await response.arrayBuffer());
   }
 
   private async records(path: string, samples: number): Promise<Records> {
-    const [bytes, cells] = await Promise.all([this.binary(path), this.cells]);
-    if (bytes.length !== cells.count * samples * 15) throw new Error(`${path}: expected ${cells.count * samples * 15} bytes, got ${bytes.length}`);
-    return { bytes, samples };
+    const cells = await this.cells;
+    const expected = cells.count * samples * 15;
+    const downloads = this.recordDownloads;
+    if (!downloads.active) { downloads.loaded = 0; downloads.expected = 0; }
+    downloads.active++;
+    downloads.expected += expected;
+    try {
+      const url = this.url(path);
+      const response = await fetch(url);
+      if (!response.ok || !response.body) throw new Error(`${url}: HTTP ${response.status}`);
+      const bytes = new Uint8Array(expected);
+      let length = 0;
+      for (const reader = response.body.getReader(); ;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (length + value.length > expected) throw new Error(`${path}: expected ${expected} bytes, got more`);
+        bytes.set(value, length);
+        length += value.length;
+        downloads.loaded += value.length;
+      }
+      if (length !== expected) throw new Error(`${path}: expected ${expected} bytes, got ${length}`);
+      return { bytes, samples };
+    } finally {
+      downloads.active--;
+    }
   }
 
   private monthRecords(month: Month): Promise<Records> {
@@ -135,7 +172,7 @@ export class WeatherData {
   private offsets(month: Month): Promise<Uint8Array> {
     let request = this.monthlyOffsets.get(month);
     if (!request) {
-      request = loadGreyscaleImage(`${this.baseUrl}/climate/offsets-${String(month).padStart(2, '0')}.png`).then(bytes => {
+      request = loadGreyscaleImage(this.url(`climate/offsets-${String(month).padStart(2, '0')}.png`)).then(bytes => {
         if (bytes.length !== 1440 * 721) throw new Error(`v6 offsets ${month}: expected the 1440 × 721 fine grid`);
         this.loadedOffsets.set(month, bytes);
         return bytes;

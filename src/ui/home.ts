@@ -39,7 +39,7 @@ export async function requestHome(): Promise<Place | null> {
   const response = await fetch('/api/home', { cache: 'no-store' });
   return response.ok ? response.json() : null;
 }
-export function winterPeriod(home: Place | null): Period {
+export function winterPeriod(home: Readonly<{ latitude: number }> | null): Period {
   return home && home.latitude < 0 ? { kind: 'season', season: 'Jun-Aug' } : { kind: 'months', startMonth: 11, endMonth: 3 };
 }
 export function isHomeWinter(period: Period, home: Place | null): boolean {

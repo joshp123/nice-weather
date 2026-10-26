@@ -1,4 +1,5 @@
 // Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+import {bandOf} from './score-bands.mjs';
 import {previewFontMetadata as atlas, previewFontMask} from './fine-preview-font.mjs';
 
 const WIDTH=1200, HEIGHT=630;
@@ -67,7 +68,7 @@ export async function finePreviewPng(place,period,judgement) {
   const mask=await fontMask();
   const name=supportedText(place.name,place.plainName),when=supportedText(period.when);
   const score=Math.floor(judgement.score),nice=Math.round(judgement.niceDayCount),perfect=Math.round(judgement.perfectDayCount),awful=Math.round(judgement.awfulDayCount);
-  const band=[[85,'Perfect'],[70,'Beautiful'],[55,'Nice'],[40,'Fair'],[25,'Poor'],[0,'Awful']].find(([minimum])=>judgement.score>=minimum)[1];
+  const band=bandOf(judgement.score);
   rectangle(pixels,56,48,40,6,GOLD);
   drawText(pixels,mask,'Nice Weather',110,65,28,INK,'Bold');
   const nameSize=Math.min(66,1088/textWidth(name,1,'Bold'));

@@ -62,7 +62,7 @@ def packet_month_judgements(packet, offsets):
     for column, key in enumerate(('rainMm', 'windKmh', 'sunnyHours', 'daylightHours'), 24):
         features[:, column] = packet[key]
     scores = np.floor(climate_pipeline().score_features(features)*10000+.5)/10000
-    thresholds = np.array([0, 25, 40, 55, 70, 85, 100])
+    thresholds = np.array([0,json.loads((pathlib.Path(__file__).resolve().parents[2]/'hosting/sites/awful-maximum.json').read_text()),40,55,70,85,100])
     results = []
     for month, calendar_days in enumerate((31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31), 1):
         selected = [index for index in packet['selectedIndices'] if months[index] == month]

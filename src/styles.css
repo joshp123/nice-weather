@@ -36,6 +36,7 @@ a { color: inherit; }
 .answer-places { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-title); line-height: var(--line-title); font-weight: var(--weight-strong); }
 .answer-places.status { font-weight: var(--weight); color: var(--muted); }
 .answer-places.warning { color: var(--warning); }
+.answer.updating .answer-places { opacity: .45; }
 .inline-place { font-weight: inherit; text-decoration: none; }
 .inline-place:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .18em; }
 .place-run { white-space: nowrap; }
@@ -78,7 +79,8 @@ a { color: inherit; }
 /* ---------------------------------------------------------------- the bottom bar: when, and the key */
 
 .bar-start, .bar-end { display: flex; align-items: center; gap: var(--gutter); min-width: 0; }
-.time-button { padding: 0 var(--space-3) 0 var(--space-4); font-weight: var(--weight-strong); }
+.time-button { padding: 0 var(--space-3); font-weight: var(--weight-strong); }
+.time-miniature { display: block; flex-shrink: 0; width: var(--miniature); height: var(--miniature); }
 .time-button .button-icon { color: var(--muted); }
 .time-button.selected .button-icon { color: inherit; }
 .bar-note { font-size: var(--size-small); line-height: var(--line-small); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -156,6 +158,7 @@ a { color: inherit; }
 .strip-bar { width: calc(100% - var(--space-1)); height: var(--track); border-radius: var(--radius-round); background: var(--raised); }
 .strip-label { white-space: nowrap; }
 .strip-cell.selected .strip-label { font-weight: var(--weight-strong); }
+.card.updating > :not(.panel-header) { opacity: .45; }
 .card-comparisons { display: grid; gap: var(--space-2); font-size: var(--size-small); line-height: var(--line-small); color: var(--muted); }
 .card-comparisons .inline-place { color: var(--text); font-weight: var(--weight-strong); }
 
@@ -172,6 +175,9 @@ a { color: inherit; }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--slider-thumb); height: var(--slider-thumb); margin-top: calc((var(--space-1) - var(--slider-thumb)) / 2); border: 0; border-radius: var(--radius-round); background: var(--text); box-shadow: var(--shadow); }
 .slider-input::-moz-range-thumb { width: var(--slider-thumb); height: var(--slider-thumb); border: 0; border-radius: var(--radius-round); background: var(--text); }
 .taste-foot { display: flex; }
+.taste-progress { display: grid; gap: var(--space-2); font-size: var(--size-small); line-height: var(--line-small); color: var(--muted); }
+.progress-track { height: var(--space-1); border-radius: var(--radius-round); background: var(--hover); overflow: hidden; }
+.progress-bar { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--text); transition: width .2s; }
 
 /* Choose when. */
 .picker-help, .calendar-date-range { font-size: var(--size-small); line-height: var(--line-small); color: var(--muted); }
@@ -249,10 +255,16 @@ a { color: inherit; }
   .picker-open .bottom-bar, .place-open .bottom-bar, .taste-open .bottom-bar, .list-open .bottom-bar { visibility: hidden; }
   .search-open .wordmark, .search-open .top-actions { visibility: hidden; }
   .slot { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 72dvh; z-index: 6; contain: paint; }
+  .slot-taste { max-height: 52dvh; } /* the map stays in view above the sliders, so a drag shows its effect */
   .slot > .panel { border-bottom: 0; border-radius: var(--radius-panel) var(--radius-panel) 0 0; padding-bottom: calc(var(--panel-padding) + env(safe-area-inset-bottom)); }
   .month-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .year-dial-row { flex-direction: column; align-items: stretch; }
   .year-dial { align-self: center; }
+
+  /* The poster's four actions in two even rows. */
+  .poster-toolbar { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .share-menu { display: contents; }
+  .share-status { order: 1; grid-column: 1 / -1; }
 
   /* Small text links keep a finger-sized target. */
   .inline-place, .text-button, .small-link { position: relative; }

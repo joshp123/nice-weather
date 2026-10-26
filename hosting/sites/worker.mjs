@@ -7,13 +7,15 @@
 //   PUT /__publish/<key>          the publisher uploads files (bearer token)
 //   POST /__prune                 the publisher removes forecast runs no longer current or previous
 
+import {bandOf as bandWord} from './score-bands.mjs';
+import {releaseStorage} from './release-storage.mjs';
 import { createFinePlaceLoader, placeNumbers, placeMonths, encodeFinePlacePacket, mapPointWeights, blendPlaceNumbers } from './fine-place.mjs';
 import { fineMethodHtml } from './fine-credits.mjs';
 import { placeCardSummary } from './place-presentation.mjs';
 import { shareImagePng, decodeScorePng, previewMap, sharePlaceTitle } from './share-template.mjs';
-import { shareWordmark } from './share-assets.mjs';
 import { shareImage } from './share-image.mjs';
 import { createNamedPlaceLoader, namedPlaceNumbers, namedPlaceMonths } from './named-place.mjs';
+import {createFineMapLoader} from './fine-map.mjs';
 
 const WEB_ASSETS = /*WEB_ASSETS*/ {};
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -48,8 +50,16 @@ async function siteTool(request, env) {
 // ---------------------------------------------------------------- storage helpers
 
 const memo = new Map();
-const fineLoaders = new WeakMap();
+let fineLoaders = new WeakMap();
 const namedLoaders = new WeakMap();
+let fineMapLoaders = new WeakMap();
+function fineMaps(bucket) {
+  if (!fineMapLoaders.has(bucket)) fineMapLoaders.set(bucket, createFineMapLoader(async key => {
+    const object = await bucket.get(key);
+    return object ? new Uint8Array(await object.arrayBuffer()) : null;
+  }));
+  return fineMapLoaders.get(bucket);
+}
 function namedPlaces(bucket) {
   if (!namedLoaders.has(bucket)) namedLoaders.set(bucket, createNamedPlaceLoader(async key => {
     const object = await bucket.get(key);
@@ -59,6 +69,10 @@ function namedPlaces(bucket) {
 }
 function finePlaces(bucket) {
   if (!fineLoaders.has(bucket)) fineLoaders.set(bucket, createFinePlaceLoader(async key => {
+    if (key === 'v6/fine/current.json') {
+      const configuration = await fineMaps(bucket).configuration();
+      if (configuration?.fine) return new TextEncoder().encode(JSON.stringify(configuration.fine));
+    }
     const object = await bucket.get(key);
     return object ? new Uint8Array(await object.arrayBuffer()) : null;
   }));
@@ -153,7 +167,12 @@ async function nameForPoint(bucket, latitude, longitude) {
 }
 
 async function placeForPoint(bucket, latitude, longitude) {
-  return { latitude, longitude, ...(await nameForPoint(bucket, latitude, longitude)) };
+  const named = await nameForPoint(bucket, latitude, longitude);
+  if (await fineMaps(bucket).configuration()) {
+    const exact = named.latitude !== undefined && Math.abs(latitude - named.latitude) < 1e-7 && Math.abs(longitude - named.longitude) < 1e-7;
+    return exact ? {...named, latitude, longitude} : {name: named.name.startsWith('Near ') ? named.name : `Near ${named.name}`, region: named.region, latitude, longitude};
+  }
+  return { latitude, longitude, ...named };
 }
 
 // Islands and regions people search for, which the town list does not name, with the towns that stand for them.
@@ -211,7 +230,11 @@ async function search(bucket, query) {
     found = [...found, ...close.sort(byBiggest).slice(0, 5)];
   }
   found.sort(byBiggest);
-  return [...areaTowns, ...found.filter((place) => !areaTowns.includes(place))].slice(0, 8).map(asResult);
+  // One result per name and region (GeoNames lists two villages called Lisbon in Ohio); a link only where the slug names this place.
+  const shown = new Set();
+  return [...areaTowns, ...found.filter((place) => !areaTowns.includes(place))]
+    .filter((place) => !shown.has(`${place.name}|${place.region}`) && shown.add(`${place.name}|${place.region}`))
+    .slice(0, 8).map((place) => ({ ...asResult(place), slug: bySlug.get(place.slug) === place ? place.slug : undefined }));
 }
 
 // ---------------------------------------------------------------- a place's typical year
@@ -252,6 +275,13 @@ async function nearestLandPoint(bucket, latitude, longitude) {
 
 /** A place's typical year with the default taste's score for each month (null where unknown), or null at sea. */
 async function typicalYearForPlace(bucket, latitude, longitude) {
+  if (await fineMaps(bucket).configuration()) {
+    const packet = await finePlaces(bucket).load(latitude, longitude);
+    if (packet) return Promise.all(placeMonths(packet).map(async month => {
+      const numbers = await fineMaps(bucket).numbers(latitude, longitude, {kind: 'month', month: month.month});
+      return numbers ? {...month, score: numbers.score, niceDayShare: numbers.niceDayShare} : month;
+    }));
+  }
   const named = await namedPlaces(bucket).load(latitude, longitude);
   if (named) return namedPlaceMonths(named);
   const fine = finePlaces(bucket);
@@ -433,6 +463,10 @@ function nearestFineIndex(latitude, longitude, offsets) {
 }
 
 async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
+  if (period.kind === 'climate' && await fineMaps(bucket).configuration()) {
+    const [packet, numbers] = await Promise.all([finePlaces(bucket).load(latitude, longitude), fineMaps(bucket).numbers(latitude, longitude, period)]);
+    if (packet && numbers) return {...placeNumbers(packet, period), ...numbers};
+  }
   const named = await namedPlaces(bucket).load(latitude, longitude, period);
   const namedJudgement = named && namedPlaceNumbers(named, period);
   if (namedJudgement && period.kind !== 'forecast') return namedJudgement;
@@ -480,8 +514,6 @@ async function defaultPeriodJudgement(bucket, latitude, longitude, period) {
   return namedJudgement ? {...overview, ...namedJudgement, parts: overview.parts, typical: overview.typical, factsAvailable: true} : overview;
 }
 
-const BAND_WORDS = [[85, 'Perfect'], [70, 'Beautiful'], [55, 'Nice'], [40, 'Fair'], [25, 'Poor'], [0, 'Awful']];
-const bandWord = (score) => BAND_WORDS.find(([minimum]) => score >= minimum)[1];
 const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
 
 async function previewFor(bucket, origin, pathname, view, search = '') {
@@ -547,22 +579,31 @@ const OUTLOOK_REGIONS = {
   europe: { name: 'Europe', centre: '49,15,3z' },
   usa: { name: 'USA', centre: '39,-98,3z' },
 };
+// The outlook page shares the method page's stylesheets (Barlow and the design tokens), so it looks like the rest of the site.
 const OUTLOOK_STYLE = `
-  :root{font-family:Barlow,system-ui,sans-serif;color:#233b38;background:#f4f5ef;font-synthesis:none}
-  *{box-sizing:border-box}body{margin:0}main{max-width:1280px;margin:auto;padding:28px 32px 48px}
-  header,nav,.actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap}header{justify-content:space-between;margin-bottom:32px}
-  a{color:inherit;text-underline-offset:4px}.brand{display:block;width:145px;text-decoration:none}.brand img{display:block;width:100%;height:auto}
-  nav{gap:20px;font-size:16px}nav [aria-current]{font-weight:750;text-decoration-thickness:3px}
-  .eyebrow{font-size:14px;letter-spacing:.1em;text-transform:uppercase;color:#526560;margin:0 0 12px}
-  h1{font-size:clamp(28px,4vw,46px);line-height:1.12;letter-spacing:-.025em;max-width:1000px;margin:0 0 24px;font-weight:650}
-  .poster{display:block;width:100%;height:auto;border:1px solid #dce1d7;border-radius:8px;background:#e8ede5}
-  .actions{gap:12px;margin:24px 0 16px}.actions a,.actions button{font:inherit;font-weight:600;border:1px solid #c4cec3;border-radius:6px;padding:12px 18px;background:transparent;color:inherit;text-decoration:none;cursor:pointer}
-  .actions button{background:#233b38;color:#fff;border-color:#233b38}a:focus-visible,button:focus-visible{outline:3px solid #b67c20;outline-offset:4px}
-  .note{font-size:15px;line-height:1.6;color:#526560;margin:0}.status{min-height:24px;font-size:14px}.unavailable{max-width:720px;padding:48px 0}
-  @media(max-width:600px){main{padding:20px 16px 32px}header{gap:20px;margin-bottom:28px}.brand{font-size:32px}nav{gap:16px}.actions{align-items:stretch}.actions a,.actions button{text-align:center}}
+  body{margin:0;background:var(--page);color:var(--text);font:17px/1.6 var(--font);overflow:auto}
+  main{max-width:1200px;margin:0 auto;padding:var(--margin) var(--margin) 64px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:var(--gutter);flex-wrap:wrap;margin-bottom:40px}
+  a{color:inherit}
+  .brand{font-family:var(--font-brand);font-weight:var(--weight-brand);letter-spacing:var(--brand-tracking);font-size:var(--wordmark-size);line-height:1;text-decoration:none}
+  nav{display:grid;grid-auto-flow:column;gap:var(--space-1);height:var(--control);padding:var(--space-1);border-radius:var(--radius-control);background:var(--raised)}
+  nav a{display:grid;place-items:center;padding:0 var(--space-4);border-radius:calc(var(--radius-control) - var(--space-1));color:var(--muted);text-decoration:none;font-size:var(--size-body)}
+  nav a:hover{color:var(--text)}
+  nav [aria-current]{background:var(--selected-background);color:var(--selected-text)}
+  .eyebrow{font-size:var(--size-small);line-height:var(--line-small);color:var(--muted);margin:0 0 var(--space-2)}
+  h1{font-size:clamp(24px,3vw,34px);line-height:1.25;font-weight:var(--weight-strong);max-width:960px;margin:0 0 var(--space-5)}
+  .poster{display:block;width:100%;height:auto;border:var(--rule) solid var(--border);border-radius:var(--radius-panel)}
+  .actions{display:flex;align-items:center;gap:var(--gap);flex-wrap:wrap;margin:var(--space-5) 0 var(--space-4)}
+  .actions a,.actions button{display:inline-flex;align-items:center;height:var(--control);padding:0 var(--space-4);border:0;border-radius:var(--radius-control);background:var(--raised);color:var(--text);font:inherit;font-size:var(--size-body);text-decoration:none;cursor:pointer}
+  .actions a:hover,.actions button:hover{background:var(--hover)}
+  .actions button{background:var(--selected-background);color:var(--selected-text)}
+  :focus-visible{outline:var(--focus-width) solid var(--text);outline-offset:var(--focus-width)}
+  .note{font-size:var(--size-small);line-height:var(--line-small);color:var(--muted);max-width:720px;margin:0}
+  .status{min-height:var(--line-small);margin-top:var(--space-2)}.unavailable{max-width:720px;padding:48px 0}
+  @media(max-width:600px){header{margin-bottom:28px}.actions a,.actions button{flex:1;justify-content:center}}
 `;
 
-async function outlookPage(request, bucket, url) {
+async function outlookPage(request, bucket, url, serveAsset) {
   const region = url.pathname.slice('/outlook/'.length);
   const settings = Object.hasOwn(OUTLOOK_REGIONS, region) ? OUTLOOK_REGIONS[region] : null;
   if (!settings) return new Response('Not found', { status: 404 });
@@ -611,7 +652,7 @@ async function outlookPage(request, bucket, url) {
       <a href="${escapeHtml(outlook.fullImage ?? image)}" download="nice-weather-${region}-${outlook.date}.png">Download image</a>
       ${explore}
     </div>
-    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by nice days plus perfect days for the default taste. A perfect day counts twice; ties favour larger places. Forecast from ECMWF. Dates use UTC.</p>
+    <p class="note">Places have at least ${(outlook.minimumPopulation ?? 10000).toLocaleString('en-GB')} residents and are at least 250 km apart. Ranked by nice days plus perfect days for the default taste; a perfect day counts twice. Ties go to the higher score, then the larger place. Forecast from ECMWF. Dates use UTC.</p>
     <p class="status" id="copy-status" role="status"></p>
     <script>
       const shareImage = ${shareImage.toString()};
@@ -651,8 +692,9 @@ async function outlookPage(request, bucket, url) {
     <h1>${forTomorrow ? 'Tomorrow’s outlook is being refreshed.' : 'This dated outlook is unavailable.'}</h1>
     <p class="note">${forTomorrow ? `${latestDate ? `The latest outlook was for ${escapeHtml(latestDate)}. ` : ''}Please check back after the daily forecast refresh.` : `This link is for ${escapeHtml(fullDate)}. Its forecast is no longer available.`}</p>
     <div class="actions"><a href="${forTomorrow ? '/' : `/outlook/${region}`}">${forTomorrow ? 'Explore the weather map' : 'See the current outlook'}</a></div></div>`;
-  const html = withPreview(`<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Nice!</title><style>${OUTLOOK_STYLE}</style></head>
-    <body><main><header><a class="brand" href="/" aria-label="Nice! weather map"><img src="${shareWordmark}" width="436" height="129" alt="Nice!" /></a><nav aria-label="Outlook region">${navigation}</nav></header>${content}</main></body></html>`,
+  const siteStylesheets = ((await (await serveAsset('/method', request)).text()).match(/<link rel="stylesheet"[^>]*>/g) ?? []).join('');
+  const html = withPreview(`<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><meta name="color-scheme" content="dark light" /><title>Nice!</title>${siteStylesheets}<style>${OUTLOOK_STYLE}</style></head>
+    <body><main><header><a class="brand" href="/" aria-label="Nice! weather map">Nice!</a><nav aria-label="Outlook region">${navigation}</nav></header>${content}</main></body></html>`,
   { title, description, image, url: `${url.origin}/outlook/${region}?date=${requestedDate}` });
   return new Response(request.method === 'HEAD' ? null : html, {
     status: ready ? 200 : 503,
@@ -702,7 +744,7 @@ async function prune(bucket) {
 
 export async function handleRequest(request, env, serveAsset) {
   const url = new URL(request.url);
-  const bucket = env.WEATHER;
+  let bucket = env.WEATHER;
 
   if (url.pathname === '/mcp' && request.method === 'POST') return siteTool(request, env);
 
@@ -721,11 +763,29 @@ export async function handleRequest(request, env, serveAsset) {
     memo.delete(key);
     weatherFiles.delete(key);
     if (key.startsWith('v6/fine/') || key.startsWith('fine-')) fineLoaders.delete(bucket);
-    if (key.startsWith('v6/named/') || key.startsWith('named-') || key === 'v6/forecast/current.json') namedLoaders.delete(bucket);
+    if (key === 'v6/fine-map/current.json') {fineMapLoaders = new WeakMap();fineLoaders = new WeakMap();}
+    if (key.startsWith('v6/named/') || key.startsWith('named-') || key === 'v6/forecast/current.json') {
+      namedLoaders.delete(bucket);
+      namedLoaders.delete(releaseStorage(bucket));
+    }
     if (key === 'places.tsv') placesPromise = undefined;
     return new Response(null, { status: 201 });
   }
+  bucket = releaseStorage(bucket);
   if (request.method !== 'GET' && request.method !== 'HEAD' && !(request.method === 'POST' && url.pathname === '/api/named/points')) return new Response('Method not allowed', { status: 405 });
+
+  if (url.pathname === '/api/fine-map') return json({configuration: await fineMaps(bucket).configuration()}, 60);
+  const fineMapTile = /^\/api\/fine-map\/tile\/([a-f0-9]{32})\/(\d+)\/(\d+)$/.exec(url.pathname);
+  if (fineMapTile) {
+    const configuration = await fineMaps(bucket).configuration();
+    if (!configuration || configuration.generation !== fineMapTile[1]) return new Response(null, {status: 404});
+    const row = Number(fineMapTile[2]), column = Number(fineMapTile[3]);
+    if (row > 84 || column > 168) return new Response(null, {status: 404});
+    const encoding = configuration.transportEncoding === 'br' ? 'br' : 'gzip';
+    const object = await bucket.get(`${configuration.root}/counts/${row}-${column}.bin.${encoding === 'br' ? 'br' : 'gz'}`);
+    if (!object) return new Response(null, {status: 204, headers: {'Cache-Control': IMMUTABLE}});
+    return new Response(request.method === 'HEAD' ? null : object.body, {headers: {'Content-Type': 'application/vnd.niceweather.counts', 'Content-Encoding': encoding, 'Cache-Control': IMMUTABLE, ETag: object.httpEtag, 'X-Fine-Generation': configuration.generation}});
+  }
 
   if (/^\/api\/fine\/labels-[12]\.json$/.test(url.pathname)) {
     const configuration = await namedPlaces(bucket).configuration() ?? await finePlaces(bucket).configuration();
@@ -741,7 +801,7 @@ export async function handleRequest(request, env, serveAsset) {
     if (key.split('/').some((part) => !part || part === '.' || part === '..')) return new Response('Not found', { status: 404 });
     return serveData(request, bucket, key);
   }
-  if (url.pathname.startsWith('/outlook/')) return outlookPage(request, bucket, url);
+  if (url.pathname.startsWith('/outlook/')) return outlookPage(request, bucket, url, serveAsset);
   if (url.pathname === '/api/named') {
     const configuration = await namedPlaces(bucket).configuration();
     return json({enabled: Boolean(configuration), configuration}, 60);
@@ -828,10 +888,20 @@ export async function handleRequest(request, env, serveAsset) {
     const [months, fineEnabled, named] = await Promise.all([typicalYearForPlace(bucket, latitude, longitude), fine.enabled(), namedPlaces(bucket).load(latitude, longitude, period)]);
     const namedJudgement = named && period ? namedPlaceNumbers(named, period) : null;
     let judgement;
-    if (namedJudgement) judgement = period.kind === 'forecast' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : namedJudgement;
+    if (period.kind === 'climate' && await fineMaps(bucket).configuration()) judgement = await defaultPeriodJudgement(bucket, latitude, longitude, period);
+    else if (namedJudgement) judgement = period.kind === 'forecast' ? await defaultPeriodJudgement(bucket, latitude, longitude, period) : namedJudgement;
     else if (period) judgement = await defaultPeriodJudgement(bucket, latitude, longitude, period);
+    let monthJudgements;
+    if (period.kind === 'climate' && await fineMaps(bucket).configuration()) {
+      const packet = await fine.load(latitude, longitude);
+      if (packet) monthJudgements = await Promise.all(Array.from({length: 12}, async (_, index) => {
+        const monthlyPeriod = {kind: 'month', month: index + 1};
+        const numbers = await fineMaps(bucket).numbers(latitude, longitude, monthlyPeriod);
+        return {...placeNumbers(packet, monthlyPeriod), ...numbers};
+      }));
+    }
     const overviewMonths = named ? await overviewYearForPlace(bucket, latitude, longitude) : undefined;
-    return json({ ...where, latitude, longitude, requestedPoint: {latitude: requestedLatitude, longitude: requestedLongitude}, period: {word: period.word, kind: period.kind, when: period.when, ...(period.date ? {date: period.date} : {})}, card: judgement ? placeCardSummary(where, judgement, period) : null, months, judgement, ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {})} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true } : {}) }, 60);
+    return json({ ...where, latitude, longitude, requestedPoint: {latitude: requestedLatitude, longitude: requestedLongitude}, period: {word: period.word, kind: period.kind, when: period.when, ...(period.date ? {date: period.date} : {})}, card: judgement ? placeCardSummary(where, judgement, period) : null, months, judgement, ...(monthJudgements ? {monthJudgements} : {}), ...(overviewMonths ? {overviewMonths} : {}), ...(namedJudgement ? {namedDefault: true, ...(period.kind === 'climate' ? {resolutionArcSeconds: 30} : {})} : fineEnabled ? { resolutionArcSeconds: 30, fineReplay: true } : {}) }, 60);
   }
   if (url.pathname === '/api/search') return json(await search(bucket, url.searchParams.get('q') ?? ''), 86400);
   if (url.pathname.startsWith('/api/slug/')) {

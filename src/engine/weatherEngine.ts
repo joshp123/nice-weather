@@ -7,6 +7,7 @@ import { WeatherData, type Cells, type PeriodData, type Records, type ScoreImage
 import { PointSampler, readMapPoint } from './sampling';
 import { DefaultPlaces } from './defaultPlaces';
 import { NamedPlaces } from './namedPlaces';
+import { FineMap } from './fineMap';
 import { CELL_TEXTURE_WIDTH, SHIFT_LEVELS, fullscreenVertex, scoringFragment, resolveFragment, mapVertex, mapFragment } from './shaders';
 
 function periodKey(period: Period): string {
@@ -21,6 +22,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private source: WeatherData;
   private defaultPlaces: DefaultPlaces;
   private namedPlaces: NamedPlaces;
+  private fineMap: FineMap;
   private reportedLoading = false;
   private hasPeriod = false;
   private loadState = false;
@@ -74,6 +76,11 @@ export class BrowserWeatherEngine implements WeatherEngine {
       this.map.triggerRepaint();
       if (this.hasPeriod) this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
     });
+    this.fineMap = new FineMap(map, new URL('/api/fine-map', new URL(dataUrl, window.location.href)).href, () => {
+      if (this.destroyed) return;
+      this.map.triggerRepaint();
+      if (this.hasPeriod) this.options.onRedraw?.({ milliseconds: 0, period: this.period, revision: this.revision });
+    });
     this.layer = {
       id: 'weather-v6', type: 'custom', renderingMode: '2d',
       onAdd: (_map, context) => this.onAdd(context),
@@ -85,6 +92,8 @@ export class BrowserWeatherEngine implements WeatherEngine {
   private isClimate(period: Period = this.period): boolean { return period.kind !== 'forecast' && period.kind !== 'forecast-day'; }
 
   get loading(): boolean { return this.loadState || (this.isDefaultTaste() && this.defaultPlaces.loading(this.period)); }
+
+  get recordProgress(): number | null { return this.source.recordProgress; }
 
   private setLoading(loading: boolean): void {
     if (this.loadState === loading) return;
@@ -108,6 +117,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
     this.periodError = undefined;
     this.hasPeriod = true;
     this.period = { ...period };
+    this.fineMap.setPeriod(this.period, this.isDefaultTaste());
     this.data = undefined;
     this.sampler = undefined;
     this.scoreImage = undefined;
@@ -129,6 +139,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   setTaste(taste: Taste): Promise<RedrawTiming> {
     this.taste = { ...taste };
+    this.fineMap.setPeriod(this.period, this.isDefaultTaste());
     this.notifyLoading();
     this.periodError = undefined;
     this.periodSamplers.clear();
@@ -194,6 +205,14 @@ export class BrowserWeatherEngine implements WeatherEngine {
     if (this.loadState || this.destroyed) return null;
     const selectedPeriod = period ?? this.period;
     if (this.isDefaultTaste()) {
+      if (this.isClimate(selectedPeriod) && this.fineMap.loadingAtZoom) return null;
+      if (this.isClimate(selectedPeriod) && this.fineMap.activeAtZoom) {
+        if (!this.namedPointIndices([{latitude, longitude}]).length) return this.defaultPlaces.judge(latitude, longitude, selectedPeriod, true);
+        this.fineMap.preparePoint(latitude, longitude);
+        const numbers = this.fineMap.numbers(latitude, longitude, selectedPeriod);
+        const facts = this.defaultPlaces.judge(latitude, longitude, selectedPeriod, true);
+        return numbers && facts ? {...facts, ...numbers} : null;
+      }
       this.namedPlaces.prepare([{ latitude, longitude }], selectedPeriod);
       if (this.namedPlaces.pending(latitude, longitude, selectedPeriod)) return null;
       const named = this.namedPlaces.numbers(latitude, longitude, selectedPeriod);
@@ -220,11 +239,17 @@ export class BrowserWeatherEngine implements WeatherEngine {
   }
 
   pointLoading(latitude: number, longitude: number, period: Period = this.period): boolean {
+    if (this.isDefaultTaste() && this.isClimate(period) && this.fineMap.loadingAtZoom) return true;
+    if (this.isDefaultTaste() && this.isClimate(period) && this.fineMap.activeAtZoom) {
+      const factsLoading = this.defaultPlaces.loading(period, latitude, longitude);
+      return factsLoading || Boolean(this.namedPointIndices([{latitude, longitude}]).length && this.fineMap.pointLoading(latitude, longitude));
+    }
     return this.isDefaultTaste() && (this.namedPlaces.pendingJudgement(latitude, longitude, period) || this.defaultPlaces.loading(period, latitude, longitude));
   }
 
   scorePoints(points: readonly Point[], scope?: 'all'): Float32Array {
     if (this.isDefaultTaste()) {
+      if (this.isClimate() && this.fineMap.activeAtZoom) return Float32Array.from(points, point => this.fineMap.numbers(point.latitude, point.longitude)?.meanScore ?? NaN);
       const visible = this.namedPointIndices(points, scope);
       this.namedPlaces.prepare(visible.map(index => points[index]), this.period);
       if (this.namedPlaces.enabled || visible.some(index => this.namedPlaces.pending(points[index].latitude, points[index].longitude, this.period))) {
@@ -273,6 +298,13 @@ export class BrowserWeatherEngine implements WeatherEngine {
 
   countPoints(points: readonly Point[], scope?: 'all'): Float32Array {
     const counts = new Float32Array(points.length * 3).fill(NaN);
+    if (this.isDefaultTaste() && this.isClimate() && this.fineMap.activeAtZoom) {
+      points.forEach((point, index) => {
+        const numbers = this.fineMap.numbers(point.latitude, point.longitude);
+        if (numbers) counts.set([numbers.niceDayCount, numbers.perfectDayCount, numbers.awfulDayCount], index * 3);
+      });
+      return counts;
+    }
     const visible = this.namedPointIndices(points, scope);
     if (this.isDefaultTaste()) this.namedPlaces.prepare(visible.map(index => points[index]), this.period);
     if (this.sampler && !this.destroyed) visible.forEach(ordinal => {
@@ -472,6 +504,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
         gl.uniform1f(gl.getUniformLocation(program, 'u_world_offset'), worldOffset);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       }
+      this.fineMap.render(gl, input, bands.flatMap(band => premultipliedRgba(band.colour)), this.landColour, this.edgePixels);
       if (needsRecount) {
         this.drawnRevision = this.revision;
         this.completeFrame(this.pending.splice(0), this.revision, this.period);
@@ -516,6 +549,7 @@ export class BrowserWeatherEngine implements WeatherEngine {
     this.destroyed = true;
     this.defaultPlaces.destroy();
     this.namedPlaces.destroy();
+    this.fineMap.destroy(this.gl);
     for (const frame of this.pending.splice(0)) frame.reject(new Error('Weather engine has been destroyed'));
     const gl = this.gl;
     if (!gl) return;

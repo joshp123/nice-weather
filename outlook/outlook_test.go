@@ -93,7 +93,8 @@ func TestWinningSuburbUsesNearbyCityWithSimilarWeather(t *testing.T) {
 	naples := Place{Name: "Naples", Population: 900000, Latitude: 40.85, Longitude: 14.27, Score: 93}
 	candidates := []Place{
 		winner, naples,
-		{Name: "Too cold", Population: 2000000, Latitude: 40.85, Longitude: 14.27, Score: 92},
+		{Name: "Too cold", Population: 2000000, Latitude: 40.85, Longitude: 14.27, Score: 80},
+		{Name: "Same band", Population: 600000, Latitude: 40.9, Longitude: 14.3, Score: 86},
 		{Name: "Too far", Population: 3000000, Latitude: 42, Longitude: 14.27, Score: 98},
 	}
 	for index := range candidates {
@@ -150,5 +151,22 @@ func TestYearRankingPrefersPerfectDaysToMerelyNiceDays(t *testing.T) {
 	chosen := rankPlaces(places, "world")
 	if len(chosen) != 2 || chosen[0].Name != "Tenerife" {
 		t.Fatalf("perfect days lost their extra weight: %+v", chosen)
+	}
+}
+
+// On a single day every Perfect place has the same two good days: the nicest goes first, not the biggest.
+func TestPerfectDayTiesGoToTheHigherScore(t *testing.T) {
+	places := []Place{
+		{Name: "Big city", Population: 9000000, Score: 85, Longitude: 0},
+		{Name: "Nicest town", Population: 400000, Score: 97, Longitude: 10},
+		{Name: "Middle town", Population: 800000, Score: 91, Longitude: 20},
+	}
+	for index := range places {
+		places[index].FloatScore = float64(places[index].Score)
+		places[index].NiceDayCount, places[index].PerfectDayCount = 1, 1
+	}
+	chosen := rankPlaces(places, "world")
+	if len(chosen) != 3 || chosen[0].Name != "Nicest town" || chosen[1].Name != "Middle town" || chosen[2].Name != "Big city" {
+		t.Fatalf("perfect-day ties ranked by size, not score: %+v", chosen)
 	}
 }

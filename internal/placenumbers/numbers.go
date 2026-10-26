@@ -5,6 +5,7 @@ package placenumbers
 import (
 	"fmt"
 	"math"
+	scorebands "nice-weather-finder/hosting/sites"
 	"strconv"
 )
 
@@ -19,7 +20,7 @@ type Taste struct {
 
 var DefaultTaste = Taste{RainScale: 1}
 var MonthDays = [...]int{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
-var thresholds = [...]float64{0, 25, 40, 55, 70, 85, 100}
+var thresholds = scorebands.Thresholds
 var bands = [...]string{"Awful", "Poor", "Fair", "Nice", "Beautiful", "Perfect"}
 
 type curve [][2]float64

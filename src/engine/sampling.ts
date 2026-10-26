@@ -1,4 +1,5 @@
 // Written by AI on 2026.10.17 by model gpt-6.1-sol.
+import { SCORE_THRESHOLDS } from '../../hosting/sites/score-bands.mjs';
 import { bandOf, decodeDay, judgeDay, type DayJudgement, type Taste } from './taste';
 import type { Cells, PeriodData, SampleGroup } from './data';
 import type { Period, PointVerdict, TypicalWeather } from './index';
@@ -125,7 +126,7 @@ export class PointSampler {
       for (const part of partNames) parts[part] += judgement[part] * contribution.weight;
     }
     const shares = [1, 0, 0, 0, 0, 0, 0];
-    const thresholds = [0, 25, 40, 55, 70, 85, 100];
+    const thresholds = SCORE_THRESHOLDS;
     let singleDayScore = 0;
     for (let group = 0; group < dayScores.length; group++) for (const interpolatedScore of dayScores[group]) {
       const score = canonicalScore(interpolatedScore);
@@ -156,7 +157,7 @@ const canonicalScore = (score: number): number => Math.round(score * 10000) / 10
 
 /** Threshold shares locate the median's band; interpolation keeps map colours continuous. */
 export function typicalDayScore(shares: readonly number[]): number {
-  const thresholds = [0, 25, 40, 55, 70, 85, 100];
+  const thresholds = SCORE_THRESHOLDS;
   for (let index = 5; index >= 0; index--) {
     if (shares[index] < 0.5 - 1e-9) continue;
     if (index === 5) return canonicalScore(Math.max(85, 85 + (shares[5] - 0.5) * 30));

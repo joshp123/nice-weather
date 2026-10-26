@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io"
 	"math"
+	scorebands "nice-weather-finder/hosting/sites"
 	"os"
 	"path/filepath"
 	"time"
@@ -136,7 +137,7 @@ func v6FineDefaultScore(index int, offset byte, ordinals []int, levels [][11]flo
 	return levels[ordinal][lower]*(1-fraction) + levels[ordinal][lower+1]*fraction
 }
 
-var v6ScoreThresholds = [...]float64{0, 25, 40, 55, 70, 85, 100}
+var v6ScoreThresholds = scorebands.Thresholds
 
 func v6CanonicalScore(score float64) float64 {
 	return math.Floor(score*10000+.5) / 10000

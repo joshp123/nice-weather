@@ -11,7 +11,8 @@ for(const region of ['world','europe','usa']){
   const numbers=expected.get(`${place.slug}/tomorrow`) ?? expected.get(`${place.slug}/tomorrow/default`),score=numbers?.score;
   if(!Number.isFinite(score)||Math.floor(score)!==place.score)throw new Error(`${region}/${place.name}: poster ${place.score}, shared JS ${score}`);
   for(const [posterField,numberField]of [['floatScore','score'],['niceDayCount','niceDayCount'],['perfectDayCount','perfectDayCount']]) {
-   if(place[posterField]!==undefined&&Math.abs(place[posterField]-numbers[numberField])>1e-7)throw new Error(`${region}/${place.name}/${posterField}: poster ${place[posterField]}, shared JS ${numbers[numberField]}`);
+   const displayed=posterField==='floatScore'?place[posterField]:Math.round(place[posterField]);
+   if(place[posterField]!==undefined&&Math.abs(displayed-numbers[numberField])>1e-7)throw new Error(`${region}/${place.name}/${posterField}: poster ${displayed}, shared JS ${numbers[numberField]}`);
   }
   checks.push({region,name:place.name,posterScore:place.score,sharedJSScore:score,niceDayCount:place.niceDayCount,perfectDayCount:place.perfectDayCount});
  }

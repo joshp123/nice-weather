@@ -1,5 +1,6 @@
 // Written by AI on 2026.10.18 by model GPT-6.1 Sol.
 import { countryCode } from './countries';
+import { bandOf } from '../../hosting/sites/score-bands.mjs';
 
 export type RankedPlace = Readonly<{ name: string; latitude: number; longitude: number; score: number; niceDayCount: number; perfectDayCount: number; population?: number; slug?: string | null; region?: string }>;
 export const WORLD_POPULATION = 300000;
@@ -14,8 +15,11 @@ export function rankingSeparationKM(visibleWidthKM: number): number {
 const NEARBY_KM = 50;
 const SIMILAR_SCORE = 5;
 
+/** Most good days first (a perfect day counts twice), then the higher score, so a single day's ties
+ *  (every Perfect place has two "good days") go to the nicest place, not the biggest. Size only breaks exact ties. */
 export function bestDaysFirst(a: RankedPlace, b: RankedPlace): number {
   return (Math.round(b.niceDayCount) + Math.round(b.perfectDayCount)) - (Math.round(a.niceDayCount) + Math.round(a.perfectDayCount))
+    || Math.floor(b.score) - Math.floor(a.score)
     || (b.population ?? 0) - (a.population ?? 0) || ((a.slug ?? a.name) < (b.slug ?? b.name) ? -1 : (a.slug ?? a.name) > (b.slug ?? b.name) ? 1 : 0);
 }
 
@@ -33,7 +37,8 @@ export function rankPlaces<T extends RankedPlace>(places: readonly T[], minimumP
     for (const candidate of candidates) {
       if ((candidate.population ?? 0) < (named.population ?? 0) || distanceKM(winner, candidate) > NEARBY_KM) continue;
       const numbered = Number.isFinite(candidate.score) ? candidate : resolve?.(candidate);
-      if (!numbered || Math.abs(numbered.score - winner.score) > SIMILAR_SCORE) continue;
+      // Similar weather: within five points, or the same band (Somerset West at 92 is named Cape Town at 87: both Perfect).
+      if (!numbered || Math.abs(numbered.score - winner.score) > SIMILAR_SCORE && bandOf(numbered.score) !== bandOf(winner.score)) continue;
       if ((numbered.population ?? 0) > (named.population ?? 0) || numbered.population === named.population && (numbered.slug ?? numbered.name) < (named.slug ?? named.name)) named = numbered;
     }
     if (chosen.some((place, index) => distanceKM(winner, winners[index]) < separationKM || distanceKM(named, place) < separationKM)) continue;

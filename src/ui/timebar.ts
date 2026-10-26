@@ -5,6 +5,7 @@ import { BANDS, bandOf, type Month, type Period, type Season } from '../engine';
 import { bands, bandColour, colourOnLand, textOnBand } from '../palette';
 import type { Actions } from './actions';
 import { button, chevronIcon, closeIcon, el, swatch } from './dom';
+import { winterPeriod } from './home';
 import { MONTH_NAMES, MONTH_SHORT, daysInPeriod, dayChipLabel, forecastDate, isForecast, monthsOfPeriod, periodTitle, periodWord, upcomingForecastDays, type ForecastIndex } from './periods';
 
 
@@ -21,6 +22,8 @@ export type TimeBarView = Readonly<{
   countBasis?: 'sample' | 'forecast';
   scorePlaceName?: string;
   stretchLabel?: string;
+  /** The words on the time button, when they differ from the period's title ("Your winter, Nov to Mar"). */
+  buttonLabel?: string;
   pickerOpen?: boolean;
   togglePicker?: () => void;
   playing?: boolean;
@@ -48,9 +51,9 @@ function svgElement<Tag extends keyof SVGElementTagNameMap>(tag: Tag, attributes
   return node;
 }
 
-function dialPoint(angle: number, radius: number): [number, number] {
+function dialPoint(angle: number, radius: number, centre = 120): [number, number] {
   const radians = (angle - 90) * Math.PI / 180;
-  return [120 + radius * Math.cos(radians), 120 + radius * Math.sin(radians)];
+  return [centre + radius * Math.cos(radians), centre + radius * Math.sin(radians)];
 }
 
 function dialArc(startAngle: number, endAngle: number, radius: number): string {
@@ -181,7 +184,8 @@ export function renderTimePicker(view: TimeBarView, actions: Actions): HTMLEleme
   panel.append(segmented<'forecast' | 'year'>(
     [['forecast', periodTitle({ kind: 'forecast' }, view.forecast)], ['year', 'Typical year']],
     isForecast(view.period) ? 'forecast' : 'year',
-    kind => actions.setPeriod(kind === 'forecast' ? { kind: 'forecast' } : { kind: 'year' }), 'Time',
+    // A typical year opens on the visitor's winter, the stretch most people come here to escape; the whole year is one tap on.
+    kind => actions.setPeriod(kind === 'forecast' ? { kind: 'forecast' } : winterPeriod(view.home ?? null)), 'Time',
   ));
   if (isForecast(view.period)) {
     panel.append(forecastCalendar(view, actions));
@@ -206,10 +210,39 @@ function legend(view: TimeBarView): HTMLElement {
   return el('div', 'legend', scale, caption);
 }
 
+/** The time button's picture: the picker it opens, in miniature. A ring of the twelve months for a typical year, or the
+ *  fourteen forecast days in two weeks, coloured for the place the picker shows, with the chosen time in full colour. */
+function timeMiniature(view: TimeBarView): SVGSVGElement {
+  const picture = svgElement('svg', { class: 'time-miniature', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+  const colour = (score: number | undefined) => score !== undefined && Number.isFinite(score) ? bandColour(score) : 'currentColor';
+  if (isForecast(view.period)) {
+    for (let day = 0; day < 14; day++) {
+      const chosen = view.period.kind === 'forecast' || view.period.kind === 'forecast-day' && view.period.day === day;
+      const score = view.dayScores?.[day];
+      picture.append(svgElement('rect', { x: 1.5 + (day % 7) * 3, y: day < 7 ? 5.5 : 12.5, width: 2.6, height: 6, rx: 0.9, fill: chosen ? colour(score) : 'currentColor',
+        'fill-opacity': chosen ? 1 : 0.14 }));
+    }
+    return picture;
+  }
+  const selectedMonths = monthsOfPeriod(view.period, view.forecast);
+  for (let month = 1; month <= 12; month++) {
+    const start = (month - 1) * 30;
+    const [startX, startY] = dialPoint(start + 1, 8.4, 12);
+    const [endX, endY] = dialPoint(start + 29, 8.4, 12);
+    const selected = selectedMonths.includes(month as Month);
+    picture.append(svgElement('path', {
+      d: `M${startX} ${startY} A8.4 8.4 0 0 1 ${endX} ${endY}`, fill: 'none', 'stroke-width': 6, 'stroke-linecap': 'butt',
+      stroke: selected ? colour(view.monthScores?.[month - 1]) : 'currentColor', 'stroke-opacity': selected ? 1 : 0.12,
+    }));
+  }
+  return picture;
+}
+
 export type TimeBar = Readonly<{ timeButton: HTMLButtonElement; note: HTMLElement | null; legend: HTMLElement; smallPrint: HTMLElement; picker: HTMLElement }>;
 
 export function renderTimeBar(view: TimeBarView, actions: Actions): TimeBar {
-  const timeButton = button(`button time-button${view.pickerOpen ? ' selected' : ''}`, el('span', 'time-button-label', periodTitle(view.period, view.forecast)), view.togglePicker ?? (() => {}));
+  const timeButton = button(`button time-button${view.pickerOpen ? ' selected' : ''}`, timeMiniature(view), view.togglePicker ?? (() => {}));
+  timeButton.append(el('span', 'time-button-label', view.buttonLabel ?? periodTitle(view.period, view.forecast)));
   const chevron = el('span', 'button-icon'); chevron.innerHTML = chevronIcon; timeButton.append(chevron);
   timeButton.setAttribute('aria-expanded', String(Boolean(view.pickerOpen)));
   const note = view.note ? el('p', `bar-note${view.note.warning ? ' warning' : ''}`, view.note.text) : null;

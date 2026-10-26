@@ -2,7 +2,7 @@
 // Puts the map, the engine and the interface together. The engine draws and judges; the Worker names places;
 // this file holds what the visitor is looking at and keeps the link in step with it.
 import './styles.css';
-import { createWeatherEngine, tasteFromSliders, type Month, type Period, type PointVerdict, type WeatherEngine } from './engine';
+import { bandOf, createWeatherEngine, tasteFromSliders, type Month, type Period, type PointVerdict, type WeatherEngine } from './engine';
 import type { Actions } from './ui/actions';
 import { fetchForecastIndex, fetchPlace, resolveSlug, type PlaceDetails, type SearchResult } from './ui/api';
 import { renderCard } from './ui/card';
@@ -11,13 +11,14 @@ import { countryFlag } from './ui/countries';
 import { requestHome, inferredHome, timeZoneHome, isHomeWinter, regionalComparison } from './ui/home';
 import { createHeadline, forecastFreshness, headlineContext, headlineSentence, nicestPlaces, placeNames, viewportRegion, type AnswerLine, type HeadlinePlace } from './ui/headline';
 import { createMap, type WeatherMap } from './ui/map';
-import { DEFAULT_PERIOD, datedForecastPeriod, daysInPeriod, isForecast, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
+import { DEFAULT_PERIOD, MONTH_SHORT, datedForecastPeriod, daysInPeriod, isForecast, monthsOfPeriod, periodTitle, samePeriod, upcomingForecastDays, type ForecastIndex } from './ui/periods';
 import { createSearch } from './ui/search';
 import { rankingPopulation } from './ui/ranking';
 import { drawShareCard, renderPoster, type ShareContext } from './ui/share';
 import { DEFAULT_SLIDERS, buildLink, loadSavedView, parseLink, saveView, slidersAreDefault, type AppState, type Place, type SliderId } from './ui/state';
 import { createTastePanel } from './ui/taste';
 import { bandColour, textOnBand } from './palette';
+import { DESIGN, withDesign } from './design';
 import { renderTimeBar } from './ui/timebar';
 
 // Shared links and share cards always point at the live site, also when made from a local copy.
@@ -54,6 +55,13 @@ let placeRequest = 0;
 /** While the poster moves the camera to frame its places, the answer must not change under it. */
 let framingPoster = false;
 let weatherLoading = true;
+/** A change of taste is fetching weather: the last answer stays on screen, marked as updating, until the new one is ready. */
+let lastChangeWasTaste = false;
+let updatingForTaste = false;
+const weatherReadyWaiters: (() => void)[] = [];
+let progressTimer: number | undefined;
+/** Which panels are open, so the answer's labels are placed again when that changes. */
+let openPanels = '';
 let remainingCitiesRequested = false;
 let remainingCitiesReady = false;
 
@@ -72,6 +80,7 @@ const listSlot = el('div', 'slot slot-list');
 const pickerSlot = el('div', 'slot slot-picker');
 const posterSlot = el('div', 'poster-slot');
 app.append(topBar, mapContainer, bottomBar, listSlot, pickerSlot, tasteSlot, cardSlot, posterSlot);
+app.dataset.design = DESIGN;
 
 const startCamera = link.target?.kind === 'point'
   ? { center: [link.target.longitude, link.target.latitude] as const, zoom: link.target.zoom ?? 5 }
@@ -84,12 +93,17 @@ const engine: WeatherEngine = createWeatherEngine(map, {
   onRedraw: timing => { performance.measure('nice-weather-redraw', { start: performance.now() - timing.milliseconds, end: performance.now() }); afterRedraw(); },
   onLoadingChange(loading) {
     weatherLoading = loading;
-    if (!loading) labelCities();
-    if (state.place) {
+    updatingForTaste = loading && lastChangeWasTaste;
+    if (!loading) {
+      labelCities();
+      for (const resolve of weatherReadyWaiters.splice(0)) resolve();
+    }
+    if (state.place && !updatingForTaste) {
       verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
-      weatherMap.showChosenPlace({ ...state.place, score: verdict?.meanScore });
+      markChosenPlace();
     }
     render();
+    if (updatingForTaste || progressTimer !== undefined) showTasteProgress();
   },
 });
 map.addLayer(engine.layer, 'sea');
@@ -110,6 +124,7 @@ const actions: Actions = {
   },
   setSlider(id: SliderId, value: number) {
     state = { ...state, sliders: { ...state.sliders, [id]: value } };
+    lastChangeWasTaste = true;
     void engine.setTaste(tasteFromSliders(state.sliders)).catch(showProblem);
   },
   commitSliders() {
@@ -119,6 +134,7 @@ const actions: Actions = {
   resetSliders() {
     state = { ...state, sliders: DEFAULT_SLIDERS };
     tastePanel.update(state.sliders);
+    lastChangeWasTaste = true;
     void engine.setTaste(tasteFromSliders(state.sliders)).catch(showProblem);
     render();
     updateLink();
@@ -165,13 +181,30 @@ const actions: Actions = {
   },
 };
 
+/** The chosen place on the map: a ring, its name, and the same number a city label would show. */
+function markChosenPlace(): void {
+  const place = state.place;
+  if (!place) { weatherMap.showChosenPlace(null); return; }
+  const displayedNumber = verdict ? (state.period.kind === 'forecast-day' ? Math.floor(verdict.meanScore) : verdict.niceDayCount) : undefined;
+  weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: place.name, score: verdict?.meanScore, displayedNumber });
+}
+
+/** While a change of taste downloads its weather, the taste panel says how far it has come. */
+function showTasteProgress(): void {
+  window.clearTimeout(progressTimer);
+  progressTimer = undefined;
+  if (!updatingForTaste) { tastePanel.showProgress(undefined); return; }
+  tastePanel.showProgress(engine.recordProgress);
+  progressTimer = window.setTimeout(showTasteProgress, 200);
+}
+
 function selectPlace(place: Place): void {
   pickerOpen = false; listOpen = false; barMessage = null;
   const request = ++placeRequest;
   state = { ...state, place };
   details = null;
   verdict = engine.judgePoint(place.latitude, place.longitude);
-  weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: place.name, score: verdict?.meanScore });
+  markChosenPlace();
   if (phone.matches) tasteOpen = false;
   render();
   updateLink();
@@ -183,7 +216,7 @@ function selectPlace(place: Place): void {
     const resolvedPlace: Place = { name: loaded.name, region: loaded.region, latitude: loaded.latitude, longitude: loaded.longitude, slug: loaded.slug };
     state = { ...state, place: resolvedPlace };
     verdict = engine.judgePoint(resolvedPlace.latitude, resolvedPlace.longitude);
-    weatherMap.showChosenPlace({ ...resolvedPlace, score: verdict?.meanScore });
+    markChosenPlace();
     render();
     updateLink();
     if (resolvedPlace.latitude !== place.latitude || resolvedPlace.longitude !== place.longitude) keepPlaceInView(resolvedPlace);
@@ -191,7 +224,7 @@ function selectPlace(place: Place): void {
     if (request !== placeRequest || place.name) return;
     const coordinates = `${Math.abs(place.latitude).toFixed(2)}° ${place.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(place.longitude).toFixed(2)}° ${place.longitude >= 0 ? 'E' : 'W'}`;
     state = { ...state, place: { ...place, name: coordinates } };
-    weatherMap.showChosenPlace({ latitude: place.latitude, longitude: place.longitude, name: coordinates });
+    markChosenPlace();
     render();
   });
 }
@@ -212,6 +245,7 @@ function keepPlaceInView(place: Place): void {
 async function applyPeriod(): Promise<void> {
   const period = state.period;
   periodProblem = null;
+  lastChangeWasTaste = false;
   weatherLoading = true;
   verdict = null;
   rankedPlaces = [];
@@ -226,7 +260,7 @@ async function applyPeriod(): Promise<void> {
   } catch (error) {
     if (!samePeriod(period, state.period)) return;
     weatherLoading = false;
-    periodProblem = `Weather data for ${periodTitle(period, forecast).toLowerCase()} is missing: ${error instanceof Error ? error.message : String(error)}`;
+    periodProblem = `The weather for this period could not be loaded. ${error instanceof Error ? error.message : String(error)}`;
     render();
   }
 }
@@ -251,21 +285,27 @@ function afterRedraw(): void {
   labelCities();
   const labelled = performance.now();
   const ranked = performance.now();
-  if (state.place) {
+  if (state.place && !updatingForTaste) {
     verdict = engine.judgePoint(state.place.latitude, state.place.longitude);
-    weatherMap.showChosenPlace({ ...state.place, score: verdict?.meanScore });
+    markChosenPlace();
   }
   render();
   performance.measure('nice-weather-interface', { start: started, end: performance.now(), detail: { labels: labelled - started, ranking: ranked - labelled, render: performance.now() - ranked } });
 }
 
+/** The answer is not worked out while the poster is being made: framing the poster moves the map under it. */
 function updateHeadline(): void {
-  if (!remainingCitiesReady || shareOpen || framingPoster) return;
+  if (shareOpen || framingPoster) return;
+  workOutAnswer();
+}
+
+function workOutAnswer(): void {
+  if (!remainingCitiesReady || weatherLoading) return;
   const population = rankingPopulation(map.getZoom());
   const candidates = listOpen && listCandidates ? listCandidates : weatherMap.rankingCandidates(population);
   headlineRegion = viewportRegion(map.getBounds());
-  rankedPlaces = nicestPlaces(engine, candidates, map.getBounds(), 8, population);
-  headlineText = !rankedPlaces.length && candidates.some(place => engine.pointLoading(place.latitude, place.longitude))
+  rankedPlaces = nicestPlaces(engine, candidates, daysInPeriod(state.period, forecast), map.getBounds(), 8, population);
+  headlineText = !candidates.length ? 'No towns here. Choose a spot on the map to see its weather.' : !rankedPlaces.length && candidates.some(place => engine.pointLoading(place.latitude, place.longitude))
     ? 'Finding the nicest places on this map…'
     : headlineSentence(state.period, forecast, rankedPlaces.slice(0, 3), headlineRegion);
 }
@@ -274,9 +314,19 @@ function labelCities(): void {
   if (weatherLoading) return;
   updateHeadline();
   const priority = new Set(rankedPlaces.slice(0, 3).map(place => place.slug));
-  const cities = [...new Map([...weatherMap.labelCandidates(), ...weatherMap.visibleCities().filter(place => priority.has(place.slug))].map(place => [place.slug, place])).values()];
+  const bounds = map.getBounds(), closeZoom = map.getZoom() >= 8;
+  const longitudeWidth = bounds.getEast() - bounds.getWest(), paddedWest = bounds.getWest() - longitudeWidth / 4, paddedLongitudeWidth = longitudeWidth * 1.5;
+  const latitudePadding = (bounds.getNorth() - bounds.getSouth()) / 4;
+  const labelCandidates = weatherMap.labelCandidates().filter(place => {
+    if (!closeZoom) return true;
+    if (place.latitude < bounds.getSouth() - latitudePadding || place.latitude > bounds.getNorth() + latitudePadding) return false;
+    return paddedLongitudeWidth >= 360 || ((place.longitude - paddedWest) % 360 + 360) % 360 <= paddedLongitudeWidth;
+  });
+  const cities = [...new Map([...labelCandidates, ...weatherMap.visibleCities().filter(place => priority.has(place.slug))].map(place => [place.slug, place])).values()];
   const counts = engine.countPoints(cities);
-  weatherMap.labelCities(cities, engine.scorePoints(cities), state.period.kind === 'forecast-day' ? engine.scorePoints(cities) : Float32Array.from(cities, (_, index) => counts[index * 3]), rankedPlaces.slice(0, 3).map(place => place.slug!));
+  const scores = engine.scorePoints(cities);
+  // A single day shows its score, rounded down as everywhere else, so a label never reads 100 where the card says 99.
+  weatherMap.labelCities(cities, scores, state.period.kind === 'forecast-day' ? scores.map(Math.floor) : Float32Array.from(cities, (_, index) => counts[index * 3]), rankedPlaces.slice(0, 3).map(place => place.slug!));
 }
 
 function chooseRankedPlace(place: HeadlinePlace): void {
@@ -305,13 +355,12 @@ function toggleList(): void {
   else render();
 }
 
-function renderList(stretchLabel: string): void {
+function renderList(): void {
   if (!listOpen) {
     listSlot.replaceChildren();
     return;
   }
-  const reference = home ? judge(home, state.period) : null;
-  const days = reference?.countedDays ?? daysInPeriod(state.period, forecast);
+  const days = daysInPeriod(state.period, forecast);
   const close = button('icon-button', '', toggleList, 'Close');
   close.innerHTML = closeIcon;
   const title = state.period.kind === 'forecast-day' ? 'Highest scores' : 'Nicest places';
@@ -319,23 +368,17 @@ function renderList(stretchLabel: string): void {
   const rows = el('ol', 'ranked-places');
   if (!rankedPlaces.length) list.append(el('p', 'home-line', headlineText));
   rankedPlaces.slice(0, phone.matches ? 8 : 5).forEach((place, index) => {
-    const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.round(place.score) : Math.round(place.niceDayCount));
+    const count = el('span', 'count-pill', state.period.kind === 'forecast-day' ? Math.floor(place.score) : Math.round(place.niceDayCount));
     count.style.background = bandColour(place.score);
     count.style.color = textOnBand(place.score);
     const row = button('ranked-place', el('span', 'rank-number', index + 1), () => chooseRankedPlace(place));
-    row.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', `nice ${place.niceDayCount} · perfect ${place.perfectDayCount}`)), count);
+    row.append(el('span', 'rank-name', el('span', '', `${countryFlag(place)} ${place.name}`.trim()), el('small', '', state.period.kind === 'forecast-day' ? bandOf(place.score) : `nice ${place.niceDayCount} · perfect ${place.perfectDayCount}`)), count);
     rows.append(el('li', '', row));
   });
-  list.append(rows, el('p', 'home-line', 'A perfect day counts twice. Ties favour larger places.'));
-  const homeVerdict = home ? judge(home, state.period) : null;
-  if (home && homeVerdict) {
-    const homeButton = button('inline-place', `${countryFlag(home)} ${home.name} (home)`, () => actions.selectSearchResult(home!));
-    const homeLine = el('p', 'home-line', homeButton, `: awful on ${Math.round(homeVerdict.awfulDayCount)} of ${homeVerdict.countedDays ?? days} days in ${stretchLabel}.`);
-    const regional = regionalComparison(home);
-    const regionalVerdict = judge(regional, state.period);
-    const comparison = regionalVerdict && regional.name !== home.name ? el('p', 'home-line', button('inline-place', `${countryFlag(regional)} ${regional.name}`, () => actions.selectSearchResult(regional)), `: ${Math.round(regionalVerdict.niceDayCount)} nice days over the same stretch.`) : null;
-    list.append(el('div', 'home-lines', homeLine, comparison));
-  }
+  if (rankedPlaces.length) list.append(rows, el('p', 'home-line', state.period.kind === 'forecast-day' ? 'Ranked by the day’s score.' : 'Ranked by nice days; a perfect day counts twice.'));
+  const regional = regionalComparison(home);
+  const yardsticks = [home ? comparisonLine('Home', home) : null, regional.name !== home?.name ? comparisonLine('Compare', regional) : null].filter(line => line !== null);
+  if (yardsticks.length) list.append(el('div', 'home-lines', ...yardsticks));
   listSlot.replaceChildren(list);
 }
 
@@ -349,14 +392,22 @@ function closePoster(): void {
   render();
 }
 
+function weatherReady(): Promise<void> {
+  return weatherLoading ? new Promise(resolve => weatherReadyWaiters.push(resolve)) : Promise.resolve();
+}
+
 async function openPoster(): Promise<void> {
   if (playing) stopPlaying();
   const request = ++posterRequest;
-  const context = shareContext();
   // The overlay goes up first: behind it the map is briefly redrawn at the poster's size.
   shareOpen = true;
   posterSlot.replaceChildren(el('section', 'poster-overlay making', el('p', 'poster-status', 'Making the poster…')));
   render();
+  // The poster names what the map shows now, so it waits for the weather and works the answer out for this exact view.
+  await weatherReady();
+  if (request !== posterRequest) return;
+  workOutAnswer();
+  const context = shareContext();
   framingPoster = true;
   try {
     const poster = await renderPoster(context, closePoster);
@@ -376,7 +427,7 @@ tasteSlot.append(tastePanel.element);
 const search = createSearch(actions);
 
 function shareContext(): ShareContext {
-  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, subjects: state.place ? [state.place] : rankedPlaces.slice(0, 3), link: new URL(buildLink(state.place ? state : { ...state, place: { name: '', region: '', slug: null, latitude: map.getCenter().lat, longitude: map.getCenter().lng } }, map.getZoom()), PUBLIC_ORIGIN).href };
+  return { map, place: state.place, verdict, period: state.period, forecast, headline: headlineText, subjects: state.place ? [state.place] : [], link: new URL(buildLink(state.place ? state : { ...state, place: { name: '', region: '', slug: null, latitude: map.getCenter().lat, longitude: map.getCenter().lng } }, map.getZoom()), PUBLIC_ORIGIN).href };
 }
 
 /** Taste and Share: words in the top bar on a computer, icons beside the time on a phone. */
@@ -391,9 +442,11 @@ function toolButton(label: string, icon: string, onClick: () => void, active: bo
 function render(): void {
   const tasteIsDefault = slidersAreDefault(state.sliders);
   const status: AnswerLine | null = periodProblem ? { text: periodProblem, warning: true }
-    : weatherLoading ? { text: `Loading the weather for ${periodTitle(state.period, forecast).toLowerCase()}…`, warning: false }
-    : !rankedPlaces.length ? { text: headlineText, warning: false } : null;
-  headline.set(headlineContext(state.period, forecast, headlineRegion), status ? null : placeNames(rankedPlaces, chooseRankedPlace), status);
+    : updatingForTaste && rankedPlaces.length ? null
+    : weatherLoading ? { text: 'Loading the weather…', warning: false }
+    : !rankedPlaces.length ? { text: headlineText.startsWith('Nowhere') ? 'Nowhere here is nice. Zoom out to find nice weather.' : headlineText.startsWith('Few nice days') ? 'Few nice days here. Zoom out to find more.' : headlineText, warning: false } : null;
+  const yourWinter = isHomeWinter(state.period, home);
+  headline.set(updatingForTaste ? 'Updating the map for your taste…' : headlineContext(state.period, forecast, headlineRegion, yourWinter), status ? null : placeNames(rankedPlaces, chooseRankedPlace), status, updatingForTaste);
 
   const scorePlace = state.place ?? home;
   const scoreDetails = state.place ? details : null;
@@ -402,7 +455,9 @@ function render(): void {
   const scoreVerdict = scorePlace ? judge(scorePlace, state.period) : null;
   const stretchLabel = `${isHomeWinter(state.period, home) ? 'your winter, ' : ''}${isForecast(state.period) ? periodTitle(state.period, forecast).replace(/^Next/, 'the next') : state.period.kind === 'year' ? 'the whole year' : periodTitle(state.period, forecast)}`;
   const note = barMessage ?? (isForecast(state.period) && forecast ? forecastFreshness(forecast) : null);
+  const winterMonths = monthsOfPeriod(state.period, forecast);
   const bar = renderTimeBar({ period: state.period, forecast, note,
+    buttonLabel: yourWinter ? `Your winter, ${MONTH_SHORT[winterMonths[0] - 1]} to ${MONTH_SHORT[winterMonths.at(-1)! - 1]}` : undefined,
     home: home ?? undefined, monthScores, dayScores, niceDayCount: scoreVerdict?.niceDayCount, countedDays: scoreVerdict?.countedDays, countBasis: scoreVerdict?.countBasis,
     scorePlaceName: scorePlace?.name, pickerOpen, playing: Boolean(playing), stretchLabel,
     togglePicker: () => { pickerOpen = !pickerOpen; tasteOpen = false; listOpen = false; if (pickerOpen && !isForecast(state.period)) void engine.prepareYear().then(render).catch(showProblem); render(); },
@@ -415,13 +470,13 @@ function render(): void {
   if (phone.matches) {
     topActions.replaceChildren(search.openButton, search.locateButton);
     topBar.replaceChildren(wordmark, topActions, search.field);
-    bottomBar.replaceChildren(...[el('div', 'bar-row', bar.timeButton, taste, share), headline.element, bar.note, bar.legend, bar.smallPrint].filter(node => node !== null));
+    bottomBar.replaceChildren(...[el('div', 'bar-row', bar.timeButton, taste, share), headline.element, bar.note ?? homeNote(), bar.legend, bar.smallPrint].filter(node => node !== null));
   } else {
     topActions.replaceChildren(search.field, search.locateButton, taste, share);
     topBar.replaceChildren(wordmark, headline.element, topActions);
-    bottomBar.replaceChildren(el('div', 'bar-start', bar.timeButton, bar.note), el('div', 'bar-end', bar.legend, bar.smallPrint));
+    bottomBar.replaceChildren(el('div', 'bar-start', bar.timeButton, bar.note ?? homeNote()), el('div', 'bar-end', bar.legend, bar.smallPrint));
   }
-  renderList(stretchLabel);
+  renderList();
 
   if (state.place) {
     const place = state.place;
@@ -435,7 +490,7 @@ function render(): void {
       stretchLabel: `of ${stretchLabel}`,
       homeComparison: home ? { place: home, verdict: judge(home, state.period) } : undefined,
       regionalComparison: { place: regionalComparison(home), verdict: judge(regionalComparison(home), state.period) }, period: state.period, forecast, tasteIsDefault, loading: weatherLoading || engine.pointLoading(place.latitude, place.longitude), problem: periodProblem,
-      dayScores: allNull(dayScores) ? null : dayScores, monthScores: allNull(monthScores) ? null : monthScores,
+      dayScores: allNull(dayScores) ? null : dayScores, monthScores: allNull(monthScores) ? null : monthScores, updating: updatingForTaste,
     }, actions));
   } else {
     cardSlot.replaceChildren();
@@ -447,6 +502,27 @@ function render(): void {
   app.classList.toggle('list-open', listOpen);
   app.classList.toggle('place-open', Boolean(state.place));
   document.title = headlineText;
+  // The answer's labels keep clear of open panels, so they are placed again when a panel opens or closes.
+  const panels = `${pickerOpen} ${tasteOpen} ${listOpen} ${Boolean(state.place)} ${shareOpen}`;
+  if (panels !== openPanels) {
+    openPanels = panels;
+    requestAnimationFrame(() => { if (!weatherLoading && !shareOpen) labelCities(); });
+  }
+}
+
+/** A yardstick for the map's numbers, the same wherever it appears: "Home: Athens, nice on 49 of 151 days." */
+function comparisonLine(label: string, place: Place, className = 'home-line'): HTMLElement | null {
+  const placeVerdict = judge(place, state.period);
+  if (!placeVerdict) return null;
+  const figures = state.period.kind === 'forecast-day'
+    ? `${Math.floor(placeVerdict.meanScore)} out of 100, ${placeVerdict.band}.`
+    : `nice on ${Math.round(placeVerdict.niceDayCount)} of ${placeVerdict.countedDays ?? daysInPeriod(state.period, forecast)} days.`;
+  return el('p', className, `${label}: `, button('inline-place', `${countryFlag(place)} ${place.name}`.trim(), () => actions.selectSearchResult(place)), `, ${figures}`);
+}
+
+/** Beside the time in a typical year: how the visitor's home does over the same stretch. */
+function homeNote(): HTMLElement | null {
+  return home && !isForecast(state.period) && !updatingForTaste ? comparisonLine('Home', home, 'bar-note') : null;
 }
 
 function rememberView(): void {
@@ -456,7 +532,7 @@ function rememberView(): void {
 
 function updateLink(): void {
   rememberView();
-  const link = buildLink(state, map.getZoom());
+  const link = withDesign(buildLink(state, map.getZoom()));
   history.replaceState(null, '', link);
 }
 
@@ -493,7 +569,7 @@ cardMeasured.observe(cardSlot);
 map.on('click', event => {
   const city = map.queryRenderedFeatures(event.point, { layers: ['headline-labels', 'city-labels'] })[0];
   if (city?.geometry.type === 'Point') {
-    const [longitude, latitude] = city.geometry.coordinates;
+    const {longitude, latitude} = city.properties;
     actions.selectSearchResult({ name: city.properties.name, region: '', slug: city.properties.slug, latitude, longitude });
   } else actions.selectPoint(event.lngLat.lat, event.lngLat.lng);
 });

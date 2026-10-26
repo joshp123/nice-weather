@@ -1,4 +1,5 @@
 // Written by AI on 2026.10.18 by model GPT-6.1 Sol.
+import {SCORE_THRESHOLDS} from '../../hosting/sites/score-bands.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +9,7 @@ const [data,queryPath,pointerPath,output]=process.argv.slice(2);
 if(!output)throw Error('Usage: node named_score_precision.mjs data queries pointer output');
 const pointer=await fs.readFile(pointerPath),queries=JSON.parse(await fs.readFile(queryPath));
 const loader=createFinePlaceLoader(async key=>{if(key==='v6/fine/current.json')return new Uint8Array(pointer);try{return new Uint8Array(await fs.readFile(path.join(data,key)));}catch(e){if(e.code==='ENOENT')return null;throw e;}});
-const periods=[...Array.from({length:12},(_,i)=>[i+1]),[1,2,3,4,5,6,7,8,9,10,11,12],[12,1,2],[3,4,5],[6,7,8],[9,10,11]],days=[31,28,31,30,31,30,31,31,30,31,30,31],thresholds=[0,25,40,55,70,85,100];
+const periods=[...Array.from({length:12},(_,i)=>[i+1]),[1,2,3,4,5,6,7,8,9,10,11,12],[12,1,2],[3,4,5],[6,7,8],[9,10,11]],days=[31,28,31,30,31,30,31,31,30,31,30,31],thresholds=SCORE_THRESHOLDS;
 let comparisons=0,largestDailyFractionLost=0;
 const started=performance.now();
 for(const query of queries){

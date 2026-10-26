@@ -104,7 +104,7 @@ def fine_scores(level_scores, offsets, ordinals):
 
 
 MONTH_DAYS = np.array([31,28,31,30,31,30,31,31,30,31,30,31])
-THRESHOLDS = np.array([0,25,40,55,70,85,100])
+THRESHOLDS = np.array([minimum for minimum, _ in reversed(reference.BANDS)] + [100])
 
 
 def canonical_scores(scores):

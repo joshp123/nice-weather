@@ -3,6 +3,10 @@
 // Every hour gets a warmth grade; the walk home at 21:00 counts like two hours; rain, wind, humidity and
 // sun then scale the day. A day scores 0 to 100. A stretch is described by its typical day and counted by its bands.
 
+import { SCORE_BANDS } from '../../hosting/sites/score-bands.mjs';
+export { bandOf } from '../../hosting/sites/score-bands.mjs';
+export type { BandName } from '../../hosting/sites/score-bands.mjs';
+
 export type Curve = readonly (readonly [number, number])[];
 
 export const COLD_GRADE_BY_FEELS_IN_SUN: Curve = [[9, 0], [11, 3], [13, 10], [15, 22], [17, 40], [19, 62], [21, 85], [23, 100]];
@@ -15,21 +19,7 @@ export const SUN_FACTOR_BY_SUNNY_SHARE: Curve = [[0, 0.75], [0.3, 0.85], [0.6, 0
 export const EVENING_WORTH_IN_HOURS = 2;
 export const NICE_SCORE = 55;
 
-export const BANDS = [
-  { name: 'Awful', minimum: 0 },
-  { name: 'Poor', minimum: 25 },
-  { name: 'Fair', minimum: 40 },
-  { name: 'Nice', minimum: 55 },
-  { name: 'Beautiful', minimum: 70 },
-  { name: 'Perfect', minimum: 85 },
-] as const;
-export type BandName = (typeof BANDS)[number]['name'];
-
-export function bandOf(score: number): BandName {
-  let name: BandName = 'Awful';
-  for (const band of BANDS) if (score >= band.minimum) name = band.name;
-  return name;
-}
+export const BANDS = SCORE_BANDS;
 
 export function readCurve(curve: Curve, x: number): number {
   if (x <= curve[0][0]) return curve[0][1];
